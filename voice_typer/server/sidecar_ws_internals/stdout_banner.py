@@ -34,7 +34,7 @@ def _force_line_buffered_stdout() -> None:
     so this is always available, but the guard is defensive).
     """
     try:
-        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined, union-attr]
     except (AttributeError, ValueError):
         # Fallback: reopen stdout with buffering=1 (line-buffered).
         # This loses the original fd's write-only-on-flush semantics

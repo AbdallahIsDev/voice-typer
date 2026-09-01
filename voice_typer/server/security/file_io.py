@@ -657,8 +657,8 @@ class PersistedJSON(Generic[T]):
             # main file missing — try .bak before returning default.
             recovered = self._try_load_bak()
             if recovered is not None:
-                return recovered  # type: ignore[return-value]
-            return self._default  # type: ignore[return-value]
+                return recovered  # type: ignore[return-value, no-any-return]
+            return self._default  # type: ignore[return-value, no-any-return]
         try:
             raw = _sfio_shim()._secure_read_text(self._path, encoding="utf-8")
             result = json.loads(raw)
@@ -667,7 +667,7 @@ class PersistedJSON(Generic[T]):
             # changed. Cache the actual UTF-8 bytes (not just the length)
             # so a content-equality check is sufficient on the next save.
             self._last_written_bytes = raw.encode("utf-8")
-            return result  # type: ignore[return-value]
+            return result  # type: ignore[return-value, no-any-return]
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.warning(
                 "[PERSISTED_JSON] Failed to load %s: %s — quarantining corrupt file and returning default",

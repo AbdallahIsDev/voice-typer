@@ -4,19 +4,65 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from voice_typer.server import i18n
 from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
+from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.model_manager._change import AsrBackendName
 from voice_typer.server.model_registry import NO_MODEL_SIZE
 from voice_typer.server.tray_hotkey import notification_hotkey_label
 from voice_typer.server.tray_types import AppState
+
+if TYPE_CHECKING:
+    # Type-only import to avoid the import cycle (app.py constructs the
+    # ModelManager; this mixin is part of it). At runtime, ``_app`` is
+    # whatever object ``ModelManagerCore.__init__`` received (a
+    # ``VoiceTyperApp`` in production, mocks in tests).
+    from voice_typer.server.app import VoiceTyperApp
 
 log = logging.getLogger("voice_typer.server.model_manager")
 
 
 class LoadingMixin:
+    # Members provided by the composed ``ModelManager`` (manager.py):
+    # core state lives on ``ModelManagerCore`` (_base.py). Annotations
+    # only — no values — so no runtime attribute is created and the
+    # runtime MRO is unaffected (same pattern as dictation_pipeline's
+    # ``_StorageStepMixin._app``).
+    _app: VoiceTyperApp
+    _registry: AsrBackendRegistry
+    _deliberately_unloaded: set[str]
+    _model_load_thread: threading.Thread | None
+    _model_load_spawn_lock: threading.Lock
+    _lazy_init_lock: threading.Lock
+    _sync_load_in_progress: bool
+    _pending_dictation: bool
+
+    if TYPE_CHECKING:
+        # Methods provided by the sibling mixins at runtime
+        # (``_notify.py`` / ``_construction.py`` / ``_lifecycle.py`` /
+        # ``_base.py``). Declared as TYPE_CHECKING-only stubs so this
+        # mixin type-checks standalone; a real (un-guarded) ``def`` here
+        # would shadow the sibling implementations in the composed
+        # class's MRO.
+        def _model_downloaded_precheck(self) -> bool: ...
+
+        def _notify_model_load_refused(self, exc: Exception, backend: str | None = None) -> str: ...
+
+        def _ensure_engine(self, backend_name: str) -> None: ...
+
+        def touch_model(self, backend_name: str) -> None: ...
+
+        def _evict_lru_model(self) -> None: ...
+
+        def _clear_deliberately_unloaded(self, backend_name: str | None) -> None: ...
+
+        def cancel_idle_unload_timer(self) -> None: ...
+
+        def active_transcriber(self) -> Any | None: ...
+
     def load_background(self) -> None:
         """Background worker: create + load the transcription engine.
 
@@ -265,7 +311,7 @@ class LoadingMixin:
                 exc_info=True,
             )
 
-    def _find_installed_model(self) -> tuple[str, str] | None:
+    def _find_installed_model(self) -> tuple[AsrBackendName, str] | None:
         """Return the first installed (downloaded) model as ``(backend, model_size)``.
 
         Scans ``MODEL_REGISTRY`` in registry order (tiny → large-v3 →
@@ -307,7 +353,11 @@ class LoadingMixin:
                     return ("parakeet", name)
             else:
                 if _check_hf_model_downloaded(meta.repo_id, config_dir):
-                    return (meta.backend, name)
+                    # ``ModelMetadata.backend`` is typed ``str``, but the
+                    # catalog's HF entries are all whisper-backend models
+                    # (MODEL_REGISTRY declares ``backend="whisper"`` for
+                    # them) — the cast documents the registry invariant.
+                    return (cast(AsrBackendName, meta.backend), name)
         return None
 
     def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:

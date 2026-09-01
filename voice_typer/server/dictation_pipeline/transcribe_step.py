@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any  # noqa: F401  # re-exported for tests (transcribe_step.Any)
+from typing import TYPE_CHECKING, Any  # noqa: F401  # re-exported for tests (transcribe_step.Any)
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.cloud_engines import CloudEngine
@@ -30,6 +30,18 @@ from voice_typer.server.dictation_pipeline.helpers import (
 )
 from voice_typer.server.i18n import t as _i18n_t
 from voice_typer.server.tray_types import AppState
+
+if TYPE_CHECKING:
+    # Type-only import to avoid the import cycle (the orchestrator is
+    # constructed with the owning ``VoiceTyperApp``). At runtime,
+    # ``_app`` is whatever object ``DictationPipeline.__init__``
+    # received (a ``VoiceTyperApp`` in production, mocks in tests).
+    from voice_typer.server.app import VoiceTyperApp
+
+    # Real class (helpers.py) — imported for annotation only. The
+    # runtime lookup of ``_AbortWatcher`` stays lazy through the
+    # package namespace so the test-time monkeypatch keeps working.
+    from voice_typer.server.dictation_pipeline.helpers import _AbortWatcher
 
 # NOTE: ``_AbortWatcher`` is intentionally NOT imported at module level
 # here. Tests monkeypatch ``voice_typer.server.dictation_pipeline._AbortWatcher``
@@ -65,7 +77,15 @@ class _TranscribeStepMixin:
     # Declared here so the standalone mixin type-checks (mypy cannot
     # see the ``_OrchestratorMixin.__init__`` assignments through the
     # composed MRO). ``_OrchestratorMixin.__init__`` still owns the
-    # runtime initialization.
+    # runtime initialization. Annotations only — no values — so no
+    # runtime attribute is created and the runtime MRO is unaffected
+    # (same pattern as ``_StorageStepMixin._app``).
+    _app: VoiceTyperApp
+    _cycle_id: str
+    _audio: Any
+    _audio_stats: tuple[float, float, float] | None
+    _duration: float
+    _recorded_rms: float
     _last_resources_check_ts: float
     _resources_check_interval: float
 
@@ -188,7 +208,7 @@ class _TranscribeStepMixin:
         from voice_typer.server import dictation_pipeline as _dp_pkg
 
         _abort_watcher_cls = _dp_pkg._AbortWatcher
-        abort_watcher: _abort_watcher_cls | None = None  # type: ignore[valid-type]
+        abort_watcher: _AbortWatcher | None = None
         if active is not None and hasattr(active, "clear_abort"):
             with contextlib.suppress(Exception):
                 active.clear_abort()
@@ -208,7 +228,10 @@ class _TranscribeStepMixin:
             session = self._app.recording.pop_streaming_session()
             if session is not None:
                 log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
-                text = session.finalize(self._audio)
+                # Annotated so the batch-branch Any return (from the
+                # Any-typed engine ``transcribe_with_fallback``) cannot
+                # leak through to this function's ``str`` return.
+                text: str = session.finalize(self._audio)
             else:
                 # When ``active_transcriber()`` returned None AND
                 # there is no streaming session to finalize, the batch

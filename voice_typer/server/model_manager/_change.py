@@ -4,17 +4,62 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import TYPE_CHECKING, Literal, cast
 
 from voice_typer.server import i18n
 from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
+from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.model_registry import NO_MODEL_SIZE
 from voice_typer.server.tray_types import AppState
+
+# Mirrors ``Config.asr_backend`` (config/_schema.py) — the three valid
+# backend names. ``set_active_backend`` validates against this allowlist
+# before any config write.
+AsrBackendName = Literal["whisper", "qwen", "parakeet"]
+
+if TYPE_CHECKING:
+    # Type-only import to avoid the import cycle (app.py constructs the
+    # ModelManager; this mixin is part of it). At runtime, ``_app`` is
+    # whatever object ``ModelManagerCore.__init__`` received (a
+    # ``VoiceTyperApp`` in production, mocks in tests).
+    from voice_typer.server.app import VoiceTyperApp
 
 log = logging.getLogger("voice_typer.server.model_manager")
 
 
 class ChangeMixin:
+    # Members provided by the composed ``ModelManager`` (manager.py):
+    # core state lives on ``ModelManagerCore`` (_base.py). Annotations
+    # only — no values — so no runtime attribute is created and the
+    # runtime MRO is unaffected (same pattern as dictation_pipeline's
+    # ``_StorageStepMixin._app``).
+    _app: VoiceTyperApp
+    _registry: AsrBackendRegistry
+    _model_change_lock: threading.RLock
+    _pending_model_change: str | None
+    _pending_backend_change: str | None
+
+    if TYPE_CHECKING:
+        # Methods provided by the sibling mixins at runtime
+        # (``_notify.py`` / ``_construction.py`` / ``_lifecycle.py``).
+        # Declared as TYPE_CHECKING-only stubs so this mixin type-checks
+        # standalone; a real (un-guarded) ``def`` here would shadow the
+        # sibling implementations in the composed class's MRO.
+        def _notify_model_load_refused(self, exc: Exception, backend: str | None = None) -> str: ...
+
+        def _mark_deliberately_unloaded(self, backend_name: str | None) -> None: ...
+
+        def _clear_deliberately_unloaded(self, backend_name: str | None) -> None: ...
+
+        def _ensure_engine(self, backend_name: str) -> None: ...
+
+        def touch_model(self, backend_name: str) -> None: ...
+
+        def _evict_lru_model(self) -> None: ...
+
+        def cancel_idle_unload_timer(self) -> None: ...
+
     def change_model(self, model_size: str) -> dict:
         """Apply a model change for future dictation sessions (non-blocking).
 
@@ -190,7 +235,7 @@ class ChangeMixin:
         ``_model_change_lock``.
         """
         if model_size == "parakeet":
-            new_backend = "parakeet"
+            new_backend: AsrBackendName = "parakeet"
         elif model_size == "qwen":
             new_backend = "qwen"
         else:
@@ -427,6 +472,10 @@ class ChangeMixin:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
+        # ``backend`` passed the allowlist above; rebind to the Literal
+        # type ``Config.asr_backend`` declares so the config assignments
+        # below type-check without per-site casts.
+        backend = cast(AsrBackendName, backend)
         # cancel any pending idle-unload timer before starting
         # the unload/reload cycle.
         self.cancel_idle_unload_timer()
@@ -551,6 +600,10 @@ class ChangeMixin:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
+        # ``backend`` passed the allowlist above; rebind to the Literal
+        # type ``Config.asr_backend`` declares so the config assignments
+        # below type-check without per-site casts.
+        backend = cast(AsrBackendName, backend)
         # cancel any pending idle-unload timer before starting
         # the unload/reload cycle — otherwise the timer could fire
         # mid-switch and unload the NEW model. The post-load touch_model
