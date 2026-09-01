@@ -562,6 +562,22 @@ class TrayIcon:
 
         return open_models_page(self)
 
+    def _open_microphones_page(self) -> None:
+        """Open the app window and navigate to the Microphone page.
+
+        Wiring for the Tauri tray's "More microphones..." deep-link: the
+        Microphones submenu stays useful (and reachable) even while the
+        device list is momentarily empty. Composes the same primitives
+        ``open_models_page`` uses — show/focus the window, then publish
+        the ``navigate`` event for the ``microphone`` route. Monkeypatch
+        friendly like its sibling (instance attributes are consulted at
+        call time by the tray-menu id-map callbacks).
+        """
+        from voice_typer.server.tray_window import open_page
+
+        self.open_electron_window()
+        return open_page("/microphone")
+
     def _confirm_quit_while_recording(self) -> None:
         from voice_typer.server.tray_window import (
             confirm_quit_while_recording,

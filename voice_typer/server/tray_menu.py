@@ -43,6 +43,11 @@ from voice_typer.server.tray_hotkey import format_hotkey_label
 # module-level locale in tray_i18n and both modules see the update.
 from voice_typer.server.tray_i18n import _
 
+# Shared Models-submenu label helpers (tray_models has no heavy imports
+# — json/logging/time/pathlib only — so a module-level import is safe and
+# keeps the Tauri dict path free of any pystray dependency).
+from voice_typer.server.tray_models import _menu_label, more_models_label
+
 pystray = lazy_module("pystray")
 
 log = logging.getLogger("voice_typer.server.tray_menu")
@@ -240,12 +245,20 @@ def build_tray_menu_model(
     is_recording: Callable[[], bool] = lambda: False,
     restart_app: Callable[[], None],
     quit_app: Callable[[], None],
-    build_models_submenu: Callable[[], list] = lambda: [],
+    # Models submenu DATA provider: returns a list of
+    # (name, downloaded, is_active, change_fn) tuples — the shared
+    # ``tray_models.build_models_submenu_data`` output. The dict path
+    # consumes the DATA layer directly (never pystray MenuItems) so
+    # every row keeps its callback + checked state and no separator
+    # text can leak into a label.
+    build_models_submenu_data: Callable[[], list] = lambda: [],
+    on_open_models: Callable[[], None] | None = None,
     left_click_action: str = "open_app",
     microphones: list[dict] | None = None,
     active_mic_id: str | None = None,
     on_select_mic: Callable[[str], None] | None = None,
     on_refresh_mics: Callable[[], None] | None = None,
+    on_open_microphones: Callable[[], None] | None = None,
     on_open_settings: Callable[[], None] | None = None,
     on_open_history: Callable[[], None] | None = None,
     on_open_help: Callable[[], None] | None = None,
@@ -266,10 +279,18 @@ def build_tray_menu_model(
     Per the ``force_cancel`` item is only included when
     ``is_transcribing()`` is true. Per the microphones render as a
     submenu with ``mic:<id>`` ids (the active one carries
-    ``checked=True``) plus a ``refresh_mics`` entry. Settings/History/
-    Help quick shortcuts are wired via the ``on_open_*`` callbacks and
-    mirror the pystray-side shortcuts that open the Electron window on
-    the corresponding route.
+    ``checked=True``) plus a ``refresh_mics`` entry and a
+    ``more_microphones`` deep-link — and the Microphones parent is
+    ALWAYS rendered (even when the device list is momentarily empty,
+    the refresh + deep-link rows keep the item useful). The Models
+    submenu consumes the shared DATA layer
+    (``tray_models.build_models_submenu_data`` tuples) directly:
+    downloaded models render as ``model:<name>`` rows with their
+    change-model callback and ``checked`` state, and the trailing
+    ``more_models`` row opens the app window on the Models page via
+    ``on_open_models``. Settings/History/Help quick shortcuts are
+    wired via the ``on_open_*`` callbacks and mirror the pystray-side
+    shortcuts that open the Electron window on the corresponding route.
     """
     id_map: dict[str, Callable] = {}
     items: list[dict] = []
@@ -337,35 +358,68 @@ def build_tray_menu_model(
 
     items.append(_sep())
 
-    # Models submenu.
+    # Models submenu — built from the DATA layer
+    # (``tray_models.build_models_submenu_data`` tuples) so the Tauri
+    # path NEVER round-trips pystray MenuItems. The old conversion
+    # flattened pystray's ``Menu.SEPARATOR`` (text ``'- - - -'``) into
+    # a normal label row — the mystery dash item — and dropped every
+    # callback + checked state, so model rows and "More models..."
+    # were dead on arrival (clicks returned
+    # ``server.unknown_tray_item``).
     models_sub: list[dict] = []
-    for m in build_models_submenu():
-        # build_models_submenu returns pystray MenuItems in the pystray path;
-        # for the model path we rebuild lightweight dicts from the same data
-        # by calling the submenu builder's textual form.  To keep this path
-        # self-contained and display-free, we derive dicts from the returned
-        # pystray items' text + a stable id.
-        text = getattr(m, "text", None)
-        label = text() if callable(text) else str(m)
-        models_sub.append(_item(f"model:{label}", label))
+    for row in build_models_submenu_data():
+        name, downloaded, is_active, change_fn = row
+        if not downloaded:
+            continue
+        # ``checked`` mirrors the pystray path: active row True, other
+        # downloaded rows False (the Rust host renders both as native
+        # CheckMenuItems).
+        models_sub.append(
+            _item(
+                f"model:{name}",
+                _menu_label(name),
+                callback=change_fn,
+                checked=is_active,
+            )
+        )
+    # Separator ONLY between real model rows and the trailing
+    # deep-link — never leading (the zero-models case must render a
+    # single "More models..." row, not a dash) and never trailing.
+    if models_sub:
+        models_sub.append(_sep())
+    if on_open_models is not None:
+        models_sub.append(_item("more_models", more_models_label(localize), callback=on_open_models))
     items.append(_item("models", localize("models"), submenu=models_sub))
 
-    # microphones submenu (only when a mic list is supplied).
-    if microphones:
-        mic_sub: list[dict] = []
-        for mic in microphones:
-            mic_id = str(mic.get("id", ""))
-            mic_name = str(mic.get("name", mic_id))
-            mic_sub.append(
-                _item(
-                    f"mic:{mic_id}",
-                    mic_name,
-                    callback=(lambda _id=mic_id: on_select_mic(_id)) if on_select_mic else None,
-                    checked=(active_mic_id is not None and mic_id == str(active_mic_id)),
-                )
+    # Microphones submenu — the parent is ALWAYS rendered:
+    # when the device list is momentarily empty the refresh +
+    # deep-link rows keep the item useful instead of the whole entry
+    # vanishing from the tray (the old ``if microphones:`` gate).
+    # Device rows come from the caller-supplied list state only (the
+    # single canonical enumeration feeds it via ``tray.set_microphones``).
+    mic_sub: list[dict] = []
+    for mic in microphones or []:
+        mic_id = str(mic.get("id", ""))
+        # Same empty-name fallback as the pystray path below (line ~707):
+        # a device with a falsy name falls back to its id, never "".
+        mic_name = str(mic.get("name", mic_id)) or mic_id
+        mic_sub.append(
+            _item(
+                f"mic:{mic_id}",
+                mic_name,
+                callback=(lambda _id=mic_id: on_select_mic(_id)) if on_select_mic else None,
+                checked=(active_mic_id is not None and mic_id == str(active_mic_id)),
             )
-        if on_refresh_mics is not None:
-            mic_sub.append(_item("refresh_mics", localize("refresh_mics"), callback=on_refresh_mics))
+        )
+    # Separator between device rows and the trailing actions — never
+    # leading (no dash row when the list is empty).
+    if mic_sub:
+        mic_sub.append(_sep())
+    if on_refresh_mics is not None:
+        mic_sub.append(_item("refresh_mics", localize("refresh_mics"), callback=on_refresh_mics))
+    if on_open_microphones is not None:
+        mic_sub.append(_item("more_microphones", localize("more_microphones"), callback=on_open_microphones))
+    if mic_sub:
         items.append(_item("microphones", localize("microphones"), submenu=mic_sub))
 
     items.append(_sep())
@@ -752,6 +806,31 @@ def invalidate_menu_cache(tray) -> None:
     maybe_publish_tray_menu(tray)
 
 
+def _models_submenu_data(tray, controller) -> list:
+    """Return the Models-submenu DATA rows for the Tauri dict path.
+
+    Thin adapter over :func:`tray_models.build_models_submenu_data` —
+    the SAME data layer the pystray builder consumes — so both runtimes
+    show the same downloaded-model set with the same active-model
+    detection. Imports at call time (mirroring the pystray-side
+    :func:`build_models_submenu` adapter) so the module stays cheap to
+    import and tests can monkeypatch
+    ``voice_typer.server.tray_models.build_models_submenu_data``.
+    """
+    from voice_typer.server.config import _config_dir
+    from voice_typer.server.tray_models import build_models_submenu_data
+
+    # Prefer the in-memory Config (falls back to a disk read when the
+    # tray has no Config yet) — identical semantics to the pystray-side
+    # ``build_models_submenu`` adapter.
+    config_provider = getattr(tray, "_config", None)
+    return build_models_submenu_data(
+        _config_dir,
+        controller.change_model,
+        config_provider=config_provider,
+    )
+
+
 def maybe_publish_tray_menu(tray) -> bool:
     """ADR-0020 §6.5 / §16: push the serialized tray menu to the Tauri
     sidecar host (no-op on the Electron/pystray runtime).
@@ -820,7 +899,19 @@ def maybe_publish_tray_menu(tray) -> bool:
         ),
         restart_app=controller.restart_app,
         quit_app=tray._confirm_quit_while_recording,
-        build_models_submenu=tray._build_models_submenu,
+        # Models submenu: consume the shared DATA layer directly — the
+        # previous ``tray._build_models_submenu`` round-trip returned
+        # pystray MenuItems, which the dict builder could only flatten
+        # to text (losing callbacks + checked state and rendering the
+        # pystray SEPARATOR as a literal dash row). Same inputs as the
+        # pystray builder: live Config (falls back to disk) + the
+        # controller's change_model — a single source of truth for
+        # both runtimes.
+        build_models_submenu_data=lambda: _models_submenu_data(tray, controller),
+        # "More models..." opens the app window AND navigates to the
+        # Models page (mirrors the pystray-side
+        # ``tray._open_models_page`` deep-link).
+        on_open_models=tray._open_models_page,
         left_click_action=left_click,
         microphones=controller_mics,
         # VoiceTyperApp now exposes ``active_microphone_id``
@@ -837,6 +928,11 @@ def maybe_publish_tray_menu(tray) -> bool:
         active_mic_id=getattr(controller, "active_microphone_id", None),
         on_select_mic=getattr(controller, "change_microphone", None),
         on_refresh_mics=getattr(controller, "refresh_microphones", None),
+        # "More microphones..." opens the app window AND navigates to
+        # the Microphone page (the dedicated mic-selection surface), so
+        # the tray Microphone entry stays useful even while the device
+        # list is momentarily empty.
+        on_open_microphones=tray._open_microphones_page,
         # Settings/History/Help shortcuts — mirror the pystray-side
         # build_menu_for_tray wiring so both runtimes expose the same
         # quick shortcuts (previously MISSING on Tauri, leaving these

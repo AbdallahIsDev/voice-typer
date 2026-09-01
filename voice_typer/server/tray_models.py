@@ -115,6 +115,35 @@ def _menu_label(name: str) -> str:
     return f"{glyph} {name}" if glyph else name
 
 
+def more_models_label(localize=None) -> str:
+    """Return the label for the trailing "More models..." submenu item.
+
+    Shared by BOTH menu runtimes: the pystray builder
+    (:func:`build_models_menu_items`) and the Tauri dict builder
+    (``tray_menu.build_tray_menu_model``) so the deep-link row reads
+    identically everywhere.
+
+    ``localize`` is an optional ``Callable[[str], str]`` (e.g. the tray
+    i18n ``_`` function). When the localization table LACKS the
+    ``more_models`` key it returns the raw key itself — that must fall
+    back to the English literal so the menu never renders the bare key
+    "more_models" as a user-facing label. The literal fallback also
+    keeps the string greppable for source-level regression tests
+    (``tests/tauri/mig19/test_tray_menu.py``).
+    """
+    fallback = "More models..."
+    if localize is None:
+        return fallback
+    try:
+        text = localize("more_models") or fallback
+    except Exception:
+        return fallback
+    if text == "more_models":
+        # Localization table lacks the key (returned the key itself).
+        return fallback
+    return text
+
+
 def _ensure_hf_env_once() -> None:
     """run ``asr_setup.ensure_hf_env()`` exactly once per process.
 
@@ -432,13 +461,8 @@ def build_models_menu_items(
     # provided; fall back to the English literal so the source still
     # contains the "More models..." string (tests/tauri/mig19/
     # test_tray_menu.py asserts the literal substring is present).
-    more_models_label = "More models..."
-    more_models_text = more_models_label
-    if localize is not None:
-        try:
-            more_models_text = localize("more_models") or more_models_label
-        except Exception:
-            more_models_text = more_models_label
+    # Shared helper: identical output on both runtimes.
+    more_models_text = more_models_label(localize)
 
     items = []
     for name, downloaded, is_active, change_fn in build_models_submenu_data(

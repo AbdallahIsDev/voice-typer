@@ -34,12 +34,17 @@ def _make_model(**overrides):
         "is_transcribing": lambda: False,
         "restart_app": _noop,
         "quit_app": _noop,
-        "build_models_submenu": lambda: [],
+        # Models submenu rows come from the DATA builder (list of
+        # (name, downloaded, is_active, change_fn) tuples) — NOT from
+        # pystray MenuItems. Empty default = "no downloaded models".
+        "build_models_submenu_data": lambda: [],
+        "on_open_models": _noop,
         "left_click_action": "open_app",
         "microphones": None,
         "active_mic_id": None,
         "on_select_mic": None,
         "on_refresh_mics": None,
+        "on_open_microphones": None,
         "on_open_settings": _noop,
         "on_open_history": _noop,
         "on_open_help": _noop,
@@ -716,3 +721,272 @@ def test_bg_work_wrapper_publishes_even_when_bg_work_raises(monkeypatch):
     finally:
         event_bus.unsubscribe(_on_event)
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+# ─── Tauri Models submenu: dispatchable rows + no dash item ──────────────
+# Regression tests for the user-reported Tauri tray defects:
+#   * the Models submenu showed a leading dash item (pystray's
+#     SEPARATOR flattened to a text row) and "More models..." clicks
+#     died as ``server.unknown_tray_item`` because no callback was
+#     registered; model rows were equally dead.
+#   * the Microphones parent vanished entirely when the device list
+#     was momentarily empty.
+# The dict path must consume the shared DATA layer
+# (``tray_models.build_models_submenu_data`` tuples) directly — never a
+# pystray round-trip.
+
+
+def _models_row(name, downloaded, is_active, change_fn):
+    """One (name, downloaded, is_active, change_fn) data tuple."""
+    return (name, downloaded, is_active, change_fn)
+
+
+def test_models_submenu_zero_models_has_no_leading_separator():
+    """Zero downloaded models → submenu is exactly [more_models].
+
+    The user reported a first item that is "just a dash" — that was
+    pystray's ``Menu.SEPARATOR`` (text ``'- - - -'``) flattened into a
+    normal label row by the old pystray-item round-trip. With no model
+    rows there must be NO separator at all.
+    """
+    model, _id_map = _make_model(build_models_submenu_data=lambda: [])
+    models_item = next(i for i in model if i["id"] == "models")
+    sub = models_item["submenu"]
+
+    assert sub is not None
+    separators = [i for i in sub if i["separator"]]
+    assert separators == [], "no separator may render when there are no model rows"
+    ids = [i["id"] for i in sub]
+    assert ids == ["more_models"], f"expected exactly the more_models row, got {ids}"
+    # No row may carry a separator-ish label (the old dash defect).
+    for i in sub:
+        assert "-" not in i["label"]
+
+
+def test_models_submenu_more_models_registered_and_opens_models_page():
+    """``more_models`` must be in the id_map and invoke the open callback.
+
+    Clicking "More models..." previously dispatched an unknown id (the
+    user's log: ``server.unknown_tray_item``) — the item had no callback.
+    """
+    opened = []
+    model, id_map = _make_model(
+        build_models_submenu_data=lambda: [],
+        on_open_models=lambda: opened.append("/models"),
+    )
+
+    assert "more_models" in id_map, "more_models must be dispatchable"
+    assert callable(id_map["more_models"])
+    models_item = next(i for i in model if i["id"] == "models")
+    more = next(i for i in models_item["submenu"] if i["id"] == "more_models")
+    assert more["label"] == "More models..."
+
+    id_map["more_models"]()
+    assert opened == ["/models"], "the callback must open the Models page"
+
+
+def test_models_submenu_rows_have_callbacks_and_checked_state():
+    """Downloaded models render as dispatchable rows with checkmarks.
+
+    Only downloaded models get rows; the active one carries
+    ``checked=True`` (native CheckMenuItem on the Rust host); every row
+    registers its change-model callback in the id_map; a separator sits
+    ONLY between the model rows and the trailing deep-link.
+    """
+    changes = []
+    data = [
+        _models_row("tiny", True, True, lambda n="tiny": changes.append(n)),
+        _models_row("large-v3", True, False, lambda n="large-v3": changes.append(n)),
+        _models_row("qwen", False, False, lambda n="qwen": changes.append(n)),
+    ]
+    model, id_map = _make_model(build_models_submenu_data=lambda: data)
+
+    models_item = next(i for i in model if i["id"] == "models")
+    sub = models_item["submenu"]
+    by_id = {i["id"]: i for i in sub}
+
+    # Only downloaded models get rows.
+    assert "model:tiny" in by_id
+    assert "model:large-v3" in by_id
+    assert "model:qwen" not in by_id, "not-downloaded models must not render"
+
+    # Native checkmark state: active True, others False.
+    assert by_id["model:tiny"]["checked"] is True
+    assert by_id["model:large-v3"]["checked"] is False
+
+    # The label keeps the family glyph (mirrors the pystray path).
+    assert by_id["model:tiny"]["label"] == "✱ tiny"
+
+    # Exactly one separator, and it is BETWEEN rows and the deep-link.
+    sep_positions = [idx for idx, i in enumerate(sub) if i["separator"]]
+    assert sep_positions == [2], f"expected one separator after the 2 rows, got {sep_positions}"
+    assert sub[-1]["id"] == "more_models"
+
+    # Rows are dispatchable: the id_map callback switches the model.
+    assert "model:tiny" in id_map
+    id_map["model:tiny"]()
+    assert changes == ["tiny"]
+
+
+def test_microphones_item_present_with_empty_list():
+    """The Microphones parent must render even with zero devices.
+
+    The old ``if microphones:`` gate dropped the whole item whenever the
+    list was momentarily empty (ws-mode startup). The submenu must stay
+    useful: refresh action + deep-link, and NO leading separator/dash.
+    """
+    refreshed = []
+    opened_mics = []
+    model, id_map = _make_model(
+        microphones=[],
+        on_refresh_mics=lambda: refreshed.append(True),
+        on_open_microphones=lambda: opened_mics.append("/microphone"),
+    )
+
+    mic_item = next(i for i in model if i["id"] == "microphones")
+    sub = mic_item["submenu"]
+    ids = [i["id"] for i in sub]
+
+    # No device rows, no separator rows — just the useful actions.
+    assert ids == ["refresh_mics", "more_microphones"], f"got {ids}"
+    assert all(not i["separator"] for i in sub)
+
+    # Both actions dispatch.
+    id_map["refresh_mics"]()
+    assert refreshed == [True]
+    id_map["more_microphones"]()
+    assert opened_mics == ["/microphone"]
+
+
+def test_microphones_submenu_rows_keep_separator_before_actions():
+    """With devices present, a separator divides rows from the actions.
+
+    Never a LEADING separator (the dash-defect class) — the first row
+    must be a ``mic:`` row.
+    """
+    mics = [{"id": "0", "name": "Default"}, {"id": "1", "name": "USB Mic"}]
+    model, _id_map = _make_model(
+        microphones=mics,
+        active_mic_id="1",
+        on_select_mic=_noop,
+        on_refresh_mics=_noop,
+        on_open_microphones=_noop,
+    )
+    mic_item = next(i for i in model if i["id"] == "microphones")
+    sub = mic_item["submenu"]
+    ids = [i["id"] for i in sub]
+
+    assert ids == ["mic:0", "mic:1", "", "refresh_mics", "more_microphones"]
+    # First row is a mic row (no leading separator), one separator after
+    # the device rows (separator ids are "" per the wire contract).
+    assert ids[0] == "mic:0"
+    seps = [idx for idx, i in enumerate(sub) if i["separator"]]
+    assert seps == [2], f"expected one separator after the mic rows, got {seps}"
+
+
+def test_maybe_publish_registers_models_and_mic_dispatch(monkeypatch):
+    """Integration: the published Tauri menu carries dispatchable ids.
+
+    ``maybe_publish_tray_menu`` must build the models submenu from the
+    shared data layer and register ``more_models`` / ``model:<name>``
+    / ``refresh_mics`` / ``more_microphones`` in ``tray._tray_id_map``
+    so ``tray_click`` dispatch actually reaches the actions.
+    """
+    changes = []
+    opened = []
+
+    class _RecordingCtrl:
+        def toggle_dictation(self):
+            pass
+
+        def restart_app(self):
+            pass
+
+        def change_microphone(self, _mic):
+            pass
+
+        def change_model(self, name):
+            changes.append(name)
+
+        def undo_last(self):
+            pass
+
+        def refresh_microphones(self):
+            pass
+
+        _microphones = []
+
+    tray = _make_tauri_tray(controller=_RecordingCtrl(), icon=None)
+    tray._open_models_page = lambda: opened.append("/models")
+    tray._open_microphones_page = lambda: opened.append("/microphone")
+
+    def _fake_data(config_dir_fn, change_model_fn, config_provider=None):
+        return [
+            ("tiny", True, True, lambda n="tiny": change_model_fn(n)),
+            ("qwen", False, False, lambda n="qwen": change_model_fn(n)),
+        ]
+
+    monkeypatch.setattr("voice_typer.server.tray_models.build_models_submenu_data", _fake_data)
+    monkeypatch.setenv("TAURI_SIDECAR", "1")
+
+    published = tray._maybe_publish_tray_menu()
+    assert published is True
+
+    id_map = tray._tray_id_map
+    for expected in ("more_models", "model:tiny", "refresh_mics", "more_microphones"):
+        assert expected in id_map, f"{expected} must be dispatchable after publish"
+    assert "model:qwen" not in id_map, "not-downloaded models must not dispatch"
+
+    # Click dispatch reaches the real actions.
+    assert tray.dispatch_tray_action("more_models") is True
+    assert opened == ["/models"]
+    assert tray.dispatch_tray_action("model:tiny") is True
+    assert changes == ["tiny"]
+
+
+def test_pystray_models_submenu_contract_unchanged(monkeypatch):
+    """Regression guard: the pystray (Electron) path is untouched.
+
+    ``build_models_menu_items`` still emits [model rows…] + separator +
+    "More models..." with ``checked`` callables — the exact behavior the
+    Electron runtime has today.
+    """
+    from voice_typer.server import tray_models
+
+    monkeypatch.setattr(
+        tray_models,
+        "build_models_submenu_data",
+        lambda *a, **k: [("tiny", True, True, lambda: None)],
+    )
+
+    class _FakeItem:
+        def __init__(self, text, action, checked=None):
+            self.text = text
+            self.action = action
+            self.checked = checked
+
+    created = []
+    sep = object()
+
+    def _item_cls(text, action, checked=None):
+        item = _FakeItem(text, action, checked)
+        created.append(item)
+        return item
+
+    items = tray_models.build_models_menu_items(
+        lambda: None,  # config_dir_fn (unused — data is stubbed)
+        lambda name: None,
+        lambda fn: fn,  # wrap_fn: identity
+        lambda: None,  # open_electron_window_fn
+        menu_item_class=_item_cls,
+        menu_separator=sep,
+    )
+
+    # [model row, separator, More models...]
+    assert items[0] is created[0]
+    assert created[0].text == "✱ tiny"
+    assert callable(created[0].checked)
+    assert created[0].checked(None) is True
+    assert items[1] is sep, "the pystray path keeps its separator item"
+    assert created[1].text == "More models..."
+    assert items[2] is created[1]
