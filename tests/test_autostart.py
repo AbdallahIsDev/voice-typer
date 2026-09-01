@@ -278,6 +278,68 @@ class TestIsAppAutostartRunkeyRegisteredStaleDetection:
 
 
 # ---------------------------------------------------------------------------
+# Run-key submodule facade-patch seams
+# ---------------------------------------------------------------------------
+
+
+class TestRunkeySubmoduleFacadePatchSeams:
+    """The HKCU Run-key register/unregister/is trio lives in
+    ``_autostart_windows_runkey`` (extracted from the facade); its
+    facade-owned dependencies (``_run_key_name``,
+    ``_validate_runkey_command``, ``_cleanup_stale_runkey_entry``) must
+    be read through the facade module object at call time so the
+    documented patch contract (``monkeypatch.setattr(autostart_windows,
+    "X", ...)`` on facade-owned names) keeps propagating into the moved
+    submodule — the same idiom the Startup-.bat and sweep submodules
+    use."""
+
+    def test_facade_patch_on_run_key_name_seen_by_unregister(self, monkeypatch, fake_winreg, win32_platform):
+        """Patching ``_run_key_name`` on the facade must change the value
+        name the moved ``_unregister_app_autostart_runkey`` deletes."""
+        from voice_typer.server.server_platform import _unregister_app_autostart_runkey
+
+        monkeypatch.setattr(autostart_windows_mod, "_run_key_name", lambda: "SeamKey")
+
+        assert _unregister_app_autostart_runkey() is True
+        fake_winreg.DeleteValue.assert_called_once()
+        assert fake_winreg.DeleteValue.call_args.args[1] == "SeamKey"
+
+    def test_facade_patch_on_validate_runkey_command_seen_by_is_registered(
+        self, monkeypatch, fake_winreg, win32_platform
+    ):
+        """Patching ``_validate_runkey_command`` on the facade must make the
+        moved ``_is_app_autostart_runkey_registered`` treat the entry as
+        stale and trigger the (real) stale-entry cleanup."""
+        from voice_typer.server.server_platform import _is_app_autostart_runkey_registered
+
+        fake_winreg.QueryValueEx = MagicMock(return_value=(r'"C:\Python\pythonw.exe" launcher.py --hidden', 1))
+        # The exe path EXISTS — only the patched validator can mark it stale.
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        monkeypatch.setattr(autostart_windows_mod, "_validate_runkey_command", lambda value: False)
+
+        assert _is_app_autostart_runkey_registered() is False
+        fake_winreg.DeleteValue.assert_called_once()
+
+    def test_facade_patch_on_cleanup_stale_runkey_entry_seen_by_is_registered(
+        self, monkeypatch, fake_winreg, win32_platform
+    ):
+        """Patching ``_cleanup_stale_runkey_entry`` on the facade must
+        replace the cleanup the moved is-registered check performs
+        (patched function called instead of the real DeleteValue path)."""
+        from voice_typer.server.server_platform import _is_app_autostart_runkey_registered
+
+        cleaned: list[str] = []
+        fake_winreg.QueryValueEx = MagicMock(return_value=(r'"C:\Python\pythonw.exe" launcher.py --hidden', 1))
+        monkeypatch.setattr(autostart_windows_mod, "_run_key_name", lambda: "SeamKey")
+        monkeypatch.setattr(autostart_windows_mod, "_validate_runkey_command", lambda value: False)
+        monkeypatch.setattr(autostart_windows_mod, "_cleanup_stale_runkey_entry", cleaned.append)
+
+        assert _is_app_autostart_runkey_registered() is False
+        assert cleaned == ["SeamKey"]
+        fake_winreg.DeleteValue.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # _is_app_autostart_task_registered (stale task detection)
 # ---------------------------------------------------------------------------
 
