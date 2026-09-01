@@ -103,7 +103,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
     RT-SAFE-001: the PortAudio callback pushes chunks to a ring buffer and
     returns immediately; a daemon worker thread processes them
     asynchronously. Tests that push chunks via ``FakeInputStream`` must
-    call this helper before asserting on ``rec._buffer`` — otherwise the
+    call this helper before asserting on ``rec._audio_pipeline._buffer`` — otherwise the
     worker may not have processed the chunks yet.
     """
     deadline = time.perf_counter() + timeout_s
@@ -255,14 +255,14 @@ class TestNoDoubleResample:
 
         # _buffer_sr must reflect the chain's construction rate
         # (16000), NOT the device's native rate (48000).
-        assert r._buffer_sr == 16000, (
+        assert r._audio_pipeline._buffer_sr == 16000, (
             f"Expected _buffer_sr=16000 (chain rate after process_chunk), "
-            f"got {r._buffer_sr}. CR-5 regression: stop()/snapshot() will "
+            f"got {r._audio_pipeline._buffer_sr}. CR-5 regression: stop()/snapshot() will "
             f"resample a second time from {r._effective_sr} Hz."
         )
 
         # Sanity check: the buffer grew by exactly one chunk.
-        assert len(r._buffer) == 1, f"Expected 1 buffered chunk, got {len(r._buffer)}"
+        assert len(r._audio_pipeline._buffer) == 1, f"Expected 1 buffered chunk, got {len(r._audio_pipeline._buffer)}"
 
         r.stop()
 
@@ -321,14 +321,14 @@ class TestNoDoubleResample:
         _drain_ring_buffer(r)
 
         # else-branch: no processor → buffer stores native-rate audio.
-        assert r._buffer_sr == 48000, (
-            f"Expected _buffer_sr=48000 (device native rate when no processor), got {r._buffer_sr}"
+        assert r._audio_pipeline._buffer_sr == 48000, (
+            f"Expected _buffer_sr=48000 (device native rate when no processor), got {r._audio_pipeline._buffer_sr}"
         )
 
         # Sanity check: the buffered chunk should be at 48 kHz (no
         # resampling happened).
-        assert len(r._buffer) == 1
-        buffered = r._buffer[0]
+        assert len(r._audio_pipeline._buffer) == 1
+        buffered = r._audio_pipeline._buffer[0]
         assert buffered.size == 1024, f"Expected 1024 samples (48 kHz, no resampling), got {buffered.size}"
 
         r.stop()
@@ -361,11 +361,11 @@ class TestNoDoubleResample:
         # Simulate the post-process_chunk state: buffer holds 16 kHz audio
         # even though the device native rate (_effective_sr) is 48 kHz.
         r._effective_sr = 48000
-        r._buffer_sr = 16000
+        r._audio_pipeline._buffer_sr = 16000
         # Pretend recording is active so stop() doesn't early-return.
         r._recording_event.set()
         # Put a chunk in the buffer so stop()'s concat path runs.
-        r._buffer.append(np.zeros(1024, dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.zeros(1024, dtype=np.float32))
 
         # Mock the teardown helpers so stop() doesn't try to stop real
         # threads (we never started them).
@@ -432,9 +432,9 @@ class TestNoDoubleResample:
         # Simulate the post-process_chunk state: buffer holds 16 kHz audio
         # (1024 samples) even though the device native rate is 48 kHz.
         r._effective_sr = 48000
-        r._buffer_sr = 16000
+        r._audio_pipeline._buffer_sr = 16000
         # Put a chunk in the buffer (1024 samples of 16 kHz audio).
-        r._buffer.append(np.zeros(1024, dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.zeros(1024, dtype=np.float32))
 
         # Spy on the module-level ``resample_chunk`` binding (the
         # historical ``Recorder._resample_chunk`` delegator was
@@ -491,9 +491,9 @@ class TestNoDoubleResample:
 
         # Pre-state: a previous session set _buffer_sr.
         r._effective_sr = 48000
-        r._buffer_sr = 16000
+        r._audio_pipeline._buffer_sr = 16000
         r._recording_event.set()
-        r._buffer.append(np.zeros(1024, dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.zeros(1024, dtype=np.float32))
 
         # Mock the teardown helpers.
         r._teardown_stream = MagicMock()
@@ -503,10 +503,14 @@ class TestNoDoubleResample:
 
         # stop() must reset _buffer_sr to None.
         r.stop()
-        assert r._buffer_sr is None, f"Expected _buffer_sr=None after stop(), got {r._buffer_sr}"
+        assert r._audio_pipeline._buffer_sr is None, (
+            f"Expected _buffer_sr=None after stop(), got {r._audio_pipeline._buffer_sr}"
+        )
 
         # discard() must also reset _buffer_sr to None.
-        r._buffer_sr = 16000  # simulate a subsequent session
+        r._audio_pipeline._buffer_sr = 16000  # simulate a subsequent session
         r._recording_event.set()
         r.discard()
-        assert r._buffer_sr is None, f"Expected _buffer_sr=None after discard(), got {r._buffer_sr}"
+        assert r._audio_pipeline._buffer_sr is None, (
+            f"Expected _buffer_sr=None after discard(), got {r._audio_pipeline._buffer_sr}"
+        )

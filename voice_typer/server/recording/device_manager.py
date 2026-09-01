@@ -432,6 +432,35 @@ class DeviceManager:
                 self._device_health_checker_thread = None
                 self._device_health_stop_event.clear()
 
+    def stop_device_health_checker(self, timeout: float | None = None) -> None:
+        """Signal the device health checker thread to stop and join it.
+
+        Promoted from ``Recorder._stop_device_health_checker`` (Phase 4.5
+        completion) — the body is unchanged. ``recorder._stop_device_health_checker``
+        (the documented 1-line delegator) routes here.
+
+        When ``timeout`` is explicitly ``0.0``, the call is
+        fire-and-forget — the stop event is signalled but the method
+        returns immediately without joining the daemon thread. This is
+        used by ``stop()`` to avoid blocking up to 1.0s on a thread that
+        almost always times out anyway (the checker sleeps 30s between
+        probes, so a 1.0s join rarely succeeds). The daemon thread exits
+        on its next ``_device_health_stop_event.wait()`` return.
+
+        Any other ``timeout`` value (including ``None`` for backward
+        compatibility with callers that don't pass one) performs the full
+        stop + join (1.0s join budget).
+        """
+        if timeout == 0.0:
+            # Fire-and-forget: signal the stop event, do NOT join. The
+            # daemon thread will exit on its next 30s wait() return.
+            # Accessing the private attribute is safe because this class
+            # and the health-checker loop are tightly coupled collaborators
+            # in the same package.
+            self._device_health_stop_event.set()
+            return
+        self._stop_device_health_checker()
+
     def _device_health_checker_loop(self) -> None:
         """Device health checker daemon thread main loop.
 

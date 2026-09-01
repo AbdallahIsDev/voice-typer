@@ -54,6 +54,11 @@ class _MockRecorder:
 
     def __init__(self, vad=None):
         self._vad = vad if vad is not None else MagicMock()
+        # STATE-OWNERSHIP: the buffer sample-rate scalar lives on
+        # the owning ``AudioPipeline``; production reads it via
+        # ``recorder._audio_pipeline._buffer_sr``. This mock plays BOTH
+        # roles, so self-delegate the pipeline attribute.
+        self._audio_pipeline = self
         # Attributes read by refresh_vad_caches / vad_auto_calibrate.
         self._buffer_sr: int | None = None
         self._effective_sr: int | None = None
@@ -237,7 +242,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
         rec._vad.silero_available = True
-        rec._buffer_sr = WHISPER_SAMPLE_RATE  # 16000
+        rec._audio_pipeline._buffer_sr = WHISPER_SAMPLE_RATE  # 16000
         rec._effective_sr = 48000
 
         refresh_vad_caches(rec)
@@ -254,7 +259,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = False
         rec._vad.use_silero_vad = False
         rec._vad.silero_available = False
-        rec._buffer_sr = 8000
+        rec._audio_pipeline._buffer_sr = 8000
         rec._effective_sr = None
 
         refresh_vad_caches(rec)
@@ -273,7 +278,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
         rec._vad.silero_available = True
-        rec._buffer_sr = 48000
+        rec._audio_pipeline._buffer_sr = 48000
         rec._effective_sr = 48000
 
         refresh_vad_caches(rec)
@@ -291,7 +296,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = False
         rec._vad.silero_available = False
-        rec._buffer_sr = None
+        rec._audio_pipeline._buffer_sr = None
         rec._effective_sr = 16000
 
         refresh_vad_caches(rec)
@@ -308,7 +313,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = False
         rec._vad.use_silero_vad = False
         rec._vad.silero_available = False
-        rec._buffer_sr = None
+        rec._audio_pipeline._buffer_sr = None
         rec._effective_sr = None
 
         refresh_vad_caches(rec)
@@ -326,7 +331,7 @@ class TestRefreshVadCaches:
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
         rec._vad.silero_available = True
-        rec._buffer_sr = 44100
+        rec._audio_pipeline._buffer_sr = 44100
         rec._effective_sr = 44100
 
         refresh_vad_caches(rec)

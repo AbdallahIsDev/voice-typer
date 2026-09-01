@@ -30,6 +30,7 @@ Covers the 8 findings I5 was asked to fix in retry mode:
 from __future__ import annotations
 
 import collections
+import contextlib
 import inspect
 import logging
 import threading
@@ -373,9 +374,9 @@ class TestPreRollFiltered:
             # _preroll_buffer. Verify the buffer was populated (the
             # clear at L1311 happens BEFORE stream.start(), so the
             # fired chunks survive).
-            assert len(r._preroll_buffer) >= n_preroll_chunks or len(r._buffer) >= n_preroll_chunks, (
+            assert len(r._preroll_buffer) >= n_preroll_chunks or len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
                 f"pre-roll chunks not captured — preroll_buffer has "
-                f"{len(r._preroll_buffer)}, buffer has {len(r._buffer)}"
+                f"{len(r._preroll_buffer)}, buffer has {len(r._audio_pipeline._buffer)}"
             )
 
             # start() should have called process_chunk once per pre-roll
@@ -403,12 +404,13 @@ class TestPreRollFiltered:
                 )
             # The buffer should contain the FILTERED chunks (scaled by
             # 0.5), not the raw chunks (0.3 amplitude).
-            assert len(r._buffer) >= n_preroll_chunks, (
-                f"pre-roll chunks must be prepended to the buffer — expected ≥{n_preroll_chunks}, got {len(r._buffer)}"
+            assert len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
+                f"pre-roll chunks must be prepended to the buffer — "
+                f"expected >= {n_preroll_chunks}, got {len(r._audio_pipeline._buffer)}"
             )
             # Verify at least one prepended chunk has the filtered
             # amplitude (0.3 * 0.5 = 0.15).
-            first_chunk = r._buffer[0]
+            first_chunk = r._audio_pipeline._buffer[0]
             max_abs = float(np.max(np.abs(first_chunk)))
             assert 0.05 < max_abs < 0.25, (
                 f"R18-F12: pre-roll chunk must be filtered (expected "
@@ -469,7 +471,7 @@ class TestPreRollFiltered:
             # synchronously during start(), and depending on scheduling
             # the prepend to ``_buffer`` may not have run yet — mirror
             # the sibling test's either-or robustness (R18-F12).
-            stored_chunks = list(r._preroll_buffer) or list(r._buffer)
+            stored_chunks = list(r._preroll_buffer) or list(r._audio_pipeline._buffer)
             assert len(stored_chunks) >= 1, "raw pre-roll chunk must be stored on filter failure"
             first_chunk = stored_chunks[0]
             max_abs = float(np.max(np.abs(first_chunk)))
@@ -501,7 +503,9 @@ class TestXrunReArm:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         # Use a small threshold for fast testing.
-        r._xrun_threshold = 3
+        # STATE-OWNERSHIP: the xrun threshold lives on the owning
+        # AudioPipeline (C-ARCH-2: patch the owning submodule's attribute).
+        r._audio_pipeline._xrun_threshold = 3
         on_xrun = MagicMock()
         r.on_xrun_threshold = on_xrun
 
@@ -539,7 +543,8 @@ class TestXrunReArm:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._xrun_threshold = 3
+        # STATE-OWNERSHIP: xrun threshold on the owning pipeline.
+        r._audio_pipeline._xrun_threshold = 3
         on_xrun = MagicMock()
         r.on_xrun_threshold = on_xrun
 
@@ -573,16 +578,16 @@ class TestXrunReArm:
 
         r.start()
         try:
-            buffer_len_before = len(r._buffer)
+            buffer_len_before = len(r._audio_pipeline._buffer)
             chunk = np.ones((512, 1), dtype=np.float32) * 0.3
             # Push ONE chunk with non-zero status (xrun).
             r._current_callback(chunk, 512, None, 2)
             _drain_ring_buffer(r)
 
             # The xrun chunk must NOT be in the buffer.
-            assert len(r._buffer) == buffer_len_before, (
+            assert len(r._audio_pipeline._buffer) == buffer_len_before, (
                 f"R18-F13: partial chunk on xrun status must be dropped — "
-                f"buffer was {buffer_len_before}, now {len(r._buffer)}. "
+                f"buffer was {buffer_len_before}, now {len(r._audio_pipeline._buffer)}. "
                 f"Pre-fix the corrupted chunk was stored."
             )
             # But xrun counter was incremented.
@@ -604,13 +609,14 @@ class TestXrunReArm:
 
         r.start()
         try:
-            buffer_len_before = len(r._buffer)
+            buffer_len_before = len(r._audio_pipeline._buffer)
             chunk = np.ones((512, 1), dtype=np.float32) * 0.3
             r._current_callback(chunk, 512, None, 0)  # status=0
             _drain_ring_buffer(r)
 
-            assert len(r._buffer) == buffer_len_before + 1, (
-                f"clean chunk (status=0) must be appended — buffer was {buffer_len_before}, now {len(r._buffer)}"
+            assert len(r._audio_pipeline._buffer) == buffer_len_before + 1, (
+                f"clean chunk (status=0) must be appended — buffer was "
+                f"{buffer_len_before}, now {len(r._audio_pipeline._buffer)}"
             )
             assert r._xruns == 0, "no xrun when status=0"
         finally:
@@ -695,6 +701,12 @@ class TestDroppedLevelChunksLog:
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.log_rate_limit import reset as reset_rate_limit
 
+        # Clean slate: an earlier file in the same xdist worker can leak a
+        # live level monitor; without this stop, start_monitoring() below
+        # takes the "Already monitoring — no-op" branch, never constructs
+        # the (captured) stream, and holder["cb"] stays None.
+        with contextlib.suppress(Exception):
+            lm.stop_monitoring()
         # Reset rate-limit counters so the first overflow fires at WARNING.
         reset_rate_limit()
         lm._dropped_level_chunks = 0
@@ -753,6 +765,9 @@ class TestDroppedLevelChunksLog:
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.log_rate_limit import reset as reset_rate_limit
 
+        # Clean slate — see the ring-overflow test above.
+        with contextlib.suppress(Exception):
+            lm.stop_monitoring()
         reset_rate_limit()
         lm._dropped_level_chunks = 0
 

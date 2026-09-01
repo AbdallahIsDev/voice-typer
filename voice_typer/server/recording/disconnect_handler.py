@@ -7,24 +7,33 @@ pattern mirrors :class:`.device_manager.DeviceManager`:
 - :class:`DisconnectHandler` is constructed by ``Recorder.__init__`` with a
   back-reference to the owning ``Recorder`` (``DisconnectHandler(recorder)``).
 - The collaborator accesses *shared* state that lives on ``Recorder`` and is
-  NOT moved here: ``self._recorder._stream``, ``self._recorder._stream_lifecycle_lock``,
+  NOT moved here: ``recorder._stream_lifecycle._stream`` (the PortAudio
+  InputStream slot — STATE-OWNERSHIP: owned by
+  :class:`.stream_lifecycle.StreamLifecycle`),
+  ``self._recorder._stream_lifecycle_lock``,
   ``self._recorder._effective_sr``, ``self._recorder._actual_channels``,
-  ``self._recorder._buffer_sr``, ``self._recorder._audio_processor``,
+  ``self._recorder._audio_pipeline._buffer_sr``, ``self._recorder._audio_processor``,
   ``self._recorder.config``, the silence-timer fields, etc.
 
 Source-inspection invariants
 ----------------------------
-Three regression tests in ``tests/test_recorder_worker_lifecycle.py``
-(``test_handle_device_disconnect_bouncer_intact``,
-``test_handle_device_disconnect_restart_uses_lock``,
-``test_handle_device_disconnect_rechecks_bouncer_under_lock``) inspect
-``inspect.getsource(Recorder._handle_device_disconnect)`` for the
-bouncer comparisons (``_captured_generation != self._stop_generation``,
-``_recording_event.is_set()``) and the
-``with self._stream_lifecycle_lock:`` block. Those structural elements
-THEREFORE stay on ``Recorder._handle_device_disconnect``; only the
-device-resolution + stream-open + state-update block (the heavy ~175 LOC
-inside the lock) is moved here as :meth:`DisconnectHandler.restart_stream`.
+``Recorder._handle_device_disconnect`` (bouncer checks + retry policy +
+``with recorder._stream_lifecycle_lock:`` restart block) stays ON
+``Recorder`` — its source is pinned by
+``tests/test_recorder_worker_lifecycle.py`` (behavioral bouncer /
+restart-lock / re-check tests) and by source-string checks in
+``tests/test_recorder_retry_budget.py`` (BT-aware helpers +
+``time.sleep(_retry_sleep)``) and
+``tests/test_recording_lifecycle_fixes.py`` (``_teardown_stream(force=True)``).
+The device-resolution + stream-open + state-update block (the heavy
+~175 LOC inside the lock) is moved here as
+:meth:`DisconnectHandler.restart_stream`. The device-thread spawn
+helper (:meth:`DisconnectHandler.spawn_device_thread`) and the
+stream-finished-callback scheduling body
+(:meth:`DisconnectHandler.stream_finished_callback_body`) are owned
+here too; ``Recorder`` keeps documented 1-line delegators so the
+instance-level ``MagicMock`` interceptions in
+``tests/test_recorder_worker_lifecycle.py`` keep working.
 
 Patch-path compatibility
 ------------------------
@@ -41,6 +50,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
+import threading
 import time
 from typing import Any
 
@@ -153,6 +163,211 @@ class DisconnectHandler:
         # convention as the other extracted collaborators
         # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
+        # STATE-OWNERSHIP: the disconnect-handler single-flight guard
+        # lives HERE (the owning collaborator), not on ``Recorder``.
+        # Three sites spawn ``_handle_device_disconnect`` on a fresh
+        # daemon thread (the audio pipeline's zero-fill detector,
+        # ``_stream_finished_callback``, and the device health-checker
+        # loop). Without a guard, a flapping device (BT mic reconnecting
+        # repeatedly) can spawn multiple handler threads concurrently —
+        # they race on ``_stream_lifecycle_lock`` and the stream-restart
+        # block. The guard ensures only ONE handler thread is running at
+        # a time; additional spawns while the first is running are
+        # no-ops (the existing handler will complete the restart or hit
+        # the retry budget). The lock + flag pair were previously
+        # ``Recorder._disconnect_handler_lock`` /
+        # ``Recorder._disconnect_handler_running``; consumers access
+        # them via ``recorder._disconnect_handler.<attr>`` (the exact
+        # lock/flag semantics — acquire-then-check-then-set under the
+        # lock, clear-on-exit in the spawned guard — are unchanged).
+        self._single_flight_lock = threading.Lock()
+        self._single_flight_running: bool = False
+
+    def spawn_device_thread(
+        self,
+        recorder: Any,
+        name: str,
+        target: Any,
+        kwargs: dict[str, Any] | None = None,
+        *,
+        single_flight: bool = False,
+    ) -> bool:
+        """Spawn a daemon device-path thread, registered with the thread registry.
+
+        Promoted from ``Recorder._spawn_device_thread`` (Phase 4.5
+        completion) — the body is unchanged. ``recorder._spawn_device_thread``
+        (the documented 1-line delegator) routes here; the delegator is
+        the seam tests intercept (``r._spawn_device_thread = stub``).
+
+        Replaces bare ``threading.Thread(...).start()`` sites in the
+        device-disconnect path that were unregistered — risking
+        half-written config on shutdown (the prewarm and mic-fallback-save
+        threads may be mid-``sd.query_devices()`` (50-200ms) or
+        mid-``config.save()`` (50-500ms disk write) when the process
+        exits).
+
+        Args:
+            recorder: the owning ``Recorder`` (registry + device-state access).
+            name: thread name (also used as the registry key).
+            target: thread entry point.
+            kwargs: keyword arguments for ``target``.
+            single_flight: when True, use the disconnect-handler
+                single-flight guard (``_single_flight_lock`` +
+                ``_single_flight_running``) so only ONE handler
+                thread is running at a time. Additional spawns while
+                the first is running are no-ops (returns False).
+
+        Returns:
+            True if the thread was spawned, False if single-flight
+            suppressed it (or the spawn raised and was suppressed by
+            the outer ``contextlib.suppress``).
+        """
+        if single_flight:
+            # STATE-OWNERSHIP: the single-flight lock + flag live on
+            # ``DisconnectHandler`` (this collaborator).
+            with self._single_flight_lock:
+                # if the disconnect flag was already cleared
+                # (e.g. by a successful restart in
+                # ``_handle_device_disconnect``, or by ``start()``,
+                # or by a test simulating a restart), clear the guard
+                # so a new spawn can proceed. The flag and the guard
+                # are coupled: a True guard means "a handler is
+                # running for an active disconnect" — if the
+                # disconnect is no longer active, the guard is stale.
+                if not recorder._devices._device_disconnected:
+                    self._single_flight_running = False
+                if self._single_flight_running:
+                    log.debug(
+                        "[RECORDING] %s spawn suppressed — handler already running (single-flight)",
+                        name,
+                    )
+                    return False
+                self._single_flight_running = True
+
+            def _guarded_target(**kw: Any) -> None:
+                try:
+                    target(**kw)
+                finally:
+                    with self._single_flight_lock:
+                        self._single_flight_running = False
+
+            _target: Any = _guarded_target
+        else:
+            _target = target
+
+        try:
+            _thread = threading.Thread(
+                target=_target,
+                kwargs=kwargs or {},
+                name=name,
+                daemon=True,
+            )
+            _thread.start()
+        except Exception:
+            log.debug("[RECORDING] %s spawn failed", name, exc_info=True)
+            # If single_flight flagged us as running but the spawn
+            # failed, clear the flag so the next attempt can proceed.
+            if single_flight:
+                with self._single_flight_lock:
+                    self._single_flight_running = False
+            return False
+
+        # register with thread_registry when available so
+        # ``shutdown_all()`` can signal/join during process exit.
+        # ``stop_event=None`` because these are fire-and-forget daemon
+        # threads (no clean stop mechanism); ``join_timeout`` is short
+        # (0.5s) so shutdown doesn't block on a slow ``config.save()``.
+        if recorder._thread_registry is not None:
+            try:
+                recorder._thread_registry.register(
+                    name=name,
+                    thread=_thread,
+                    stop_event=None,
+                    join_timeout=0.5,
+                )
+            except Exception:
+                log.debug(
+                    "[RECORDING] %s thread_registry.register failed",
+                    name,
+                    exc_info=True,
+                )
+        return True
+
+    def stream_finished_callback_body(self, recorder: Any) -> None:
+        """Body of :meth:`Recorder._stream_finished_callback`.
+
+        Promoted from ``Recorder._stream_finished_callback`` (Phase 4.5
+        completion) — the body is unchanged. ``recorder._stream_finished_callback``
+        (the documented 1-line delegator, the sounddevice
+        ``finished_callback`` target) routes here.
+
+        ``_spawn_device_thread`` is invoked through
+        ``recorder._spawn_device_thread(...)`` (the Recorder-level seam)
+        so the instance-level ``MagicMock`` interception in
+        ``tests/test_recorder_worker_lifecycle.py::TestStreamFinishedCallbackGeneration``
+        keeps working.
+
+        sounddevice's finished_callback fires when the PortAudio stream
+        stops for any reason — including device disconnection, driver
+        error, or explicit stop(). We check whether we expected the
+        stream to stop; if not, it was likely an unexpected device
+        disconnect. Note: sd.InputStream does NOT support an
+        error_callback parameter. The finished_callback is the correct
+        way to detect stream termination in sounddevice. The primary
+        disconnect detection is done in the audio callback via
+        zero-filled indata detection (see
+        ``AudioCallbackDispatcher.dispatch_callback_body``).
+        """
+        # Surfacing the true cause of a callback-driven stream abort.
+        # ``dispatch_callback_body`` (in capture.py, the owning
+        # collaborator) wraps its body in try/except, stores any
+        # exception on ``self._capture._last_callback_error``, and
+        # re-raises so PortAudio still aborts the stream. Without this
+        # block, the user would see the "Stream finished unexpectedly"
+        # warning below — a misdiagnosis that hides a real bug in the RT
+        # callback. Read the attribute atomically (single attribute-read
+        # under the GIL) and clear it immediately so a future genuine
+        # disconnect is not masked by a stale reference.
+        captured_err = recorder._capture._last_callback_error
+        if captured_err is not None:
+            recorder._capture._last_callback_error = None
+            log.error(
+                "[RECORDER] stream finished due to callback exception",
+                exc_info=captured_err,
+            )
+            # The stream aborted because of a code bug, not a device
+            # issue — do NOT spawn the disconnect-retry handler (it
+            # would mask the bug by restarting the stream on the
+            # default device). The recording state is left to the
+            # user's next start()/stop()/discard() call.
+            return
+        if recorder._devices._device_disconnected:
+            return  # already handling disconnect via callback detection
+        # STREAM-FIX: if stop() set this flag, the stream
+        # finished because the user pressed the hotkey — expected, no
+        # warning. The flag is cleared after stream.close() in stop().
+        if recorder._user_stop_pending:
+            return
+        # If the stream stopped but we didn't call stop() ourselves,
+        # treat it as an unexpected disconnect.
+        if recorder._stream_lifecycle._stream is not None and not recorder._recording_event.is_set():
+            log.warning("[RECORDING] Stream finished unexpectedly — possible device disconnect")
+            recorder._devices._device_disconnected = True
+            # capture the current stop_generation so the handler
+            # can detect a deliberate stop/start cycle that happened
+            # between scheduling and execution. Mirrors the
+            # _process_audio_chunk spawn site.
+            _captured_gen = recorder._stop_generation
+            # use the device-thread spawn helper so the handler is
+            # registered with thread_registry (when available) and
+            # single-flight guarded so a flapping device can't spawn
+            # multiple concurrent handlers.
+            recorder._spawn_device_thread(
+                name="stream-finished-handler",
+                target=recorder._handle_device_disconnect,
+                kwargs={"_captured_generation": _captured_gen},
+                single_flight=True,
+            )
 
     def restart_stream(self, _captured_generation: int) -> None:
         """Open a fresh ``sd.InputStream`` on a fallback device.
@@ -343,8 +558,9 @@ class DisconnectHandler:
                 with contextlib.suppress(Exception):
                     stream.close()
                 return
-            recorder._stream = stream
-            with recorder._lock:
+            # STATE-OWNERSHIP: the stream slot lives on StreamLifecycle.
+            recorder._stream_lifecycle._stream = stream
+            with recorder._audio_pipeline._lock:
                 recorder._effective_sr = candidate_sr
                 # reset the silence timer so a hot-swap recovery does
                 # not immediately trigger an auto-stop. Previously the
@@ -360,7 +576,7 @@ class DisconnectHandler:
                 # reset ``_buffer_sr`` so the new session's first chunk
                 # sets it fresh (the prior session's rate may differ
                 # from the new device's rate).
-                recorder._buffer_sr = None
+                recorder._audio_pipeline._buffer_sr = None
                 # The three disconnect-state writes MUST be inside the
                 # lock. A concurrent ``_device_health_checker_loop``
                 # reads/writes ``_device_disconnected`` (and the
@@ -412,8 +628,8 @@ class DisconnectHandler:
                     DEFAULT_MAX_BUFFER_CHUNKS,
                 )
 
-                _old_buffer = recorder._buffer
-                recorder._buffer = collections.deque(
+                _old_buffer = recorder._audio_pipeline._buffer
+                recorder._audio_pipeline._buffer = collections.deque(
                     maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
                 )
                 _recording_pkg._secure_clear_array_background(_old_buffer)

@@ -179,7 +179,7 @@ class TestDoAutoStopTestSecureClears:
     bounded (``maxlen`` caps them at one test's worth of audio), so
     leaving them populated until the retrieval (or the cancel /
     manual-stop path, which DO secure-clear) is both privacy-safe and
-    functionally correct. These tests pin the T-1 contract.
+    functionally correct. These tests pin the microphone-test contract.
     """
 
     def test_auto_stop_publishes_and_keeps_chunks_for_retrieval(self):

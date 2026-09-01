@@ -15,8 +15,8 @@ back-reference to the owning ``Recorder`` instance
 (``SessionState(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self._recorder._buffer`` — main audio buffer (deque)
-- ``self._recorder._chunk_count`` / ``_cached_resampled`` / etc. — cached state
+- ``self._recorder._audio_pipeline._buffer`` — main audio buffer (deque)
+- ``self._recorder._audio_pipeline._chunk_count`` / ``_cached_resampled`` / etc. — cached state
 - ``self._recorder._effective_sr`` / ``_buffer_sr`` — sample-rate tracking
 - ``self._recorder._ring_buffer`` — SPSC ring buffer (deque)
 - ``self._recorder._preroll_buffer`` — preroll deque
@@ -28,7 +28,9 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
 - ``self._recorder._recent_rms_values`` / ``_silence_timer`` / etc. — RMS state
 - ``self._recorder._devices._device_disconnected`` /
   ``_device_disconnect_retries`` — disconnect state (DeviceManager)
-- ``self._recorder._xruns`` / ``_xrun_timestamps`` / ``_clip_count`` / etc. — XRUN state
+- ``recorder._audio_pipeline._xruns`` / ``_xrun_timestamps`` /
+  ``_clip_count`` / etc. — XRUN/clip telemetry (owned by
+  :class:`.audio_pipeline.AudioPipeline`)
 - ``self._recorder._cached_target_sr`` / ``_cached_vad_*`` — cached scalars
 - ``self._recorder._cached_resampled_segments`` / ``_cached_resampled_concat_dirty`` — segment cache
 - ... and any other state referenced in the extracted bodies
@@ -181,13 +183,13 @@ class SessionState:
                 out of ``start()``'s body so ``start()`` stays a readable
                 orchestrator that calls helpers in order.
         """
-        recorder._buffer.clear()
-        recorder._chunk_count = 0
+        recorder._audio_pipeline._buffer.clear()
+        recorder._audio_pipeline._chunk_count = 0
         # PERF: zero the running buffered-samples counter so the next
         # session's ``current_duration_seconds`` polls start from 0.
         # Without this, the counter would carry over the previous
         # session's total and over-report duration on the first poll.
-        recorder._total_buffered_samples = 0
+        recorder._audio_pipeline._total_buffered_samples = 0
         recorder._cached_resampled = np.array([], dtype=np.float32)
         # contiguous storage: the resampled cache's filled-prefix length
         # must reset alongside the array (the attribute owns a grown
@@ -270,7 +272,7 @@ class SessionState:
         # ``_secure_clear_caches``. The ``None`` sentinel makes the
         # ``_buffer_sr or _effective_sr`` fallback idiom work until
         # the first chunk arrives.
-        recorder._buffer_sr = None
+        recorder._audio_pipeline._buffer_sr = None
         # reset the per-chunk VAD property cache so stale values
         # from a prior session don't leak. The cache is recomputed by
         # ``_refresh_vad_caches()`` after the device loop finalizes
@@ -280,12 +282,16 @@ class SessionState:
         recorder._cached_silero_available = False
         recorder._cached_vad_resample_up_down = None
         recorder._cached_vad_resample_sr = None
-        # Reset XRUN and clipping counters
-        recorder._xruns = 0
-        recorder._xrun_timestamps.clear()
-        recorder._clip_count = 0
-        recorder._peak = 0.0
-        recorder._last_clip_log_time = 0.0
+        # Reset XRUN and clipping counters. STATE-OWNERSHIP: the
+        # counters live on ``AudioPipeline`` (the owning collaborator);
+        # reset through the owner path so a fresh session starts from
+        # zero (same reset values as pre-move).
+        _pipeline = recorder._audio_pipeline
+        _pipeline._xruns = 0
+        _pipeline._xrun_timestamps.clear()
+        _pipeline._clip_count = 0
+        _pipeline._peak = 0.0
+        _pipeline._last_clip_log_time = 0.0
         recorder._last_rms = 0.0
         # reset VAD state machine.
         # VadProcessor.reset() handles the actual state restoration.
@@ -522,7 +528,7 @@ class SessionState:
         # subsequent ``start()`` doesn't reuse the stale rate. Matches
         # the explicit reset in ``_recorder_split.discard_recording``
         # (which also routes through this helper for the cache arrays).
-        recorder._buffer_sr = None
+        recorder._audio_pipeline._buffer_sr = None
 
     # ── Dynamic buffer sizing ───────────────────────────────────────────
 
@@ -567,21 +573,21 @@ class SessionState:
 
         if max_rec > 0 and chunk_seconds > 0:
             needed_chunks = int(max_rec / chunk_seconds) + 1000  # +1K safety
-            current_maxlen = recorder._buffer.maxlen or 0
+            current_maxlen = recorder._audio_pipeline._buffer.maxlen or 0
             if needed_chunks > current_maxlen:
-                if hasattr(recorder._buffer, "set_hard_cap"):
+                if hasattr(recorder._audio_pipeline._buffer, "set_hard_cap"):
                     # Contiguous storage: raise the chunk-count cap and the
                     # derived sample hard-cap IN PLACE — the filled window
                     # is preserved automatically (single backing array).
-                    recorder._buffer.maxlen = needed_chunks
-                    recorder._buffer.set_hard_cap(needed_chunks * 2 * blocksize)
+                    recorder._audio_pipeline._buffer.maxlen = needed_chunks
+                    recorder._audio_pipeline._buffer.set_hard_cap(needed_chunks * 2 * blocksize)
                 else:
                     # Legacy container (plain deque swapped in by the
                     # hot-swap path): preserve any data already in the
                     # buffer (defensive — start() clears the buffer, so
                     # this is normally empty) when resizing.
-                    old_data = list(recorder._buffer)
-                    recorder._buffer = collections.deque(old_data, maxlen=needed_chunks)
+                    old_data = list(recorder._audio_pipeline._buffer)
+                    recorder._audio_pipeline._buffer = collections.deque(old_data, maxlen=needed_chunks)
                 log.debug(
                     "[RECORDING] Buffer sized for %ds max recording at %d Hz "
                     "(blocksize=%d, chunk_seconds=%.4f): %d chunks",
@@ -714,7 +720,7 @@ class SessionState:
                                 "[RECORDING] pre-roll process_chunk failed; using raw chunk",
                                 exc_info=True,
                             )
-                    recorder._buffer.appendleft(mono_chunk.copy())
+                    recorder._audio_pipeline._buffer.appendleft(mono_chunk.copy())
                 log.debug(
                     "[RECORDING] Prepended %d pre-roll chunks (~%.1fs)",
                     len(preroll_chunks),

@@ -300,6 +300,20 @@ class TestOrphanThresholdWarning:
                     with pytest.raises(TimeoutError):
                         credential_store._run_keyring_call(slow_call)
             threshold_logs = [r for r in caplog.records if "orphaned keyring-io threads" in r.getMessage()]
+            if not threshold_logs:
+                # Bounded condition-wait, not a flaky single check: under
+                # full-suite xdist CPU contention the watchdog/timeout
+                # bookkeeping can lag the return of the second
+                # ``TimeoutError`` by a scheduler quantum, so the
+                # threshold WARNING may land milliseconds after this
+                # point. Poll for it (2s ceiling) before failing.
+                import time as _time
+
+                _deadline = _time.monotonic() + 2.0
+                while _time.monotonic() < _deadline and not threshold_logs:
+                    threshold_logs = [r for r in caplog.records if "orphaned keyring-io threads" in r.getMessage()]
+                    if not threshold_logs:
+                        _time.sleep(0.01)
             assert len(threshold_logs) >= 1, (
                 "expected a threshold-exceeded WARNING when orphan count > threshold; "
                 f"got logs: {[r.getMessage() for r in caplog.records]}"

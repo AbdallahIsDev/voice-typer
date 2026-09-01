@@ -81,7 +81,7 @@ def _make_recorder_stub() -> MagicMock:
     recorder._cached_silero_available = True
     # 48000 Hz buffer — NOT in SILERO_VAD_SAMPLE_RATES, so the resample
     # branch is taken.
-    recorder._buffer_sr = _BUFFER_SR
+    recorder._audio_pipeline._buffer_sr = _BUFFER_SR
     recorder._effective_sr = _BUFFER_SR
     # Cache matches _buffer_sr so ``_refresh_vad_caches`` is skipped.
     recorder._cached_vad_resample_sr = _BUFFER_SR
@@ -317,7 +317,7 @@ class TestVadResampleSkippedAt16kHz:
         recorder = _make_recorder_stub()
         # 16000 is in SILERO_VAD_SAMPLE_RATES -> _cached_vad_resample_up_down
         # is None (set by ``_refresh_vad_caches``).
-        recorder._buffer_sr = 16000
+        recorder._audio_pipeline._buffer_sr = 16000
         recorder._effective_sr = 16000
         recorder._cached_vad_resample_sr = 16000
         recorder._cached_vad_resample_up_down = None

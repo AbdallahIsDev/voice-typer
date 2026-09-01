@@ -223,6 +223,13 @@ class _FakeRecorderForSnapshot:
     """Minimal recorder double exposing what take_snapshot reads."""
 
     def __init__(self, *, effective_sr: int, target_sr: int = 16000) -> None:
+        # STATE-OWNERSHIP: the buffer / lock / buffer-side sample
+        # rate live on the owning ``AudioPipeline`` (production reads
+        # them via ``recorder._audio_pipeline.<attr>``). This fake plays
+        # both roles, so self-delegate the pipeline attribute — the
+        # ``take_snapshot`` friend-access path resolves back to the
+        # attributes below.
+        self._audio_pipeline = self
         self.config = MagicMock(sample_rate=target_sr)
         self._buffer_sr = effective_sr
         self._effective_sr = effective_sr
@@ -262,21 +269,21 @@ class TestResampleCacheInvalidationOnRateChange:
 
     def test_src_rate_change_invalidates_and_rebuilds_cache(self):
         rec = _FakeRecorderForSnapshot(effective_sr=48000)
-        rec._buffer.append(np.full((6, 1), 1.0, dtype=np.float32))
+        rec._audio_pipeline._buffer.append(np.full((6, 1), 1.0, dtype=np.float32))
         first = take_snapshot(rec)
         assert first.size == 2  # 48k → 16k decimation by 3
         calls_after_first = len(rec.resample_calls)
 
         # Same rate → incremental: appending new samples resamples ONLY
         # the new tail.
-        rec._buffer.append(np.full((6, 1), 2.0, dtype=np.float32))
+        rec._audio_pipeline._buffer.append(np.full((6, 1), 2.0, dtype=np.float32))
         second = take_snapshot(rec)
         assert second.size == 4
         assert len(rec.resample_calls) == calls_after_first + 1
 
         # Rate CHANGE mid-session: the cache must be discarded and the
         # whole window re-resampled under the new key.
-        rec._buffer_sr = 8000
+        rec._audio_pipeline._buffer_sr = 8000
         third = take_snapshot(rec)
         assert rec._cached_resample_key == ("float32", 8000, 16000)
         # 12 samples @8k → decimation by max(1, 8000//16000)=1 → 12 out.
@@ -286,13 +293,13 @@ class TestResampleCacheInvalidationOnRateChange:
 
     def test_invalidated_cache_array_is_securely_zeroed(self):
         rec = _FakeRecorderForSnapshot(effective_sr=48000)
-        rec._buffer.append(np.full((6, 1), 1.0, dtype=np.float32))
+        rec._audio_pipeline._buffer.append(np.full((6, 1), 1.0, dtype=np.float32))
         take_snapshot(rec)
         old_capacity_array = rec._cached_resampled
         old_len = rec._cached_resampled_len
         assert old_len > 0
 
-        rec._buffer_sr = 44100  # force key change
+        rec._audio_pipeline._buffer_sr = 44100  # force key change
         take_snapshot(rec)
         # The superseded cache memory must be zeroed (SEC-audit-008) —
         # check the OLD backing array object, not the freshly rebuilt one.
@@ -310,18 +317,18 @@ def _make_mock_recorder_for_stop(chunks: list[np.ndarray], *, buffer_sr: int = 1
     rec._recording_event.set()
     rec._stop_generation = 0
     rec._user_stop_pending = False
-    rec._lock = threading.Lock()
+    rec._audio_pipeline._lock = threading.Lock()
     rec._devices._mic_watcher = None
     buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
     for c in chunks:
         buf.append(c)
-    rec._buffer = buf
-    rec._chunk_count = len(chunks)
-    rec._buffer_sr = buffer_sr
+    rec._audio_pipeline._buffer = buf
+    rec._audio_pipeline._chunk_count = len(chunks)
+    rec._audio_pipeline._buffer_sr = buffer_sr
     rec._effective_sr = buffer_sr
     rec._last_rms = 0.0
     rec._last_audio_stats = (0.0, 0.0, 0.0)
-    rec._total_buffered_samples = buf.total_samples
+    rec._audio_pipeline._total_buffered_samples = buf.total_samples
     return rec
 
 
@@ -352,7 +359,7 @@ class TestStopContiguityGoldenSine:
         chunks = [_sine(440.0 + i * 10, 400) for i in range(12)]
         golden = np.concatenate(chunks)
         rec = _make_mock_recorder_for_stop(chunks)
-        buf = rec._buffer
+        buf = rec._audio_pipeline._buffer
         # Force tiny initial capacity so appends cross doubling boundaries.
         buf._initial_capacity_samples = 512
         buf.set_hard_cap(1 << 40)
@@ -384,8 +391,8 @@ class TestDiscardAndStopZeroing:
         rec._recording_event.set()
         rec._stop_generation = 0
         rec._user_stop_pending = False
-        rec._lock = threading.Lock()
-        rec._stream = MagicMock()
+        rec._audio_pipeline._lock = threading.Lock()
+        rec._stream_lifecycle._stream = MagicMock()
         rec._teardown_stream = MagicMock()
         rec._stop_audio_worker = MagicMock()
         rec._capture.stop_event_worker_body = MagicMock()
@@ -403,17 +410,17 @@ class TestDiscardAndStopZeroing:
         buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
         buf.append(np.full(64, 0.25, dtype=np.float32))
         storage_ref = buf.storage
-        rec._buffer = buf
-        rec._total_buffered_samples = 64
+        rec._audio_pipeline._buffer = buf
+        rec._audio_pipeline._total_buffered_samples = 64
 
         discard_recording(rec)
 
         # Fresh empty container swapped in, same maxlen preserved.
-        assert rec._buffer is not buf
-        assert isinstance(rec._buffer, GrowableRecordingBuffer)
-        assert len(rec._buffer) == 0
-        assert rec._buffer.maxlen == 30000
-        assert rec._total_buffered_samples == 0
+        assert rec._audio_pipeline._buffer is not buf
+        assert isinstance(rec._audio_pipeline._buffer, GrowableRecordingBuffer)
+        assert len(rec._audio_pipeline._buffer) == 0
+        assert rec._audio_pipeline._buffer.maxlen == 30000
+        assert rec._audio_pipeline._total_buffered_samples == 0
 
         # Background worker must zero the OLD storage in-place.
         from voice_typer.server.recording.buffer import _stop_buffer_clear_worker
@@ -431,16 +438,16 @@ class TestDiscardAndStopZeroing:
         rec = _FakeRecorderForSnapshot(effective_sr=16000)
         legacy = collections.deque(maxlen=12345)
         legacy.append(np.full(4, 3.0, dtype=np.float32))
-        rec._buffer = legacy
+        rec._audio_pipeline._buffer = legacy
 
         snap = take_snapshot(rec)
 
-        assert isinstance(rec._buffer, GrowableRecordingBuffer)
-        assert rec._buffer.maxlen == 12345
-        assert len(rec._buffer) == 1
-        assert rec._buffer.total_samples == 4
+        assert isinstance(rec._audio_pipeline._buffer, GrowableRecordingBuffer)
+        assert rec._audio_pipeline._buffer.maxlen == 12345
+        assert len(rec._audio_pipeline._buffer) == 1
+        assert rec._audio_pipeline._buffer.total_samples == 4
         np.testing.assert_array_equal(snap, np.full(4, 3.0, dtype=np.float32))
 
         # Subsequent appends land in the installed buffer.
-        rec._buffer.append(np.full(2, 5.0, dtype=np.float32))
-        assert rec._buffer.total_samples == 6
+        rec._audio_pipeline._buffer.append(np.full(2, 5.0, dtype=np.float32))
+        assert rec._audio_pipeline._buffer.total_samples == 6

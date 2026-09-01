@@ -67,9 +67,9 @@ class TestAudioCallbackUsesMinimalLockScope:
 
         def invoke_locked_append():
             try:
-                with rec._lock:
-                    rec._buffer.append(indata.copy())
-                    rec._chunk_count += 1
+                with rec._audio_pipeline._lock:
+                    rec._audio_pipeline._buffer.append(indata.copy())
+                    rec._audio_pipeline._chunk_count += 1
                     # RACE-003: snapshot _recent_rms_values inside the lock
                     _ = list(rec._recent_rms_values)
             except Exception as e:
@@ -88,9 +88,9 @@ class TestAudioCallbackUsesMinimalLockScope:
         # No exceptions should have been raised
         assert not errors, f"Concurrent locked-append invocations raised: {errors}"
         # Buffer should contain exactly 8*50 = 400 chunks
-        with rec._lock:
-            assert len(rec._buffer) == 400
-            assert rec._chunk_count == 400
+        with rec._audio_pipeline._lock:
+            assert len(rec._audio_pipeline._buffer) == 400
+            assert rec._audio_pipeline._chunk_count == 400
 
     def test_lock_scope_only_covers_buffer_append_and_count(self):
         """The lock block inside the callback must only cover buffer
@@ -115,13 +115,15 @@ class TestAudioCallbackUsesMinimalLockScope:
         # is now a 1-line delegator — inspect the pipeline method instead.
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
         # The lock block must include buffer.append and _chunk_count.
-        # The append now aliases ``_buf = recorder._buffer`` before
-        # calling ``_buf.append(filtered)`` (PERF: avoids repeated
-        # attribute lookups on the hot path), so the invariant is the
-        # ``_buf.append`` literal inside the ``with recorder._lock``
-        # block — NOT ``recorder._buffer.append``.
+        # STATE-OWNERSHIP: the buffer + chunk counter are owned by
+        # the pipeline itself — the append aliases
+        # ``_buf = self._buffer`` before calling ``_buf.append(filtered)``
+        # (PERF: avoids repeated attribute lookups on the hot path), and
+        # the counter is incremented as ``self._chunk_count``. The
+        # invariant is the ``_buf.append`` literal inside the
+        # ``with self._lock`` block.
         assert "_buf.append(filtered)" in src
-        assert "recorder._chunk_count" in src
+        assert "self._chunk_count" in src
         # RACE-003: the recent_rms snapshot is now read inside
         # AudioPipeline.run_vad_state_machine (see test below).
         # The old inline snapshot line no longer exists in this method.
@@ -146,18 +148,19 @@ class TestRmsSnapshotReadsInsideLock:
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
-        # _last_rms must be written inside recorder._lock
+        # _last_rms must be written inside the pipeline-owned buffer lock
+        # (STATE-OWNERSHIP: the lock lives on AudioPipeline as ``self._lock``).
         lines = src.splitlines()
         lock_block_start = None
         lock_block_end = None
         for i, line in enumerate(lines):
             stripped = line.strip()
-            if stripped.startswith("with recorder._lock:"):
+            if stripped.startswith("with self._lock:"):
                 lock_block_start = i + 1  # next line
             elif lock_block_start is not None and stripped.startswith("recorder._last_rms = "):
                 lock_block_end = i
-        assert lock_block_start is not None, "RACE-003: process_audio_chunk must have a with recorder._lock: block"
-        assert lock_block_end is not None, "RACE-003: recorder._last_rms must be assigned inside recorder._lock"
+        assert lock_block_start is not None, "RACE-003: process_audio_chunk must have a with self._lock: block"
+        assert lock_block_end is not None, "RACE-003: recorder._last_rms must be assigned inside the pipeline lock"
         assert lock_block_end >= lock_block_start, (
             "RACE-003: recorder._last_rms must be INSIDE the lock block "
             f"(lock starts at line {lock_block_start}, assignment at {lock_block_end})"
@@ -1035,7 +1038,7 @@ class TestAudioDeviceDisconnectHandling:
         rec._cached_target_sr = 16000
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()
-        rec._chunk_count = 15  # > 10 threshold
+        rec._audio_pipeline._chunk_count = 15  # > 10 threshold
         rec._devices._device_disconnected = False
 
         # Mock callbacks
@@ -1082,15 +1085,15 @@ class TestBackpressureDetectionOnDequeOverflow:
         rec._cached_target_sr = 16000
 
         # Fill the buffer past maxlen
-        maxlen = rec._buffer.maxlen
+        maxlen = rec._audio_pipeline._buffer.maxlen
         chunk = np.full((512, 1), 0.1, dtype=np.float32)
-        with rec._lock:
+        with rec._audio_pipeline._lock:
             for _ in range(maxlen + 5):
-                rec._buffer.append(chunk)
-        buffer_len = len(rec._buffer)
+                rec._audio_pipeline._buffer.append(chunk)
+        buffer_len = len(rec._audio_pipeline._buffer)
 
         # Simulate the backpressure check
-        if buffer_len >= rec._buffer.maxlen - 1:
+        if buffer_len >= rec._audio_pipeline._buffer.maxlen - 1:
             rec._dropped_chunks = getattr(rec, "_dropped_chunks", 0) + 1
 
         assert hasattr(rec, "_dropped_chunks"), "Backpressure counter must be set"
@@ -1109,7 +1112,9 @@ class TestBackpressureDetectionOnDequeOverflow:
 
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
         assert "_dropped_chunks" in src, "AUDIO-010: recording callback must track _dropped_chunks."
-        assert "recorder._buffer.maxlen" in src, "AUDIO-010: backpressure check must compare against _buffer.maxlen."
+        assert "self._buffer.maxlen" in src, (
+            "AUDIO-010: backpressure check must compare against the pipeline-owned _buffer.maxlen."
+        )
 
 
 # ADR-0007: AGC removed; test deleted because the feature no longer exists.
@@ -1200,9 +1205,11 @@ class TestPeakMeterAccuracy:
 
         cfg = Config()
         rec = Recorder(cfg)
-        rec._peak = 0.0
-        rec._clip_count = 0
-        rec._last_clip_log_time = 0.0
+        # STATE-OWNERSHIP: peak/clip telemetry lives on the owning
+        # AudioPipeline — mirror the production attribute path.
+        rec._audio_pipeline._peak = 0.0
+        rec._audio_pipeline._clip_count = 0
+        rec._audio_pipeline._last_clip_log_time = 0.0
 
         # Simulate the peak-tracking logic from the callback
         # (AUDIO-CLIP block at recording.py:1219+)
@@ -1210,16 +1217,18 @@ class TestPeakMeterAccuracy:
         for peak in test_peaks:
             chunk_peak = peak
             if chunk_peak >= 0.99:
-                rec._clip_count += 1
-                if chunk_peak > rec._peak:
-                    rec._peak = chunk_peak
+                rec._audio_pipeline._clip_count += 1
+                if chunk_peak > rec._audio_pipeline._peak:
+                    rec._audio_pipeline._peak = chunk_peak
             else:
                 # Non-clipping peaks also update _peak
-                if chunk_peak > rec._peak:
-                    rec._peak = chunk_peak
+                if chunk_peak > rec._audio_pipeline._peak:
+                    rec._audio_pipeline._peak = chunk_peak
 
         # _peak must be the maximum of all test peaks
-        assert rec._peak == 0.95, f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._peak}"
+        assert rec._audio_pipeline._peak == 0.95, (
+            f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._audio_pipeline._peak}"
+        )
 
     def test_peak_source_uses_abs_max(self):
         # KEEP — pins  (peak computation uses abs().max()).

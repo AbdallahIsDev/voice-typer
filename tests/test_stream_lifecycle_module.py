@@ -12,7 +12,7 @@ External dependencies are mocked:
   ``sd`` proxy with a fake factory (returns a ``MagicMock`` that records
   ``start()`` / ``stop()`` / ``close()`` calls).
 - ``recorder`` — a small ``MagicMock``-backed stub exposing only the
-  attributes the extracted bodies touch (``_stream``, ``_lock``,
+  attributes the extracted bodies touch (``_lock``,
   ``_effective_sr``, ``_actual_channels``, ``config``,
   ``_devices._resolve_effective_sample_rate``,
   ``_devices._cached_max_input_channels``,
@@ -44,7 +44,7 @@ def _make_recorder_stub() -> Any:
     The stub exposes only the shared attributes the extracted bodies
     touch (see the collaborator-pattern list in ``stream_lifecycle.py``'s
     module docstring). ``_lock`` is a real ``threading.Lock`` so the
-    ``with recorder._lock:`` block actually serializes; everything else
+    ``with recorder._audio_pipeline._lock:`` block actually serializes; everything else
     is a ``MagicMock``.
     """
     recorder = MagicMock()
@@ -53,13 +53,14 @@ def _make_recorder_stub() -> Any:
     # succeed but not provide real serialization — fine for these
     # tests, but a real Lock makes the tests representative of the
     # production behaviour.
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
     # ``_is_in_audio_callback`` is a real ``threading.Event`` for the
     # ``build_audio_callback`` / ``teardown_stream_body`` tests.
     recorder._is_in_audio_callback = threading.Event()
-    # ``_stream`` starts as ``None`` for the open-stream tests; tests
-    # that exercise teardown set it explicitly.
-    recorder._stream = None
+    # STATE-OWNERSHIP: the PortAudio ``_stream`` slot lives on
+    # the ``StreamLifecycle`` instance (constructed with ``None`` by
+    # its ``__init__``); tests that exercise teardown set
+    # ``lifecycle._stream`` explicitly after construction.
     # ``config.recording_channels`` defaults to 1 (mono) in the
     # production Config dataclass.
     recorder.config.recording_channels = 1
@@ -225,7 +226,7 @@ class TestOpenStreamForCandidates:
         # AUDIO-CH: actual_channels stored.
         assert recorder._actual_channels == 1
         # _stream is the opened stream.
-        assert recorder._stream is stream
+        assert lifecycle._stream is stream
 
     def test_first_candidate_fails_second_succeeds(self, monkeypatch):
         recorder = _make_recorder_stub()
@@ -254,7 +255,7 @@ class TestOpenStreamForCandidates:
         # exception encountered during iteration; on success the
         # ``break`` exits the loop without resetting it.)
         assert isinstance(last_err, RuntimeError)
-        assert recorder._stream is attempts[1][1]
+        assert lifecycle._stream is attempts[1][1]
         assert recorder._effective_sr == 48000
 
     def test_all_candidates_fail_returns_none(self, monkeypatch):
@@ -281,9 +282,9 @@ class TestOpenStreamForCandidates:
         assert isinstance(last_err, RuntimeError)
         # Both candidates attempted.
         assert len(attempts) == 2
-        # On failure, the body sets ``recorder._stream = None`` (line
+        # On failure, the body sets ``lifecycle._stream = None`` (line
         # 2029 in recorder.py) and continues to the next candidate.
-        assert recorder._stream is None
+        assert lifecycle._stream is None
         # The failing stream's close() was suppressed (the body wraps
         # the close in ``contextlib.suppress(Exception)`` so a double
         # failure is OK).  The first failed attempt did not produce a
@@ -350,7 +351,7 @@ class TestOpenStreamFallback:
         # attempted.  The first succeeded, so only one attempt.
         assert len(attempts) == 1
         assert attempts[0][0]["device"] == 11
-        assert recorder._stream is attempts[0][1]
+        assert lifecycle._stream is attempts[0][1]
         assert recorder._effective_sr == 48000
 
     def test_tried_filter_excludes_already_tried_devices(self, monkeypatch):
@@ -402,7 +403,7 @@ class TestOpenStreamFallback:
         assert isinstance(last_err, RuntimeError)
         # All 3 fallback candidates attempted.
         assert len(attempts) == 3
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_fallback_logs_dev_info_when_available(self, monkeypatch, caplog):
         """When ``_resolve_effective_sample_rate`` returns a
@@ -480,23 +481,24 @@ class TestTeardownStreamBody:
         # Must not raise even though there's nothing to tear down.
         lifecycle.teardown_stream_body(recorder)
 
-        # ``recorder._stream`` is unchanged (still None) and no
+        # ``lifecycle._stream`` is unchanged (still None) and no
         # ``stop``/``close`` calls were made.
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_stops_closes_and_clears_stream(self, monkeypatch):
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        recorder._stream = fake_stream
         # In-flight callback flag is NOT set — poll loop exits immediately.
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle.
+        lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder)
 
         fake_stream.stop.assert_called_once_with()
         fake_stream.close.assert_called_once_with()
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_polls_in_flight_callback_until_clear(self, monkeypatch):
         """when the in-flight callback flag is set,
@@ -506,7 +508,6 @@ class TestTeardownStreamBody:
         ``time.sleep``)."""
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        recorder._stream = fake_stream
         # Flag starts SET (callback in-flight).
         recorder._is_in_audio_callback.set()
 
@@ -527,6 +528,9 @@ class TestTeardownStreamBody:
         # is always positive (avoids early break on a busy CI box).
         monkeypatch.setattr(sl_module.time, "perf_counter", lambda: 0.0)
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle
+        # (after construction — ``__init__`` initializes it to ``None``).
+        lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder)
 
@@ -539,7 +543,7 @@ class TestTeardownStreamBody:
         # Stream was stopped, then closed, then ``_stream`` cleared.
         fake_stream.stop.assert_called_once_with()
         fake_stream.close.assert_called_once_with()
-        assert recorder._stream is None
+        assert lifecycle._stream is None
         # Flag is clear after teardown completes.
         assert not recorder._is_in_audio_callback.is_set()
 
@@ -551,7 +555,6 @@ class TestTeardownStreamBody:
         ``discard()`` could hang indefinitely on a stuck callback."""
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        recorder._stream = fake_stream
         # Flag stays SET for the entire budget.
         recorder._is_in_audio_callback.set()
 
@@ -574,6 +577,8 @@ class TestTeardownStreamBody:
         monkeypatch.setattr(sl_module.time, "perf_counter", fake_perf_counter)
         monkeypatch.setattr(sl_module.time, "sleep", fake_sleep)
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle.
+        lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder)
 
@@ -582,7 +587,7 @@ class TestTeardownStreamBody:
         # After the budget is exhausted, the body still calls close()
         # and clears ``_stream`` (worst-case contract).
         fake_stream.close.assert_called_once_with()
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_close_exception_propagates(self, monkeypatch):
         """If ``stream.close()`` raises, the exception propagates out of
@@ -594,9 +599,10 @@ class TestTeardownStreamBody:
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.close.side_effect = OSError("close boom")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle.
+        lifecycle._stream = fake_stream
 
         with pytest.raises(OSError, match="close boom"):
             lifecycle.teardown_stream_body(recorder)
@@ -608,8 +614,9 @@ class TestTeardownStreamBody:
 
 
 class TestStreamLifecycleInit:
-    """Constructor stores the back-reference.  This is the only state
-    the collaborator holds — all other state lives on ``Recorder``."""
+    """Constructor stores the back-reference AND owns the PortAudio
+    ``_stream`` slot (STATE-OWNERSHIP: initialized to ``None``,
+    the same sentinel the recorder-level declaration used)."""
 
     def test_init_stores_recorder_reference(self):
         recorder = _make_recorder_stub()

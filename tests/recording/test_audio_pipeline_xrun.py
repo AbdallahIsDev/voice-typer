@@ -27,7 +27,6 @@ The tests exercise :class:`AudioPipeline` directly with a
 
 from __future__ import annotations
 
-import collections
 import logging
 from unittest.mock import MagicMock
 
@@ -41,32 +40,32 @@ from voice_typer.server.recording.audio_pipeline import (
 log = logging.getLogger("voice_typer.server.recording")
 
 
-def _make_xrun_recorder_stub(
+def _make_xrun_pipeline(
     *,
     xrun_threshold: int = 10,
-) -> MagicMock:
-    """Build a MagicMock ``Recorder`` with the XRUN-tracking state.
+) -> tuple[MagicMock, AudioPipeline]:
+    """Build a MagicMock ``Recorder`` + the owning ``AudioPipeline``.
 
-    The stub exposes exactly the attributes that
-    ``AudioPipeline.handle_xrun_status`` reads / writes:
+    STATE-OWNERSHIP: the XRUN-tracking counters
+    (``_xruns`` / ``_xrun_timestamps`` / ``_xrun_threshold``) live on
+    the ``AudioPipeline`` (the owning collaborator) — the test pins
+    them on the OWNING object (C-ARCH-2). The ``_xrun_timestamps``
+    deque is a real ``collections.deque`` (constructed by the
+    pipeline's ``__init__``) so the rolling-window ``append`` +
+    iteration in the production code works with real semantics (a
+    MagicMock auto-mock would silently return a MagicMock for
+    ``.append`` and break the windowed count iteration).
 
-    - ``_xruns`` — running XRUN counter, incremented on every
-      input-overflow.
-    - ``_xrun_timestamps`` — real ``collections.deque`` so the
-      rolling-window ``append`` + iteration in the production code
-      works with real semantics (a MagicMock auto-mock would
-      silently return a MagicMock for ``.append`` and break the
-      windowed count iteration).
-    - ``_xrun_threshold`` — every Nth xrun fires the tray callback.
+    What stays on the recorder stub:
     - ``on_xrun_threshold`` — MagicMock so the test can assert call
-      count + the count value passed.
+      count + the count value passed (app-wired slot, stays on
+      ``Recorder``).
     """
     recorder = MagicMock(name="RecorderStub")
-    recorder._xruns = 0
-    recorder._xrun_timestamps = collections.deque()
-    recorder._xrun_threshold = xrun_threshold
     recorder.on_xrun_threshold = MagicMock(name="on_xrun_threshold")
-    return recorder
+    pipeline = AudioPipeline(recorder)
+    pipeline._xrun_threshold = xrun_threshold
+    return recorder, pipeline
 
 
 class _StatusFlags:
@@ -95,42 +94,40 @@ class _StatusFlags:
 
 class TestInputOverflowIncrementsXrunCounter:
     """A PortAudio status with ``input_overflow=True`` must increment
-    ``_xruns`` and return True (so the caller drops the stale chunk)."""
+    ``_xruns`` (owned by ``AudioPipeline``) and return True (so the
+    caller drops the stale chunk)."""
 
     def test_input_overflow_increments_xrun_counter(self) -> None:
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         ret = pipeline.handle_xrun_status(_StatusFlags(input_overflow=True))
 
         # Return True → caller drops the partial chunk (avoids
         # corrupting the transcriber's input with a discontinuity).
         assert ret is True
-        assert recorder._xruns == 1
+        assert pipeline._xruns == 1
         # A timestamp was appended for the rolling-window alert.
-        assert len(recorder._xrun_timestamps) == 1
+        assert len(pipeline._xrun_timestamps) == 1
 
     def test_raw_int_status_with_bit_1_increments_xrun(self) -> None:
         """R18-F13: tests pass ``status=2`` (``paInputOverflow == 2``
         in PortAudio's flag enum) to simulate a CallbackFlags object
         without constructing one. The int-fallback path
         (``status & 2``) must detect the overflow."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         ret = pipeline.handle_xrun_status(2)
 
         assert ret is True
-        assert recorder._xruns == 1
-        assert len(recorder._xrun_timestamps) == 1
+        assert pipeline._xruns == 1
+        assert len(pipeline._xrun_timestamps) == 1
 
     def test_status_with_other_flags_only_does_not_increment(self) -> None:
         """``status.input_overflow=False`` (e.g. only
         ``priming_output`` set, which fires on the first callback
         after every start) must NOT be treated as an XRUN. Pre-fix,
         ``if status:`` over-counted by 1 on every ``start()``."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         # Truthy status (e.g. priming_output) but input_overflow=False.
         status = _StatusFlags(input_overflow=False)
@@ -138,49 +135,46 @@ class TestInputOverflowIncrementsXrunCounter:
         ret = pipeline.handle_xrun_status(status)
 
         assert ret is False
-        assert recorder._xruns == 0
-        assert len(recorder._xrun_timestamps) == 0
+        assert pipeline._xruns == 0
+        assert len(pipeline._xrun_timestamps) == 0
 
     def test_raw_int_status_without_bit_1_does_not_increment(self) -> None:
         """A raw int with only bit 0 (``paNoError`` == 0 is falsy;
         bit 2 / 4 / etc. are other PortAudio flags) must NOT be
         treated as input overflow."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         # bit 0 set (value 1) — NOT paInputOverflow (which is bit 1, value 2)
         ret = pipeline.handle_xrun_status(1)
 
         assert ret is False
-        assert recorder._xruns == 0
+        assert pipeline._xruns == 0
 
     def test_falsy_status_does_not_increment(self) -> None:
         """``status=0`` (no flags set — clean callback) must be a
         no-op."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         ret = pipeline.handle_xrun_status(0)
 
         assert ret is False
-        assert recorder._xruns == 0
-        assert len(recorder._xrun_timestamps) == 0
+        assert pipeline._xruns == 0
+        assert len(pipeline._xrun_timestamps) == 0
 
     def test_xrun_appends_monotonic_timestamp(self) -> None:
         """Each XRUN must append a ``time.monotonic()`` reading to
         ``_xrun_timestamps`` so the rolling-window alert can count
         recent XRUNs."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         pipeline.handle_xrun_status(2)
         pipeline.handle_xrun_status(2)
         pipeline.handle_xrun_status(2)
 
-        assert recorder._xruns == 3
-        assert len(recorder._xrun_timestamps) == 3
+        assert pipeline._xruns == 3
+        assert len(pipeline._xrun_timestamps) == 3
         # Timestamps are monotonic non-decreasing.
-        ts = list(recorder._xrun_timestamps)
+        ts = list(pipeline._xrun_timestamps)
         assert ts[0] <= ts[1] <= ts[2]
 
 
@@ -205,8 +199,7 @@ class TestXrunRollingWindowLogThrottling:
         A 5th XRUN in the same window crosses the threshold and the
         log fires again, proving the throttle releases at the
         threshold rather than permanently suppressing."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             # 4 XRUNs in the same window — only the 1st should log.
@@ -237,7 +230,7 @@ class TestXrunRollingWindowLogThrottling:
         )
 
         # Sanity: counter tracked every XRUN regardless of logging.
-        assert recorder._xruns == 5
+        assert pipeline._xruns == 5
 
     def test_below_threshold_xruns_do_not_log(
         self,
@@ -246,8 +239,7 @@ class TestXrunRollingWindowLogThrottling:
         """XRUNs 2, 3, 4 (below the rolling-window threshold of 5 and
         ``_xruns != 1``) must NOT emit a log record. Only the 1st
         XRUN (via the ``_xruns == 1`` clause) logs."""
-        recorder = _make_xrun_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             # 1st — logs (via _xruns == 1 clause)
@@ -260,7 +252,7 @@ class TestXrunRollingWindowLogThrottling:
         portaudio_logs = [r for r in caplog.records if "PortAudio status flag" in r.getMessage()]
         assert len(portaudio_logs) == 1, f"Expected exactly 1 log (only on 1st XRUN); got {len(portaudio_logs)}."
         # Sanity: counter tracked every XRUN regardless of logging.
-        assert recorder._xruns == 4
+        assert pipeline._xruns == 4
 
     def test_threshold_constants_are_documented(self) -> None:
         """Pin the rolling-window constants so a future refactor
@@ -282,8 +274,7 @@ class TestOnXrunThresholdCallbackFiresEveryN:
     def test_callback_fires_every_n_xruns(self) -> None:
         """With threshold=5, the callback fires on the 5th, 10th, 15th
         XRUN — three times for 15 XRUNs total."""
-        recorder = _make_xrun_recorder_stub(xrun_threshold=5)
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline(xrun_threshold=5)
 
         for _ in range(15):
             pipeline.handle_xrun_status(2)
@@ -296,8 +287,7 @@ class TestOnXrunThresholdCallbackFiresEveryN:
 
     def test_callback_does_not_fire_below_threshold(self) -> None:
         """With threshold=10, 4 XRUNs must not fire the callback."""
-        recorder = _make_xrun_recorder_stub(xrun_threshold=10)
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_xrun_pipeline(xrun_threshold=10)
 
         for _ in range(4):
             pipeline.handle_xrun_status(2)
@@ -308,29 +298,27 @@ class TestOnXrunThresholdCallbackFiresEveryN:
         """If the user-supplied callback raises, the XRUN handler
         must swallow the exception (``contextlib.suppress(Exception)``)
         so a buggy callback doesn't kill the audio worker thread."""
-        recorder = _make_xrun_recorder_stub(xrun_threshold=1)
+        recorder, pipeline = _make_xrun_pipeline(xrun_threshold=1)
         recorder.on_xrun_threshold.side_effect = RuntimeError("buggy callback")
-        pipeline = AudioPipeline(recorder)
 
         # Must NOT raise — the suppress swallows the RuntimeError.
         ret = pipeline.handle_xrun_status(2)
 
         assert ret is True
-        assert recorder._xruns == 1
+        assert pipeline._xruns == 1
         # The callback was invoked (and the exception suppressed).
         assert recorder.on_xrun_threshold.call_count == 1
 
     def test_no_callback_does_not_crash(self) -> None:
         """When ``on_xrun_threshold`` is ``None`` (no tray subscriber),
         the threshold check must short-circuit without raising."""
-        recorder = _make_xrun_recorder_stub(xrun_threshold=1)
+        recorder, pipeline = _make_xrun_pipeline(xrun_threshold=1)
         recorder.on_xrun_threshold = None
-        pipeline = AudioPipeline(recorder)
 
         ret = pipeline.handle_xrun_status(2)
 
         assert ret is True
-        assert recorder._xruns == 1
+        assert pipeline._xruns == 1
 
 
 if __name__ == "__main__":

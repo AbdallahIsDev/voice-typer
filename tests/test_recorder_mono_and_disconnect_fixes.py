@@ -7,7 +7,7 @@ Covers:
     and lazy scratch growth for oversized chunks.
   * ``DisconnectHandler.restart_stream`` state-write atomicity
     (``_actual_channels`` / ``_device_disconnected`` /
-    ``_device_disconnect_retries`` written inside ``recorder._lock``),
+    ``_device_disconnect_retries`` written inside ``recorder._audio_pipeline._lock``),
     buffer + cache flush on hot-swap, ring-buffer drain, and the
     narrowed ``except`` clause that re-raises programming bugs while
     recovering from ``sd.PortAudioError`` / ``OSError``.
@@ -181,25 +181,27 @@ class TestEnsureMonoThreadLocal:
 
 class TestRestartStreamLockAtomicity:
     """UE-35: the three disconnect-state writes must be inside
-    ``recorder._lock`` so a concurrent health-checker cannot race."""
+    ``recorder._audio_pipeline._lock`` so a concurrent health-checker cannot race."""
 
     def test_state_writes_are_inside_lock_in_source(self):
         """Source inspection: ``_actual_channels``, ``_device_disconnected``,
         and ``_device_disconnect_retries`` must appear AFTER ``with
-        recorder._lock:`` and BEFORE the lock block ends (i.e., before
+        recorder._audio_pipeline._lock:`` and BEFORE the lock block ends (i.e., before
         ``log.info("Successfully restarted")``)."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
-        assert lock_idx >= 0, "restart_stream must acquire recorder._lock"
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
+        assert lock_idx >= 0, "restart_stream must acquire recorder._audio_pipeline._lock"
         # Find the end of the lock block (next unindented line).
         lock_block = src[lock_idx:]
         # All three writes must be inside the lock block.
-        assert "_actual_channels = channels" in lock_block, "_actual_channels must be assigned inside recorder._lock"
+        assert "_actual_channels = channels" in lock_block, (
+            "_actual_channels must be assigned inside recorder._audio_pipeline._lock"
+        )
         assert "_device_disconnected = False" in lock_block, (
-            "_device_disconnected must be assigned inside recorder._lock"
+            "_device_disconnected must be assigned inside recorder._audio_pipeline._lock"
         )
         assert "_device_disconnect_retries = 0" in lock_block, (
-            "_device_disconnect_retries must be assigned inside recorder._lock"
+            "_device_disconnect_retries must be assigned inside recorder._audio_pipeline._lock"
         )
 
     def test_state_writes_not_outside_lock(self):
@@ -207,7 +209,7 @@ class TestRestartStreamLockAtomicity:
         the ``log.info("Successfully restarted")`` call (the pre-fix
         location)."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
         log_idx = src.find("Successfully restarted")
         assert lock_idx >= 0 and log_idx >= 0
         between = src[lock_idx:log_idx]
@@ -289,28 +291,29 @@ class TestRestartStreamBufferFlush:
 
         The disconnect handler now uses the swap-and-secure-clear-background
         pattern (mirrors ``discard()`` in ``_recorder_split.py``): it captures
-        ``_old_buffer = recorder._buffer``, assigns a fresh deque, then calls
+        ``_old_buffer = recorder._audio_pipeline._buffer``, assigns a fresh deque, then calls
         ``_secure_clear_array_background(_old_buffer)`` to zero the old
         chunks in a background worker. The swap happens inside the lock so
         the atomicity contract is preserved."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
         # The swap-and-secure-clear pattern replaces the bare .clear() call.
         assert "_secure_clear_array_background" in lock_block, (
-            "_secure_clear_array_background must be called inside recorder._lock to securely zero old buffer chunks"
+            "_secure_clear_array_background must be called inside "
+            "recorder._audio_pipeline._lock to securely zero old buffer chunks"
         )
 
     def test_secure_clear_caches_called_inside_lock(self):
         """``SessionState.secure_clear_caches`` must be called inside the lock to
         securely zero the cached arrays before the buffer clear."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
         assert "recorder._session_state.secure_clear_caches(recorder)" in lock_block, (
-            "secure_clear_caches(recorder) must be called inside recorder._lock"
+            "secure_clear_caches(recorder) must be called inside recorder._audio_pipeline._lock"
         )
 
     def test_no_resample_segments_reset_inside_lock(self):
@@ -318,7 +321,7 @@ class TestRestartStreamBufferFlush:
         reset inside the lock (``_secure_clear_caches`` does not handle
         these fields)."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
         assert "_cached_no_resample_segments = []" in lock_block, (
@@ -332,7 +335,7 @@ class TestRestartStreamBufferFlush:
         """``_cached_resample_key`` must be reset so the next snapshot
         detects a key mismatch and rebuilds from scratch."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
-        lock_idx = src.find("with recorder._lock:")
+        lock_idx = src.find("with recorder._audio_pipeline._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
         assert "_cached_resample_key = ()" in lock_block, "_cached_resample_key must be reset inside the lock"
@@ -379,22 +382,22 @@ class TestRestartStreamRuntimeBehavior:
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
         # Simulate stale pre-disconnect audio in both buffers.
-        r._buffer.append(np.zeros(512, dtype=np.float32))
-        r._buffer.append(np.zeros(512, dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.zeros(512, dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.zeros(512, dtype=np.float32))
         r._ring_buffer.append(("stale", 512, None, None, 0.0))
-        assert len(r._buffer) == 2
+        assert len(r._audio_pipeline._buffer) == 2
         assert len(r._ring_buffer) == 1
 
         handler = DisconnectHandler(r)
         handler.restart_stream(_captured_generation=0)
 
-        assert len(r._buffer) == 0, "buffer must be flushed on hot-swap restart"
+        assert len(r._audio_pipeline._buffer) == 0, "buffer must be flushed on hot-swap restart"
         assert len(r._ring_buffer) == 0, "ring buffer must be flushed on hot-swap restart"
         assert r._devices._device_disconnected is False
         assert r._devices._device_disconnect_retries == 0
         assert r._actual_channels == 1
         assert r._effective_sr == 48000
-        assert r._buffer_sr is None
+        assert r._audio_pipeline._buffer_sr is None
 
     def test_successful_restart_invalidates_snapshot_caches(self, monkeypatch):
         """A successful restart must reset the snapshot caches so the

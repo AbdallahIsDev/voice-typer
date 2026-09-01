@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+from tests.fixtures.recorder_test_helpers import snapshot_worker_threads, wait_for_workers_stopped
 from tests.fixtures.wait_helpers import wait_until
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -292,6 +292,12 @@ class TestEventWorkerLifecycle:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix): snapshot BEFORE this test spawns
+        # any worker so the wait only requires the DELTA to drain — threads
+        # leaked by earlier files in the same xdist worker no longer flake this
+        # wait; threads spawned HERE stay fully waited on (leak detection
+        # unchanged).
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
         assert r._event_worker_thread is not None
@@ -301,7 +307,9 @@ class TestEventWorkerLifecycle:
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
         # it) — poll the shared guard before asserting the ref cleared.
-        assert wait_for_workers_stopped(r, stop=r.stop), "stop() must set _event_worker_thread to None after joining"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
+            "stop() must set _event_worker_thread to None after joining"
+        )
 
     def test_event_worker_thread_stops_on_discard(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -310,6 +318,8 @@ class TestEventWorkerLifecycle:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
         assert r._event_worker_thread is not None
@@ -317,7 +327,9 @@ class TestEventWorkerLifecycle:
         r.discard()
 
         # GT-23-style load guard — see the stop() variant above.
-        assert wait_for_workers_stopped(r, stop=r.stop), "discard() must set _event_worker_thread to None after joining"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
+            "discard() must set _event_worker_thread to None after joining"
+        )
 
     def test_event_worker_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW event
@@ -328,6 +340,10 @@ class TestEventWorkerLifecycle:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # ONE snapshot at entry covers BOTH sessions: each session's workers
+        # spawn after it, so both stay fully waited on.
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
 
         # First session
@@ -336,7 +352,7 @@ class TestEventWorkerLifecycle:
         assert first is not None
         assert first.is_alive()
         r.stop()
-        assert wait_for_workers_stopped(r, stop=r.stop), "event worker must stop after stop()"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "event worker must stop after stop()"
 
         # Second session — must start a NEW thread
         r.start()
@@ -345,7 +361,7 @@ class TestEventWorkerLifecycle:
         assert second.is_alive()
         assert second is not first, "start() after stop() must create a NEW event worker thread, not reuse the dead one"
         r.stop()
-        assert wait_for_workers_stopped(r, stop=r.stop), "event worker must stop after stop()"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "event worker must stop after stop()"
 
 
 # non-blocking audio worker ────────────────────────────────
@@ -461,7 +477,10 @@ class TestAllEventsPublished:
             # chunk (bypasses the throttle for the test).
             clipping = np.ones((512, 1), dtype=np.float32)
             for _ in range(5):
-                r._last_clip_log_time = 0.0  # reset 1 Hz throttle
+                # STATE-OWNERSHIP: the clip-throttle timestamp is
+                # owned by ``AudioPipeline`` — reset it on the owner path
+                # so each clipping chunk publishes its event.
+                r._audio_pipeline._last_clip_log_time = 0.0  # reset 1 Hz throttle
                 r._current_callback(clipping, 512, None, 0)
                 # Wait for this chunk to be processed by the worker.
                 assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)

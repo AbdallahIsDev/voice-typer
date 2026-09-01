@@ -12,7 +12,7 @@ This parity test pins the literal against the REAL source of truth in
 code can never silently drift the guard.
 
 The two spawn-site names (``stream-finished-handler`` in
-``recorder.py``, ``device-disconnect-handler`` in
+``disconnect_handler.py``, ``device-disconnect-handler`` in
 ``audio_pipeline.py``) are plain string literals at their spawn sites
 — they have no constants to import — so they are pinned here
 alongside the two constant-backed names.
@@ -33,8 +33,8 @@ def test_worker_thread_names_match_recorder_constants() -> None:
 
     Two names come from the exported ``_AUDIO_WORKER_THREAD_NAME`` /
     ``_EVENT_WORKER_THREAD_NAME`` constants; the other two are the
-    thread names used at the spawn sites in ``recorder.py``
-    (``_stream_finished_callback``) and ``audio_pipeline.py``
+    thread names used at the spawn sites in ``disconnect_handler.py``
+    (``stream_finished_callback_body``) and ``audio_pipeline.py``
     (``_handle_device_disconnect``).
     """
     expected = frozenset(

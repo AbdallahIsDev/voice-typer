@@ -96,8 +96,8 @@ def _make_pipeline_stub(
     pipeline.detect_and_emit_clipping = MagicMock()
     # ``run_vad_state_machine`` and ``detect_and_emit_clipping`` are
     # no-op MagicMocks by default — the tests assert call counts / args.
-    # Real lock so ``with recorder._lock:`` is a real context manager.
-    recorder._lock = threading.Lock()
+    # Real lock so ``with recorder._audio_pipeline._lock:`` is a real context manager.
+    recorder._audio_pipeline._lock = threading.Lock()
     # Real deque so ``recorder._recent_rms_values.append(chunk_rms)`` works.
     recorder._recent_rms_values = collections.deque(maxlen=10)
     # Writable mutable state — these are assigned by the orchestration

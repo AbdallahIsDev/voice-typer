@@ -20,8 +20,8 @@ god-module split). The contracts are:
   ``_start_event_worker`` raises, so the stream does not leak.
 
 * REC-8: ``_buffer.clear()`` and the ``_buffer`` rebind
-  (``recorder._buffer = collections.deque(...)``) must be wrapped in
-  ``with recorder._lock:`` at every site that performs them
+  (``recorder._audio_pipeline._buffer = collections.deque(...)``) must be wrapped in
+  ``with recorder._audio_pipeline._lock:`` at every site that performs them
   (``discard_recording``, ``stop_recording``).
 
 These tests run on every platform (the production code paths are
@@ -210,7 +210,7 @@ class TestRec2RollbackOnWorkerStartFailure:
 
 class TestRec8BufferOpsLockContract:
     """REC-8: the buffer-clear / buffer-rebind operations must be wrapped
-    in ``with recorder._lock:`` at every site that performs them."""
+    in ``with recorder._audio_pipeline._lock:`` at every site that performs them."""
 
     def test_discard_recording_locks_buffer_rebind(self):
         import inspect
@@ -218,8 +218,10 @@ class TestRec8BufferOpsLockContract:
         from voice_typer.server.recording._recorder_split import discard_recording
 
         src = inspect.getsource(discard_recording)
-        assert "with recorder._lock:" in src, "REC-8: discard_recording does not acquire recorder._lock"
-        assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+        assert "with recorder._audio_pipeline._lock:" in src, (
+            "REC-8: discard_recording does not acquire recorder._audio_pipeline._lock"
+        )
+        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
             "REC-8: discard_recording does not swap in a fresh recording buffer"
         )
 
@@ -229,8 +231,10 @@ class TestRec8BufferOpsLockContract:
         from voice_typer.server.recording._recorder_split import stop_recording
 
         src = inspect.getsource(stop_recording)
-        assert "with recorder._lock:" in src, "REC-8: stop_recording does not acquire recorder._lock"
-        assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+        assert "with recorder._audio_pipeline._lock:" in src, (
+            "REC-8: stop_recording does not acquire recorder._audio_pipeline._lock"
+        )
+        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
             "REC-8: stop_recording does not swap in a fresh recording buffer"
         )
 

@@ -136,6 +136,14 @@ log = logging.getLogger(__name__)
 # ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
 # it here so ``from voice_typer.server.recording import X`` keeps working.
+from .audio_pipeline import (  # noqa: E402  # noqa: E402 — owner of the buffer-telemetry constants
+    _BUFFER_TELEMETRY_ENABLED,
+    _XRUN_ALERT_PERIOD,
+    _XRUN_ALERT_THRESHOLD,
+    _XRUN_WINDOW_MAXLEN,
+    BUFFER_WARNING_THRESHOLD,
+    TELEMETRY_LOG_INTERVAL,
+)
 from .buffer import (  # noqa: E402
     _BUFFER_CLEAR_QUEUE_MAXSIZE,
     BUFFER_CLEAR_WORKER_NAME,
@@ -155,6 +163,9 @@ from .capture import (  # noqa: E402 —  / Phase 4.5 split
 from .device_manager import (  # noqa: E402 —  / Phase 4.5 split
     DeviceManager,
 )
+from .device_prewarm import (  # noqa: E402 — Phase 4.5 completion
+    DevicePrewarm,
+)
 from .exceptions import (  # noqa: E402
     ResampleError,
     ResampleUnavailable,
@@ -166,16 +177,10 @@ from .recorder import (  # noqa: E402
     _AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S,
     _AUDIO_WORKER_JOIN_TIMEOUT_S,
     _AUDIO_WORKER_THREAD_NAME,
-    _BUFFER_TELEMETRY_ENABLED,
     _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S,
     _EVENT_WORKER_JOIN_TIMEOUT_S,
     _EVENT_WORKER_THREAD_NAME,
-    _XRUN_ALERT_PERIOD,
-    _XRUN_ALERT_THRESHOLD,
-    _XRUN_WINDOW_MAXLEN,
-    BUFFER_WARNING_THRESHOLD,
     DEFAULT_MAX_BUFFER_CHUNKS,
-    TELEMETRY_LOG_INTERVAL,
     Recorder,
 )
 from .resampling import (  # noqa: E402
@@ -221,6 +226,8 @@ __all__ = [
     "_XRUN_WINDOW_MAXLEN",
     # device_manager ( / Phase 4.5 split)
     "DeviceManager",
+    # device_prewarm (Phase 4.5 completion)
+    "DevicePrewarm",
     # capture ( / Phase 4.5 split)
     "AudioCallbackDispatcher",
     # stream_lifecycle ( / Phase 4.5 split)

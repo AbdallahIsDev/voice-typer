@@ -3,7 +3,7 @@
 Pre-fix bug:
   - ``DisconnectHandler.restart_stream`` called ``_secure_clear_caches()``
     (which correctly zeros cached concat arrays) and THEN called
-    ``recorder._buffer.clear()`` and ``recorder._ring_buffer.clear()``.
+    ``recorder._audio_pipeline._buffer.clear()`` and ``recorder._ring_buffer.clear()``.
     The ``.clear()`` calls drop all chunk references WITHOUT zeroing
     the underlying numpy arrays — leaving the user's voice data in
     process memory until GC reclaims the arrays. This was inconsistent
@@ -15,7 +15,7 @@ Pre-fix bug:
     references without zeroing the underlying arrays.
 
 Post-fix:
-  - ``disconnect_handler.py`` replaces ``recorder._buffer.clear()`` with
+  - ``disconnect_handler.py`` replaces ``recorder._audio_pipeline._buffer.clear()`` with
     the swap-and-secure-clear-background pattern (mirrors ``discard()``).
   - ``disconnect_handler.py`` and ``capture.py`` iterate the ring
     buffer and call ``.fill(0)`` on each chunk's numpy array BEFORE
@@ -187,7 +187,7 @@ class TestRestartStreamBufferSecureClearBackground:
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
         # Capture the original deque identity.
-        original_buffer = r._buffer
+        original_buffer = r._audio_pipeline._buffer
         # Populate with a non-zero chunk.
         original_buffer.append(np.full(100, 0.5, dtype=np.float32))
 
@@ -196,7 +196,7 @@ class TestRestartStreamBufferSecureClearBackground:
 
         # The new deque must NOT be the same object as the original —
         # proving a swap (not an in-place .clear()).
-        assert r._buffer is not original_buffer, (
+        assert r._audio_pipeline._buffer is not original_buffer, (
             "_buffer must be swapped for a fresh deque on hot-swap "
             "restart (mirrors discard()). An in-place .clear() would "
             "drop chunk references WITHOUT zeroing the underlying "
@@ -204,16 +204,16 @@ class TestRestartStreamBufferSecureClearBackground:
             "memory until GC."
         )
         # New deque must be empty.
-        assert len(r._buffer) == 0
+        assert len(r._audio_pipeline._buffer) == 0
         # New deque must preserve maxlen.
-        assert r._buffer.maxlen == original_buffer.maxlen
+        assert r._audio_pipeline._buffer.maxlen == original_buffer.maxlen
 
     def test_old_buffer_passed_to_secure_clear_array_background(self, monkeypatch):
         """``_secure_clear_array_background`` must be called with the OLD
         ``_buffer`` reference so the background worker zeros the chunks."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
-        original_buffer = r._buffer
+        original_buffer = r._audio_pipeline._buffer
         original_buffer.append(np.full(100, 0.5, dtype=np.float32))
 
         # Spy on the package-level helper (production calls it via

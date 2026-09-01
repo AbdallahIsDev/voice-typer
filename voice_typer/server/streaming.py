@@ -29,10 +29,10 @@ def _is_view_of_live_recorder_audio(recorder: Any, arr: Any) -> bool:
 
     1. ``recorder._cached_resampled`` — the incremental resampled-stream
        cache (snapshot resample path);
-    2. ``recorder._buffer.storage`` — the contiguous raw recording buffer
-       itself (the common no-resample path; the buffer object may also be
-       a plain deque/list in tests and post-hot-swap windows, hence the
-       defensive getattr chain).
+    2. ``recorder._audio_pipeline._buffer.storage`` — the contiguous raw
+       recording buffer itself (the common no-resample path; the buffer
+       object may also be a plain deque/list in tests and post-hot-swap
+       windows, hence the defensive getattr chain).
 
     A fresh/owning array (``.base is None``) or any other array is NOT
     recorder-owned and MUST be zeroed after use. Mock recorders in tests
@@ -45,7 +45,12 @@ def _is_view_of_live_recorder_audio(recorder: Any, arr: Any) -> bool:
     cached = getattr(recorder, "_cached_resampled", None)
     if cached is not None and base is cached:
         return True
-    buf = getattr(recorder, "_buffer", None)
+    # STATE-OWNERSHIP: the recording buffer lives on the owning
+    # ``AudioPipeline`` — read it through the owner path with the same
+    # defensive getattr chain (mock/fake recorders in tests may not
+    # construct the pipeline).
+    pipeline = getattr(recorder, "_audio_pipeline", None)
+    buf = getattr(pipeline, "_buffer", None)
     storage = getattr(buf, "storage", None) if buf is not None else None
     return storage is not None and base is storage
 

@@ -579,26 +579,37 @@ class TestVerifyMicrophoneAccessible:
 
 
 class _FakeRecorderForClassify:
-    """Minimal ``self`` for ``_classify_portaudio_open_error``.
+    """Minimal ``self`` for ``classify_portaudio_open_error``.
 
-    The method only reads ``self._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS``
+    The method only reads ``self._recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS``
     (a class-level tuple on ``Recorder``), so we can avoid constructing
     a full ``Recorder`` instance (which requires a config + PortAudio
     mock) by binding the class attribute on a throwaway namespace.
+
+    STATE-OWNERSHIP: the classification body lives on
+    ``DevicePrewarm.classify_portaudio_open_error`` (the owning
+    collaborator — Phase 4.5 completion); ``Recorder._classify_portaudio_open_error``
+    is a documented 1-line delegator. The fake acts as the owner's
+    back-reference target (``owner._recorder = fake``).
     """
 
     def __init__(self):
         from voice_typer.server.recording.recorder import Recorder
 
         self._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS = Recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS
+        # The DevicePrewarm owner reads the substring table via
+        # ``self._recorder.<attr>`` — point the back-reference at this
+        # fake itself.
+        self._recorder = self
 
     def _classify_portaudio_open_error(self, exc):  # type: ignore[no-untyped-def]
-        # Late-bound method resolution: pull the real implementation off
-        # ``Recorder`` so patches to ``permissions.check_microphone_permission``
-        # / ``asr_errors.MicrophonePermissionDeniedError`` are observed.
-        from voice_typer.server.recording.recorder import Recorder
+        # Late-bound owner resolution: pull the real implementation off
+        # ``DevicePrewarm`` so patches to
+        # ``permissions.check_microphone_permission`` /
+        # ``asr_errors.MicrophonePermissionDeniedError`` are observed.
+        from voice_typer.server.recording.device_prewarm import DevicePrewarm
 
-        return Recorder._classify_portaudio_open_error(self, exc)
+        return DevicePrewarm.classify_portaudio_open_error(self, exc)
 
 
 class TestClassifyPortAudioOpenError:

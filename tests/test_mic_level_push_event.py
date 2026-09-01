@@ -251,9 +251,45 @@ class TestMicLevelPublishedWhenActive:
         # Two chunks with distinct amplitudes so smoothing matters (the
         # second chunk's EMA depends on the first). Amplitudes chosen so
         # the final display value stays below the 1.0 cap.
+        #
+        # The inter-chunk wait is CONDITION-BASED, not clock-based: we
+        # wait until the push carrying chunk 1's smoothed state has
+        # actually landed BEFORE sending chunk 2. A fixed
+        # coalesce-window sleep lets the worker's latest-only drain
+        # merge both chunks under CPU contention (full-suite xdist
+        # load), dropping the intermediate EMA state and flaking the
+        # final assertion.
+        smoothed_a = 0.4 * 0.3  # EMA from zero after chunk 1
+        smoothed_b = 0.6 * smoothed_a + 0.4 * 0.05  # EMA after chunk 2
+        expected_level_a = min(1.0, smoothed_a * lm._LEVEL_DISPLAY_GAIN)
         for amp in (0.3, 0.05):
             holder["callback"](np.ones((512, 1), dtype=np.float32) * amp, 512, None, None)
-            # Respect the coalesce gate so each chunk produces a push.
+            if amp == 0.3:
+                # Wait until chunk 1's push landed (level ≈ its own
+                # smoothed state) so chunk 2 cannot merge with it...
+                _deadline = time.monotonic() + 5.0
+                _landed = False
+                while time.monotonic() < _deadline and not _landed:
+                    for evt in captured:
+                        if evt.get("type") == "mic_level" and math.isclose(
+                            evt["data"]["level"], expected_level_a, abs_tol=1e-6
+                        ):
+                            _landed = True
+                            break
+                    if not _landed:
+                        time.sleep(0.002)
+                assert _landed, (
+                    "chunk 1's mic_level push did not land within 5s — the "
+                    "level worker is not processing chunks (start_monitoring "
+                    "or the callback wiring is broken)"
+                )
+            # ...then outlast the 30 Hz coalesce gate before the NEXT
+            # chunk: ``_push_mic_level`` DROPS any chunk arriving within
+            # ``_MIC_LEVEL_COALESCE_SEC`` of the last push, so sending
+            # chunk 2 immediately after chunk 1's landing would have it
+            # silently dropped. Waiting from the LANDING (which happens
+            # after the gate timestamp was taken) guarantees the gate
+            # has fully elapsed.
             deadline = time.monotonic() + lm._MIC_LEVEL_COALESCE_SEC + 0.005
             while time.monotonic() < deadline:
                 time.sleep(0.001)
@@ -261,8 +297,6 @@ class TestMicLevelPublishedWhenActive:
         # Wait until a push lands carrying the FINAL smoothed state
         # (don't assert an exact event count — the mic-level worker's
         # latest-only drain may legally merge back-to-back payloads).
-        smoothed_a = 0.4 * 0.3  # EMA from zero after chunk 1
-        smoothed_b = 0.6 * smoothed_a + 0.4 * 0.05  # EMA after chunk 2
         expected_level = min(1.0, smoothed_b * lm._LEVEL_DISPLAY_GAIN)
         # Peak state: chunk 1 sets it to 0.3; chunk 2 decays it
         # (0.3 * 0.8) and takes max with chunk 2's raw peak (0.05).

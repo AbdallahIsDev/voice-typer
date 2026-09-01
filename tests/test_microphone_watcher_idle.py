@@ -117,14 +117,14 @@ def _build_start_recorder(*, open_success: bool = True) -> MagicMock:
 
     if open_success:
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, 16000, None)
-        recorder._stream = MagicMock(name="opened-stream")
+        recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
     else:
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             None,
             16000,
             RuntimeError("no input device could be opened"),
         )
-        recorder._stream = None
+        recorder._stream_lifecycle._stream = None
 
     recorder._recording_event = threading.Event()
     recorder._audio_processor = None
@@ -159,14 +159,14 @@ def _build_stop_recorder(
     recorder._user_stop_pending = False
     recorder._worker_thread = None
     recorder._event_worker_thread = None
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
 
     if buffer_chunks is None:
         buffer_chunks = [np.zeros(100, dtype=np.float32)]
-    recorder._buffer = collections.deque(buffer_chunks, maxlen=30000)
+    recorder._audio_pipeline._buffer = collections.deque(buffer_chunks, maxlen=30000)
 
-    recorder._chunk_count = len(buffer_chunks)
-    recorder._buffer_sr = 16000
+    recorder._audio_pipeline._chunk_count = len(buffer_chunks)
+    recorder._audio_pipeline._buffer_sr = 16000
     recorder._effective_sr = 16000
     recorder._last_rms = 0.0
     recorder._last_audio_stats = (0.0, 0.0, 0.0)
@@ -345,7 +345,7 @@ class TestStopRecordingWiresSetIdleTrue:
 
     def test_stop_calls_set_idle_true_on_empty_buffer_path(self):
         """The empty-buffer early-return path (the
-        ``if not recorder._buffer:`` branch inside the lock) must
+        ``if not recorder._audio_pipeline._buffer:`` branch inside the lock) must
         ALSO call ``set_idle(True)`` — a stop with no audio captured
         is still a stop, and the watcher must return to idle."""
         recorder = _build_stop_recorder(recording=True, buffer_chunks=[])
@@ -403,10 +403,10 @@ class TestStartStopRoundTrip:
         # would fire otherwise). Production stop() is called after
         # start(), so the event IS set — that's the contract.
         # ``_buffer`` must be a real deque so stop's snapshot works.
-        recorder._buffer = collections.deque([np.zeros(100, dtype=np.float32)], maxlen=30000)
-        recorder._buffer_sr = 16000
+        recorder._audio_pipeline._buffer = collections.deque([np.zeros(100, dtype=np.float32)], maxlen=30000)
+        recorder._audio_pipeline._buffer_sr = 16000
         recorder._effective_sr = 16000
-        recorder._lock = threading.Lock()
+        recorder._audio_pipeline._lock = threading.Lock()
         _prep().side_effect = lambda rec, audio, effective_sr_in, **kw: audio
 
         stop_recording(recorder)

@@ -218,31 +218,17 @@ class TestAccessibilityIpcBehavioral:
     )
 
     def _make_server(self):
-        """Build a minimal IPCServer with a mock app + service."""
-        from threading import RLock
-        from unittest.mock import MagicMock
+        """Build a minimal IPCServer with a mock app + service.
 
-        from voice_typer.server.ipc_server import IPCServer
+        Delegates to the canonical ``make_bare_ipc_server`` factory
+        (``IPCServer.__new__`` bypass + ``app._config_mutation_lock`` /
+        ``server._dispatch_lock`` RLocks — the exact shape this local
+        helper used to rebuild inline; the factory's docstring documents
+        why the ``_dispatch_lock`` fix exists).
+        """
+        from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
-        app = MagicMock()
-        app._config_mutation_lock = RLock()
-        server = IPCServer.__new__(IPCServer)
-        server.app = app
-        server.service = MagicMock()
-        # ``_dispatch`` acquires ``self._dispatch_lock`` for
-        # state-mutating handlers (``check_accessibility`` is NOT in
-        # ``_READONLY_COMMANDS``). The test bypasses ``__init__`` via
-        # ``__new__`` (for speed — full ``__init__`` builds the
-        # authenticated socket, worker pool, command-handler cache, etc.),
-        # so we must set up the minimal instance attrs that ``_dispatch``
-        # touches. Without this, ``_dispatch`` raises
-        # ``AttributeError: 'IPCServer' object has no attribute
-        # '_dispatch_lock'`` and the test fails before the handler ever
-        # runs. ``RLock`` matches the production type (a handler that
-        # re-enters ``_dispatch`` on the same thread via
-        # ``event_bus.publish`` must not self-deadlock).
-        server._dispatch_lock = RLock()
-        return server
+        return make_bare_ipc_server()
 
     @pytest.mark.skip(reason=_SKIP_REASON)
     def test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos(self, monkeypatch):

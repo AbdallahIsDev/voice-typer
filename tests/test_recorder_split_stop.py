@@ -33,7 +33,7 @@ The tests pin five contracts:
      snapshot under _lock → secure_clear_caches → buffer swap →
      _prepare_audio → log.info).
 
-  3. **Empty-buffer path**: when ``recorder._buffer`` is empty inside
+  3. **Empty-buffer path**: when ``recorder._audio_pipeline._buffer`` is empty inside
      the locked block, the function calls ``_secure_clear_caches()``,
      resets ``_chunk_count = 0``, and returns an empty ``float32``
      array WITHOUT calling ``_prepare_audio``.
@@ -131,7 +131,7 @@ def _build_mock_recorder(
     # `_lock` must be a real `threading.Lock` so the `with` block
     # works (the function swaps the deque + captures the chunk list
     # inside the lock).
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
 
     # `_buffer` is a real `collections.deque` so the `not _buffer`
     # check + `list(_buffer)` capture work without magic.
@@ -141,11 +141,11 @@ def _build_mock_recorder(
         # Default to a single 100-sample silent chunk (so the
         # happy-path body has something to concatenate).
         buffer_chunks = [np.zeros(100, dtype=np.float32)]
-    recorder._buffer = collections.deque(buffer_chunks, maxlen=30000)
+    recorder._audio_pipeline._buffer = collections.deque(buffer_chunks, maxlen=30000)
 
     # `_chunk_count` is reset to 0 on the empty-buffer path.
-    recorder._chunk_count = len(buffer_chunks)
-    recorder._buffer_sr = buffer_sr
+    recorder._audio_pipeline._chunk_count = len(buffer_chunks)
+    recorder._audio_pipeline._buffer_sr = buffer_sr
     recorder._effective_sr = effective_sr
     recorder._last_rms = 0.0
     recorder._last_audio_stats = (0.0, 0.0, 0.0)
@@ -395,7 +395,7 @@ class TestStopRecordingOrdering:
 
 
 class TestEmptyBufferPath:
-    """When ``recorder._buffer`` is empty inside the locked block, the
+    """When ``recorder._audio_pipeline._buffer`` is empty inside the locked block, the
     function must call ``_secure_clear_caches()``, reset
     ``_chunk_count = 0``, and return an empty ``float32`` array
     WITHOUT calling ``_prepare_audio`` (G4-H-06 secure-clear contract)."""
@@ -414,9 +414,9 @@ class TestEmptyBufferPath:
 
     def test_resets_chunk_count_to_zero(self):
         recorder = _build_mock_recorder(buffer_chunks=[])
-        recorder._chunk_count = 5  # pretend we had 5 chunks before
+        recorder._audio_pipeline._chunk_count = 5  # pretend we had 5 chunks before
         stop_recording(recorder)
-        assert recorder._chunk_count == 0
+        assert recorder._audio_pipeline._chunk_count == 0
 
     def test_does_not_call_prepare_audio(self):
         """The empty-buffer early-return fires BEFORE _prepare_audio,
@@ -437,10 +437,10 @@ class TestEmptyBufferPath:
         monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", bg_clear)
 
         recorder = _build_mock_recorder(buffer_chunks=[])
-        original_buffer = recorder._buffer
+        original_buffer = recorder._audio_pipeline._buffer
         stop_recording(recorder)
         # Buffer was not swapped.
-        assert recorder._buffer is original_buffer
+        assert recorder._audio_pipeline._buffer is original_buffer
         # Background clear was not called.
         bg_clear.assert_not_called()
 
@@ -459,8 +459,8 @@ class TestEmptyBufferPath:
 
 
 class TestBufferSnapshotUnderLock:
-    """The function snapshots ``recorder._buffer`` under
-    ``recorder._lock``: swaps the deque for a fresh empty one +
+    """The function snapshots ``recorder._audio_pipeline._buffer`` under
+    ``recorder._audio_pipeline._lock``: swaps the deque for a fresh empty one +
     captures the chunk list, then releases the lock and concatenates
     the captured chunks OUTSIDE the lock (so the audio worker's
     append path is not blocked for the 50–300 ms concat duration)."""
@@ -473,20 +473,20 @@ class TestBufferSnapshotUnderLock:
 
         original_chunks = [np.ones(50, dtype=np.float32), np.zeros(30, dtype=np.float32)]
         recorder = _build_mock_recorder(buffer_chunks=original_chunks)
-        original_buffer = recorder._buffer
+        original_buffer = recorder._audio_pipeline._buffer
         assert len(original_buffer) == 2
 
         stop_recording(recorder)
 
         # The old storage was swapped for a fresh EMPTY contiguous buffer.
-        assert recorder._buffer is not original_buffer
-        assert isinstance(recorder._buffer, GrowableRecordingBuffer)
-        assert len(recorder._buffer) == 0
-        assert recorder._buffer.total_samples == 0
+        assert recorder._audio_pipeline._buffer is not original_buffer
+        assert isinstance(recorder._audio_pipeline._buffer, GrowableRecordingBuffer)
+        assert len(recorder._audio_pipeline._buffer) == 0
+        assert recorder._audio_pipeline._buffer.total_samples == 0
         # Maxlen is preserved (or defaulted to DEFAULT_MAX_BUFFER_CHUNKS).
         from voice_typer.server.recording.recorder import DEFAULT_MAX_BUFFER_CHUNKS
 
-        assert recorder._buffer.maxlen == DEFAULT_MAX_BUFFER_CHUNKS
+        assert recorder._audio_pipeline._buffer.maxlen == DEFAULT_MAX_BUFFER_CHUNKS
 
     def test_buffer_maxlen_preserved_from_old_buffer(self, monkeypatch):
         import collections
@@ -498,11 +498,11 @@ class TestBufferSnapshotUnderLock:
         # Build a recorder with a custom maxlen.
         recorder = _build_mock_recorder(buffer_chunks=[np.ones(50, dtype=np.float32)])
         custom_maxlen = 42
-        recorder._buffer = collections.deque([np.ones(50, dtype=np.float32)], maxlen=custom_maxlen)
+        recorder._audio_pipeline._buffer = collections.deque([np.ones(50, dtype=np.float32)], maxlen=custom_maxlen)
 
         stop_recording(recorder)
 
-        assert recorder._buffer.maxlen == custom_maxlen
+        assert recorder._audio_pipeline._buffer.maxlen == custom_maxlen
 
     def test_secure_clear_array_background_called_with_old_buffer(self, monkeypatch):
         """G4-H-06: the old storage is securely zeroed in a background
@@ -517,7 +517,7 @@ class TestBufferSnapshotUnderLock:
         recorder = _build_mock_recorder(buffer_chunks=[])
         buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
         buf.append(np.ones(50, dtype=np.float32))
-        recorder._buffer = buf
+        recorder._audio_pipeline._buffer = buf
 
         stop_recording(recorder)
 

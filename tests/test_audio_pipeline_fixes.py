@@ -131,7 +131,7 @@ def _make_vad_recorder_stub() -> MagicMock:
     recorder._cached_stop_on_silence = 10_000.0
     recorder._cached_max_recording_time = 10_000.0
     # Buffer / chunk-count state read by the telemetry log guard.
-    recorder._chunk_count = 0
+    recorder._audio_pipeline._chunk_count = 0
     return recorder
 
 
@@ -159,7 +159,7 @@ def _make_process_chunk_pipeline_stub() -> AudioPipeline:
     pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
     pipeline.detect_and_emit_clipping = MagicMock()
     pipeline.run_vad_state_machine = MagicMock()
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
     recorder._recent_rms_values = collections.deque(maxlen=10)
     recorder._last_rms = None
     recorder._rms_callback_error_count = 0

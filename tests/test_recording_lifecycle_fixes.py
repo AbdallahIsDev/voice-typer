@@ -67,9 +67,9 @@ def _make_stream_lifecycle_recorder_stub() -> MagicMock:
     ``threading.Event``; everything else is a ``MagicMock``.
     """
     recorder = MagicMock(name="recorder")
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
     recorder._is_in_audio_callback = threading.Event()
-    recorder._stream = None
+    recorder._stream_lifecycle._stream = None
     recorder.config.recording_channels = 1
     recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
     recorder._devices._cached_max_input_channels.return_value = 1
@@ -246,13 +246,13 @@ class TestRingBufferScaling:
         recorder._stream_lifecycle.build_audio_callback.return_value = object()
         # Stream opens successfully on the first candidate.
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
-        recorder._stream = MagicMock(name="opened-stream")
+        recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
         # Real ring buffer so we can assert on maxlen.
         recorder._ring_buffer = collections.deque(maxlen=max(64, int(effective_sr / _AUDIO_BLOCKSIZE * 2.0)))
         # Real scalars: ``start_recording`` calls the module-level
         # ``refresh_vad_caches(recorder)`` (vad_helpers) which compares
         # these against SILERO_VAD_SAMPLE_RATES.
-        recorder._buffer_sr = None
+        recorder._audio_pipeline._buffer_sr = None
         recorder._effective_sr = effective_sr
         # ``_recording_event`` must be a real Event so ``is_set()`` works.
         recorder._recording_event = threading.Event()
@@ -369,9 +369,12 @@ class TestForceTeardownUsesAbort:
         ``_stream`` is cleared."""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
+        # (after construction — the stub's auto-mock ``_stream_lifecycle``
+        # is not the real collaborator).
+        lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder, force=True)
 
@@ -381,16 +384,19 @@ class TestForceTeardownUsesAbort:
         # close() still called so PortAudio resources are freed.
         fake_stream.close.assert_called_once_with()
         # _stream cleared so the next start() opens a fresh stream.
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_force_false_default_calls_stop_not_abort(self):
         """The default ``force=False`` path keeps ``stream.stop()``
         for graceful drain. ``abort()`` is NOT called."""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
+        # (after construction — the stub's auto-mock ``_stream_lifecycle``
+        # is not the real collaborator).
+        lifecycle._stream = fake_stream
 
         # Default — force=False.
         lifecycle.teardown_stream_body(recorder)
@@ -399,7 +405,7 @@ class TestForceTeardownUsesAbort:
         fake_stream.stop.assert_called_once_with()
         fake_stream.abort.assert_not_called()
         fake_stream.close.assert_called_once_with()
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_force_true_suppresses_abort_exception(self):
         """on the force path, an ``abort()`` failure (e.g. the
@@ -410,9 +416,12 @@ class TestForceTeardownUsesAbort:
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.abort.side_effect = OSError("PortAudio: stream not running")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
+        # (after construction — the stub's auto-mock ``_stream_lifecycle``
+        # is not the real collaborator).
+        lifecycle._stream = fake_stream
 
         # Must NOT raise — the abort failure is suppressed.
         lifecycle.teardown_stream_body(recorder, force=True)
@@ -421,7 +430,7 @@ class TestForceTeardownUsesAbort:
         # close() still attempted (best-effort on the force path).
         fake_stream.close.assert_called_once_with()
         # _stream still cleared so the next start() opens a fresh stream.
-        assert recorder._stream is None, (
+        assert lifecycle._stream is None, (
             "_stream must be cleared even if abort() raised — the disconnect-recovery path must not be blocked."
         )
 
@@ -431,9 +440,12 @@ class TestForceTeardownUsesAbort:
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.close.side_effect = OSError("close boom")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
+        # (after construction — the stub's auto-mock ``_stream_lifecycle``
+        # is not the real collaborator).
+        lifecycle._stream = fake_stream
 
         # Must NOT raise — the close failure is suppressed on force path.
         lifecycle.teardown_stream_body(recorder, force=True)
@@ -441,7 +453,7 @@ class TestForceTeardownUsesAbort:
         fake_stream.abort.assert_called_once_with()
         fake_stream.close.assert_called_once_with()
         # _stream still cleared.
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_force_false_close_exception_propagates(self):
         """The CLEAN path (``force=False``) propagates ``close()``
@@ -451,9 +463,12 @@ class TestForceTeardownUsesAbort:
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.close.side_effect = OSError("close boom")
-        recorder._stream = fake_stream
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
+        # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
+        # (after construction — the stub's auto-mock ``_stream_lifecycle``
+        # is not the real collaborator).
+        lifecycle._stream = fake_stream
 
         with pytest.raises(OSError, match="close boom"):
             lifecycle.teardown_stream_body(recorder)  # force=False default
@@ -470,7 +485,7 @@ class TestForceTeardownUsesAbort:
         # Must NOT raise — idempotent.
         lifecycle.teardown_stream_body(recorder, force=True)
 
-        assert recorder._stream is None
+        assert lifecycle._stream is None
 
     def test_handle_device_disconnect_passes_force_true(self, monkeypatch):
         """``Recorder._handle_device_disconnect`` must call

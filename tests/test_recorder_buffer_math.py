@@ -138,7 +138,7 @@ class TestMainBufferSizing:
 
             chunk_seconds = 512 / native_rate
             expected_min_chunks = int(1800 / chunk_seconds)  # no safety margin
-            actual_maxlen = r._buffer.maxlen or 0
+            actual_maxlen = r._audio_pipeline._buffer.maxlen or 0
             assert actual_maxlen >= expected_min_chunks, (
                 f"At {native_rate}Hz, buffer maxlen {actual_maxlen} must be "
                 f">= {expected_min_chunks} chunks (1800s / "
@@ -168,7 +168,7 @@ class TestMainBufferSizing:
             r = _make_recorder(max_rec=1800, preroll_seconds=0.0)
             try:
                 r.start()
-                maxlens[native_rate] = r._buffer.maxlen or 0
+                maxlens[native_rate] = r._audio_pipeline._buffer.maxlen or 0
             finally:
                 r.stop()
 
@@ -199,11 +199,11 @@ class TestMainBufferSizing:
         r = _make_recorder(max_rec=900, preroll_seconds=0.0)
         try:
             r.start()
-            assert r._buffer.maxlen == DEFAULT_MAX_BUFFER_CHUNKS, (
+            assert r._audio_pipeline._buffer.maxlen == DEFAULT_MAX_BUFFER_CHUNKS, (
                 f"At 16kHz/900s, buffer maxlen should stay at the default "
                 f"{DEFAULT_MAX_BUFFER_CHUNKS} (no resize needed: 900s / "
                 f"{512 / 16000:.4f}s = {int(900 / (512 / 16000))} chunks < "
-                f"{DEFAULT_MAX_BUFFER_CHUNKS}), got {r._buffer.maxlen}. "
+                f"{DEFAULT_MAX_BUFFER_CHUNKS}), got {r._audio_pipeline._buffer.maxlen}. "
                 f"XV-20 fix must not change the 16kHz default codepath."
             )
         finally:

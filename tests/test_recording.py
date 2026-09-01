@@ -55,8 +55,8 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
             np.array([[3.0]], dtype=np.float32),
         ]
@@ -65,8 +65,10 @@ class TestStopAudioPrep:
 
         np.testing.assert_array_equal(audio, np.array([1.0, 2.0, 3.0], dtype=np.float32))
         # buffer is replaced with a fresh deque (not cleared in-place)
-        assert len(r._buffer) == 0, f"Expected empty buffer after stop(), got {r._buffer!r}"
-        assert r._stream is None
+        assert len(r._audio_pipeline._buffer) == 0, (
+            f"Expected empty buffer after stop(), got {r._audio_pipeline._buffer!r}"
+        )
+        assert r._stream_lifecycle._stream is None
 
     def test_stop_resamples_when_effective_rate_differs(self, monkeypatch):
         from voice_typer.server.recording import Recorder
@@ -84,8 +86,8 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 48000
         r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         audio = r.stop()
 
@@ -103,8 +105,8 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((4, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((4, 1), dtype=np.float32)]
 
         r.stop()
 
@@ -133,7 +135,7 @@ class TestStopAudioPrep:
             r.start()
 
         assert r.recording is False
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_start_falls_back_to_same_microphone_on_another_host_api(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -216,7 +218,7 @@ class TestStopAudioPrep:
 
         assert opened_devices == [9, 1]
         assert r.recording is True
-        assert r._stream is not None
+        assert r._stream_lifecycle._stream is not None
         # Session-local fallback ONLY: the saved selection must survive
         # unchanged (rewriting it here silently replaced the user's
         # choice with an arbitrary fallback index that went stale).
@@ -287,7 +289,7 @@ class TestStopAudioPrep:
         # then fall back to all devices and succeed with device 2
         assert 2 in opened_devices
         assert r.recording is True
-        assert r._stream is not None
+        assert r._stream_lifecycle._stream is not None
         # Session-local fallback ONLY: the saved selection stays "1"
         # even though this session ran on device 2.
         assert config.microphone == "1"
@@ -304,8 +306,8 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
             np.array([[3.0]], dtype=np.float32),
         ]
@@ -313,7 +315,7 @@ class TestStopAudioPrep:
         snapshot = r.snapshot()
 
         np.testing.assert_array_equal(snapshot, np.array([1.0, 2.0, 3.0], dtype=np.float32))
-        assert len(r._buffer) == 2
+        assert len(r._audio_pipeline._buffer) == 2
 
         # stop() now securely zeroes the cached resampled array
         # in-place via _secure_clear_caches() (which calls
@@ -334,7 +336,7 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._buffer = []
+        r._audio_pipeline._buffer = []
 
         snapshot = r.snapshot()
 
@@ -357,12 +359,12 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 48000
         r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         snapshot = r.snapshot()
 
         np.testing.assert_array_equal(snapshot, np.array([0.25, 0.5], dtype=np.float32))
-        assert len(r._buffer) == 1
+        assert len(r._audio_pipeline._buffer) == 1
         assert len(calls) == 1
         np.testing.assert_array_equal(calls[0][0], np.ones(6, dtype=np.float32))
         assert calls[0][1:] == (1, 3)
@@ -380,7 +382,7 @@ class TestStopAudioPrep:
         r._recording_event.set()
         r._effective_sr = 48000
         r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         with caplog.at_level("INFO"):
             r.snapshot()
@@ -417,8 +419,8 @@ class TestStopCallbackBackoff:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
         # Flag is cleared (default state) → loop should not sleep at all
         sleep_calls = []
@@ -445,8 +447,8 @@ class TestStopCallbackBackoff:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
         # Set the flag (callback in flight).  stream.stop() (a MagicMock)
         # returns immediately without clearing the flag — that's fine
@@ -454,13 +456,13 @@ class TestStopCallbackBackoff:
         r._is_in_audio_callback.set()
 
         stop_called = {"n": 0}
-        original_stop = r._stream.stop
+        original_stop = r._stream_lifecycle._stream.stop
 
         def tracking_stop():
             stop_called["n"] += 1
             return original_stop()
 
-        r._stream.stop = tracking_stop
+        r._stream_lifecycle._stream.stop = tracking_stop
 
         r.stop()
 
@@ -468,7 +470,7 @@ class TestStopCallbackBackoff:
         assert stop_called["n"] == 1, f"Expected stream.stop() called once, got {stop_called['n']}"
         # The flag may still be set (PortAudio cleared it internally) —
         # that's acceptable; the new contract does not poll it.
-        assert r._stream is None or r._stream.stop.called
+        assert r._stream_lifecycle._stream is None or r._stream_lifecycle._stream.stop.called
 
     def test_stop_returns_promptly_after_stream_stop(self, monkeypatch):
         """When ``_is_in_audio_callback`` stays set (callback hung),
@@ -493,8 +495,8 @@ class TestStopCallbackBackoff:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
         # Flag stays set (callback never completes from our perspective).
         r._is_in_audio_callback.set()
@@ -527,7 +529,9 @@ class TestStopCallbackBackoff:
         # headroom over the 300ms budget + per-iteration overhead.
         assert elapsed < 1.0, f"stop() took {elapsed:.3f}s — expected < 1.0s (300ms poll budget + overhead)"
         # Stream was fully torn down: close() called, _stream set to None.
-        assert r._stream is None, f"Expected r._stream to be None after stop(), got {r._stream!r}"
+        assert r._stream_lifecycle._stream is None, (
+            f"Expected r._stream_lifecycle._stream to be None after stop(), got {r._stream_lifecycle._stream!r}"
+        )
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
         """STREAM-FIX: stop() must set _user_stop_pending before
@@ -539,18 +543,18 @@ class TestStopCallbackBackoff:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.array([[1.0]], dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
         # Capture the flag value at the time stream.stop() is called
         flag_at_stop = {"value": None}
-        original_stop = r._stream.stop
+        original_stop = r._stream_lifecycle._stream.stop
 
         def capturing_stop():
             flag_at_stop["value"] = r._user_stop_pending
             return original_stop()
 
-        r._stream.stop = capturing_stop
+        r._stream_lifecycle._stream.stop = capturing_stop
 
         assert r._user_stop_pending is False  # initial state
 
@@ -581,8 +585,8 @@ class TestCachedResampling:
         r._recording_event.set()
         r._effective_sr = 48000
         r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         # First snapshot - should resample
         r.snapshot()
@@ -590,7 +594,7 @@ class TestCachedResampling:
         assert first_count >= 1
 
         # Add more data
-        r._buffer.append(np.ones((6, 1), dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.ones((6, 1), dtype=np.float32))
 
         # Second snapshot - should only resample the new chunk
         r.snapshot()
@@ -606,8 +610,8 @@ class TestCachedResampling:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((4, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((4, 1), dtype=np.float32)]
 
         result = r.snapshot()
         assert result.dtype == np.float32
@@ -680,8 +684,8 @@ class TestSilenceDetection:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((4, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((4, 1), dtype=np.float32)]
         r._cached_resampled = np.ones(10, dtype=np.float32)
         r._cached_native_chunk_count = 5
 
@@ -697,7 +701,7 @@ class TestSilenceDetection:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         r._recording_event.set()
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         r._cached_resampled = np.ones(10, dtype=np.float32)
         r._cached_native_chunk_count = 5
 
@@ -727,8 +731,8 @@ class TestResampleFallback:
         r._recording_event.set()
         r._effective_sr = 48000
         r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         with pytest.raises(ResampleError, match="not available"):
             r.stop()
@@ -892,8 +896,8 @@ class TestRecordingParametrized:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((chunk_size, 1), dtype=np.float32)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((chunk_size, 1), dtype=np.float32)]
 
         audio = r.stop()
         assert len(audio) == chunk_size
@@ -909,8 +913,8 @@ class TestRecordingParametrized:
         r._recording_event.set()
         r._effective_sr = 16000
         r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
-        r._stream = MagicMock()
-        r._buffer = [np.ones((4, 1), dtype=np.float32) for _ in range(num_chunks)]
+        r._stream_lifecycle._stream = MagicMock()
+        r._audio_pipeline._buffer = [np.ones((4, 1), dtype=np.float32) for _ in range(num_chunks)]
 
         audio = r.stop()
         assert len(audio) == 4 * num_chunks
@@ -1242,7 +1246,7 @@ class TestRec2StartRollbackOnWorkerFailure:
             "worker-start failure — stale disconnect handlers may race."
         )
         # Stream reference must be None.
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
 
 class TestRec3DeadNoOpRemoved:
@@ -1492,7 +1496,7 @@ class TestRec7DelCleanup:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         r._recording_event.set()
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         # __del__ must not raise.
         r.__del__()
         assert not r._recording_event.is_set(), "regression: __del__ did not clear _recording_event"
@@ -1517,7 +1521,7 @@ class TestRec7DelCleanup:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         teardown_calls = []
         original_teardown = r._teardown_stream
 
@@ -1558,14 +1562,16 @@ class TestRec8BufferOpsLocked:
         # into the ``discard_recording`` and ``take_snapshot`` functions
         # in ``_recorder_split`` (the buffer swap lives in
         # ``discard_recording``). The source-string contract pins the
-        # ``with recorder._lock:`` + contiguous-buffer swap literal pair
+        # ``with recorder._audio_pipeline._lock:`` + contiguous-buffer swap literal pair
         # on the actual implementation site: the old buffer is captured,
         # a fresh empty buffer is swapped in under the lock, and the old
         # backing array is zeroed by the background secure-clear worker
         # (SEC-audit-008).
         discard_src = inspect.getsource(discard_recording)
-        assert "with recorder._lock:" in discard_src, "discard_recording does not acquire recorder._lock for buffer ops"
-        assert "recorder._buffer = _fresh_recording_buffer_like(" in discard_src, (
+        assert "with recorder._audio_pipeline._lock:" in discard_src, (
+            "discard_recording does not acquire recorder._audio_pipeline._lock for buffer ops"
+        )
+        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in discard_src, (
             "discard_recording does not swap in a fresh recording buffer"
         )
         assert "_secure_clear_array_background(_old_buffer)" in discard_src, (
@@ -1597,8 +1603,8 @@ class TestRec8BufferOpsLocked:
             stop_recording,
         )
 
-        # The buffer swap (``recorder._buffer = _fresh_recording_buffer_like(...)``)
-        # is wrapped in ``with recorder._lock:`` at BOTH sites that
+        # The buffer swap (``recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(...)``)
+        # is wrapped in ``with recorder._audio_pipeline._lock:`` at BOTH sites that
         # perform it: ``discard_recording`` (the discard path) and
         # ``stop_recording`` (the stop path — O(1) fresh-buffer swap
         # inside the lock; the old buffer is frozen and exported outside
@@ -1607,8 +1613,10 @@ class TestRec8BufferOpsLocked:
         # surfaces here.
         for fn in (discard_recording, stop_recording):
             src = inspect.getsource(fn)
-            assert "with recorder._lock:" in src, f"{fn.__name__} does not acquire recorder._lock for buffer rebind"
-            assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+            assert "with recorder._audio_pipeline._lock:" in src, (
+                f"{fn.__name__} does not acquire recorder._audio_pipeline._lock for buffer rebind"
+            )
+            assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
                 f"{fn.__name__} does not swap in a fresh recording buffer"
             )
 
@@ -1834,4 +1842,4 @@ class TestRec2StartFailurePathCoverage:
         assert len(teardown_calls) >= 1
         assert not r._recording_event.is_set()
         assert r._stop_generation == gen_before + 1
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None

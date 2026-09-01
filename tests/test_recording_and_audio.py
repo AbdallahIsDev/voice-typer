@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from voice_typer.server.recording.format import prepare_audio, resample_chunk
 
-from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+from tests.fixtures.recorder_test_helpers import snapshot_worker_threads, wait_for_workers_stopped
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -370,14 +370,24 @@ class TestAudioCallbackPreStartGuard:
 
         recorder = Recorder.__new__(Recorder)
         recorder._recording_event = threading.Event()
-        recorder._xruns = 0
-        recorder._xrun_threshold = 3
-        recorder._last_xrun_log_ts = 0.0
+        # STATE-OWNERSHIP: the XRUN/clip telemetry attrs were
+        # removed from ``Recorder`` (owned by ``AudioPipeline``); the
+        # historical setup lines for them were dead (the test only
+        # asserts the event state below) and are deleted.
         recorder.on_xrun_threshold = MagicMock()
         recorder._audio_processor = None
-        recorder._lock = threading.Lock()
-        recorder._buffer = __import__("collections").deque(maxlen=10)
-        recorder._chunk_count = 0
+        # STATE-OWNERSHIP: the buffer lock / buffer / chunk
+        # counter live on the owning ``AudioPipeline`` — the degenerate
+        # ``__new__`` instance gets a stand-in namespace (the historical
+        # recorder-level setup lines were dead: the test only asserts
+        # the event state below).
+        from types import SimpleNamespace
+
+        recorder._audio_pipeline = SimpleNamespace(
+            _lock=threading.Lock(),
+            _buffer=__import__("collections").deque(maxlen=10),
+            _chunk_count=0,
+        )
         recorder._effective_sr = 16000
         recorder._recent_rms_values = __import__("collections").deque(maxlen=50)
         recorder._silence_timer = 0.0
@@ -387,9 +397,6 @@ class TestAudioCallbackPreStartGuard:
         recorder.on_silence_auto_stop = MagicMock()
         recorder.on_max_duration_auto_stop = MagicMock()
         recorder.on_rms_level = None
-        recorder._clip_count = 0
-        recorder._peak = 0.0
-        recorder._last_clip_log_time = 0.0
         recorder._cached_max_recording_time = 0
 
         assert not recorder._recording_event.is_set()
@@ -915,6 +922,12 @@ class TestAudioWorkerThreadLifecycle:
         self._make_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix): snapshot BEFORE any worker
+        # spawn so the wait only requires the DELTA to drain — threads
+        # leaked by earlier files in the same xdist worker no longer flake
+        # this wait; threads spawned HERE stay fully waited on (leak
+        # detection unchanged).
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
         assert r._worker_thread is not None
@@ -924,7 +937,9 @@ class TestAudioWorkerThreadLifecycle:
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
         # it) — poll the shared guard before asserting the ref cleared.
-        assert wait_for_workers_stopped(r, stop=r.stop), "stop() must set _worker_thread to None after joining"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
+            "stop() must set _worker_thread to None after joining"
+        )
 
     def test_worker_thread_stops_on_discard(self, monkeypatch):
         """discard() must join the worker thread and set _worker_thread
@@ -936,6 +951,8 @@ class TestAudioWorkerThreadLifecycle:
         self._make_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
         assert r._worker_thread is not None
@@ -943,7 +960,9 @@ class TestAudioWorkerThreadLifecycle:
         r.discard()
 
         # GT-23-style load guard — see the stop() variant above.
-        assert wait_for_workers_stopped(r, stop=r.stop), "discard() must set _worker_thread to None after joining"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
+            "discard() must set _worker_thread to None after joining"
+        )
 
     def test_worker_thread_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW worker
@@ -955,6 +974,10 @@ class TestAudioWorkerThreadLifecycle:
         self._make_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
+        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # ONE snapshot at entry covers BOTH sessions: each session's workers
+        # spawn after it, so both stay fully waited on.
+        baseline = snapshot_worker_threads()
         r = Recorder(config)
 
         # First session
@@ -963,7 +986,7 @@ class TestAudioWorkerThreadLifecycle:
         assert first_thread is not None
         assert first_thread.is_alive()
         r.stop()
-        assert wait_for_workers_stopped(r, stop=r.stop), "worker must stop after stop()"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "worker must stop after stop()"
 
         # Second session — must start a NEW thread
         r.start()
@@ -974,7 +997,7 @@ class TestAudioWorkerThreadLifecycle:
             "start() after stop() must create a NEW worker thread, not reuse the dead one"
         )
         r.stop()
-        assert wait_for_workers_stopped(r, stop=r.stop), "worker must stop after stop()"
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "worker must stop after stop()"
 
     def test_worker_thread_drains_ring_buffer_on_stop(self, monkeypatch):
         """When the callback pushes a chunk to the ring buffer, the
@@ -1001,14 +1024,16 @@ class TestAudioWorkerThreadLifecycle:
             # 500ms is plenty.
             deadline = time.perf_counter() + 2.0
             while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0 and r._chunk_count >= 1:
+                if len(r._ring_buffer) == 0 and r._audio_pipeline._chunk_count >= 1:
                     break
                 time.sleep(0.01)
 
             assert len(r._ring_buffer) == 0, (
                 "worker thread must drain the ring buffer after the callback pushes a chunk"
             )
-            assert r._chunk_count >= 1, "worker thread must increment _chunk_count after processing the chunk"
+            assert r._audio_pipeline._chunk_count >= 1, (
+                "worker thread must increment _chunk_count after processing the chunk"
+            )
         finally:
             r.stop()
 

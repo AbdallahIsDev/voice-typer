@@ -16,11 +16,15 @@ back-reference to the owning ``Recorder`` instance
 (``AudioPipeline(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self._recorder._chunk_count`` / ``_buffer`` / ``_lock`` — buffer state
-- ``self._recorder._effective_sr`` / ``_buffer_sr`` — sample-rate tracking
+- ``self._buffer`` / ``_lock`` / ``_chunk_count`` / ``_buffer_sr`` /
+  ``_total_buffered_samples`` — buffer state OWNED by this pipeline
+  (STATE-OWNERSHIP; consumers route through
+  ``recorder._audio_pipeline.<attr>``)
+- ``self._recorder._effective_sr`` — sample-rate tracking
 - ``self._recorder._audio_processor`` — filter chain
-- ``self._recorder._xruns`` / ``_xrun_timestamps`` / ``_xrun_threshold`` /
-  ``on_xrun_threshold`` — XRUN tracking + callback
+- ``self._recorder.on_xrun_threshold`` — the app-wired xrun notification
+  slot (STAYS on Recorder; the xrun counters themselves are owned by
+  THIS pipeline — see the STATE-OWNERSHIP note in ``__init__``)
 - ``self._recorder._devices._device_disconnected`` (DeviceManager) /
   ``_disconnect_handler_running`` / ``_stop_generation`` /
   ``_recording_event`` — disconnect detection state
@@ -45,11 +49,13 @@ preserved here so the patch takes effect at call time.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import logging
 import math
 import os
 import queue
+import threading
 import time
 from typing import Any
 
@@ -96,12 +102,25 @@ def _ensure_sp_signal() -> Any | None:
 
 
 # XRUN rolling window parameters
+_XRUN_WINDOW_MAXLEN = 10  # keep last 10 xrun timestamps
 _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
 _XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
+# STATE-OWNERSHIP: these constants + the XRUN/clip/peak
+# telemetry counters they parameterize are owned by ``AudioPipeline``
+# (the collaborator whose ``handle_xrun_status`` /
+# ``detect_and_emit_clipping`` methods are the ONLY producers). They
+# previously lived on ``Recorder`` (declarations in
+# ``recorder_init._init_xrun_tracking``); consumers access them via
+# ``recorder._audio_pipeline.<attr>``. ``Recorder`` keeps a read-only
+# ``_xruns`` compatibility property because the out-of-scope
+# production reader ``service/status.py`` reads
+# ``getattr(app.recorder, "_xruns", 0)`` for the status payload.
 
 
 # PERF- / MAX_BUFFER_CHUNKS is dynamically adjusted in start() based
 # on max_recording_time_seconds AND the device's effective sample rate.
+# Single source of truth (E7/P2): recorder.py re-exports these for
+# back-compat (``recording/__init__.py`` imports them from recorder).
 BUFFER_WARNING_THRESHOLD = 5000
 TELEMETRY_LOG_INTERVAL = 1000
 
@@ -134,6 +153,61 @@ class AudioPipeline:
         # convention as the other extracted collaborators
         # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
+        # STATE-OWNERSHIP: the contiguous recording buffer, the
+        # buffer lock, and the buffer bookkeeping scalars live HERE
+        # (the owning collaborator — the module whose
+        # ``append_to_buffer_locked`` is the 16 Hz writer and whose
+        # ``apply_filter_chain`` maintains ``_buffer_sr``), not on
+        # ``Recorder``. Consumers (``SessionState.reset_session_state`` /
+        # ``resize_buffers_for_sample_rate``, ``_recorder_split``
+        # snapshot/stop/discard, ``DisconnectHandler`` hot-swap restart,
+        # ``StreamLifecycle``, ``vad_helpers``) access them via
+        # ``recorder._audio_pipeline.<attr>`` — the same friend-access
+        # convention the other moved clusters use. The
+        # ``GrowableRecordingBuffer`` construction parameters are
+        # identical to the historical ``_init_core_session_state``
+        # declaration (maxlen / nominal sample rate / the recorder's
+        # ``_note_buffer_capacity_eviction`` extra-eviction hook).
+        from ._recorder_split import GrowableRecordingBuffer
+        from .recorder import DEFAULT_MAX_BUFFER_CHUNKS
+
+        self._buffer: Any = GrowableRecordingBuffer(
+            maxlen=DEFAULT_MAX_BUFFER_CHUNKS,
+            nominal_sample_rate=recorder.config.sample_rate,
+            on_extra_eviction=recorder._note_buffer_capacity_eviction,
+        )
+        # Guards every mutation of ``_buffer`` + its bookkeeping
+        # counters (the historical ``Recorder._lock``; same Lock
+        # object semantics — one owner, all acquirers routed through
+        # this collaborator).
+        self._lock = threading.Lock()
+        # Sample rate of the audio currently held in ``_buffer``
+        # (``None`` until the first chunk arrives). Set by
+        # ``apply_filter_chain`` after the processor's rate is known;
+        # read by the VAD path and the snapshot/stop resample guards.
+        self._buffer_sr: int | None = None
+        # Number of chunks appended to ``_buffer`` this session.
+        self._chunk_count: int = 0
+        # PERF: O(1) running total of buffered samples (maintained by
+        # ``append_to_buffer_locked`` under ``_lock`` so the 4 Hz
+        # ``current_duration_seconds`` poll never iterates the buffer).
+        self._total_buffered_samples: int = 0
+        # STATE-OWNERSHIP: the XRUN / clipping / peak telemetry
+        # counters live HERE (the owning collaborator), not on
+        # ``Recorder``. ``handle_xrun_status`` is the ONLY writer of
+        # the xrun family; ``detect_and_emit_clipping`` is the only
+        # writer of the clip family; ``reset_session_state``
+        # (SessionState) resets them through the owner path
+        # (``recorder._audio_pipeline.<attr>``). ``Recorder.on_xrun_threshold``
+        # (the app-wired notification slot) STAYS on ``Recorder`` —
+        # it is public callback wiring, set by ``app_recording_init``.
+        self._xruns: int = 0
+        self._xrun_threshold: int = 10  # notify after this many xruns
+        # rolling window of xrun timestamps for rate-limited logging
+        self._xrun_timestamps: collections.deque = collections.deque(maxlen=_XRUN_WINDOW_MAXLEN)
+        self._clip_count: int = 0
+        self._peak: float = 0.0
+        self._last_clip_log_time: float = 0.0
 
     def detect_device_disconnect(self, indata: np.ndarray) -> bool:
         """Detect a USB/BT device disconnect via zero-filled input (HOTKEY-CRASH).
@@ -162,7 +236,7 @@ class AudioPipeline:
         zero. Preserves the early-return semantics.
         """
         recorder = self._recorder
-        if not ((indata.size == 0 or not np.any(indata)) and recorder._chunk_count > 10):
+        if not ((indata.size == 0 or not np.any(indata)) and self._chunk_count > 10):
             return False
         # re-entrancy guard — if a previous chunk already detected
         # the disconnect and scheduled a handler thread, don't spawn
@@ -191,7 +265,10 @@ class AudioPipeline:
         # fresh handler can spawn even if a prior handler hasn't fully
         # exited yet (e.g. test simulating restart by clearing
         # _device_disconnected, then sending another zero chunk).
-        recorder._disconnect_handler_running = False
+        # STATE-OWNERSHIP: the guard flag lives on ``DisconnectHandler``
+        # (the owning collaborator) — the historical
+        # ``Recorder._disconnect_handler_running`` was moved there.
+        recorder._disconnect_handler._single_flight_running = False
         log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
         # Schedule disconnect handling off the worker thread.
         # HOTKEY-CRASH: capture the current stop_generation so the
@@ -245,18 +322,21 @@ class AudioPipeline:
                 _xrun_overflow = bool(status & 2)
         if not _xrun_overflow:
             return False
-        recorder._xruns += 1
+        # STATE-OWNERSHIP: the xrun counters live on THIS pipeline
+        # (the owning collaborator); only the app-wired callback slot
+        # (``on_xrun_threshold``) stays on the recorder.
+        self._xruns += 1
         now = time.monotonic()
-        recorder._xrun_timestamps.append(now)
+        self._xrun_timestamps.append(now)
         # check rolling window — only log if threshold
         # exceeded within the alert period
         window_start = now - _XRUN_ALERT_PERIOD
-        recent_count = sum(1 for t in recorder._xrun_timestamps if t >= window_start)
-        if recent_count >= _XRUN_ALERT_THRESHOLD or recorder._xruns == 1:
+        recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
+        if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
             log.warning(
                 "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
                 status,
-                recorder._xruns,
+                self._xruns,
                 recent_count,
                 _XRUN_ALERT_PERIOD,
             )
@@ -266,9 +346,9 @@ class AudioPipeline:
         # EXACTLY ONCE per session — when ``_xruns`` incremented from 9
         # to 10 — and never again. A user with 100+ xruns saw 1
         # notification then nothing.
-        if recorder._xruns % recorder._xrun_threshold == 0 and recorder.on_xrun_threshold:
+        if self._xruns % self._xrun_threshold == 0 and recorder.on_xrun_threshold:
             with contextlib.suppress(Exception):
-                recorder.on_xrun_threshold(recorder._xruns)
+                recorder.on_xrun_threshold(self._xruns)
         # R18-F13: drop the partial chunk on xrun status. PortAudio
         # reports ``input_overflow`` when the callback couldn't keep up
         # — the in-flight chunk is partially stale (the backend overwrote
@@ -330,13 +410,13 @@ class AudioPipeline:
             # this so ``stop()`` / ``snapshot()`` use the correct source
             # rate when deciding whether to resample again.
             proc_sr = getattr(recorder._audio_processor, "_sample_rate", None)
-            recorder._buffer_sr = int(proc_sr) if proc_sr is not None else recorder._effective_sr
+            self._buffer_sr = int(proc_sr) if proc_sr is not None else recorder._effective_sr
         else:
             filtered = indata_mono
             # Critical: no processor → no resampling happened, so the
             # buffer holds audio at the device's native rate. Track this
             # so ``stop()`` / ``snapshot()`` skip the resample.
-            recorder._buffer_sr = recorder._effective_sr
+            self._buffer_sr = recorder._effective_sr
         return filtered
 
     def append_to_buffer_locked(self, filtered: np.ndarray) -> tuple[int, int]:
@@ -353,7 +433,7 @@ class AudioPipeline:
                 (maxlen exceeded), increment a counter and warn the user.
         """
         recorder = self._recorder
-        with recorder._lock:
+        with self._lock:
             # Store FILTERED audio so the transcriber receives the
             # cleaned signal. PERF-12: ``filtered`` is already an owned
             # array — in the processor branch, ``process_chunk`` is
@@ -383,7 +463,7 @@ class AudioPipeline:
             # vs. the previous ``sum(int(c.shape[0]) for c in buffer)``
             # which naturally accounted for eviction by re-iterating
             # the deque on every call.
-            _buf = recorder._buffer
+            _buf = self._buffer
             _maxlen = _buf.maxlen
             if _maxlen is not None and len(_buf) >= _maxlen:
                 try:
@@ -393,34 +473,34 @@ class AudioPipeline:
                     _evicted = None
                 if _evicted is not None:
                     try:
-                        recorder._total_buffered_samples -= int(_evicted.shape[0])
+                        self._total_buffered_samples -= int(_evicted.shape[0])
                     except (AttributeError, TypeError):
                         # Defensive: a malformed evicted chunk (rare)
                         # shouldn't corrupt the counter. Fall back to
                         # ``len(_evicted)`` which works for any sequence.
                         with contextlib.suppress(TypeError):
-                            recorder._total_buffered_samples -= len(_evicted)
+                            self._total_buffered_samples -= len(_evicted)
             _buf.append(filtered)
-            recorder._chunk_count += 1
+            self._chunk_count += 1
             # ``filtered.shape[0]`` is the number of samples in the
             # chunk (1-D mono after ``_ensure_mono`` /
             # ``process_chunk``). ``int()`` coerces the numpy int64 to
             # a Python int so the running sum stays a plain int (avoids
             # numpy scalar boxing on every increment).
             try:
-                recorder._total_buffered_samples += int(filtered.shape[0])
+                self._total_buffered_samples += int(filtered.shape[0])
             except (AttributeError, IndexError):
                 # Defensive: a malformed chunk without ``shape`` (rare)
                 # shouldn't corrupt the counter. Fall back to
                 # ``len(filtered)`` which works for any sequence.
-                recorder._total_buffered_samples += len(filtered)
-            chunk_count = recorder._chunk_count
+                self._total_buffered_samples += len(filtered)
+            chunk_count = self._chunk_count
             buffer_len = len(_buf)
 
         # Backpressure detection — if the deque dropped
         # chunks (maxlen exceeded), increment a counter and warn the
         # user
-        if recorder._buffer.maxlen is not None and buffer_len >= recorder._buffer.maxlen - 1:
+        if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
             recorder._dropped_chunks = recorder._dropped_chunks + 1
             if recorder._dropped_chunks == 1 or recorder._dropped_chunks % 100 == 0:
                 log.warning(
@@ -530,7 +610,7 @@ class AudioPipeline:
                 #
                 # use the cached (up, down) tuple instead of recomputing
                 # ``math.gcd`` per chunk.
-                _vad_sr = recorder._buffer_sr if recorder._buffer_sr is not None else recorder._effective_sr
+                _vad_sr = self._buffer_sr if self._buffer_sr is not None else recorder._effective_sr
                 if _vad_sr != recorder._cached_vad_resample_sr:
                     # ``_buffer_sr`` changed since the cache was last
                     # computed (e.g. first chunk after start(), or a
@@ -690,29 +770,30 @@ class AudioPipeline:
         audio. ``put_nowait`` + ``queue.Full`` suppression so a
         backed-up event worker can never block the audio thread.
 
-        Side effects: increments ``recorder._clip_count``, updates
-        ``recorder._peak`` and ``recorder._last_clip_log_time``, may
+        Side effects: increments ``self._clip_count`` (owned here),
+        updates ``self._peak`` and ``self._last_clip_log_time``, may
         push an event to ``recorder._event_queue``.
         """
         if chunk_peak >= 0.99:
-            recorder._clip_count += 1
-            if chunk_peak > recorder._peak:
-                recorder._peak = chunk_peak
+            # STATE-OWNERSHIP: clip/peak telemetry lives on THIS pipeline.
+            self._clip_count += 1
+            if chunk_peak > self._peak:
+                self._peak = chunk_peak
             now = time.perf_counter()
-            if now - recorder._last_clip_log_time >= 1.0:
+            if now - self._last_clip_log_time >= 1.0:
                 log.debug(
                     "[RECORDING] Clipping detected: peak=%.4f, count=%d chunks.",
                     chunk_peak,
-                    recorder._clip_count,
+                    self._clip_count,
                 )
-                recorder._last_clip_log_time = now
+                self._last_clip_log_time = now
                 with contextlib.suppress(queue.Full):
                     recorder._event_queue.put_nowait(
                         {
                             "type": "audio_clip",
                             "data": {
                                 "peak": float(chunk_peak),
-                                "count": int(recorder._clip_count),
+                                "count": int(self._clip_count),
                             },
                         }
                     )
@@ -857,7 +938,7 @@ class AudioPipeline:
         # dynamic range compression with proper attack/release.
         # _last_rms stores the post-filter RMS for UI/IPC.
 
-        with recorder._lock:
+        with self._lock:
             recorder._last_rms = chunk_rms
 
         # AUDIO-CLIP: Track clipping + push IPC event (delegated to a

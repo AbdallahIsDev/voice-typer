@@ -107,7 +107,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
     RT-SAFE-001: the PortAudio callback now pushes chunks to a ring
     buffer and returns immediately; a daemon worker thread processes
     them asynchronously. Tests that push chunks via ``FakeInputStream``
-    must call this helper before asserting on ``rec._buffer`` —
+    must call this helper before asserting on ``rec._audio_pipeline._buffer`` —
     otherwise the worker may not have processed the chunks yet.
     """
     import time
@@ -221,8 +221,8 @@ class TestRecorderCallbackWithAudioProcessor:
         _drain_ring_buffer(r)
 
         # If the callback had raised, the buffer would be empty.
-        assert len(r._buffer) == 5, (
-            f"Expected 5 buffered chunks, got {len(r._buffer)} — "
+        assert len(r._audio_pipeline._buffer) == 5, (
+            f"Expected 5 buffered chunks, got {len(r._audio_pipeline._buffer)} — "
             "callback may have raised NameError (the bug we're regression-testing)"
         )
         r.stop()
@@ -424,7 +424,7 @@ class TestRecorderCallbackWithAudioProcessor:
         # wait for the worker to drain the ring buffer.
         _drain_ring_buffer(r)
 
-        assert len(r._buffer) == 3
+        assert len(r._audio_pipeline._buffer) == 3
         r.stop()
 
     def test_xrun_status_does_not_break_callback(self, monkeypatch):
@@ -475,5 +475,5 @@ class TestRecorderCallbackWithAudioProcessor:
         _drain_ring_buffer(r)
 
         # Buffer should still have grown.
-        assert len(r._buffer) == 1
+        assert len(r._audio_pipeline._buffer) == 1
         r.stop()

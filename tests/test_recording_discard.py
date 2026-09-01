@@ -41,8 +41,8 @@ def _make_recorder():
     r = make_fake_recorder()
     r._recording_event.set()
     r._effective_sr = 16000
-    r._stream = MagicMock()
-    r._buffer = [np.array([[1.0]], dtype=np.float32)]
+    r._stream_lifecycle._stream = MagicMock()
+    r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
     return r
 
 
@@ -70,8 +70,8 @@ class TestDiscardWaitsForCallback:
 
         # Capture the order of stream.stop() and stream.close() calls.
         call_order = []
-        original_stop = r._stream.stop
-        original_close = r._stream.close
+        original_stop = r._stream_lifecycle._stream.stop
+        original_close = r._stream_lifecycle._stream.close
 
         def tracking_stop():
             call_order.append("stop")
@@ -81,8 +81,8 @@ class TestDiscardWaitsForCallback:
             call_order.append("close")
             return original_close()
 
-        r._stream.stop = tracking_stop
-        r._stream.close = tracking_close
+        r._stream_lifecycle._stream.stop = tracking_stop
+        r._stream_lifecycle._stream.close = tracking_close
 
         r.discard()
 
@@ -90,7 +90,7 @@ class TestDiscardWaitsForCallback:
         assert "stop" in call_order, "discard() did not call stream.stop() — needed to drain the callback"
         assert "close" in call_order, "discard() did not call stream.close()"
         assert call_order.index("stop") < call_order.index("close"), f"discard() called close before stop: {call_order}"
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_discard_zero_ms_when_flag_already_clear(self, monkeypatch):
         """Symmetric with ``stop()``: when ``_is_in_audio_callback`` is NOT
@@ -100,20 +100,20 @@ class TestDiscardWaitsForCallback:
         # Flag is already clear (default state)
 
         stop_called = {"n": 0}
-        original_stop = r._stream.stop
+        original_stop = r._stream_lifecycle._stream.stop
 
         def tracking_stop():
             stop_called["n"] += 1
             return original_stop()
 
-        r._stream.stop = tracking_stop
+        r._stream_lifecycle._stream.stop = tracking_stop
 
         r.discard()
 
         # stream.stop() is still called (it's a no-op when no callback
         # is in flight, but it's part of the teardown contract).
         assert stop_called["n"] >= 1, f"Expected stream.stop() called, got {stop_called['n']}"
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_discard_delegates_to_stream_stop_for_callback(self, monkeypatch):
         """Simulates a callback that's 'in flight' — ``discard()`` must
@@ -139,14 +139,14 @@ class TestDiscardWaitsForCallback:
         # Clearing the flag here represents the drain that stream.stop()
         # performs in reality, so discard() must NOT need to poll.
         stop_called = {"n": 0}
-        original_stop = r._stream.stop
+        original_stop = r._stream_lifecycle._stream.stop
 
         def tracking_stop():
             stop_called["n"] += 1
             r._is_in_audio_callback.clear()  # callback drained → flag clear
             return original_stop()
 
-        r._stream.stop = tracking_stop
+        r._stream_lifecycle._stream.stop = tracking_stop
 
         start = time.perf_counter()
         r.discard()
@@ -158,7 +158,7 @@ class TestDiscardWaitsForCallback:
         assert len(sleep_calls) == 0, f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
         # Should complete promptly (stream.stop is mocked).
         assert elapsed < 0.300, f"discard() took {elapsed * 1000:.1f}ms — exceeded 300ms budget"
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
 
 # 17-H-: _teardown_stream() must be idempotent ──────────────────
@@ -178,11 +178,11 @@ class TestDiscardIdempotent:
 
         # First discard tears down the stream
         r.discard()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
         # Second discard must be a no-op on the stream (already None)
         r.discard()  # must not raise
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_discard_after_stop_does_not_crash(self, monkeypatch):
         """If ``stop()`` runs first and then ``discard()`` is called,
@@ -194,19 +194,19 @@ class TestDiscardIdempotent:
         )
 
         r.stop()  # tears down the stream
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
         r.discard()  # must not raise — idempotent _teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_teardown_stream_idempotent_directly(self):
         """Directly verify the helper handles a None stream."""
         r = _make_recorder()
-        r._stream = None
+        r._stream_lifecycle._stream = None
 
         # Must not raise even though there's no stream.
         r._teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
     def test_teardown_stream_idempotent_with_real_stream(self):
         """Verify that calling _teardown_stream() twice (with a real
@@ -214,10 +214,10 @@ class TestDiscardIdempotent:
         r = _make_recorder()
         # First call: stream is a MagicMock — stop()/close() are no-ops
         r._teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
         # Second call: stream is None — must early-return without raising
         r._teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
 
 # 17-H-: discard() parity with stop() ───────────────────────────
@@ -246,13 +246,13 @@ class TestDiscardStopGeneration:
         monkeypatch.setattr("voice_typer.server.recording.time.sleep", lambda s: None)
 
         flag_at_stop = {"value": None}
-        original_stop = r._stream.stop
+        original_stop = r._stream_lifecycle._stream.stop
 
         def capturing_stop():
             flag_at_stop["value"] = r._user_stop_pending
             return original_stop()
 
-        r._stream.stop = capturing_stop
+        r._stream_lifecycle._stream.stop = capturing_stop
 
         assert r._user_stop_pending is False  # initial state
         r.discard()
@@ -268,19 +268,19 @@ class TestDiscardStopGeneration:
         monkeypatch.setattr("voice_typer.server.recording.time.sleep", lambda s: None)
 
         close_called = {"n": 0}
-        original_close = r._stream.close
+        original_close = r._stream_lifecycle._stream.close
 
         def counting_close():
             close_called["n"] += 1
             return original_close()
 
-        r._stream.close = counting_close
+        r._stream_lifecycle._stream.close = counting_close
 
         r.discard()
 
         assert close_called["n"] == 1, f"Expected stream.close() called once, got {close_called['n']}"
-        assert r._stream is None
-        assert list(r._buffer) == [], "discard() must clear the audio buffer"
+        assert r._stream_lifecycle._stream is None
+        assert list(r._audio_pipeline._buffer) == [], "discard() must clear the audio buffer"
 
 
 if __name__ == "__main__":

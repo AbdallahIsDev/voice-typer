@@ -286,8 +286,8 @@ def test_golden_path_sine_to_final_text_history_and_recovery(golden_app, tmp_con
         stream.push_chunk(chunk.reshape(-1, 1))
 
     _drain_ring_buffer(recorder)
-    assert len(recorder._buffer) == _CHUNK_COUNT, (
-        f"expected {_CHUNK_COUNT} buffered chunks, got {len(recorder._buffer)} — "
+    assert len(recorder._audio_pipeline._buffer) == _CHUNK_COUNT, (
+        f"expected {_CHUNK_COUNT} buffered chunks, got {len(recorder._audio_pipeline._buffer)} — "
         "the real capture→filter-chain path dropped chunks"
     )
 

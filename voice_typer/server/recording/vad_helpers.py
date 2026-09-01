@@ -70,7 +70,11 @@ def refresh_vad_caches(recorder: Any) -> None:
     # device's native rate). When a processor is active,
     # ``_buffer_sr == 16000`` and the VAD branch is skipped entirely
     # — no double-resample.
-    vad_sr = recorder._buffer_sr if recorder._buffer_sr is not None else recorder._effective_sr
+    vad_sr = (
+        recorder._audio_pipeline._buffer_sr
+        if recorder._audio_pipeline._buffer_sr is not None
+        else recorder._effective_sr
+    )
     if vad_sr is not None and vad_sr not in SILERO_VAD_SAMPLE_RATES and vad_sr > 0:
         gcd = math.gcd(int(vad_sr), WHISPER_SAMPLE_RATE)
         recorder._cached_vad_resample_up_down = (

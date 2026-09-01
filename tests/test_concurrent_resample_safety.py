@@ -54,10 +54,10 @@ class TestResampleCacheConcurrentLoadSafety:
 
         # Pre-fill with a few chunks so snapshot() has data to resample
         chunk = np.full((512, 1), 0.1, dtype=np.float32)
-        with rec._lock:
+        with rec._audio_pipeline._lock:
             for _ in range(10):
-                rec._buffer.append(chunk)
-            rec._chunk_count = 10
+                rec._audio_pipeline._buffer.append(chunk)
+            rec._audio_pipeline._chunk_count = 10
 
         errors: list[Exception] = []
         stop = threading.Event()
@@ -66,9 +66,9 @@ class TestResampleCacheConcurrentLoadSafety:
             """Simulate the audio callback appending chunks."""
             while not stop.is_set():
                 try:
-                    with rec._lock:
-                        rec._buffer.append(chunk.copy())
-                        rec._chunk_count += 1
+                    with rec._audio_pipeline._lock:
+                        rec._audio_pipeline._buffer.append(chunk.copy())
+                        rec._audio_pipeline._chunk_count += 1
                 except Exception as e:
                     errors.append(e)
                 time.sleep(0.001)  # ~1 kHz
@@ -120,19 +120,19 @@ class TestResampleCacheConcurrentLoadSafety:
         rec._recording_start_time = time.perf_counter()
 
         chunk = np.full((512, 1), 0.1, dtype=np.float32)
-        with rec._lock:
+        with rec._audio_pipeline._lock:
             for _ in range(5):
-                rec._buffer.append(chunk)
-            rec._chunk_count = 5
+                rec._audio_pipeline._buffer.append(chunk)
+            rec._audio_pipeline._chunk_count = 5
 
         errors: list[Exception] = []
         stop = threading.Event()
 
         def producer():
             while not stop.is_set():
-                with rec._lock:
-                    rec._buffer.append(chunk.copy())
-                    rec._chunk_count += 1
+                with rec._audio_pipeline._lock:
+                    rec._audio_pipeline._buffer.append(chunk.copy())
+                    rec._audio_pipeline._chunk_count += 1
                 time.sleep(0.001)
 
         def consumer():
@@ -158,14 +158,14 @@ class TestResampleCacheConcurrentLoadSafety:
 
         # After all threads complete, the cache should be consistent:
         # either empty or matching the current buffer length.
-        with rec._lock:
+        with rec._audio_pipeline._lock:
             if rec._cached_resampled is not None and rec._cached_resampled.size > 0:
                 # The cached prefix is based on _cached_native_chunk_count
                 # which must be <= current _chunk_count
-                assert rec._cached_native_chunk_count <= rec._chunk_count, (
+                assert rec._cached_native_chunk_count <= rec._audio_pipeline._chunk_count, (
                     f"H15/M8: cached native chunk count "
                     f"({rec._cached_native_chunk_count}) > current chunk count "
-                    f"({rec._chunk_count}) — cache corruption under concurrent access"
+                    f"({rec._audio_pipeline._chunk_count}) — cache corruption under concurrent access"
                 )
 
     def test_concurrent_snapshot_no_torn_reads(self):
@@ -178,19 +178,19 @@ class TestResampleCacheConcurrentLoadSafety:
         rec._recording_start_time = time.perf_counter()
 
         chunk = np.full((512, 1), 0.1, dtype=np.float32)
-        with rec._lock:
+        with rec._audio_pipeline._lock:
             for _ in range(10):
-                rec._buffer.append(chunk)
-            rec._chunk_count = 10
+                rec._audio_pipeline._buffer.append(chunk)
+            rec._audio_pipeline._chunk_count = 10
 
         errors: list[Exception] = []
         stop = threading.Event()
 
         def producer():
             while not stop.is_set():
-                with rec._lock:
-                    rec._buffer.append(chunk.copy())
-                    rec._chunk_count += 1
+                with rec._audio_pipeline._lock:
+                    rec._audio_pipeline._buffer.append(chunk.copy())
+                    rec._audio_pipeline._chunk_count += 1
                 time.sleep(0.0005)  # High frequency
 
         def consumer():

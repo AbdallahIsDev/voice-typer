@@ -113,6 +113,18 @@ class AudioCallbackDispatcher:
         # import (``recorder`` imports this module at module top to
         # construct this class in ``Recorder.__init__``).
         self._recorder = recorder
+        # STATE-OWNERSHIP: the RT-callback exception channel lives HERE
+        # (the owning collaborator), not on ``Recorder``.
+        # ``dispatch_callback_body`` stores the exception (store-then-
+        # re-raise, atomic under the GIL — no lock, this is the RT
+        # callback), and ``Recorder._stream_finished_callback`` reads
+        # and clears it via ``self._capture._last_callback_error`` so
+        # the true cause of a callback-driven stream abort is logged
+        # at ERROR instead of being misdiagnosed as a device
+        # disconnect. Single attribute read/write — atomic under the
+        # GIL; no lock needed (taking one in the RT callback would
+        # risk an overrun against the 32ms deadline).
+        self._last_callback_error: Exception | None = None
 
     def dispatch_callback_body(
         self,
@@ -167,8 +179,9 @@ class AudioCallbackDispatcher:
         # The entire body is wrapped in try/except so a bug in
         # the RT callback (e.g. an unexpected AttributeError from a
         # None _ring_buffer / _preroll_buffer) is surfaced on
-        # ``recorder._last_callback_error`` and logged at ERROR by
-        # ``_stream_finished_callback`` instead of being silently
+        # ``self._last_callback_error`` (this owning dispatcher) and
+        # logged at ERROR by
+        # ``Recorder._stream_finished_callback`` instead of being silently
         # swallowed by PortAudio (which aborts the stream and surfaces
         # to the user as a phantom "device disconnect"). The exception
         # is re-raised after storage so PortAudio's stream-abort
@@ -177,14 +190,16 @@ class AudioCallbackDispatcher:
         try:
             return self._dispatch_callback_body_inner(recorder, indata, frames, time_info, status)
         except Exception as exc:
-            # Store on the recorder so _stream_finished_callback can
-            # log the true cause. Atomic under CPython's GIL (single
-            # attribute assignment). We do NOT use a lock here — this
-            # is the RT callback, taking a lock would risk an overrun
-            # against the 32ms deadline. The store-then-reraise
-            # pattern means PortAudio's behavior is unchanged (the
-            # stream still aborts), but the diagnostic is preserved.
-            recorder._last_callback_error = exc
+            # Store on THIS collaborator (the owning dispatcher) so
+            # ``Recorder._stream_finished_callback`` can log the true
+            # cause via ``self._capture._last_callback_error``. Atomic
+            # under CPython's GIL (single attribute assignment). We do
+            # NOT use a lock here — this is the RT callback, taking a
+            # lock would risk an overrun against the 32ms deadline. The
+            # store-then-reraise pattern means PortAudio's behavior is
+            # unchanged (the stream still aborts), but the diagnostic
+            # is preserved.
+            self._last_callback_error = exc
             raise
 
     def _dispatch_callback_body_inner(
@@ -503,6 +518,15 @@ class AudioCallbackDispatcher:
             name=_AUDIO_WORKER_THREAD_NAME,
             daemon=True,
         )
+        # Thread-ownership tag (test-leak-guard support): attach the
+        # owning recorder instance so a leaked worker can be attributed
+        # to its recorder by the test guard helpers (identity-based
+        # attribute — the thread NAME stays the canonical worker name,
+        # which is pinned exactly by
+        # ``tests/test_capture_worker_lifecycle.py``). The thread
+        # already holds the recorder via its target/args, so no new
+        # reference lifetime is introduced.
+        recorder._worker_thread._vt_owner_recorder = recorder
         recorder._worker_thread.start()
         # THREAD-REGISTRY: register the freshly-started worker so the
         # central registry can signal/join it on shutdown. The join
@@ -694,6 +718,8 @@ class AudioCallbackDispatcher:
             name=_EVENT_WORKER_THREAD_NAME,
             daemon=True,
         )
+        # Thread-ownership tag — see start_audio_worker_body.
+        recorder._event_worker_thread._vt_owner_recorder = recorder
         recorder._event_worker_thread.start()
         if recorder._thread_registry is not None:
             recorder._thread_registry.register(

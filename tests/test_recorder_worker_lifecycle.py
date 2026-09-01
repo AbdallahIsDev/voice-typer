@@ -32,7 +32,7 @@ was ``0 != 0 == False`` and never bailed out. The fix captures
 ``_process_audio_chunk`` spawn site). A new
 ``self._stream_lifecycle_lock`` serializes ``_teardown_stream`` against
 the stream-restart block of ``_handle_device_disconnect`` so a
-concurrent ``stop()`` cannot mutate ``self._stream`` mid-restart.
+concurrent ``stop()`` cannot mutate ``self._stream_lifecycle._stream`` mid-restart.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ import pytest
 
 from tests.fixtures.recorder_test_helpers import (
     WORKER_THREAD_NAMES,
+    snapshot_worker_threads,
     wait_for_workers_stopped,
 )
 
@@ -218,7 +219,7 @@ class TestWorkerLifecycleLock:
         r._start_audio_worker()
         assert r._worker_thread is not None
 
-        real_lock = r._lock
+        real_lock = r._audio_pipeline._lock
         main_thread = threading.current_thread()
         main_thread_acquires: list[str] = []
 
@@ -245,7 +246,7 @@ class TestWorkerLifecycleLock:
                 self.release()
                 return False
 
-        r._lock = GuardedLock()
+        r._audio_pipeline._lock = GuardedLock()
         try:
             r._stop_audio_worker(timeout=1.0, drain=False)
             assert main_thread_acquires == [], (
@@ -255,7 +256,7 @@ class TestWorkerLifecycleLock:
                 "_process_audio_chunk's buffer-append critical section."
             )
         finally:
-            r._lock = real_lock
+            r._audio_pipeline._lock = real_lock
             if r._worker_thread is not None and r._worker_thread.is_alive():
                 r._worker_stop_event.set()
                 r._worker_thread.join(timeout=1.0)
@@ -319,7 +320,7 @@ class TestWorkerLifecycleLock:
             r._capture.start_event_worker_body(r)
         assert r._event_worker_thread is not None
 
-        real_lock = r._lock
+        real_lock = r._audio_pipeline._lock
         main_thread = threading.current_thread()
         main_thread_acquires: list[str] = []
 
@@ -346,7 +347,7 @@ class TestWorkerLifecycleLock:
                 self.release()
                 return False
 
-        r._lock = GuardedLock()
+        r._audio_pipeline._lock = GuardedLock()
         try:
             r._capture.stop_event_worker_body(r, timeout=1.0, drain=False)
             assert main_thread_acquires == [], (
@@ -355,7 +356,7 @@ class TestWorkerLifecycleLock:
                 "holding it across thread.join() would deadlock."
             )
         finally:
-            r._lock = real_lock
+            r._audio_pipeline._lock = real_lock
             if r._event_worker_thread is not None and r._event_worker_thread.is_alive():
                 r._event_stop_event.set()
                 r._event_worker_thread.join(timeout=1.0)
@@ -384,6 +385,12 @@ class TestConcurrentStartStopNoLeak:
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
+
+        # S5 thread-ownership: snapshot BEFORE the hammer spawns any
+        # worker so the final wait only requires THIS test's delta to
+        # drain (leaked threads from earlier xdist files no longer
+        # block it; this test's own leaks still fail the assert below).
+        baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -433,7 +440,7 @@ class TestConcurrentStartStopNoLeak:
         # the tracked refs are None AND no worker-named thread is
         # alive — stop() is idempotent, and a REAL leak keeps the
         # threads alive past the deadline, so this assert still fires.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/stop(): "
             f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
@@ -448,6 +455,9 @@ class TestConcurrentStartStopNoLeak:
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
+
+        # S5 thread-ownership baseline — see test_concurrent_start_stop_no_leak.
+        baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -485,7 +495,7 @@ class TestConcurrentStartStopNoLeak:
 
         r.stop()
         # GT-23 load-flake guard — see test_concurrent_start_stop_no_leak.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/discard(): "
             f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
@@ -513,6 +523,13 @@ class TestIdleStopStopsOrphanedWorkers:
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
+        # S5 thread-ownership: snapshot BEFORE the test spawns any
+        # worker so the wait only requires THIS test's delta to drain
+        # (worker threads leaked by earlier test files in the same xdist
+        # worker no longer block the wait; this test's own leaks still
+        # fail the assert below).
+        baseline = snapshot_worker_threads()
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
 
@@ -528,7 +545,7 @@ class TestIdleStopStopsOrphanedWorkers:
         # stop() must stop it despite the cleared event.
         r.stop()
 
-        assert wait_for_workers_stopped(r, stop=r.stop), (
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "GT-23R: stop() fast-pathed on the cleared recording event "
             "and left the event worker running. stop() must stop live "
             "workers even when idle (start/discard race end-state)."
@@ -542,6 +559,13 @@ class TestIdleStopStopsOrphanedWorkers:
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
+        # S5 thread-ownership: snapshot BEFORE the test spawns any
+        # worker so the wait only requires THIS test's delta to drain
+        # (worker threads leaked by earlier test files in the same xdist
+        # worker no longer block the wait; this test's own leaks still
+        # fail the assert below).
+        baseline = snapshot_worker_threads()
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
 
@@ -552,10 +576,12 @@ class TestIdleStopStopsOrphanedWorkers:
 
         r.stop()
 
-        assert wait_for_workers_stopped(r, stop=r.stop), (
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "GT-23R: stop() fast-pathed on the cleared recording event "
             "and left the audio worker running. stop() must stop live "
-            "workers even when idle (start/discard race end-state)."
+            "workers even when idle (start/discard race end-state). "
+            f"Threads: {[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
+            f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
         )
 
     def test_discard_stops_live_worker_when_event_cleared(self, monkeypatch):
@@ -568,6 +594,13 @@ class TestIdleStopStopsOrphanedWorkers:
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
+        # S5 thread-ownership: snapshot BEFORE the test spawns any
+        # worker so the wait only requires THIS test's delta to drain
+        # (worker threads leaked by earlier test files in the same xdist
+        # worker no longer block the wait; this test's own leaks still
+        # fail the assert below).
+        baseline = snapshot_worker_threads()
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
 
@@ -579,7 +612,7 @@ class TestIdleStopStopsOrphanedWorkers:
 
         r.discard()
 
-        assert wait_for_workers_stopped(r, stop=r.stop), (
+        assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "GT-23R: discard() fast-pathed on the cleared recording "
             "event and left the event worker running. discard() must "
             "stop live workers even when idle (start/discard race "
@@ -627,7 +660,7 @@ class TestStreamFinishedCallbackGeneration:
 
         r._devices._device_disconnected = False
         r._user_stop_pending = False
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         r._recording_event.clear()
         r._stop_generation = 7
 
@@ -653,17 +686,25 @@ class TestStreamFinishedCallbackGeneration:
     def test_stream_finished_callback_does_not_use_default_zero(self):
         """Source inspection: the spawn site must NOT omit the
         ``_captured_generation`` kwarg (which would default to 0 and
-        defeat the bouncer on the first session)."""
-        from voice_typer.server.recording import Recorder
+        defeat the bouncer on the first session).
 
-        src = inspect.getsource(Recorder._stream_finished_callback)
-        assert "threading.Thread(" in src
-        assert "kwargs=" in src, (
-            "GT-24: _stream_finished_callback must pass kwargs= to "
-            "threading.Thread — pre-fix the handler was scheduled with "
-            "the default _captured_generation=0 which matched the "
-            "initial _stop_generation=0, defeating the bouncer on the "
-            "first session."
+        STATE-OWNERSHIP: the scheduling body lives on
+        ``DisconnectHandler.stream_finished_callback_body`` (and the
+        thread construction on ``DisconnectHandler.spawn_device_thread``);
+        ``Recorder._stream_finished_callback`` is a documented 1-line
+        delegator. The pins read the OWNING collaborator's source.
+        """
+        from voice_typer.server.recording.disconnect_handler import DisconnectHandler
+
+        spawn_src = inspect.getsource(DisconnectHandler.spawn_device_thread)
+        callback_src = inspect.getsource(DisconnectHandler.stream_finished_callback_body)
+        assert "threading.Thread(" in spawn_src
+        assert "kwargs=" in callback_src, (
+            "GT-24: the stream-finished scheduling body must pass kwargs= "
+            "to the device-thread spawn helper — pre-fix the handler was "
+            "scheduled with the default _captured_generation=0 which "
+            "matched the initial _stop_generation=0, defeating the "
+            "bouncer on the first session."
         )
 
     def test_handle_device_disconnect_bouncer_intact(self, monkeypatch):
@@ -758,7 +799,7 @@ class TestStreamLifecycleLock:
     """GT-24: ``_stream_lifecycle_lock`` serializes stream teardown
     (``_teardown_stream``) against the stream-restart block of
     ``_handle_device_disconnect`` so a concurrent ``stop()`` /
-    ``discard()`` cannot mutate ``self._stream`` mid-flight."""
+    ``discard()`` cannot mutate ``self._stream_lifecycle._stream`` mid-flight."""
 
     def test_lock_attribute_exists(self):
         from voice_typer.server.recording import Recorder
@@ -778,7 +819,7 @@ class TestStreamLifecycleLock:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
 
         real_lock = r._stream_lifecycle_lock
         acquire_calls: list = []
@@ -809,12 +850,12 @@ class TestStreamLifecycleLock:
             "It must serialize teardown against concurrent "
             "_handle_device_disconnect restart."
         )
-        assert r._stream is None, "GT-24: _teardown_stream did not tear down the stream."
+        assert r._stream_lifecycle._stream is None, "GT-24: _teardown_stream did not tear down the stream."
 
     def test_handle_device_disconnect_restart_uses_lock(self, monkeypatch):
         """Behavioral: the restart block of ``_handle_device_disconnect``
         must acquire ``_stream_lifecycle_lock`` (BLOCKING) so a concurrent
-        ``stop()`` cannot mutate ``self._stream`` mid-restart. Verified
+        ``stop()`` cannot mutate ``self._stream_lifecycle._stream`` mid-restart. Verified
         by holding the lock and confirming the handler blocks at the
         restart block."""
         import voice_typer.server.recording as recording_mod
@@ -827,7 +868,7 @@ class TestStreamLifecycleLock:
 
         r._stop_generation = 0
         r._recording_event.set()
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
 
         r._stream_lifecycle_lock.acquire()
 
@@ -846,7 +887,7 @@ class TestStreamLifecycleLock:
                 "GT-24: _handle_device_disconnect did NOT block at the "
                 "restart block when _stream_lifecycle_lock was held — the "
                 "restart block must acquire the lock (blocking) so a "
-                "concurrent stop() cannot mutate self._stream mid-restart."
+                "concurrent stop() cannot mutate self._stream_lifecycle._stream mid-restart."
             )
             r._stop_generation = 1
         finally:
@@ -878,7 +919,7 @@ class TestStreamLifecycleLock:
 
         r._stop_generation = 0
         r._recording_event.set()
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
 
         restart_calls: list = []
         original_restart = r._disconnect_handler.restart_stream
@@ -966,13 +1007,13 @@ class TestStreamLifecycleLock:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         # First call tears down.
         r._teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
         # Second call is a no-op (idempotent).
         r._teardown_stream()
-        assert r._stream is None
+        assert r._stream_lifecycle._stream is None
 
 
 # stream-finished callback doesn't fire on first session ──
@@ -1153,7 +1194,7 @@ class TestStreamFinishedCallbackFirstSession:
             # is cleared, _user_stop_pending is False, _stream is set.
             r._recording_event.clear()
             r._user_stop_pending = False
-            assert r._stream is not None
+            assert r._stream_lifecycle._stream is not None
 
             r._stream_finished_callback()
 

@@ -92,15 +92,15 @@ def _build_mock_recorder(
             None,
         )
         # `_stream` is non-None so the fallback path is skipped and
-        # the ``if recorder._stream is None:`` early-return doesn't fire.
-        recorder._stream = MagicMock(name="opened-stream")
+        # the ``if recorder._stream_lifecycle._stream is None:`` early-return doesn't fire.
+        recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
     else:
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             None,
             sample_rate,
             RuntimeError("no mic"),
         )
-        recorder._stream = None
+        recorder._stream_lifecycle._stream = None
 
     # `_recording_event` must be a real threading.Event so the
     # `event.set()` ordering check can inspect its state.
@@ -122,7 +122,7 @@ def _build_mock_recorder(
     # Real scalar sample rates: ``refresh_vad_caches`` (invoked directly
     # as a module function now) compares these against int constants —
     # MagicMock sentinels would raise TypeError on the ``> 0`` check.
-    recorder._buffer_sr = None
+    recorder._audio_pipeline._buffer_sr = None
     recorder._effective_sr = sample_rate
 
     return recorder
@@ -305,7 +305,7 @@ class TestDeviceEnumerationAtFunctionScope:
     """Pin the ``CRITICAL — DO NOT RESTRUCTURE`` contract: the
     device-enumeration block (``last_error``, ``selected_device``,
     ``effective_sr``, ``_open_stream_for_candidates``,
-    ``_open_stream_fallback``, and the ``if recorder._stream is
+    ``_open_stream_fallback``, and the ``if recorder._stream_lifecycle._stream is
     None:`` check) MUST stay at ``start_recording`` function-body
     scope, NOT inside the ``callback`` closure built by
     ``_build_audio_callback``.
@@ -384,21 +384,21 @@ class TestStartRecordingFallbackPath:
 
     def test_fallback_called_when_first_candidate_returns_none_stream(self):
         """When ``open_stream_for_candidates`` returns
-        ``selected_device=None`` AND ``recorder._stream`` is None,
+        ``selected_device=None`` AND ``recorder._stream_lifecycle._stream`` is None,
         the fallback path must run.
         """
         recorder = _build_mock_recorder(open_success=False)
         # First attempt fails (``_stream`` is None);
         # ``open_stream_fallback`` is the StreamLifecycle method that
-        # opens the stream — it sets ``recorder._stream`` itself on
+        # opens the stream — it sets ``recorder._stream_lifecycle._stream`` itself on
         # success. We simulate that by using a ``side_effect`` that
-        # assigns ``recorder._stream`` to a non-None MagicMock before
+        # assigns ``recorder._stream_lifecycle._stream`` to a non-None MagicMock before
         # returning the 4-tuple.
-        assert recorder._stream is None
+        assert recorder._stream_lifecycle._stream is None
         original_err = recorder._stream_lifecycle.open_stream_for_candidates.return_value[2]
 
         def _fallback_side_effect(rec, candidates, callback, eff_sr, last_err):
-            recorder._stream = MagicMock(name="fallback-stream")
+            recorder._stream_lifecycle._stream = MagicMock(name="fallback-stream")
             return (7, 16000, True, None)
 
         recorder._stream_lifecycle.open_stream_fallback.side_effect = _fallback_side_effect
@@ -438,7 +438,7 @@ class TestStartRecordingFallbackPath:
             True,
             original_err,  # same error propagated from the candidate path
         )
-        recorder._stream = None
+        recorder._stream_lifecycle._stream = None
 
         with pytest.raises(OSError) as exc_info:
             start_recording(recorder)
@@ -458,7 +458,7 @@ class TestStartRecordingFallbackPath:
         recorder = _build_mock_recorder(open_success=False)
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (None, 16000, None)
         recorder._stream_lifecycle.open_stream_fallback.return_value = (None, 16000, True, None)
-        recorder._stream = None
+        recorder._stream_lifecycle._stream = None
 
         with pytest.raises(RuntimeError, match="No input device could be opened"):
             start_recording(recorder)

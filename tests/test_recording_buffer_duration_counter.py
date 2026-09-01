@@ -93,10 +93,17 @@ def _make_pipeline_stub_recorder(*, maxlen: int | None = 30000) -> MagicMock:
     tests can assert the exact delta after each append.
     """
     recorder = MagicMock(name="RecorderStub")
-    recorder._lock = threading.Lock()
-    recorder._buffer = collections.deque(maxlen=maxlen)
-    recorder._chunk_count = 0
-    recorder._total_buffered_samples = 0
+    # STATE-OWNERSHIP: the buffer lock / buffer / chunk counter /
+    # sample total are owned by the real ``AudioPipeline``
+    # (``append_to_buffer_locked`` mutates ``self.<attr>``). Construct
+    # the owning collaborator here, attach it to the recorder, and seed
+    # the test's stub container (a plain deque so the maxlen-eviction
+    # semantics are exactly the deque's) + zeroed counters on the owner.
+    recorder._audio_pipeline = AudioPipeline(recorder)
+    recorder._audio_pipeline._lock = threading.Lock()
+    recorder._audio_pipeline._buffer = collections.deque(maxlen=maxlen)
+    recorder._audio_pipeline._chunk_count = 0
+    recorder._audio_pipeline._total_buffered_samples = 0
     recorder._dropped_chunks = 0
     return recorder
 
@@ -110,34 +117,34 @@ class TestAppendIncrementsCounter:
 
     def test_single_append_increments_counter(self) -> None:
         recorder = _make_pipeline_stub_recorder()
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
         chunk = np.ones(512, dtype=np.float32)
 
         pipeline.append_to_buffer_locked(chunk)
 
-        assert recorder._total_buffered_samples == 512
-        assert recorder._chunk_count == 1
+        assert recorder._audio_pipeline._total_buffered_samples == 512
+        assert recorder._audio_pipeline._chunk_count == 1
 
     def test_multiple_appends_accumulate(self) -> None:
         recorder = _make_pipeline_stub_recorder()
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         pipeline.append_to_buffer_locked(np.ones(100, dtype=np.float32))
         pipeline.append_to_buffer_locked(np.ones(200, dtype=np.float32))
         pipeline.append_to_buffer_locked(np.ones(300, dtype=np.float32))
 
-        assert recorder._total_buffered_samples == 600
-        assert recorder._chunk_count == 3
+        assert recorder._audio_pipeline._total_buffered_samples == 600
+        assert recorder._audio_pipeline._chunk_count == 3
 
     def test_empty_chunk_appends_zero(self) -> None:
         """An empty chunk (size=0) must not corrupt the counter."""
         recorder = _make_pipeline_stub_recorder()
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         pipeline.append_to_buffer_locked(np.array([], dtype=np.float32))
 
-        assert recorder._total_buffered_samples == 0
-        assert recorder._chunk_count == 1
+        assert recorder._audio_pipeline._total_buffered_samples == 0
+        assert recorder._audio_pipeline._chunk_count == 1
 
 
 # ── Eviction compensation ────────────────────────────────────────
@@ -154,19 +161,19 @@ class TestEvictionCompensation:
         oldest chunk's samples must be subtracted from the counter."""
         maxlen = 3
         recorder = _make_pipeline_stub_recorder(maxlen=maxlen)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         # Fill the deque to capacity with 100-sample chunks.
         for _ in range(maxlen):
             pipeline.append_to_buffer_locked(np.ones(100, dtype=np.float32))
-        assert recorder._total_buffered_samples == maxlen * 100
+        assert recorder._audio_pipeline._total_buffered_samples == maxlen * 100
 
         # Append one more — the leftmost chunk (100 samples) is evicted.
         pipeline.append_to_buffer_locked(np.ones(50, dtype=np.float32))
 
         # Expected: (maxlen chunks × 100) - 100 (evicted) + 50 (new) = 250
-        assert recorder._total_buffered_samples == maxlen * 100 - 100 + 50
-        assert len(recorder._buffer) == maxlen  # deque stays at maxlen
+        assert recorder._audio_pipeline._total_buffered_samples == maxlen * 100 - 100 + 50
+        assert len(recorder._audio_pipeline._buffer) == maxlen  # deque stays at maxlen
 
     def test_evicted_chunk_with_different_size_subtracted_correctly(self) -> None:
         """The eviction compensation must use the EVICTED chunk's
@@ -174,29 +181,29 @@ class TestEvictionCompensation:
         different sizes."""
         maxlen = 2
         recorder = _make_pipeline_stub_recorder(maxlen=maxlen)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         pipeline.append_to_buffer_locked(np.ones(1000, dtype=np.float32))
         pipeline.append_to_buffer_locked(np.ones(500, dtype=np.float32))
-        assert recorder._total_buffered_samples == 1500
+        assert recorder._audio_pipeline._total_buffered_samples == 1500
 
         # Append a 10-sample chunk — the 1000-sample chunk is evicted.
         pipeline.append_to_buffer_locked(np.ones(10, dtype=np.float32))
 
         # Expected: 1500 - 1000 (evicted) + 10 (new) = 510
-        assert recorder._total_buffered_samples == 510
+        assert recorder._audio_pipeline._total_buffered_samples == 510
 
     def test_no_eviction_when_maxlen_is_none(self) -> None:
         """When ``maxlen`` is ``None`` (unbounded deque), no eviction
         happens — the counter just accumulates."""
         recorder = _make_pipeline_stub_recorder(maxlen=None)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         for _ in range(100):
             pipeline.append_to_buffer_locked(np.ones(10, dtype=np.float32))
 
-        assert recorder._total_buffered_samples == 1000
-        assert len(recorder._buffer) == 100
+        assert recorder._audio_pipeline._total_buffered_samples == 1000
+        assert len(recorder._audio_pipeline._buffer) == 100
 
 
 # ── current_duration_seconds O(1) read ───────────────────────────
@@ -213,11 +220,11 @@ def _make_duration_stub(
     ``Recorder.current_duration_seconds`` reads."""
     recorder = MagicMock(name="RecorderStub")
     if buffer_chunks is None:
-        recorder._buffer = collections.deque(buffer_chunks or [])
+        recorder._audio_pipeline._buffer = collections.deque(buffer_chunks or [])
     else:
-        recorder._buffer = collections.deque(buffer_chunks)
-    recorder._total_buffered_samples = total_samples
-    recorder._buffer_sr = buffer_sr
+        recorder._audio_pipeline._buffer = collections.deque(buffer_chunks)
+    recorder._audio_pipeline._total_buffered_samples = total_samples
+    recorder._audio_pipeline._buffer_sr = buffer_sr
     recorder._effective_sr = effective_sr
     return recorder
 
@@ -290,7 +297,7 @@ class TestCurrentDurationSeconds:
                     "it should read _total_buffered_samples directly."
                 )
 
-        recorder._buffer = _NoIterDeque()
+        recorder._audio_pipeline._buffer = _NoIterDeque()
         # Must not raise — the property reads _total_buffered_samples
         # without iterating.
         assert Recorder.current_duration_seconds.fget(recorder) == pytest.approx(1.0)
@@ -304,9 +311,6 @@ def _make_session_state_stub() -> MagicMock:
     ``SessionState.reset_session_state`` touches (the counter + a few
     adjacent fields)."""
     recorder = MagicMock(name="RecorderStub")
-    recorder._buffer = collections.deque(maxlen=100)
-    recorder._chunk_count = 42
-    recorder._total_buffered_samples = 99999
     recorder._cached_resampled = np.array([1.0, 2.0], dtype=np.float32)
     recorder._cached_native_chunk_count = 5
     recorder._cached_resample_key = ("stale",)
@@ -322,7 +326,6 @@ def _make_session_state_stub() -> MagicMock:
     recorder._silence_next_warning_wait = 5.0
     recorder._recent_rms_values = collections.deque(maxlen=10)
     recorder._recording_start_time = 0.0
-    recorder._buffer_sr = 16000
     # VAD + clip + XRUN state (reset_session_state touches all of these).
     recorder._vad = MagicMock()
     recorder._vad.state = "STALE"
@@ -344,11 +347,23 @@ def _make_session_state_stub() -> MagicMock:
     recorder._cached_silero_available = True
     recorder._cached_vad_resample_up_down = (1, 1)
     recorder._cached_vad_resample_sr = 9999
-    recorder._xruns = 5
-    recorder._xrun_timestamps = collections.deque(maxlen=10)
-    recorder._clip_count = 3
-    recorder._peak = 0.5
-    recorder._last_clip_log_time = 100.0
+    # STATE-OWNERSHIP: the XRUN/clip telemetry sentinels live
+    # on the owning collaborator (AudioPipeline) — reset_session_state
+    # writes through ``recorder._audio_pipeline.<attr>``.
+    # STATE-OWNERSHIP: the buffer bookkeeping state ALSO lives
+    # on the owning collaborator — seed the stub pipeline AFTER it is
+    # created (the buffer / chunk counter / sample total / buffer-side
+    # sample rate are what the reset assertions below read).
+    recorder._audio_pipeline = MagicMock(name="AudioPipelineStub")
+    recorder._audio_pipeline._buffer = collections.deque(maxlen=100)
+    recorder._audio_pipeline._chunk_count = 42
+    recorder._audio_pipeline._total_buffered_samples = 99999
+    recorder._audio_pipeline._buffer_sr = 16000
+    recorder._audio_pipeline._xruns = 5
+    recorder._audio_pipeline._xrun_timestamps = collections.deque(maxlen=10)
+    recorder._audio_pipeline._clip_count = 3
+    recorder._audio_pipeline._peak = 0.5
+    recorder._audio_pipeline._last_clip_log_time = 100.0
     recorder._last_rms = 0.1
     recorder.config = MagicMock(sample_rate=16000, max_recording_time_seconds=900)
     recorder._audio_processor = None
@@ -362,13 +377,19 @@ class TestResetSessionStateZerosCounter:
 
     def test_reset_zeros_counter(self) -> None:
         recorder = _make_session_state_stub()
-        assert recorder._total_buffered_samples == 99999  # precondition
+        assert recorder._audio_pipeline._total_buffered_samples == 99999  # precondition
 
         SessionState(recorder).reset_session_state(recorder)
 
-        assert recorder._total_buffered_samples == 0
-        assert recorder._chunk_count == 0
-        assert len(recorder._buffer) == 0
+        assert recorder._audio_pipeline._total_buffered_samples == 0
+        assert recorder._audio_pipeline._chunk_count == 0
+        assert len(recorder._audio_pipeline._buffer) == 0
+        # STATE-OWNERSHIP: the telemetry counters were zeroed through
+        # the owning AudioPipeline (owner-path reset).
+        assert recorder._audio_pipeline._xruns == 0
+        assert len(recorder._audio_pipeline._xrun_timestamps) == 0
+        assert recorder._audio_pipeline._clip_count == 0
+        assert recorder._audio_pipeline._peak == 0.0
 
 
 # ── stop_recording zeros the counter on both paths ───────────────
@@ -389,11 +410,11 @@ class TestStopRecordingZerosCounter:
 
         recorder = _build_mock_recorder(buffer_chunks=[])
         # Simulate a prior session's stale counter.
-        recorder._total_buffered_samples = 99999
+        recorder._audio_pipeline._total_buffered_samples = 99999
 
         stop_recording(recorder)
 
-        assert recorder._total_buffered_samples == 0
+        assert recorder._audio_pipeline._total_buffered_samples == 0
 
     def test_main_path_zeros_counter_after_swap(self) -> None:
         """When ``_buffer`` has chunks, the main path swaps in a
@@ -403,12 +424,12 @@ class TestStopRecordingZerosCounter:
         chunk = np.ones(100, dtype=np.float32)
         recorder = _build_mock_recorder(buffer_chunks=[chunk])
         # Simulate the session's accumulated samples.
-        recorder._total_buffered_samples = 100
+        recorder._audio_pipeline._total_buffered_samples = 100
 
         stop_recording(recorder)
 
-        assert recorder._total_buffered_samples == 0
-        assert len(recorder._buffer) == 0
+        assert recorder._audio_pipeline._total_buffered_samples == 0
+        assert len(recorder._audio_pipeline._buffer) == 0
 
 
 # ── discard_recording zeros the counter ──────────────────────────
@@ -425,12 +446,12 @@ class TestDiscardRecordingZerosCounter:
 
         chunk = np.ones(50, dtype=np.float32)
         recorder = _build_mock_recorder(buffer_chunks=[chunk])
-        recorder._total_buffered_samples = 50
+        recorder._audio_pipeline._total_buffered_samples = 50
 
         discard_recording(recorder)
 
-        assert recorder._total_buffered_samples == 0
-        assert len(recorder._buffer) == 0
+        assert recorder._audio_pipeline._total_buffered_samples == 0
+        assert len(recorder._audio_pipeline._buffer) == 0
 
 
 # ── stop_recording peak/silence_pct single np.abs allocation ─────
@@ -557,8 +578,9 @@ class TestSourceStringContracts:
         )
         # The property must return the counter divided by the sample
         # rate (the new O(1) read).
-        assert "self._total_buffered_samples / sr" in src, (
-            "current_duration_seconds must return self._total_buffered_samples / sr (the O(1) scalar read)."
+        assert "self._audio_pipeline._total_buffered_samples / sr" in src, (
+            "current_duration_seconds must return the pipeline-owned "
+            "_total_buffered_samples / sr (the O(1) scalar read)."
         )
 
     def test_append_to_buffer_locked_increments_counter(self) -> None:

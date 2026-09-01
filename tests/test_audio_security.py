@@ -8,7 +8,7 @@ import numpy as np
 def test_buffer_zeroed_on_stop():
     """Buffer contents are zeroed before being released on stop.
 
-    WR-8: the previous test only asserted ``len(recorder._buffer) == 0``
+    WR-8: the previous test only asserted ``len(recorder._audio_pipeline._buffer) == 0``
     after ``stop()`` — which passes trivially even if the chunks were
     never zeroed (the buffer is replaced with a fresh empty container
     regardless). We now capture a reference to the recorded audio's
@@ -38,12 +38,12 @@ def test_buffer_zeroed_on_stop():
     # in-place — so we can verify the zeroing actually happened on the
     # audio we appended (not on a fresh copy).
     chunk = np.array([0.5, 0.3, 0.8], dtype=np.float32)
-    recorder._buffer.append(chunk)
-    storage_ref = recorder._buffer.storage
+    recorder._audio_pipeline._buffer.append(chunk)
+    storage_ref = recorder._audio_pipeline._buffer.storage
     recorder._recording_event.set()
 
     # Mock the stream
-    recorder._stream = MagicMock()
+    recorder._stream_lifecycle._stream = MagicMock()
 
     # Stop should zero the buffer before clearing
     # We can verify by checking that fill(0) was called
@@ -57,7 +57,7 @@ def test_buffer_zeroed_on_stop():
         recorder.stop()
 
     # Buffer should be empty after stop
-    assert len(recorder._buffer) == 0
+    assert len(recorder._audio_pipeline._buffer) == 0
 
     # drain the buffer-clear background worker so the
     # asynchronous fill(0) has actually executed on storage_ref, then
@@ -66,7 +66,7 @@ def test_buffer_zeroed_on_stop():
     # the secure-clear path was a no-op.
     _stop_buffer_clear_worker(timeout=2.0)
     assert np.all(storage_ref[:3] == 0), (
-        "SEC-audit-008: the recording storage behind recorder._buffer must be "
+        "SEC-audit-008: the recording storage behind recorder._audio_pipeline._buffer must be "
         "zeroed in-place by _secure_clear_array_background during "
         "stop(); the storage contents were not all zeros after the "
         "buffer-clear worker drained."

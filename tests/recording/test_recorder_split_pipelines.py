@@ -113,9 +113,9 @@ def _make_recorder_for_snapshot(
     rec._recording_event.set()
     rec._effective_sr = effective_sr if effective_sr is not None else sample_rate
     rec._post_filter_sr = rec._effective_sr
-    rec._stream = MagicMock()
-    rec._lock = threading.Lock()
-    rec._buffer = None  # set per-test
+    rec._stream_lifecycle._stream = MagicMock()
+    rec._audio_pipeline._lock = threading.Lock()
+    rec._audio_pipeline._buffer = None  # set per-test
     # Cache fields ``take_snapshot`` initializes / reads.
     rec._cached_resampled = np.array([], dtype=np.float32)
     rec._cached_native_chunk_count = 0
@@ -129,7 +129,7 @@ def _make_recorder_for_snapshot(
     # ``_buffer_sr`` defaults to None — ``take_snapshot`` falls back to
     # ``_effective_sr`` via the ``getattr(recorder, "_buffer_sr", None)
     # or recorder._effective_sr`` idiom.
-    rec._buffer_sr = effective_sr if effective_sr is not None else sample_rate
+    rec._audio_pipeline._buffer_sr = effective_sr if effective_sr is not None else sample_rate
     # ``_cached_target_sr`` is the cached ``config.sample_rate`` read
     # under the lock to avoid attribute lookup.
     rec._cached_target_sr = sample_rate
@@ -153,18 +153,18 @@ class TestContiguousSnapshotStorage:
         snapshot must be served from the single contiguous buffer."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
-        rec._buffer_sr = sample_rate
+        rec._audio_pipeline._buffer_sr = sample_rate
 
         import collections
 
-        rec._buffer = collections.deque(maxlen=10_000)
+        rec._audio_pipeline._buffer = collections.deque(maxlen=10_000)
 
         chunk_value = 0
         expected_total_samples = 0
         snap = None
         for i in range(70):  # well past the historical 64-entry threshold
             chunk_value = float(i + 1) * 0.01
-            rec._buffer.append(np.full(4, chunk_value, dtype=np.float32))
+            rec._audio_pipeline._buffer.append(np.full(4, chunk_value, dtype=np.float32))
             expected_total_samples += 4
             snap = take_snapshot(rec)
             # The snapshot must reflect the running total.
@@ -181,7 +181,7 @@ class TestContiguousSnapshotStorage:
             "contiguous storage: _cached_no_resample_segments must stay empty."
         )
         # The snapshot is a view over the single contiguous storage.
-        assert np.shares_memory(snap, rec._buffer.storage)
+        assert np.shares_memory(snap, rec._audio_pipeline._buffer.storage)
 
     def test_resample_snapshots_extend_one_contiguous_cache(self, monkeypatch):
         """On the resample path the incremental cache must be ONE capacity
@@ -191,7 +191,7 @@ class TestContiguousSnapshotStorage:
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=48000)
         # _buffer_sr != target_sr → resample path.
-        rec._buffer_sr = 48000
+        rec._audio_pipeline._buffer_sr = 48000
 
         # Stub the module-level ``resample_chunk`` binding that
         # ``_snapshot_resampled_locked`` invokes (the historical
@@ -206,12 +206,12 @@ class TestContiguousSnapshotStorage:
 
         import collections
 
-        rec._buffer = collections.deque(maxlen=10_000)
+        rec._audio_pipeline._buffer = collections.deque(maxlen=10_000)
 
         expected_total_samples = 0
         snap = None
         for i in range(70):
-            rec._buffer.append(np.ones((6, 1), dtype=np.float32) * (i + 1))
+            rec._audio_pipeline._buffer.append(np.ones((6, 1), dtype=np.float32) * (i + 1))
             expected_total_samples += 2  # 6 samples / 3 = 2 samples
             snap = take_snapshot(rec)
             assert snap.size == expected_total_samples, (
@@ -234,18 +234,18 @@ class TestContiguousSnapshotStorage:
         invariant across growth reallocations."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
-        rec._buffer_sr = sample_rate
+        rec._audio_pipeline._buffer_sr = sample_rate
 
         import collections
 
-        rec._buffer = collections.deque(maxlen=10_000)
+        rec._audio_pipeline._buffer = collections.deque(maxlen=10_000)
 
         # Append distinct chunks; capture the expected concatenated
         # values for verification after the storage has grown.
         expected_values: list[float] = []
         for i in range(70):
             chunk = np.array([float(i + 1)], dtype=np.float32)
-            rec._buffer.append(chunk)
+            rec._audio_pipeline._buffer.append(chunk)
             expected_values.append(float(i + 1))
             take_snapshot(rec)
 
@@ -263,14 +263,14 @@ class TestContiguousSnapshotStorage:
         per-snapshot container left)."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
-        rec._buffer_sr = sample_rate
+        rec._audio_pipeline._buffer_sr = sample_rate
 
         import collections
 
-        rec._buffer = collections.deque(maxlen=10_000)
+        rec._audio_pipeline._buffer = collections.deque(maxlen=10_000)
 
         for i in range(200):
-            rec._buffer.append(np.array([float(i)], dtype=np.float32))
+            rec._audio_pipeline._buffer.append(np.array([float(i)], dtype=np.float32))
             take_snapshot(rec)
             assert len(rec._cached_no_resample_segments) == 0
             assert len(rec._cached_resampled_segments) == 0
@@ -289,7 +289,10 @@ def _make_recorder_for_teardown(*, callback_in_flight: bool) -> MagicMock:
     fires only when it's clear.
     """
     rec = MagicMock(name="recorder")
-    rec._stream = MagicMock(name="stream")
+    # STATE-OWNERSHIP: the PortAudio ``_stream`` slot lives on the
+    # owning ``StreamLifecycle`` — each test constructs it and sets
+    # ``lifecycle._stream`` explicitly (the mock's auto-vivified
+    # ``_stream_lifecycle`` attribute is NOT the real collaborator).
     # ``_is_in_audio_callback`` is a ``threading.Event``. ``is_set()``
     # returns the current state. We use a real Event so the contract
     # matches production (the production code calls
@@ -312,9 +315,10 @@ class TestTeardownPollSkipFastPath:
         skips the poll loop entirely) AND ``time.perf_counter`` must
         NOT be called for the deadline computation."""
         rec = _make_recorder_for_teardown(callback_in_flight=False)
-        # Capture the stream reference before teardown sets it to None.
-        stream_ref = rec._stream
         lifecycle = StreamLifecycle(rec)
+        # Set the stream on the OWNING lifecycle; capture the reference
+        # before teardown sets it to None.
+        stream_ref = lifecycle._stream = MagicMock(name="stream")
 
         # Track time.sleep and time.perf_counter calls.
         sleep_calls: list[float] = []
@@ -362,7 +366,7 @@ class TestTeardownPollSkipFastPath:
         # The stream must still be closed + cleared.
         stream_ref.stop.assert_called_once()
         stream_ref.close.assert_called_once()
-        assert rec._stream is None
+        assert lifecycle._stream is None
 
     def test_polls_when_callback_in_flight(self, monkeypatch):
         """When ``_is_in_audio_callback.is_set()`` is True, the poll
@@ -371,8 +375,8 @@ class TestTeardownPollSkipFastPath:
         the fast-path MUST NOT skip the poll when the callback is
         genuinely in-flight."""
         rec = _make_recorder_for_teardown(callback_in_flight=True)
-        stream_ref = rec._stream
         lifecycle = StreamLifecycle(rec)
+        stream_ref = lifecycle._stream = MagicMock(name="stream")
 
         # Simulate the callback clearing after 2 poll iterations.
         sleep_count = [0]
@@ -397,15 +401,15 @@ class TestTeardownPollSkipFastPath:
         )
         stream_ref.stop.assert_called_once()
         stream_ref.close.assert_called_once()
-        assert rec._stream is None
+        assert lifecycle._stream is None
 
     def test_force_path_skips_poll_when_callback_clear(self, monkeypatch):
         """The force=True path (disconnect recovery) must also skip
         the poll when the callback is clear — mirrors the CLEAN path
         fast-path."""
         rec = _make_recorder_for_teardown(callback_in_flight=False)
-        stream_ref = rec._stream
         lifecycle = StreamLifecycle(rec)
+        stream_ref = lifecycle._stream = MagicMock(name="stream")
 
         sleep_calls: list[float] = []
         monkeypatch.setattr(
@@ -420,7 +424,7 @@ class TestTeardownPollSkipFastPath:
         )
         stream_ref.abort.assert_called_once()
         stream_ref.close.assert_called_once()
-        assert rec._stream is None
+        assert lifecycle._stream is None
 
     def test_returns_early_when_stream_is_none(self):
         """Idempotent contract: when ``_stream`` is None, the body
@@ -428,14 +432,14 @@ class TestTeardownPollSkipFastPath:
         calling any stream methods. (Existing contract — pinned here
         so the fast-path refactor doesn't break it.)"""
         rec = _make_recorder_for_teardown(callback_in_flight=False)
-        rec._stream = None
+        rec._stream_lifecycle._stream = None
         lifecycle = StreamLifecycle(rec)
 
         # Should not raise.
         lifecycle.teardown_stream_body(rec, force=False)
 
         # No stream methods called (stream is None).
-        assert rec._stream is None
+        assert lifecycle._stream is None
 
 
 # ---------------------------------------------------------------------------
@@ -465,13 +469,13 @@ def _build_mock_recorder_for_stop(
     rec._recording_event.set()
     rec._stop_generation = 0
     rec._user_stop_pending = False
-    rec._lock = threading.Lock()
+    rec._audio_pipeline._lock = threading.Lock()
 
     if buffer_chunks is None:
         buffer_chunks = [np.zeros(100, dtype=np.float32)]
-    rec._buffer = collections.deque(buffer_chunks, maxlen=30_000)
-    rec._chunk_count = len(buffer_chunks)
-    rec._buffer_sr = buffer_sr
+    rec._audio_pipeline._buffer = collections.deque(buffer_chunks, maxlen=30_000)
+    rec._audio_pipeline._chunk_count = len(buffer_chunks)
+    rec._audio_pipeline._buffer_sr = buffer_sr
     rec._effective_sr = effective_sr
     rec._last_rms = 0.0
     rec._last_audio_stats = (0.0, 0.0, 0.0)

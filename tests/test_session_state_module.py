@@ -109,8 +109,23 @@ def _make_recorder(
         _device_check_counter=999,
     )
     rec._audio_processor = audio_processor if audio_processor is not None else _make_audio_processor()
-    rec._buffer = collections.deque(maxlen=1000)
-    rec._chunk_count = 999  # sentinel: reset must zero
+    # STATE-OWNERSHIP: the buffer bookkeeping state
+    # (``_buffer`` / ``_chunk_count`` / ``_buffer_sr`` /
+    # ``_total_buffered_samples``) AND the XRUN/clip telemetry
+    # sentinels live on the owning collaborator (AudioPipeline) —
+    # ``reset_session_state`` / ``resize_buffers_for_sample_rate``
+    # write through ``recorder._audio_pipeline.<attr>``.
+    rec._audio_pipeline = SimpleNamespace(
+        _buffer=collections.deque(maxlen=1000),
+        _chunk_count=999,  # sentinel: reset must zero
+        _total_buffered_samples=999,  # sentinel: reset must zero
+        _buffer_sr=99999,  # sentinel: reset to None
+        _xruns=999,
+        _xrun_timestamps=collections.deque([1.0, 2.0]),
+        _clip_count=999,
+        _peak=999.0,
+        _last_clip_log_time=999.0,
+    )
     rec._cached_resampled = np.array([0.5, 0.5, 0.5], dtype=np.float32)  # sentinel: reset clears
     rec._cached_native_chunk_count = 999
     rec._cached_resample_key = ("sentinel",)
@@ -127,17 +142,11 @@ def _make_recorder(
     rec._silence_next_warning_wait = 999.0
     rec._recent_rms_values = collections.deque([1.0, 2.0, 3.0], maxlen=50)
     rec._recording_start_time = 0.0
-    rec._buffer_sr = 99999  # sentinel: reset to None
     rec._cached_vad_enabled = True
     rec._cached_use_silero_vad = True
     rec._cached_silero_available = True
     rec._cached_vad_resample_up_down = ("sentinel",)
     rec._cached_vad_resample_sr = 99999
-    rec._xruns = 999
-    rec._xrun_timestamps = collections.deque([1.0, 2.0])
-    rec._clip_count = 999
-    rec._peak = 999.0
-    rec._last_clip_log_time = 999.0
     rec._last_rms = 999.0
     rec._vad.state = "sentinel"  # set by reset_session_state
     rec._vad.consecutive_speech_frames = 999
@@ -184,14 +193,14 @@ def test_session_state_init_stores_back_reference():
 def test_reset_session_state_clears_buffer_and_chunk_count():
     """The main audio buffer + chunk counter must be zeroed."""
     rec = _make_recorder()
-    rec._buffer.append(np.zeros(512, dtype=np.float32))
-    rec._buffer.append(np.zeros(512, dtype=np.float32))
-    rec._chunk_count = 42
+    rec._audio_pipeline._buffer.append(np.zeros(512, dtype=np.float32))
+    rec._audio_pipeline._buffer.append(np.zeros(512, dtype=np.float32))
+    rec._audio_pipeline._chunk_count = 42
 
     SessionState(_make_recorder()).reset_session_state(rec)
 
-    assert len(rec._buffer) == 0
-    assert rec._chunk_count == 0
+    assert len(rec._audio_pipeline._buffer) == 0
+    assert rec._audio_pipeline._chunk_count == 0
 
 
 def test_reset_session_state_clears_resample_caches():
@@ -234,7 +243,7 @@ def test_reset_session_state_resets_buffer_sr_and_vad_caches():
 
     SessionState(_make_recorder()).reset_session_state(rec)
 
-    assert rec._buffer_sr is None
+    assert rec._audio_pipeline._buffer_sr is None
     assert rec._cached_vad_enabled is False
     assert rec._cached_use_silero_vad is False
     assert rec._cached_silero_available is False
@@ -248,11 +257,11 @@ def test_reset_session_state_resets_xrun_and_clip_counters():
 
     SessionState(_make_recorder()).reset_session_state(rec)
 
-    assert rec._xruns == 0
-    assert len(rec._xrun_timestamps) == 0
-    assert rec._clip_count == 0
-    assert rec._peak == 0.0
-    assert rec._last_clip_log_time == 0.0
+    assert rec._audio_pipeline._xruns == 0
+    assert len(rec._audio_pipeline._xrun_timestamps) == 0
+    assert rec._audio_pipeline._clip_count == 0
+    assert rec._audio_pipeline._peak == 0.0
+    assert rec._audio_pipeline._last_clip_log_time == 0.0
     assert rec._last_rms == 0.0
 
 
@@ -522,11 +531,11 @@ def test_secure_clear_caches_resets_native_chunk_count_and_no_resample_len():
 def test_secure_clear_caches_resets_buffer_sr_to_none():
     """The buffer-sample-rate tracker is reset to ``None`` so a fresh start() doesn't reuse it."""
     rec = _make_recorder()
-    rec._buffer_sr = 48000
+    rec._audio_pipeline._buffer_sr = 48000
 
     SessionState(_make_recorder()).secure_clear_caches(rec)
 
-    assert rec._buffer_sr is None
+    assert rec._audio_pipeline._buffer_sr is None
 
 
 def test_secure_clear_caches_calls_audio_processor_reset():
@@ -655,7 +664,7 @@ def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
     (512/48000 ≈ 0.0107s) + a +1K safety margin.
     """
     rec = _make_recorder(config=_make_config(sample_rate=48000))
-    initial_maxlen = rec._buffer.maxlen
+    initial_maxlen = rec._audio_pipeline._buffer.maxlen
 
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
         rec,
@@ -663,7 +672,7 @@ def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
         max_rec=900,
     )
 
-    new_maxlen = rec._buffer.maxlen
+    new_maxlen = rec._audio_pipeline._buffer.maxlen
     # ~900s / 0.0107s ≈ 84112 chunks + 1000 safety ≈ 85112 — well above the
     # placeholder initial maxlen of 1000.
     assert new_maxlen > initial_maxlen
@@ -676,8 +685,8 @@ def test_resize_buffers_preserves_existing_buffer_contents():
     rec = _make_recorder(config=_make_config(sample_rate=48000))
     chunk_a = np.array([0.1, 0.2], dtype=np.float32)
     chunk_b = np.array([0.3, 0.4], dtype=np.float32)
-    rec._buffer.append(chunk_a)
-    rec._buffer.append(chunk_b)
+    rec._audio_pipeline._buffer.append(chunk_a)
+    rec._audio_pipeline._buffer.append(chunk_b)
 
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
         rec,
@@ -686,13 +695,13 @@ def test_resize_buffers_preserves_existing_buffer_contents():
     )
 
     # The deque is replaced — but contents preserved.
-    assert list(rec._buffer) == [chunk_a, chunk_b]
+    assert list(rec._audio_pipeline._buffer) == [chunk_a, chunk_b]
 
 
 def test_resize_buffers_skips_main_buffer_resize_when_max_rec_zero():
     """``max_rec=0`` means "no max duration limit" — buffer resize is skipped."""
     rec = _make_recorder()
-    initial_maxlen = rec._buffer.maxlen
+    initial_maxlen = rec._audio_pipeline._buffer.maxlen
 
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
         rec,
@@ -700,14 +709,14 @@ def test_resize_buffers_skips_main_buffer_resize_when_max_rec_zero():
         max_rec=0,
     )
 
-    assert rec._buffer.maxlen == initial_maxlen
+    assert rec._audio_pipeline._buffer.maxlen == initial_maxlen
 
 
 def test_resize_buffers_skips_main_buffer_resize_when_already_large_enough():
     """If the existing maxlen already covers max_rec, no resize is performed."""
     rec = _make_recorder(config=_make_config(sample_rate=16000))
     huge = collections.deque(maxlen=10_000_000)
-    rec._buffer = huge
+    rec._audio_pipeline._buffer = huge
 
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
         rec,
@@ -716,7 +725,7 @@ def test_resize_buffers_skips_main_buffer_resize_when_already_large_enough():
     )
 
     # The original deque is preserved (no replacement).
-    assert rec._buffer is huge
+    assert rec._audio_pipeline._buffer is huge
 
 
 def test_resize_buffers_resizes_ring_buffer_proportional_to_sample_rate():
@@ -892,7 +901,7 @@ def test_prepend_preroll_to_buffer_prepends_chunks_in_chronological_order():
 
     # _buffer[0] is the OLDEST preroll chunk (chronological order);
     # _buffer[-1] is the MOST-RECENT preroll chunk.
-    chunks = list(rec._buffer)
+    chunks = list(rec._audio_pipeline._buffer)
     assert len(chunks) == 3
     np.testing.assert_allclose(chunks[0], expected_old)
     np.testing.assert_allclose(chunks[1], expected_mid)
@@ -932,7 +941,7 @@ def test_prepend_preroll_to_buffer_falls_back_to_raw_chunk_on_processor_exceptio
     # Must NOT raise — the exception is caught + logged.
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
 
-    chunks = list(rec._buffer)
+    chunks = list(rec._audio_pipeline._buffer)
     assert len(chunks) == 1
     np.testing.assert_allclose(chunks[0], expected)
 
@@ -948,7 +957,7 @@ def test_prepend_preroll_to_buffer_skips_filter_when_processor_none():
     # Must not raise.
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
 
-    chunks = list(rec._buffer)
+    chunks = list(rec._audio_pipeline._buffer)
     assert len(chunks) == 1
     np.testing.assert_allclose(chunks[0], expected)
 
@@ -981,7 +990,7 @@ def test_prepend_preroll_to_buffer_noop_on_empty_preroll():
 
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
 
-    assert len(rec._buffer) == 0
+    assert len(rec._audio_pipeline._buffer) == 0
     rec._audio_processor.process_chunk.assert_not_called()
 
 
@@ -993,7 +1002,7 @@ def test_prepend_preroll_to_buffer_converts_stereo_preroll_to_mono():
 
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
 
-    chunks = list(rec._buffer)
+    chunks = list(rec._audio_pipeline._buffer)
     assert len(chunks) == 1
     # Stereo downmix: np.mean([[0.1,0.2],[0.3,0.4]], axis=1) = [0.15, 0.35]
     np.testing.assert_allclose(chunks[0], np.array([0.15, 0.35], dtype=np.float32))

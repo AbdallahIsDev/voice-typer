@@ -440,8 +440,8 @@ def test_stop_clears_cached_arrays_on_main_path():
 
     # Populate the buffer so stop() takes the main path (concatenate +
     # secure_clear_array_background + _secure_clear_caches).
-    rec._buffer.append(np.array([[1.0], [2.0]], dtype=np.float32))
-    rec._buffer.append(np.array([[3.0]], dtype=np.float32))
+    rec._audio_pipeline._buffer.append(np.array([[1.0], [2.0]], dtype=np.float32))
+    rec._audio_pipeline._buffer.append(np.array([[3.0]], dtype=np.float32))
 
     rec.stop()
 

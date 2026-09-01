@@ -18,8 +18,9 @@ detector must:
 
 The tests exercise :class:`AudioPipeline` directly with a
 ``MagicMock`` recorder stub that supplies the disconnect-relevant
-state (``_chunk_count``, ``_device_disconnected``,
-``_disconnect_handler_running``, ``_recording_event``,
+state (``_chunk_count``, ``_device_disconnected``, the
+``DisconnectHandler``-owned single-flight guard,
+``_recording_event``,
 ``_stop_generation``) and a ``MagicMock`` for
 ``_spawn_device_thread`` so no real thread is launched. No real
 PortAudio / sounddevice is touched.
@@ -50,8 +51,10 @@ def _make_disconnect_recorder_stub(
     - ``_device_disconnected`` — re-entrancy flag, set to True on first
       detection and cleared by the disconnect handler on successful
       restart.
-    - ``_disconnect_handler_running`` — single-flight guard for the
-      handler thread.
+    - ``_disconnect_handler`` — ``MagicMock`` stand-in for the owning
+      collaborator; ``_single_flight_running`` — single-flight guard
+      for the handler thread (STATE-OWNERSHIP: moved off ``Recorder``
+      onto ``DisconnectHandler``; the stub mirrors the new owner path).
     - ``_recording_event`` — real ``threading.Event``; the detector
       double-checks it's still set before treating zeros as a real
       disconnect (a deliberate ``stop()`` clears the event).
@@ -64,9 +67,16 @@ def _make_disconnect_recorder_stub(
     the deliberate-stop drain path (zeros during stop() teardown).
     """
     recorder = MagicMock(name="RecorderStub")
-    recorder._chunk_count = chunk_count
+    # STATE-OWNERSHIP: the chunk counter is owned by the real
+    # ``AudioPipeline`` (``detect_device_disconnect`` reads
+    # ``self._chunk_count``). Construct the owning collaborator here and
+    # attach it so ``recorder._audio_pipeline`` IS the pipeline under
+    # test (call sites use it directly instead of constructing a second
+    # disconnected instance).
+    recorder._audio_pipeline = AudioPipeline(recorder)
+    recorder._audio_pipeline._chunk_count = chunk_count
     recorder._devices._device_disconnected = False
-    recorder._disconnect_handler_running = False
+    recorder._disconnect_handler._single_flight_running = False
     recorder._recording_event = threading.Event()
     if recording_active:
         recorder._recording_event.set()
@@ -98,7 +108,7 @@ class TestZeroFilledIndataTriggersDisconnect:
 
     def test_zero_filled_indata_after_warmup_triggers_disconnect(self) -> None:
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -111,7 +121,7 @@ class TestZeroFilledIndataTriggersDisconnect:
         # The single-flight guard was cleared before the spawn so a
         # fresh handler can run even if a prior one hasn't fully
         # exited yet (mirrors the production code comment).
-        assert recorder._disconnect_handler_running is False
+        assert recorder._disconnect_handler._single_flight_running is False
         # The handler was scheduled exactly once via
         # ``_spawn_device_thread`` (registered with the thread
         # registry + single-flight guarded).
@@ -140,7 +150,7 @@ class TestDeliberateStopDoesNotTriggerDisconnect:
             chunk_count=20,
             recording_active=False,
         )
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -168,7 +178,7 @@ class TestDisconnectHandlerSpawnedOnce:
 
     def test_disconnect_handler_spawned_once_not_89x(self) -> None:
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         # Simulate a sustained disconnect: 100 zero-filled callbacks
         # in a row (≈6 seconds at 16 Hz — the device is gone, the
@@ -190,7 +200,7 @@ class TestDisconnectHandlerSpawnedOnce:
         """Boundary: the very first zero-filled chunk past the warmup
         window triggers; the next 50 zeros do NOT re-spawn."""
         recorder = _make_disconnect_recorder_stub(chunk_count=11)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         # First zero past warmup — triggers.
         pipeline.detect_device_disconnect(_zero_chunk())
@@ -215,7 +225,7 @@ class TestWarmupWindowGuardsFalsePositive:
 
     def test_zero_chunk_during_warmup_does_not_trigger(self) -> None:
         recorder = _make_disconnect_recorder_stub(chunk_count=5)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -229,7 +239,7 @@ class TestWarmupWindowGuardsFalsePositive:
         """The gate is ``> 10`` (strict), so chunk_count == 10 is
         still warmup."""
         recorder = _make_disconnect_recorder_stub(chunk_count=10)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -240,7 +250,7 @@ class TestWarmupWindowGuardsFalsePositive:
         """chunk_count == 11 is the first value past the strict
         ``> 10`` gate."""
         recorder = _make_disconnect_recorder_stub(chunk_count=11)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -258,7 +268,7 @@ class TestNonZeroIndataNeverTriggers:
 
     def test_non_zero_indata_returns_false(self) -> None:
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         # A 0.5-amplitude 440 Hz sine — normal audio.
         t = np.linspace(0, 512 / 16000, 512, endpoint=False)
@@ -273,7 +283,7 @@ class TestNonZeroIndataNeverTriggers:
         """A chunk that has ANY non-zero element is NOT a disconnect
         (np.any short-circuits at the first non-zero sample)."""
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
-        pipeline = AudioPipeline(recorder)
+        pipeline = recorder._audio_pipeline
 
         # Mostly zero, with a single non-zero sample — still
         # legitimate audio (a transient or a low-amplitude tail).

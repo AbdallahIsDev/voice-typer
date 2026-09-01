@@ -39,6 +39,7 @@ import logging
 import math
 import threading
 import time
+from typing import Any
 
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._lazy_import import lazy_module
@@ -400,6 +401,45 @@ def _get_resample_poly():
             raise typed from exc
         _resample_poly = resample_poly
         return _resample_poly
+
+
+def warm_up_resampler(recorder: Any) -> None:
+    """Import and initialize the high-quality resampler before recording stops.
+
+    Promoted from ``Recorder.warm_up_resampler`` (Phase 4.5 completion) —
+    the body is unchanged. Callers invoke ``recorder.warm_up_resampler()``
+    (a documented 1-line delegator on ``Recorder``); instance-level
+    ``MagicMock`` patches of ``recorder.warm_up_resampler`` keep working
+    because the delegator itself is replaced.
+
+    Patch-path compatibility: looks up ``_get_resample_poly`` via the
+    ``_recording_pkg`` package namespace (NOT a direct call) so test
+    patches of the form
+    ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+    keep affecting this code. See the module docstring §Patch-path.
+    """
+    try:
+        resample_poly = _recording_pkg._get_resample_poly()
+        # ``_get_resample_poly()`` may legitimately return
+        # ``None`` when a test monkeypatches it to ``lambda: None`` or
+        # when a future refactor caches a None sentinel instead of
+        # raising. Pre-fix, the next line would call
+        # ``None(np.zeros(...), 160, 441)`` and raise ``TypeError:
+        # 'NoneType' object is not callable`` — caught by the broad
+        # ``except Exception`` below and logged as "Resampler warm-up
+        # failed: 'NoneType' object is not callable", which is
+        # misleading. The explicit None check emits the same "scipy
+        # not available" warning as the ``ImportError`` branch so the
+        # diagnostic is consistent.
+        if resample_poly is None:
+            log.warning("[RECORDING] scipy not available, will use linear interp resampling")
+            return
+        resample_poly(np.zeros(32, dtype=np.float32), 160, 441)
+        log.debug("[RECORDING] Resampler warmed up")
+    except ImportError:
+        log.warning("[RECORDING] scipy not available, will use linear interp resampling")
+    except Exception as e:
+        log.warning("[RECORDING] Resampler warm-up failed: %s", e)
 
 
 def resample_audio(

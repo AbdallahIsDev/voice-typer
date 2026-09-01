@@ -6,8 +6,10 @@ god-method (Phase 4.5 / DT-21 split). It contains
 :meth:`_setup_device_state_and_collaborators` that:
 
   1. Initializes the disconnect-handler bouncer state
-     (``_stop_generation``, ``_user_stop_pending``,
-     ``_disconnect_handler_lock``, ``_disconnect_handler_running``).
+     (``_stop_generation``, ``_user_stop_pending``) and constructs the
+     collaborators (each owning its own state: the single-flight guard
+     now lives on ``DisconnectHandler`` — see
+     ``tests/test_recorder_init.py::TestDisconnectHandlerStateInit``).
   2. Constructs the six collaborators (``DeviceManager``,
      ``DisconnectHandler``, ``AudioPipeline``,
      ``AudioCallbackDispatcher``, ``StreamLifecycle``,
@@ -69,7 +71,14 @@ class _MockRecorderHost(RecorderInitMixin):
         # collaborators created by ``patch`` are MagicMocks and don't
         # care; the real collaborators may read ``recorder.config`` /
         # ``recorder._recording_event`` lazily later — not at __init__).
-        self.config: dict = {}
+        # STATE-OWNERSHIP: ``AudioPipeline.__init__`` reads
+        # ``recorder.config.sample_rate`` (the pipeline owns the
+        # recording buffer, whose nominal sample rate comes from the
+        # config) — a MagicMock config auto-provides it.
+        self.config = MagicMock(sample_rate=16000)
+        # The pipeline's recording buffer registers the host's
+        # extra-eviction hook (a real Recorder method) at construction.
+        self._note_buffer_capacity_eviction = MagicMock()
         self._recording_event = threading.Event()
         self._stream = None
         self._lock = threading.Lock()
@@ -112,23 +121,40 @@ class TestDisconnectHandlerStateInit:
         host, _ = host_with_patched_collaborators
         assert host._user_stop_pending is False
 
-    def test_disconnect_handler_lock_is_threading_lock(self, host_with_patched_collaborators):
-        """``_disconnect_handler_lock`` must be a real
+    def test_disconnect_handler_lock_is_threading_lock(self):
+        """``DisconnectHandler._single_flight_lock`` must be a real
         ``threading.Lock`` (not a MagicMock) so the disconnect-handler
-        thread can actually acquire/release it."""
-        host, _ = host_with_patched_collaborators
+        thread can actually acquire/release it.
+
+        STATE-OWNERSHIP: the lock + running flag were moved from
+        ``Recorder._disconnect_handler_lock`` / ``_disconnect_handler_running``
+        onto the owning collaborator (``DisconnectHandler``); the pinned
+        BEHAVIOR is unchanged — the guard is a real, acquirable
+        ``threading.Lock`` initialized at construction time (C-ARCH-2:
+        the test now reads the OWNING submodule's attribute).
+        """
+        from voice_typer.server.recording.disconnect_handler import DisconnectHandler
+
+        handler = DisconnectHandler(recorder=MagicMock(name="recorder"))
         # ``threading.Lock`` returns a ``_thread.lock`` object, not a
         # ``Lock`` class instance — check via the context-manager
         # protocol (``__enter__`` / ``__exit__``).
-        assert hasattr(host._disconnect_handler_lock, "__enter__")
-        assert hasattr(host._disconnect_handler_lock, "__exit__")
+        assert hasattr(handler._single_flight_lock, "__enter__")
+        assert hasattr(handler._single_flight_lock, "__exit__")
         # Sanity-check: the lock can actually be acquired + released.
-        with host._disconnect_handler_lock:
+        with handler._single_flight_lock:
             pass
 
-    def test_disconnect_handler_running_initialized_to_false(self, host_with_patched_collaborators):
-        host, _ = host_with_patched_collaborators
-        assert host._disconnect_handler_running is False
+    def test_disconnect_handler_running_initialized_to_false(self):
+        """``DisconnectHandler._single_flight_running`` must initialize
+        to ``False`` so the first disconnect-handler spawn is not
+        single-flight-suppressed (STATE-OWNERSHIP: moved from
+        ``Recorder._disconnect_handler_running``; pinned behavior
+        unchanged)."""
+        from voice_typer.server.recording.disconnect_handler import DisconnectHandler
+
+        handler = DisconnectHandler(recorder=MagicMock(name="recorder"))
+        assert handler._single_flight_running is False
 
 
 # ---------------------------------------------------------------------------

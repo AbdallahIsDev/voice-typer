@@ -762,9 +762,9 @@ class TestRecorderStoresAudioStats:
         rec = _make_recorder()
         # Populate the buffer with a known signal.
         chunk = np.full((1024, 1), 0.5, dtype=np.float32)
-        with rec._lock:
-            rec._buffer.append(chunk)
-            rec._chunk_count = 1
+        with rec._audio_pipeline._lock:
+            rec._audio_pipeline._buffer.append(chunk)
+            rec._audio_pipeline._chunk_count = 1
         # Mock the stream so stop() doesn't try to close a real one.
         rec._stream = MagicMock()
 

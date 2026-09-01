@@ -164,7 +164,7 @@ def _make_process_chunk_pipeline(
     """
     recorder = MagicMock(name="RecorderStub")
     recorder._cached_vad_enabled = cached_vad_enabled
-    recorder._lock = threading.Lock()
+    recorder._audio_pipeline._lock = threading.Lock()
     recorder._recent_rms_values = collections.deque(maxlen=10)
     recorder._last_rms = None
     recorder._rms_callback_error_count = 0

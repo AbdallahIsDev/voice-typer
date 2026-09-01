@@ -13,7 +13,8 @@ back-reference to the owning ``Recorder`` instance
 (``StreamLifecycle(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self._recorder._stream`` — the PortAudio InputStream
+- ``self._stream`` — the PortAudio InputStream (owned by THIS
+  lifecycle — STATE-OWNERSHIP; the recorder-level slot was removed)
 - ``self._recorder.config`` — for ``microphone`` / ``sample_rate``
 - ``self._recorder._effective_sr`` / ``_actual_channels`` /
   ``_buffer_sr`` — sample-rate tracking
@@ -76,6 +77,17 @@ class StreamLifecycle:
         # import (``recorder`` imports ``stream_lifecycle`` at module top
         # to construct this class in ``Recorder.__init__``).
         self._recorder = recorder
+        # STATE-OWNERSHIP: the PortAudio ``InputStream`` slot
+        # lives HERE (the owning collaborator), not on ``Recorder``.
+        # ``open_stream_for_candidates`` / ``open_stream_fallback``
+        # assign it, ``teardown_stream_body`` stops/aborts/closes +
+        # clears it, and ``DisconnectHandler.restart_stream`` swaps it
+        # on hot-plug restart. Consumers access it via
+        # ``recorder._stream_lifecycle._stream``. The recorder-level
+        # declaration was removed from ``recorder_init`` (E15); the
+        # empty-``None`` sentinel + all read/write semantics are
+        # identical to the pre-move attribute.
+        self._stream: Any = None
 
     def open_stream_for_candidates(
         self,
@@ -92,10 +104,10 @@ class StreamLifecycle:
 
         Try opening an :class:`sd.InputStream` for each candidate device
         in turn. Returns ``(selected_device, effective_sr, last_error)``.
-        On success, ``recorder._stream`` is the opened stream,
-        ``recorder._effective_sr`` is updated under the lock, and
+        On success, ``self._stream`` (the lifecycle-owned slot) is the
+        opened stream, ``recorder._effective_sr`` is updated under the lock, and
         ``recorder._actual_channels`` stores the negotiated channel count.
-        On failure, ``recorder._stream`` remains ``None`` and ``last_error``
+        On failure, ``self._stream`` remains ``None`` and ``last_error``
         holds the most recent exception.
 
         The candidate loop is the primary device-enumeration path. If
@@ -208,13 +220,13 @@ class StreamLifecycle:
                 if stream is not None:
                     with contextlib.suppress(Exception):
                         stream.close()
-                recorder._stream = None
+                self._stream = None
                 continue
 
-            recorder._stream = stream
+            self._stream = stream
             # guard _effective_sr writes with the lock because
             # snapshot() reads it under the lock from another thread.
-            with recorder._lock:
+            with recorder._audio_pipeline._lock:
                 recorder._effective_sr = candidate_sr
             selected_device = candidate
             effective_sr = candidate_sr
@@ -238,7 +250,7 @@ class StreamLifecycle:
         Try every available input device not already in ``candidates``
         (the already-tried list) as a last-resort fallback. Returns
         ``(selected_device, effective_sr, used_fallback, last_error)``.
-        On success, ``recorder._stream`` is the opened stream and
+        On success, ``self._stream`` (lifecycle-owned) is the opened stream and
         ``recorder._effective_sr`` is updated under the lock.
         ``used_fallback`` is ``True`` if a fallback device opened
         successfully, ``False`` otherwise (so the caller can distinguish
@@ -311,9 +323,9 @@ class StreamLifecycle:
                         stream.close()
                 continue
 
-            recorder._stream = stream
+            self._stream = stream
             # guard _effective_sr writes with the lock.
-            with recorder._lock:
+            with recorder._audio_pipeline._lock:
                 recorder._effective_sr = candidate_sr
             selected_device = candidate
             effective_sr = candidate_sr
@@ -393,13 +405,13 @@ class StreamLifecycle:
                 when ESC-cancel landed mid-callback.
 
                 Behavior:
-                  1. If ``recorder._stream`` is None, return immediately (idempotent).
+                  1. If ``self._stream`` is None, return immediately (idempotent).
                   2. Call ``stream.stop()`` (CLEAN) or ``stream.abort()`` (force)
                      to halt PortAudio's callback dispatch.
                   3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
                      until the in-flight callback (if any) returns.
                   4. Call ``stream.close()`` to free PortAudio resources.
-                  5. Set ``recorder._stream = None``.
+                  5. Set ``self._stream = None``.
 
                 Idempotent: safe to call when the stream is already None (e.g.
                 when ``discard()`` is invoked twice, or after ``stop()``).
@@ -423,13 +435,13 @@ class StreamLifecycle:
                 in ``recorder._stream_lifecycle_lock`` (acquired with non-blocking
                 ``acquire(blocking=False)``) so a concurrent
                 ``_handle_device_disconnect`` restart block cannot mutate
-                ``recorder._stream`` mid-teardown (and vice-versa). The lock
+                ``self._stream`` mid-teardown (and vice-versa). The lock
         acquisition stays on ``Recorder`` so the  source-inspection
                 regression tests (``tests/test_recorder_worker_lifecycle.py``)
                 continue to pin the lock-scope invariant on
                 ``Recorder._teardown_stream``.
         """
-        if not recorder._stream:
+        if not self._stream:
             return
         if force:
             # Known-dead-device path (disconnect handler).
@@ -441,7 +453,7 @@ class StreamLifecycle:
             # critical path moving, and ``_stream`` is always cleared
             # so the next ``start()`` opens a fresh stream.
             with contextlib.suppress(Exception):
-                recorder._stream.abort()
+                self._stream.abort()
             # The drain poll is moot after ``abort()`` (PortAudio
             # guarantees no further callback dispatch), but kept as a
             # safety net for any in-flight callback that started before
@@ -458,15 +470,15 @@ class StreamLifecycle:
                         break
                     time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
             with contextlib.suppress(Exception):
-                recorder._stream.close()
-            recorder._stream = None
+                self._stream.close()
+            self._stream = None
             return
         # CLEAN path (stop from hotkey / discard / __del__) — graceful
         # drain via ``stop()`` so pending buffers complete before
         # ``close()``. Exceptions from ``stop()`` / ``close()`` propagate
         # to the caller (``Recorder._teardown_stream`` → its ``finally``
         # releases the lock).
-        recorder._stream.stop()
+        self._stream.stop()
         # wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents
         # PortAudio from calling the callback during/after stream.stop()
@@ -517,8 +529,8 @@ class StreamLifecycle:
                 if remaining <= 0:
                     break
                 time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
-        recorder._stream.close()
-        recorder._stream = None
+        self._stream.close()
+        self._stream = None
 
 
 np = lazy_module("numpy")

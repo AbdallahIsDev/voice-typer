@@ -47,22 +47,27 @@ def _make_recorder():
 
 class TestCallbackExceptionCapture:
     """: ``dispatch_callback_body`` must wrap its body in try/except,
-    store the exception on ``recorder._last_callback_error``, and re-raise
+    store the exception on the owning dispatcher
+    (``AudioCallbackDispatcher._last_callback_error``), and re-raise
     so PortAudio still aborts the stream. ``_stream_finished_callback``
     must log the captured error at ERROR with full traceback and clear
     the attribute so a subsequent genuine disconnect is not masked.
     """
 
     def test_last_callback_error_attr_declared_in_init(self):
-        """``_last_callback_error`` is declared in ``__init__`` (None)."""
+        """``_last_callback_error`` is declared on the owning
+        collaborator (``AudioCallbackDispatcher.__init__``, None)."""
         r = _make_recorder()
-        assert hasattr(r, "_last_callback_error"), ": Recorder.__init__ must declare _last_callback_error"
-        assert r._last_callback_error is None, ": _last_callback_error must initialize to None"
+        assert hasattr(r._capture, "_last_callback_error"), (
+            ": AudioCallbackDispatcher.__init__ must declare _last_callback_error"
+        )
+        assert r._capture._last_callback_error is None, ": _last_callback_error must initialize to None"
 
     def test_dispatch_callback_body_stores_exception_and_reraises(self):
         """When the inner body raises, ``dispatch_callback_body`` must
-        store the exception on ``recorder._last_callback_error`` AND
-        re-raise (so PortAudio still aborts the stream)."""
+        store the exception on the owning dispatcher's
+        ``_last_callback_error`` AND re-raise (so PortAudio still aborts
+        the stream)."""
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         # Minimal fake recorder — only the attributes touched by the
@@ -76,7 +81,6 @@ class TestCallbackExceptionCapture:
         class _FakeRecorder:
             def __init__(self) -> None:
                 self._recording_event = _BoomEvent()
-                self._last_callback_error: Exception | None = None
 
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
@@ -86,14 +90,16 @@ class TestCallbackExceptionCapture:
         with pytest.raises(RuntimeError, match=" simulated RT-callback bug"):
             dispatcher.dispatch_callback_body(fake, indata, 4, "t", "s")
 
-        # And it must have stored the exception on the recorder.
-        assert fake._last_callback_error is not None, (
+        # And it must have stored the exception on the dispatcher (the
+        # owning collaborator).
+        assert dispatcher._last_callback_error is not None, (
             "dispatch_callback_body did not store the exception on "
-            "recorder._last_callback_error — _stream_finished_callback "
-            "cannot log the true cause of the stream abort."
+            "AudioCallbackDispatcher._last_callback_error — "
+            "_stream_finished_callback cannot log the true cause of "
+            "the stream abort."
         )
-        assert isinstance(fake._last_callback_error, RuntimeError)
-        assert " simulated RT-callback bug" in str(fake._last_callback_error)
+        assert isinstance(dispatcher._last_callback_error, RuntimeError)
+        assert " simulated RT-callback bug" in str(dispatcher._last_callback_error)
 
     def test_dispatch_callback_body_no_exception_leaves_attr_none(self):
         """When the inner body succeeds, ``_last_callback_error`` stays
@@ -106,7 +112,6 @@ class TestCallbackExceptionCapture:
                 self._recording_event.set()  # recording active → payload path
                 self._ring_buffer = collections.deque(maxlen=64)
                 self._dropped_ring_chunks = 0
-                self._last_callback_error: Exception | None = None
 
             @staticmethod
             def _ensure_mono(arr):
@@ -117,7 +122,7 @@ class TestCallbackExceptionCapture:
         indata = np.zeros(4, dtype=np.float32)
         payload = dispatcher.dispatch_callback_body(fake, indata, 4, "t", "s")
         assert payload is not None, "happy path must return a payload"
-        assert fake._last_callback_error is None, ": _last_callback_error must stay None on the happy path"
+        assert dispatcher._last_callback_error is None, ": _last_callback_error must stay None on the happy path"
 
     def test_stream_finished_callback_logs_error_and_clears_attr(self, caplog):
         """``_stream_finished_callback`` must log the captured exception
@@ -125,7 +130,7 @@ class TestCallbackExceptionCapture:
         r = _make_recorder()
         # Simulate a captured RT-callback exception.
         captured_exc = RuntimeError(" simulated RT-callback bug")
-        r._last_callback_error = captured_exc
+        r._capture._last_callback_error = captured_exc
 
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.recording"):
             r._stream_finished_callback()
@@ -142,18 +147,19 @@ class TestCallbackExceptionCapture:
             "the ERROR record must carry the captured exception as exc_info"
         )
         # The attribute was cleared after logging.
-        assert r._last_callback_error is None, (
-            "_stream_finished_callback must clear _last_callback_error "
-            "after logging so a subsequent genuine disconnect is not masked."
+        assert r._capture._last_callback_error is None, (
+            "_stream_finished_callback must clear the owning dispatcher's "
+            "_last_callback_error after logging so a subsequent genuine "
+            "disconnect is not masked."
         )
 
     def test_stream_finished_callback_skips_disconnect_handler_when_error_set(self, monkeypatch):
-        """When ``_last_callback_error`` is set, ``_stream_finished_callback``
-        must NOT spawn the disconnect-retry handler — the stream aborted
-        because of a code bug, not a device issue. Restarting on the
-        default device would mask the bug."""
+        """When the owning dispatcher's ``_last_callback_error`` is set,
+        ``_stream_finished_callback`` must NOT spawn the disconnect-retry
+        handler — the stream aborted because of a code bug, not a device
+        issue. Restarting on the default device would mask the bug."""
         r = _make_recorder()
-        r._last_callback_error = RuntimeError(" bug")
+        r._capture._last_callback_error = RuntimeError(" bug")
         spawn_calls: list[str] = []
         monkeypatch.setattr(
             r,
@@ -168,16 +174,17 @@ class TestCallbackExceptionCapture:
         )
 
     def test_stream_finished_callback_no_error_falls_through_to_disconnect_path(self, monkeypatch):
-        """When ``_last_callback_error`` is None, the existing disconnect
-        detection path runs unchanged (regression guard)."""
+        """When the owning dispatcher's ``_last_callback_error`` is None,
+        the existing disconnect detection path runs unchanged (regression
+        guard)."""
         r = _make_recorder()
         # No error set. Simulate the "unexpected disconnect" branch:
         # _device_disconnected False, _user_stop_pending False,
         # _stream not None, _recording_event not set.
-        r._last_callback_error = None
+        r._capture._last_callback_error = None
         r._devices._device_disconnected = False
         r._user_stop_pending = False
-        r._stream = MagicMock()  # not None
+        r._stream_lifecycle._stream = MagicMock()  # not None
         r._recording_event.clear()  # not set → unexpected disconnect
         spawn_calls: list[str] = []
         monkeypatch.setattr(
@@ -214,7 +221,7 @@ class TestDiscardIdleFastPath:
         r = _make_recorder()
         # Idle state: not recording, no stream.
         assert not r._recording_event.is_set()
-        r._stream = None
+        r._stream_lifecycle._stream = None
 
         gen_before = r._stop_generation
         user_stop_before = r._user_stop_pending
@@ -253,7 +260,7 @@ class TestDiscardIdleFastPath:
         r = _make_recorder()
         # Recording state.
         r._recording_event.set()
-        r._stream = MagicMock()
+        r._stream_lifecycle._stream = MagicMock()
         r._effective_sr = 16000
 
         gen_before = r._stop_generation
@@ -266,7 +273,7 @@ class TestDiscardIdleFastPath:
             recorder._recording_event.clear()
             recorder._user_stop_pending = True
             recorder._stop_generation += 1
-            recorder._stream = None
+            recorder._stream_lifecycle._stream = None
 
         monkeypatch.setattr(_recorder_split, "discard_recording", _stub_discard)
 
@@ -291,7 +298,7 @@ class TestDiscardIdleFastPath:
         # mid-flight: stream assigned, _recording_event not yet set).
         assert not r._recording_event.is_set()
         mock_stream = MagicMock()
-        r._stream = mock_stream
+        r._stream_lifecycle._stream = mock_stream
 
         close_calls: list[int] = []
         original_close = mock_stream.close
@@ -311,7 +318,7 @@ class TestDiscardIdleFastPath:
         assert close_calls == [], (
             "discard on an idle recorder must NOT close the streama concurrent start() may have just opened it."
         )
-        assert r._stream is mock_stream, ": discard on an idle recorder must NOT null _stream."
+        assert r._stream_lifecycle._stream is mock_stream, ": discard on an idle recorder must NOT null _stream."
 
 
 # ── : audio_worker_loop accepts explicit events ───────────────────

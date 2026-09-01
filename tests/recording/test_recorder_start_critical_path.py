@@ -54,7 +54,7 @@ def _build_start_mock_recorder(
     recorder._devices._same_physical_microphone_candidates.return_value = [5]
     recorder._stream_lifecycle.build_audio_callback.return_value = object()
     recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
-    recorder._stream = MagicMock(name="opened-stream")
+    recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
     recorder._recording_event = threading.Event()
     recorder._audio_processor = None
     recorder._preroll_active = False
@@ -64,7 +64,7 @@ def _build_start_mock_recorder(
     # Real scalar sample rates: ``refresh_vad_caches`` (invoked directly
     # as a module function now) compares these against int constants —
     # MagicMock sentinels would raise TypeError on the ``> 0`` check.
-    recorder._buffer_sr = None
+    recorder._audio_pipeline._buffer_sr = None
     recorder._effective_sr = sample_rate
     recorder.warm_up_resampler = MagicMock(name="warm_up_resampler")
     return recorder

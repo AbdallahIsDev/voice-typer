@@ -311,24 +311,24 @@ class TestBackpressureIncrementsOnBufferOverflow:
         rec._effective_sr = 16000
         rec._cached_target_sr = 16000
 
-        maxlen = rec._buffer.maxlen
+        maxlen = rec._audio_pipeline._buffer.maxlen
         chunk = np.full((512, 1), 0.1, dtype=np.float32)
 
         # Simulate the callback's locked append + backpressure check
         for _ in range(maxlen + 10):
-            with rec._lock:
-                rec._buffer.append(chunk)
-                rec._chunk_count += 1
-                buffer_len = len(rec._buffer)
+            with rec._audio_pipeline._lock:
+                rec._audio_pipeline._buffer.append(chunk)
+                rec._audio_pipeline._chunk_count += 1
+                buffer_len = len(rec._audio_pipeline._buffer)
 
             # Backpressure check (from recording.py callback)
-            if buffer_len >= rec._buffer.maxlen - 1:
+            if buffer_len >= rec._audio_pipeline._buffer.maxlen - 1:
                 rec._dropped_chunks = getattr(rec, "_dropped_chunks", 0) + 1
 
         assert getattr(rec, "_dropped_chunks", 0) >= 1, (
             "NEW-CQ-007: backpressure must increment _dropped_chunks when buffer overflows"
         )
-        assert len(rec._buffer) == maxlen
+        assert len(rec._audio_pipeline._buffer) == maxlen
 
 
 class TestConcurrentConfigAccessNoCrash:

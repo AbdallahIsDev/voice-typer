@@ -44,20 +44,27 @@ in the EARLY part of ``__init__`` (``_cached_resample_key``,
 ``_last_seen_dropped_ring_chunks``, ``_ring_overflow_warn_ts``) — none
 of which are in the extracted section. The literals that ARE in the
 extracted section (``_stop_generation``, ``_user_stop_pending``,
-``_disconnect_handler_lock``, ``_disconnect_handler_running``,
 ``DeviceManager(self)``, ``DisconnectHandler(self)``,
 ``AudioPipeline(self)``, ``AudioCallbackDispatcher(self)``,
 ``StreamLifecycle(self)``, ``SessionState(self)``,
+``DevicePrewarm(self)``,
+``DevicePrewarm(self)``,
 ``_prewarm_device_cache()``) are NOT pinned by any source-inspection
 test, so moving them out of ``__init__``'s source is safe.
-
+(The historical ``_disconnect_handler_lock`` /
+``_disconnect_handler_running`` literals were in this list too until
+they were moved OFF the host entirely — see
+``DisconnectHandler.__init__``; their tests now pin the owning
+collaborator's attributes.)
 Patch-path compatibility
 ------------------------
 Tests that access these as instance attributes
-(``recorder._stop_generation = 0`` /
-``isinstance(recorder._disconnect_handler_lock, type(threading.Lock()))``
-etc.) keep working unchanged — the mixin methods run during
-``__init__`` and set the same attributes on the same ``self``.
+(``recorder._stop_generation = 0`` etc.) keep working unchanged — the
+mixin methods run during ``__init__`` and set the same attributes on the
+same ``self``. The disconnect single-flight guard is the exception: it
+now lives on the owning collaborator
+(``recorder._disconnect_handler._single_flight_lock`` /
+``._single_flight_running``).
 
 Cross-module name resolution
 ----------------------------
@@ -79,8 +86,6 @@ from typing import TYPE_CHECKING, Any
 
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE, WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
-
-from . import _recorder_split
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -133,14 +138,15 @@ class RecorderInitMixin:
         Sets up:
           - ``_stop_generation`` / ``_user_stop_pending`` — disconnect
             handler bouncer + stream-finished-callback disambiguation.
-          - ``_disconnect_handler_lock`` / ``_disconnect_handler_running``
-            — single-flight guard for disconnect-handler thread spawns.
           - ``_devices`` (``DeviceManager``) — owns device enumeration,
             hot-swap, mic-watcher, health-checker thread.
           - ``_disconnect_handler`` (``DisconnectHandler``) — owns the
             ~175-LOC stream-restart block (called from
             ``_handle_device_disconnect`` under
-            ``_stream_lifecycle_lock``).
+            ``_stream_lifecycle_lock``) AND the disconnect single-flight
+            guard (``_single_flight_lock`` / ``_single_flight_running`` —
+            the historical ``Recorder._disconnect_handler_lock`` /
+            ``_disconnect_handler_running`` pair, moved there).
           - ``_audio_pipeline`` (``AudioPipeline``) — owns the six
             named helpers split out of ``_process_audio_chunk``.
           - ``_capture`` (``AudioCallbackDispatcher``) — owns the
@@ -168,19 +174,13 @@ class RecorderInitMixin:
         # callback always saw is_set()==False and warned on every stop.
         self._user_stop_pending: bool = False
 
-        # Medium: single-flight guard for the disconnect-handler
-        # thread spawns. Three sites spawn ``_handle_device_disconnect``
-        # on a fresh daemon thread (the audio callback's zero-fill
-        # detector, ``_stream_finished_callback``, and the device
-        # health-checker loop). Without a guard, a flapping device
-        # (BT mic reconnecting repeatedly) can spawn multiple handler
-        # threads concurrently — they race on ``_stream_lifecycle_lock``
-        # and the stream-restart block. The guard ensures only ONE
-        # handler thread is running at a time; additional spawns while
-        # the first is running are no-ops (the existing handler will
-        # complete the restart or hit the retry budget).
-        self._disconnect_handler_lock = threading.Lock()
-        self._disconnect_handler_running = False
+        # STATE-OWNERSHIP (E15): the disconnect single-flight guard
+        # (lock + running flag) previously declared here was MOVED to
+        # the owning collaborator — see ``DisconnectHandler.__init__``
+        # (``_single_flight_lock`` / ``_single_flight_running``).
+        # Consumers (``Recorder._spawn_device_thread``,
+        # ``AudioPipeline.detect_device_disconnect``) access it via
+        # ``recorder._disconnect_handler.<attr>``.
 
         # Local import to avoid a circular import at module load time
         # (``recorder.py`` imports this mixin at the top of its class
@@ -191,6 +191,7 @@ class RecorderInitMixin:
         from .audio_pipeline import AudioPipeline as _AudioPipeline
         from .capture import AudioCallbackDispatcher as _AudioCallbackDispatcher
         from .device_manager import DeviceManager as _DeviceManager
+        from .device_prewarm import DevicePrewarm as _DevicePrewarm
         from .disconnect_handler import DisconnectHandler as _DisconnectHandler
         from .session_state import SessionState as _SessionState
         from .stream_lifecycle import StreamLifecycle as _StreamLifecycle
@@ -226,6 +227,17 @@ class RecorderInitMixin:
         # instantiated as soon as ``self._devices`` is ready.
         self._disconnect_handler: _DisconnectHandler = _DisconnectHandler(self)
         self._audio_pipeline: _AudioPipeline = _AudioPipeline(self)
+        # Phase 4.5 completion: ``DevicePrewarm`` owns the device-cache
+        # prewarm, the PortAudio warm-up stream, the cached channel
+        # lookup, and the PortAudio permission classifier (the bodies
+        # were the last device-prewarm logic on ``Recorder``).
+        # ``Recorder`` keeps documented 1-line delegators
+        # (``_prewarm_device_cache`` / ``_prewarm_input_stream`` /
+        # ``_cached_max_input_channels`` / ``_classify_portaudio_open_error``)
+        # so existing call sites and the class-level test patches keep
+        # working. Constructed with the same back-reference pattern as
+        # the collaborators above (its ``__init__`` only stores ``self``).
+        self._device_prewarm: _DevicePrewarm = _DevicePrewarm(self)
         # Phase 4.5: three new collaborators constructed here
         # in the same back-reference pattern as ``_audio_pipeline`` /
         # ``_disconnect_handler`` above. Each is purely a collaborator —
@@ -265,10 +277,7 @@ class RecorderInitMixin:
         audio_processor: Any | None,
         thread_registry: Any | None,
     ) -> None:
-        """Config / audio-processor / thread-registry backrefs, the
-        stream slot, and the contiguous recording buffer."""
-        from .recorder import DEFAULT_MAX_BUFFER_CHUNKS
-
+        """Config / audio-processor / thread-registry backrefs."""
         self.config = config
         self._audio_processor = audio_processor  # AudioProcessor or None
         # THREAD-REGISTRY: optional central registry for shutdown
@@ -279,38 +288,27 @@ class RecorderInitMixin:
         # behavior is unchanged — threads are still tracked locally via
         # ``self._worker_thread`` and stopped by ``_stop_audio_worker()``.
         self._thread_registry = thread_registry
-        self._stream: sd.InputStream | None = None
-        # Contiguous recording storage (replaces the deque-of-chunks).
-        # ONE pre-allocated growable float32 ndarray: appends copy each
-        # chunk in under ``_lock`` (~16 Hz small memcpys on the audio
-        # worker), snapshots are O(1) views, and stop() hands off an
-        # already-contiguous array. ``maxlen`` keeps the CHUNK-count
-        # semantics of the old ``deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)``
-        # (duration cap + backpressure detection); see
-        # :class:`GrowableRecordingBuffer` for the full capacity policy.
-        # Typed ``Any`` because the mic hot-swap path transiently swaps in
-        # a plain ``collections.deque`` mid-session; every reader
-        # normalizes via ``_ensure_growable_buffer`` under the lock.
-        self._buffer: Any = _recorder_split.GrowableRecordingBuffer(
-            maxlen=DEFAULT_MAX_BUFFER_CHUNKS,
-            nominal_sample_rate=config.sample_rate,
-            on_extra_eviction=self._note_buffer_capacity_eviction,
-        )
-        # PERF: running total of buffered samples (sum of ``len(chunk)``
-        # across ``_buffer``). Maintained as an O(1) counter incremented
-        # under ``_lock`` in ``AudioPipeline.append_to_buffer_locked`` so
-        # ``current_duration_seconds`` (polled at 4 Hz by the streaming
-        # thread) doesn't have to iterate the whole deque — previously
-        # each poll paid an O(chunks) ``sum(int(c.shape[0]) for c in
-        # buffer)`` reduction, which on a 30-min dictation at ~16 Hz
-        # chunk arrival summed over ~28k chunks per poll. Reset to 0 in
-        # ``reset_session_state`` (start) and in ``stop()`` / ``discard()``
-        # alongside the buffer swap.
-        self._total_buffered_samples: int = 0
+        # STATE-OWNERSHIP: the PortAudio ``InputStream`` slot
+        # moved to the owning collaborator — see
+        # ``StreamLifecycle.__init__`` (``_stream``). Consumers access it
+        # via ``recorder._stream_lifecycle._stream``.
+        # STATE-OWNERSHIP: the contiguous recording buffer
+        # (``_buffer``) and its O(1) sample counter
+        # (``_total_buffered_samples``) previously declared here were
+        # MOVED to the owning collaborator — see
+        # ``AudioPipeline.__init__``. Consumers access them via
+        # ``recorder._audio_pipeline.<attr>`` (same
+        # ``GrowableRecordingBuffer`` construction parameters — maxlen
+        # cap, nominal sample rate, extra-eviction hook).
 
     def _init_locks_and_flags(self) -> None:
-        """Create the four synchronization primitives + force-closed flag."""
-        self._lock = threading.Lock()
+        """Create the three synchronization primitives + force-closed flag.
+
+        STATE-OWNERSHIP: the buffer lock (``_lock``) previously
+        declared here was MOVED to the owning collaborator — see
+        ``AudioPipeline.__init__``. Every buffer mutation acquires it
+        via ``recorder._audio_pipeline._lock``.
+        """
         # serializes ``start()`` against ``discard()`` so a
         # concurrent toggle-thread + ESC-cancel-thread + auto-stop
         # Timer thread cannot race on the per-session state reset
@@ -357,21 +355,24 @@ class RecorderInitMixin:
         self._force_closed: bool = False
 
     def _init_xrun_tracking(self) -> None:
-        """XRUN / clipping counters, the threshold callback slot, the
-        rolling xrun-timestamp window, and the recording gate event."""
-        from .recorder import _XRUN_WINDOW_MAXLEN
+        """The threshold callback slot (app wiring) + the recording gate event.
 
-        # XRUN and clipping tracking
-        self._xruns: int = 0
-        self._clip_count: int = 0
-        self._peak: float = 0.0
-        self._last_clip_log_time: float = 0.0
+        STATE-OWNERSHIP: the XRUN / clipping / peak telemetry
+        counters (``_xruns`` / ``_xrun_threshold`` /
+        ``_xrun_timestamps`` / ``_clip_count`` / ``_peak`` /
+        ``_last_clip_log_time``) previously declared here were MOVED
+        to the owning collaborator — see ``AudioPipeline.__init__``.
+        Consumers (``AudioPipeline.handle_xrun_status`` /
+        ``detect_and_emit_clipping``, ``SessionState.reset_session_state``)
+        access them via ``recorder._audio_pipeline.<attr>``. What stays
+        here: ``on_xrun_threshold`` — the app-wired notification slot
+        (set by ``app_recording_init``, outside this package, so it
+        remains Recorder-level wiring) — and ``_recording_event`` (the
+        core recording gate read across the whole subsystem).
+        """
         # Item 1: xrun notification callback — set by VoiceTyperApp
         # to receive a notification when xrun count exceeds threshold.
         self.on_xrun_threshold: Callable[[int], None] | None = None
-        self._xrun_threshold: int = 10  # notify after this many xruns
-        # rolling window of xrun timestamps for rate-limited logging
-        self._xrun_timestamps: collections.deque = collections.deque(maxlen=_XRUN_WINDOW_MAXLEN)
         self._recording_event = threading.Event()
         # removed dead ``_in_callback`` field — it
         # was declared here but never set, cleared, or read anywhere in
@@ -379,24 +380,17 @@ class RecorderInitMixin:
         # ``_is_in_audio_callback`` (declared in ``_init_preroll_state``).
 
     def _init_sample_rate_and_chunk_state(self, config: Config) -> None:
-        """Sample-rate scalars (device-rate + buffer-rate) and the
-        per-chunk VAD property cache + RMS/chunk counters."""
+        """Sample-rate scalars (device-rate) and the per-chunk VAD
+        property cache + RMS counter.
+
+        STATE-OWNERSHIP: the buffer-side sample-rate scalar
+        (``_buffer_sr``) and the chunk counter (``_chunk_count``)
+        previously declared here were MOVED to the owning collaborator —
+        see ``AudioPipeline.__init__`` (``_buffer_sr`` is written by
+        ``apply_filter_chain``; ``_chunk_count`` by
+        ``append_to_buffer_locked``).
+        """
         self._effective_sr: int = config.sample_rate
-        # Critical: the actual sample rate of the audio currently
-        # held in ``self._buffer``. Set by ``_process_audio_chunk`` after
-        # ``AudioProcessor.process_chunk`` resamples to the chain's
-        # construction rate (typically 16 kHz) — so when a processor is
-        # attached, ``_buffer_sr == 16000`` regardless of the device's
-        # native rate (``_effective_sr`` may be 48000). When no
-        # processor is attached, ``_buffer_sr == _effective_sr``.
-        # ``stop()`` and ``snapshot()`` (via ``_recorder_split``) read
-        # this to avoid double-resampling already-resampled audio.
-        # Reset to ``None`` by ``start()``, ``stop()``, and ``discard()``
-        # (the latter two via ``_recorder_split``) so a fresh session
-        # starts clean. The ``None`` sentinel makes the
-        # ``_buffer_sr or _effective_sr`` fallback idiom work before the
-        # first chunk arrives.
-        self._buffer_sr: int | None = None
         # per-chunk VAD property cache. The audio worker hot path
         # (16 Hz) previously evaluated ``self._vad_enabled and
         # self._use_silero_vad and self._silero_available`` on every
@@ -415,7 +409,6 @@ class RecorderInitMixin:
         self._cached_vad_resample_up_down: tuple[int, int] | None = None
         self._cached_vad_resample_sr: int | None = None
         self._last_rms: float = 0.0
-        self._chunk_count: int = 0
 
     def _init_snapshot_caches(self) -> None:
         """Snapshot resample/no-resample caches + the last-audio-stats slot."""
@@ -569,15 +562,17 @@ class RecorderInitMixin:
         self._dropped_ring_chunks: int = 0
         # Captures the most recent exception raised inside
         # ``AudioCallbackDispatcher.dispatch_callback_body`` (the
-        # PortAudio RT-callback body). PortAudio silently aborts the
-        # stream when the callback raises, which surfaces to the user
-        # as a "device disconnect" — a misdiagnosis. The body now
-        # catches the exception, stores it here, and re-raises (so
-        # PortAudio still aborts). ``_stream_finished_callback`` reads
-        # this attribute, logs the true cause at ERROR with full
-        # traceback, and clears it. Read/written atomically under the
-        # GIL (single assignment of an attribute reference).
-        self._last_callback_error: Exception | None = None
+        # PortAudio RT-callback body). STATE-OWNERSHIP: the attribute
+        # now lives on the owning collaborator
+        # (``AudioCallbackDispatcher._last_callback_error`` — see
+        # ``capture.py``), not on the Recorder; PortAudio silently
+        # aborts the stream when the callback raises, which surfaces to
+        # the user as a "device disconnect" — a misdiagnosis.
+        # ``Recorder._stream_finished_callback`` reads it via
+        # ``self._capture._last_callback_error``, logs the true cause
+        # at ERROR with full traceback, and clears it. Read/written
+        # atomically under the GIL (single assignment of an attribute
+        # reference).
         # Real-time ring-overflow WARNING bookkeeping (see
         # ``_surface_ring_overflow_warning``). ``_last_seen_dropped_ring_chunks``
         # is the value of ``_dropped_ring_chunks`` the last time the worker

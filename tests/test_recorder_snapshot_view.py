@@ -61,7 +61,7 @@ def _make_recorder(sample_rate: int = 16000, effective_sr: int | None = None) ->
     r._effective_sr = effective_sr if effective_sr is not None else sample_rate
     # mirror _effective_sr (no audio_processor in these tests)
     r._post_filter_sr = r._effective_sr
-    r._stream = MagicMock()
+    r._stream_lifecycle._stream = MagicMock()
     return r
 
 
@@ -96,7 +96,7 @@ class TestSnapshotResamplePathReturnsView:
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
         monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         # First snapshot populates the cache.
         first = r.snapshot()
@@ -136,11 +136,11 @@ class TestSnapshotResamplePathReturnsView:
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
         monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache
 
         # Append a new chunk → next snapshot must resample + concatenate.
-        r._buffer.append(np.ones((6, 1), dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.ones((6, 1), dtype=np.float32))
 
         snap = r.snapshot()
         cached = r._cached_resampled
@@ -183,11 +183,11 @@ class TestSnapshotResamplePathReturnsView:
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
         monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
-        r._buffer = [np.ones((6, 1), dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache (call_count → 1)
 
         # Append a new chunk whose resample will fail (call_count → 2).
-        r._buffer.append(np.ones((6, 1), dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.ones((6, 1), dtype=np.float32))
 
         snap = r.snapshot()
         # The return must still be a view of the (unchanged) cache.
@@ -206,13 +206,13 @@ class TestSnapshotNoResamplePathReturnsView:
     def test_no_new_chunks_returns_view_of_cached_array(self):
         """When no new chunks have arrived since the last snapshot, the
         return must be a view of the contiguous recording buffer's
-        storage (``recorder._buffer.storage`` — the single pre-allocated
+        storage (``recorder._audio_pipeline._buffer.storage`` — the single pre-allocated
         growable array that replaced ``_cached_no_resample_arr``)."""
         r = _make_recorder(sample_rate=16000, effective_sr=16000)
-        r._buffer = [np.array([[1.0], [2.0], [3.0]], dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.array([[1.0], [2.0], [3.0]], dtype=np.float32)]
 
         first = r.snapshot()  # storage is contiguous now; nothing to build
-        cached = r._buffer.storage
+        cached = r._audio_pipeline._buffer.storage
         assert cached is not None
 
         # Second snapshot, no new chunks → must hit the cache and return a view.
@@ -231,13 +231,13 @@ class TestSnapshotNoResamplePathReturnsView:
         place (geometric growth). The RETURN value must be a view of that
         storage, not a copy."""
         r = _make_recorder(sample_rate=16000, effective_sr=16000)
-        r._buffer = [np.array([[1.0], [2.0]], dtype=np.float32)]
+        r._audio_pipeline._buffer = [np.array([[1.0], [2.0]], dtype=np.float32)]
         r.snapshot()
 
         # Append a new chunk → storage may reallocate; snapshot extends.
-        r._buffer.append(np.array([[3.0]], dtype=np.float32))
+        r._audio_pipeline._buffer.append(np.array([[3.0]], dtype=np.float32))
         snap = r.snapshot()
-        cached = r._buffer.storage
+        cached = r._audio_pipeline._buffer.storage
 
         assert cached is not None
         assert np.shares_memory(snap, cached), (

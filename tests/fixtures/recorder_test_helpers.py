@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from typing import Any
 
 
@@ -144,6 +145,38 @@ WORKER_THREAD_NAMES = frozenset(
 )
 
 
+def _owner_tag(name: str) -> str:
+    """Owner tag for the given base thread name.
+
+    Recorder worker threads carry a ``base|owner`` two-part name where
+    ``base`` is the canonical worker name (one of ``WORKER_THREAD_NAMES``)
+    and ``owner`` is a unique per-recorder instance id (e.g.
+    ``audio-worker|rec-3f2a19c4``). The canonical name stays the
+    ``name.split("|")[0]`` prefix, so every consumer that matches
+    threads by worker identity (log filters, thread-name diagnostics,
+    ``threading.enumerate()`` scans) reads the same identity from the
+    prefix.
+    """
+    return f"{name}|rec-{uuid.uuid4().hex[:8]}"
+
+
+def thread_base_name(thread: Any) -> str:
+    """Return the canonical worker base name for a (possibly tagged) thread.
+
+    Untagged threads are returned unchanged; tagged threads (``base|owner``)
+    are split at the first ``|``. Non-string names return ``""``.
+    """
+    name = getattr(thread, "name", "")
+    if not isinstance(name, str):
+        return ""
+    return name.split("|", 1)[0]
+
+
+def is_worker_thread(thread: Any) -> bool:
+    """True when the thread's base name matches a recorder worker name."""
+    return thread_base_name(thread) in WORKER_THREAD_NAMES
+
+
 def reap_stale_worker_refs(recorder: Any) -> None:
     """Clear worker references whose threads have already exited.
 
@@ -162,14 +195,40 @@ def reap_stale_worker_refs(recorder: Any) -> None:
         recorder._event_worker_thread = None
 
 
+def snapshot_worker_threads() -> frozenset:
+    """Snapshot the currently-live recorder worker threads (by identity).
+
+    Used by the guard helpers to scope a wait to the DELTA of threads a
+    test spawned: under full-suite xdist load, worker threads leaked by
+    EARLIER test files in the same xdist worker process stay alive
+    globally, so a global name-based wait would block (and flake) on
+    threads this test never created. Identity-scoping via
+    ``threading.enumerate()`` keeps the wait exact: only threads that
+    were not live at snapshot time (or whose identity changed) count.
+    """
+    return frozenset(t for t in threading.enumerate() if is_worker_thread(t))
+
+
+def _worker_threads_in(live: frozenset) -> list:
+    """Return the live worker threads from a snapshot set (alive now)."""
+    return [t for t in live if t.is_alive()]
+
+
 def wait_for_workers_stopped(
     recorder: Any,
     *,
     stop: Any = None,
-    timeout: float = 5.0,
+    # 15s (was 5s): the poll is CONDITION-BASED — this bound only
+    # absorbs scheduler contention under ``-n auto`` xdist (a worker
+    # thread mid-teardown just needs CPU). A REAL leak keeps the
+    # threads alive past ANY deadline, so the caller's terminal
+    # ``assert`` on the returned ``False`` still fires (no assertion is
+    # loosened; the 4/4-isolation pass contract is unchanged).
+    timeout: float = 15.0,
+    baseline: frozenset | None = None,
 ) -> bool:
-    """Poll (bounded) until worker refs are None AND no worker-named
-    thread is alive.
+    """Poll (bounded) until worker refs are None AND no worker thread
+    is alive beyond the ``baseline`` snapshot.
 
     This is the GT-23 load-flake guard: under a loaded runner
     (full-suite serial run), a worker started by the last in-flight
@@ -177,6 +236,20 @@ def wait_for_workers_stopped(
     returns, and a superseded zombie worker (the stale-alive branch in
     ``_start_audio_worker`` replaced its stop/wake events and discarded
     its ref) may not have reached its next loop iteration yet.
+
+    Thread-ownership scoping (the S5 fix): when ``baseline`` is given
+    (a :func:`snapshot_worker_threads` result taken BEFORE the test
+    spawned any worker), the wait only requires the DELTA to drain —
+    worker threads leaked by earlier test files in the same xdist
+    worker process no longer block (or flake) this test's wait. The
+    recorder's own spawn sites tag each worker thread with a unique
+    owner id (``base|owner`` names), so threads this test spawned are
+    always outside the baseline and remain FULLY waited on — a real
+    leak spawned by the test itself still fails the caller's terminal
+    assert exactly as strongly as before. When ``baseline`` is ``None``
+    (the default), the wait is global over all worker-named threads —
+    the pre-S5 behavior, kept for callers that want the strict global
+    drain guarantee.
 
     Parameters
     ----------
@@ -192,24 +265,39 @@ def wait_for_workers_stopped(
         skip re-invoking (required for fakes without a ``stop``
         method).
     timeout:
-        Maximum seconds to poll. A REAL leak keeps the threads alive
-        past the deadline, so the caller's terminal ``assert`` on the
-        returned ``False`` still fires.
+        Maximum seconds to poll (15s default: generous headroom for
+        xdist load; the poll exits as soon as the condition holds, so
+        the bound is only paid under real scheduler contention). A REAL
+        leak keeps the threads alive past the deadline, so the caller's
+        terminal ``assert`` on the returned ``False`` still fires.
+    baseline:
+        Pre-test :func:`snapshot_worker_threads` result. When given,
+        only worker threads NOT in the baseline must drain before
+        ``True`` is returned.
 
     Returns
     -------
     bool
-        ``True`` when the refs are clear and no worker-named thread is
-        alive; ``False`` on timeout.
+        ``True`` when the refs are clear and no (non-baseline) worker
+        thread is alive; ``False`` on timeout.
     """
     if stop is None:
         stop = getattr(recorder, "stop", None)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         reap_stale_worker_refs(recorder)
-        live = [t for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]
+        live_all = threading.enumerate()
+        if baseline is None:
+            live_workers = [t for t in live_all if is_worker_thread(t)]
+        else:
+            # Delta wait: a thread counts only if it was NOT live at
+            # baseline time. Identity-based (thread objects compare by
+            # identity), so a tagged thread spawned after the snapshot
+            # is always outside the baseline. Threads leaked by earlier
+            # tests keep churning in the background and are ignored.
+            live_workers = [t for t in live_all if is_worker_thread(t) and t not in baseline]
         if (
-            not live
+            not live_workers
             and getattr(recorder, "_worker_thread", None) is None
             and getattr(recorder, "_event_worker_thread", None) is None
         ):
@@ -222,7 +310,10 @@ def wait_for_workers_stopped(
 
 __all__ = [
     "WORKER_THREAD_NAMES",
+    "is_worker_thread",
     "make_recorder",
     "reap_stale_worker_refs",
+    "snapshot_worker_threads",
+    "thread_base_name",
     "wait_for_workers_stopped",
 ]
