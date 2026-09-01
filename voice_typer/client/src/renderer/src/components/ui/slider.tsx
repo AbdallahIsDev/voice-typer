@@ -19,10 +19,12 @@ export interface SliderProps
 	thumbLabels?: string[];
 	/**
 	 * Callback for generating the aria-valuetext on each thumb.
-	 * Receives the current numeric value and should return a
-	 * human-readable string (e.g. "3 decibels").
+	 * Receives the thumb's current numeric value and its index and
+	 * should return a human-readable string (e.g. "3 decibels").
+	 * Screen readers announce this at the focused thumb, which is
+	 * the correct ARIA surface for slider value readouts.
 	 */
-	getThumbAriaValueText?: (value: number) => string;
+	getThumbAriaValueText?: (value: number, index: number) => string;
 }
 
 function Slider({
@@ -34,7 +36,8 @@ function Slider({
 	getThumbAriaValueText,
 	...props
 }: SliderProps) {
-	const thumbCount = (props.value ?? props.defaultValue ?? [0]).length;
+	const thumbValues = (props.value ?? props.defaultValue ?? [0]) as number[];
+	const thumbCount = thumbValues.length;
 	// Dev-mode a11y warning: a slider with no accessible name (no
 	// aria-label, no aria-labelledby) and no per-thumb labels is invisible
 	// to screen readers. Surfaces the gap during development only.
@@ -88,10 +91,7 @@ function Slider({
 					aria-label={thumbLabels?.[i] ?? props["aria-label"]}
 					aria-valuetext={
 						getThumbAriaValueText
-							? getThumbAriaValueText(
-									((props.value ?? props.defaultValue ?? [0])[i] as number) ??
-										0,
-								)
+							? getThumbAriaValueText(thumbValues[i] ?? 0, i)
 							: undefined
 					}
 					className={cn(

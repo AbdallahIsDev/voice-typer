@@ -1,5 +1,6 @@
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,18 @@ interface SearchFieldProps {
 	value: string;
 	onChange: (value: string) => void;
 	placeholder?: string;
+	/**
+	 * Delay in milliseconds before the debounced ``onChange``
+	 * notification fires. Undefined (the default) keeps the historical
+	 * immediate behavior — every keystroke notifies synchronously. When
+	 * set, typing notifications are batched on the trailing edge while
+	 * the input itself stays fully controlled: an internal draft (kept
+	 * in sync with the ``value`` prop) renders instantly, so typing
+	 * never lags. A pending timer is cancelled on unmount and whenever
+	 * the external ``value`` changes to a value other than the pending
+	 * draft (an external reset must not deliver a stale notification).
+	 */
+	debounceMs?: number;
 	/**
 	 * Accessible label for the search input. Falls back to
 	 * ``t("common.search")`` so the field is always announced as a
@@ -30,6 +43,7 @@ export function SearchField({
 	value,
 	onChange,
 	placeholder = t("common.search"),
+	debounceMs,
 	ariaLabel,
 	className,
 	inputRef,
@@ -41,10 +55,66 @@ export function SearchField({
 	// generic "edit field" — a WCAG 2.1 SC 1.3.1 / 4.1.2 requirement.
 	const resolvedAriaLabel = ariaLabel ?? t("common.search");
 
-	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-		onChange(e.target.value);
+	// Latest-callback ref so the timer bookkeeping never needs to
+	// re-bind on identity changes of ``onChange``.
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
 
-	const handleClear = () => onChange("");
+	// Internal draft: what the input renders. Synced from the ``value``
+	// prop whenever the prop changes to something other than the
+	// pending draft (parent echoed our edit, or reset the field).
+	const [draft, setDraft] = useState(value);
+	const draftRef = useRef(value);
+	const prevValueRef = useRef(value);
+	const timerRef = useRef<number | null>(null);
+
+	const cancelPending = useCallback(() => {
+		if (timerRef.current !== null) {
+			window.clearTimeout(timerRef.current);
+			timerRef.current = null;
+		}
+	}, []);
+
+	useEffect(
+		() => () => {
+			cancelPending();
+		},
+		[cancelPending],
+	);
+
+	useEffect(() => {
+		if (value === prevValueRef.current) return;
+		prevValueRef.current = value;
+		if (value !== draftRef.current) {
+			cancelPending();
+			draftRef.current = value;
+			setDraft(value);
+		}
+	}, [value, cancelPending]);
+
+	const notify = (next: string) => {
+		draftRef.current = next;
+		setDraft(next);
+		if (debounceMs === undefined) {
+			onChangeRef.current(next);
+			return;
+		}
+		cancelPending();
+		timerRef.current = window.setTimeout(() => {
+			timerRef.current = null;
+			onChangeRef.current(next);
+		}, debounceMs);
+	};
+
+	const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+		notify(e.target.value);
+
+	const handleClear = () => {
+		cancelPending();
+		draftRef.current = "";
+		setDraft("");
+		onChangeRef.current("");
+	};
 
 	return (
 		// Wrap the field in a `role="search"` landmark so SR users
@@ -68,7 +138,7 @@ export function SearchField({
 			    {...props} spread). Only presentation classes here. */}
 			<Input
 				ref={inputRef}
-				value={value}
+				value={draft}
 				onChange={handleChange}
 				placeholder={placeholder}
 				aria-label={resolvedAriaLabel}
@@ -80,7 +150,7 @@ export function SearchField({
 					className,
 				)}
 			/>
-			{value && (
+			{draft && (
 				<button
 					type="button"
 					onClick={handleClear}

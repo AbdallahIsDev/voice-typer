@@ -170,3 +170,153 @@ describe("Modal — BG-R11 (focus management + close contract)", () => {
 		expect(dialog).toBeInTheDocument();
 	});
 });
+
+describe("Modal — onCloseIntent veto gate", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("without onCloseIntent, Escape fires onClose immediately", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		render(
+			<Modal open={true} onClose={onClose} title="Confirm">
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("onCloseIntent returning true lets Escape close the dialog", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		const onCloseIntent = vi.fn(() => true);
+		render(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={onCloseIntent}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+		expect(onCloseIntent).toHaveBeenCalledTimes(1);
+	});
+
+	it("onCloseIntent returning false vetoes the close — dialog stays open, onClose never fires", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		render(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={() => false}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		expect(onClose).not.toHaveBeenCalled();
+		// The controlled `open` prop never flipped, so Radix keeps the
+		// dialog mounted.
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	});
+
+	it("async onCloseIntent resolving false vetoes; resolving true closes", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		let resolveGate: (allowed: boolean) => void = () => {};
+		const onCloseIntent = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveGate = resolve;
+				}),
+		);
+		const { rerender } = render(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={onCloseIntent}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		expect(onClose).not.toHaveBeenCalled();
+
+		// Veto first.
+		resolveGate(false);
+		await waitFor(() => expect(onCloseIntent).toHaveBeenCalledTimes(1));
+		expect(onClose).not.toHaveBeenCalled();
+
+		// Second attempt, allowed.
+		await user.keyboard("{Escape}");
+		await waitFor(() => expect(onCloseIntent).toHaveBeenCalledTimes(2));
+		resolveGate(true);
+		await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+		rerender(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={onCloseIntent}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+	});
+
+	it("a rejecting async gate vetoes the close (fail-safe)", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		const onCloseIntent = vi.fn(() => Promise.reject(new Error("gate bug")));
+		render(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={onCloseIntent}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		await waitFor(() => expect(onCloseIntent).toHaveBeenCalledTimes(1));
+		expect(onClose).not.toHaveBeenCalled();
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	});
+
+	it("double-Escape while the gate is pending does not bypass the confirm", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		const onCloseIntent = vi.fn(
+			() => new Promise<boolean>(() => {}), // never settles
+		);
+		render(
+			<Modal
+				open={true}
+				onClose={onClose}
+				onCloseIntent={onCloseIntent}
+				title="Confirm"
+			>
+				<p>Body</p>
+			</Modal>,
+		);
+		await screen.findByRole("dialog");
+		await user.keyboard("{Escape}");
+		await user.keyboard("{Escape}");
+		expect(onCloseIntent).toHaveBeenCalledTimes(1);
+		expect(onClose).not.toHaveBeenCalled();
+	});
+});

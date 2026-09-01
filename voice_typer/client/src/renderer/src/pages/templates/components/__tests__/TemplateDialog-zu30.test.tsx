@@ -69,6 +69,8 @@ vi.mock("@/components/common/Modal", () => ({
 	ModalFooter: ({ children }: { children: React.ReactNode }) => (
 		<div data-testid="modal-footer">{children}</div>
 	),
+	// The unsaved-edits confirm is not exercised by these tests.
+	ConfirmDiscardDialog: () => null,
 }));
 
 vi.mock("@/components/ui/button", () => ({

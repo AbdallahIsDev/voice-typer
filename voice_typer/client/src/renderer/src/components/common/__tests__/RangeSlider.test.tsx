@@ -216,13 +216,16 @@ describe("RangeSlider — BG-R11 (deferApply commit contract)", () => {
 			/>,
 		);
 		const slider = getSlider();
-		// LO-23: the root no longer carries aria-valuetext — it is generated
+		// The root no longer carries aria-valuetext — it is generated
 		// per-thumb via getThumbAriaValueText so SRs announce it at the
 		// focused thumb (the root-level attribute was dropped).
 		expect(slider).not.toHaveAttribute("aria-valuetext");
 		expect(typeof sliderProps?.getThumbAriaValueText).toBe("function");
-		const fn = sliderProps?.getThumbAriaValueText as (v: number) => string;
-		expect(fn(42)).toBe("42ms");
+		const fn = sliderProps?.getThumbAriaValueText as (
+			v: number,
+			i: number,
+		) => string;
+		expect(fn(42, 0)).toBe("42ms");
 	});
 
 	it("deferApply=true: passes the local display value (not the committed value) to the underlying Slider", () => {

@@ -22,8 +22,14 @@
 //   - 24px rhythm between field groups, 8px between label/helper/field.
 //   - The footer sits behind a subtle top divider.
 
+import { useState } from "react";
+
 import { KBD_CHIP_CLASSES } from "@/components/common/Kbd";
-import { Modal, ModalFooter } from "@/components/common/Modal";
+import {
+	ConfirmDiscardDialog,
+	Modal,
+	ModalFooter,
+} from "@/components/common/Modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -81,6 +87,26 @@ export function TemplateDialog({
 	// clicking an enabled button and getting a transient warning toast.
 	const canSave = trigger.trim() !== "" && expansion.trim() !== "";
 
+	// Unsaved-edits gate: when the user attempts to close via Escape,
+	// the overlay, or the corner close button while the form holds
+	// content that differs from the template being edited (or any
+	// content for a fresh add), confirm the discard first. Save/Cancel
+	// button flows are NOT gated — Cancel already routes through
+	// onClose and lands in the same gate.
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+	const hasEdits =
+		editingTemplate === null
+			? trigger.trim() !== "" || expansion.trim() !== ""
+			: trigger !== editingTemplate.trigger ||
+				expansion !== editingTemplate.expansion ||
+				matchMode !== (editingTemplate.match_mode ?? "exact");
+
+	const handleCloseIntent = (): boolean => {
+		if (!hasEdits) return true;
+		setConfirmingDiscard(true);
+		return false;
+	};
+
 	// Surface unknown template-variable tokens (e.g. {date}).
 	// The substitution layer (templates/lib/transform.ts) silently drops
 	// unknown tokens — this warning tells the user why {date} would be
@@ -96,6 +122,7 @@ export function TemplateDialog({
 		<Modal
 			open={open}
 			onClose={onClose}
+			onCloseIntent={handleCloseIntent}
 			title={
 				editingTemplate ? t("templates.editTitle") : t("templates.addTitle")
 			}
@@ -201,6 +228,14 @@ export function TemplateDialog({
 					{t("common.save")}
 				</Button>
 			</ModalFooter>
+			<ConfirmDiscardDialog
+				open={confirmingDiscard}
+				onDiscard={() => {
+					setConfirmingDiscard(false);
+					onClose();
+				}}
+				onStay={() => setConfirmingDiscard(false)}
+			/>
 		</Modal>
 	);
 }

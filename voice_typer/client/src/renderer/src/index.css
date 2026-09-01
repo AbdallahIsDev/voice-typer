@@ -172,7 +172,11 @@
 	   ``border-border/5``). This ensures consistent black-at-10% (light)
 	   / white-at-10% (dark) borders across every theme. */
 	--border: oklch(1 0 0);
-	--input: oklch(1 0 0 / 15%);
+	/* Opaque mid-grey (WCAG 1.4.11 ≥3:1 against the dark background) —
+	   the alpha-composited value (~1.5:1) fell below the minimum. Matches
+	   the opaque values the per-preset dark themes already use, so the
+	   base fallback == preset treatment. */
+	--input: oklch(0.52 0.004 286.32);
 	--ring: oklch(0.552 0.016 285.938);
 	--chart-1: oklch(0.809 0.105 251.813);
 	--chart-2: oklch(0.623 0.214 259.815);
@@ -185,7 +189,10 @@
 	--sidebar-primary-foreground: oklch(0.97 0.014 254.604);
 	--sidebar-accent: oklch(0.274 0.006 286.033);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
-	--sidebar-border: oklch(1 0 0 / 10%);
+	/* Opaque low-L grey divider (matches the per-preset dark themes'
+	 --sidebar-border treatment, L 0.18–0.22); the alpha-composited
+	 10% white was ~1.5:1 — below WCAG 1.4.11. */
+	--sidebar-border: oklch(0.2 0.004 286.32);
 	--sidebar-ring: oklch(0.552 0.016 285.938);
 }
 

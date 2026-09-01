@@ -30,10 +30,10 @@ interface RangeSliderProps {
 	 * `useEffect` cleanup also commits on unmount if the slider is
 	 * torn down mid-drag (e.g. parent navigates away).
 	 *
-	 * Task ID 5: added for the text-size slider (each `onChange` would
-	 * otherwise fire a separate `updateConfig({ text_size })` IPC call
-	 * for every pixel of drag, flooding the backend and re-rendering
-	 * the entire UI on every step).
+	 * Added for the text-size slider: each `onChange` would otherwise
+	 * fire a separate `updateConfig({ text_size })` IPC call for every
+	 * pixel of drag, flooding the backend and re-rendering the entire
+	 * UI on every step.
 	 */
 	deferApply?: boolean;
 }
@@ -125,13 +125,11 @@ export function RangeSlider({
 
 	return (
 		<div className={cn("flex items-center gap-2", className)}>
-			{/* LO-28: visible min endpoint label at the start of the track. */}
 			<span
 				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
 				aria-hidden="true"
 			>
 				{min}
-				{suffix}
 			</span>
 			<Slider
 				value={[renderedValue]}
@@ -142,23 +140,19 @@ export function RangeSlider({
 				max={max}
 				step={step}
 				aria-label={ariaLabel}
-				// explicit aria-valuenow / aria-valuemin /
-				// aria-valuemax so screen readers always announce the
-				// numeric range. Radix Slider usually derives these
-				// from its own props, but the shadcn wrapper doesn't
-				// forward them — pass them explicitly so the slider
-				// has a complete ARIA contract regardless of how the
-				// underlying primitive evolves.
+				// Explicit aria-valuenow / aria-valuemin / aria-valuemax so
+				// screen readers always announce the numeric range. Radix
+				// Slider usually derives these from its own props, but the
+				// shadcn wrapper doesn't forward them — pass them explicitly
+				// so the slider has a complete ARIA contract regardless of
+				// how the underlying primitive evolves.
 				aria-valuenow={renderedValue}
 				aria-valuemin={min}
 				aria-valuemax={max}
-				// LO-23: aria-valuetext is generated on the THUMB (via
-				// getThumbAriaValueText) so screen readers announce the
-				// "value + unit" readout at the focused thumb, not on the
-				// root. The root-level aria-valuetext was dropped — Radix
-				// announces the thumb's value, and a root valuetext was
-				// either ignored or double-announced.
-				getThumbAriaValueText={(value) => `${value}${suffix}`}
+				// Thumb-level valuetext ("value + unit") — the focused thumb
+				// is the ARIA surface screen readers read; a root-level
+				// aria-valuetext is ignored or double-announced by Radix.
+				getThumbAriaValueText={(thumbValue) => `${thumbValue}${suffix}`}
 				disabled={disabled}
 				className="w-24 py-3"
 				trackClassName="h-2"
@@ -168,13 +162,11 @@ export function RangeSlider({
 				{renderedValue}
 				{suffix}
 			</span>
-			{/* LO-28: visible max endpoint label at the end of the track. */}
 			<span
 				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
 				aria-hidden="true"
 			>
 				{max}
-				{suffix}
 			</span>
 		</div>
 	);
