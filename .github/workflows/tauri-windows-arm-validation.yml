@@ -289,18 +289,28 @@ jobs:
             # creation without it).
             Write-Host "::warning::Host exited within 25 s (exit code $($p.ExitCode)). Backend hard gate passed; capturing diagnostics."
             "HOST_EXIT_CODE=$($p.ExitCode)" | Out-File $evidence -Append -Encoding utf8
+            # Echo every diagnostic to the RUN LOG too — the evidence
+            # artifact upload runs in a later step and is skipped when
+            # this step fails, so the log is the only durable copy.
+            $errDump = Get-Content $errFile -ErrorAction SilentlyContinue | Select-Object -First 40
+            $outDump = Get-Content $outFile -ErrorAction SilentlyContinue | Select-Object -First 40
             "── host stderr ──" | Out-File $evidence -Append -Encoding utf8
-            Get-Content $errFile -ErrorAction SilentlyContinue | Select-Object -First 40 | Out-File $evidence -Append -Encoding utf8
+            $errDump | Out-File $evidence -Append -Encoding utf8
+            Write-Host "HOST STDERR:"; $errDump | ForEach-Object { Write-Host $_ }
             "── host stdout ──" | Out-File $evidence -Append -Encoding utf8
-            Get-Content $outFile -ErrorAction SilentlyContinue | Select-Object -First 40 | Out-File $evidence -Append -Encoding utf8
+            $outDump | Out-File $evidence -Append -Encoding utf8
+            Write-Host "HOST STDOUT:"; $outDump | ForEach-Object { Write-Host $_ }
             "── app log tail (~\.voice-typer\logs) ──" | Out-File $evidence -Append -Encoding utf8
-            Get-ChildItem "$env:USERPROFILE\.voice-typer\logs" -Filter *.log -ErrorAction SilentlyContinue |
+            $appLogDump = Get-ChildItem "$env:USERPROFILE\.voice-typer\logs" -Filter *.log -ErrorAction SilentlyContinue |
               ForEach-Object {
                 "== $($_.Name) =="
                 Get-Content $_.FullName -Tail 30 -ErrorAction SilentlyContinue
-              } | Out-File $evidence -Append -Encoding utf8
+              }
+            $appLogDump | Out-File $evidence -Append -Encoding utf8
+            Write-Host "APP LOGS:"; $appLogDump | ForEach-Object { Write-Host $_ }
             $wv2 = Get-ItemProperty "HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue
             "WEBVIEW2_PV=$($wv2.pv)" | Out-File $evidence -Append -Encoding utf8
+            Write-Host "WEBVIEW2_PV=$($wv2.pv)"
             Write-Error "Tauri host did not stay alive on the ARM64 runner (see evidence artifact for stderr + app logs + WebView2 state)."
             exit 1
           }
