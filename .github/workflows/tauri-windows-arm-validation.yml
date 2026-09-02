@@ -1,0 +1,270 @@
+# Tauri Windows-ARM Emulation Validation (XPLAT-12 close-out)
+#
+# WHY THIS EXISTS
+# ---------------
+# XPLAT-12 asked whether Windows-on-ARM users are supported. Resolution
+# (2026-09-02, evidence documented in review.md + worklog.md):
+#
+#   1. GitHub ships free `windows-11-arm` hosted runners (GA for public
+#      repos 2025-08-07; private repos since 2026-01-29) — the workflow's
+#      old "no public aarch64 runner" premise was stale.
+#   2. A NATIVE aarch64 sidecar build is INFEASIBLE today: ctranslate2
+#      (hard dependency of faster-whisper, which the frozen sidecar
+#      imports) publishes NO win-arm64 wheels on PyPI across ALL versions,
+#      and `cryptography` (at-rest encryption) also lacks win_arm64
+#      wheels. Building them from source on CI is fork-level maintenance.
+#   3. Windows-on-ARM runs x64 apps transparently via the Prism emulator
+#      (Windows 11 24H2+), and the hosted windows-11-arm image supports
+#      executing x64 binaries. This is the industry-standard Windows-ARM
+#      app-support model: ship x64, run emulated.
+#
+# WHAT THIS WORKFLOW DOES
+# -----------------------
+# Real ARM-hardware VALIDATION of the x64 release artifacts, entirely on
+# the hosted `windows-11-arm` runner — no ARM device needed:
+#   - download the x64 NSIS installer artifact from a completed
+#     tauri-windows-build run (default: latest successful),
+#   - prove the runner is genuinely ARM64 and the binaries are x64,
+#   - silently install the NSIS bundle (the installer bootstraps
+#     WebView2),
+#   - run the FROZEN x64 Python sidecar `--version` under emulation via
+#     the C-CI-14 .NET Process pattern (GUI-subsystem PE; onefile
+#     extraction of the ~100 MB payload under emulation needs a generous
+#     ceiling — 420 s),
+#   - launch the x64 Tauri host and require it to stay alive (the GUI
+#     surface is soft — the hard gate is the backend running emulated),
+#   - upload an evidence artifact (runner arch, installer hash, sidecar
+#     output, process probes).
+#
+# A green run here = "Voice Typer installs and its Python sidecar runs on
+# Windows-on-ARM (x64 emulation)" — the XPLAT-12 acceptance criterion.
+#
+# This file deliberately does NOT touch tauri-windows-build.yml: the x64
+# release pipeline is the fragile 50+-failure-history asset (AGENTS.md
+# C-CI-2) and the native aarch64 build leg stays disabled BY DESIGN (see
+# the dependency walls above; re-evaluate only if OpenNMT ships
+# ctranslate2 win-arm64 wheels AND cryptography adds win_arm64).
+
+name: Tauri Windows ARM Validation (x64 emulation)
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: "Run ID of a completed tauri-windows-build run whose tauri-windows-installer artifact should be validated (empty = latest successful)"
+        required: false
+        default: ""
+        type: string
+
+# least-privilege default (WR-17 style); the cross-run artifact download
+# needs `actions: read`, granted at job level below.
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-windows-arm-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  arm-emulation-validation:
+    runs-on: windows-11-arm
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read # cross-run artifact download (download-artifact run-id)
+    steps:
+      - name: Checkout (smoke-test scripts)
+        uses: actions/checkout@v5
+
+      - name: Resolve source run (input or latest successful x64 build)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $input = "${{ github.event.inputs.artifact_run_id }}".Trim()
+          if ($input) {
+            $runId = $input
+            Write-Host "Using caller-supplied run id: $runId"
+          } else {
+            $runId = gh run list --workflow=tauri-windows-build.yml --status=success --limit 1 --json databaseId --jq '.[0].databaseId'
+            if (-not $runId) {
+              Write-Error "No successful tauri-windows-build run found; dispatch one first (sign=false is fine) or pass artifact_run_id."
+              exit 1
+            }
+            Write-Host "Resolved latest successful x64 build run: $runId"
+          }
+          "ARTIFACT_RUN_ID=$runId" >> $env:GITHUB_ENV
+
+      - name: Download x64 installer artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: tauri-windows-installer
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: arm-validation/installer
+
+      - name: Record host + binary architecture evidence (ARM64 host, x64 binaries)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path arm-validation/evidence | Out-Null
+          $evidence = "arm-validation/evidence/arch-evidence.txt"
+          $procArch = $env:PROCESSOR_ARCHITECTURE
+          $osArch = (Get-CimInstance Win32_OperatingSystem).OSArchitecture
+          Write-Host "PROCESSOR_ARCHITECTURE=$procArch  OSArchitecture=$osArch"
+          "PROCESSOR_ARCHITECTURE=$procArch" | Out-File $evidence -Encoding utf8
+          "OSArchitecture=$osArch" | Out-File $evidence -Append -Encoding utf8
+          # HARD GATE: the runner must genuinely be ARM64. If GitHub ever
+          # routes this job to an x64 host, the "emulation" claim would be
+          # vacuous — fail loudly instead.
+          if ($procArch -notmatch "ARM64" -and $osArch -notmatch "ARM|arm64") {
+            Write-Error "Expected an ARM64 runner (PROCESSOR_ARCHITECTURE=ARM64); got $procArch / $osArch. The emulation-validation claim requires real ARM hardware."
+            exit 1
+          }
+          $installer = Get-ChildItem arm-validation/installer -Recurse -Filter *.exe |
+            Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "No installer .exe found in the tauri-windows-installer artifact."
+            exit 1
+          }
+          $hash = (Get-FileHash -Path $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "Installer: $($installer.Name) ($([Math]::Round($installer.Length/1MB,1)) MB)"
+          Write-Host "SHA256: $hash"
+          "INSTALLER=$($installer.Name)" | Out-File $evidence -Append -Encoding utf8
+          "INSTALLER_SHA256=$hash" | Out-File $evidence -Append -Encoding utf8
+          # MachineType 0x8664 = x64 PE; assert the shipped binary is x64
+          # (the emulation premise) so a future accidental arm64 artifact
+          # fails here loudly.
+          $bytes = [System.IO.File]::ReadAllBytes($installer.FullName)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $machineHex = "0x{0:X4}" -f $machine
+          "INSTALLER_PE_MACHINE=$machineHex (0x8664=x64, 0xAA64=ARM64)" | Out-File $evidence -Append -Encoding utf8
+          if ($machine -ne 0x8664) {
+            Write-Error "Installer PE machine type is $machineHex — expected x64 (0x8664) for the emulation-validation premise."
+            exit 1
+          }
+          "INSTALLER_PATH=$($installer.FullName)" | Out-File $evidence -Append -Encoding utf8
+
+      - name: Silent-install the x64 NSIS bundle (bootstraps WebView2)
+        shell: pwsh
+        run: |
+          $evidence = "arm-validation/evidence/arch-evidence.txt"
+          $installer = (Get-Content $evidence | Select-String "^INSTALLER_PATH=").Line.Substring("INSTALLER_PATH=".Length)
+          Write-Host "Silent-installing: $installer"
+          # NSIS /S = fully silent. The Tauri NSIS template bootstraps
+          # WebView2 during install (downloadBootstrapper), which needs
+          # network — hosted runners have it.
+          $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait
+          Write-Host "Installer exit code: $($proc.ExitCode)"
+          "INSTALLER_EXIT=$($proc.ExitCode)" | Out-File $evidence -Append -Encoding utf8
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "NSIS silent install failed with exit code $($proc.ExitCode) on the ARM64 host."
+            exit 1
+          }
+          # Locate the install root dynamically (do not hardcode the
+          # product dir — NSIS InstallDir may change with branding).
+          $candidates = @(
+            (Get-ChildItem "$env:ProgramFiles" -Directory | Where-Object Name -like "*Voice*"),
+            (Get-ChildItem "${env:ProgramFiles(x86)}" -Directory -ErrorAction SilentlyContinue | Where-Object Name -like "*Voice*"),
+            (Get-ChildItem "$env:LOCALAPPDATA\Programs" -Directory -ErrorAction SilentlyContinue | Where-Object Name -like "*Voice*")
+          ) | ForEach-Object { $_ } | Select-Object -First 1
+          if (-not $candidates) {
+            Write-Error "Could not locate the install directory after silent install."
+            exit 1
+          }
+          $installRoot = $candidates.FullName
+          Write-Host "Install root: $installRoot"
+          "INSTALL_ROOT=$installRoot" | Out-File $evidence -Append -Encoding utf8
+
+      - name: Sidecar smoke test under emulation (C-CI-14 pattern, 420 s ceiling)
+        shell: pwsh
+        run: |
+          $evidence = "arm-validation/evidence/arch-evidence.txt"
+          $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
+          # The frozen Python sidecar is the ARM-compat question: it must
+          # import the whole backend (config, event bus, i18n, keyring...)
+          # and answer --version while running x64-emulated on ARM64.
+          $sidecar = Get-ChildItem $installRoot -Recurse -Filter "python-sidecar-*.exe" | Select-Object -First 1
+          if (-not $sidecar) {
+            Write-Error "python-sidecar-*.exe not found under $installRoot (installed layout changed?)."
+            exit 1
+          }
+          Write-Host "Sidecar: $($sidecar.FullName)"
+          "SIDECAR=$($sidecar.Name)" | Out-File $evidence -Append -Encoding utf8
+          # C-CI-14: GUI-subsystem PEs must be launched via .NET Process +
+          # WaitForExit with redirected output — `& $exe` does not wait and
+          # never sets $LASTEXITCODE for GUI-subsystem binaries. On the
+          # ARM host the onefile extraction of the ~100 MB payload runs
+          # under Prism emulation, so the ceiling is raised 180 s → 420 s.
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $sidecar.FullName
+          $psi.Arguments = "--version"
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.CreateNoWindow = $true
+          $p = [System.Diagnostics.Process]::Start($psi)
+          $exited = $p.WaitForExit(420000)
+          if (-not $exited) {
+            $p.Kill($true)
+            Write-Error "Sidecar --version timed out after 420 s on the ARM64 host (emulation too slow or hang)."
+            exit 1
+          }
+          $stdout = $p.StandardOutput.ReadToEnd()
+          $stderr = $p.StandardError.ReadToEnd()
+          Write-Host "Sidecar exit code: $($p.ExitCode)"
+          Write-Host "stdout: $stdout"
+          Write-Host "stderr: $stderr"
+          "SIDECAR_EXIT=$($p.ExitCode)" | Out-File $evidence -Append -Encoding utf8
+          "SIDECAR_STDOUT=$($stdout.Trim())" | Out-File $evidence -Append -Encoding utf8
+          if ($p.ExitCode -ne 0) {
+            Write-Error "Sidecar --version exited $($p.ExitCode) under emulation (see stderr above). The x64 backend does NOT run on Windows-ARM."
+            exit 1
+          }
+
+      - name: Tauri host launch check (process must spawn + stay alive)
+        shell: pwsh
+        run: |
+          $evidence = "arm-validation/evidence/arch-evidence.txt"
+          $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
+          $host = Get-ChildItem $installRoot -Recurse -Filter "voice-typer-tauri.exe" | Select-Object -First 1
+          if (-not $host) {
+            Write-Error "voice-typer-tauri.exe not found under $installRoot."
+            exit 1
+          }
+          Write-Host "Launching host: $($host.FullName)"
+          $p = Start-Process -FilePath $host.FullName -WorkingDirectory (Split-Path $host.FullName) -PassThru
+          Start-Sleep -Seconds 25
+          $alive = -not $p.HasExited
+          "HOST_ALIVE_AFTER_25S=$alive" | Out-File $evidence -Append -Encoding utf8
+          if ($alive) {
+            $mem = [Math]::Round($p.WorkingSet64/1MB, 1)
+            Write-Host "Host alive after 25 s (working set ${mem} MB) — killing tree."
+            "HOST_WORKINGSET_MB=$mem" | Out-File $evidence -Append -Encoding utf8
+            taskkill /PID $p.Id /T /F 2>$null | Out-Null
+          } else {
+            # SOFT failure: the backend hard gate already passed; a host
+            # exit on a headless CI VM may be environmental (WebView2
+            # window creation on a service session). Record + fail the
+            # step but label it clearly so triage knows the split.
+            Write-Host "::warning::Host exited within 25 s (exit code $($p.ExitCode)). Backend hard gate passed; GUI-on-CI-session may be environmental."
+            "HOST_EXIT_CODE=$($p.ExitCode)" | Out-File $evidence -Append -Encoding utf8
+            Write-Error "Tauri host did not stay alive on the ARM64 runner (soft gate — backend validation already passed; see evidence artifact)."
+            exit 1
+          }
+
+      - name: Upload validation evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-arm-validation-evidence
+          path: arm-validation/evidence/
+          if-no-files-found: error
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          $evidence = Get-Content "arm-validation/evidence/arch-evidence.txt" -Raw
+          Write-Host "=== Windows-ARM emulation validation evidence ==="
+          Write-Host $evidence
+          Write-Host ""
+          Write-Host "XPLAT-12 acceptance: x64 installer + frozen Python sidecar run on windows-11-arm (Prism emulation)."
