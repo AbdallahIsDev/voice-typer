@@ -166,16 +166,30 @@ jobs:
           }
           # Locate the install root dynamically (do not hardcode the
           # product dir — NSIS InstallDir may change with branding).
-          $candidates = @(
-            (Get-ChildItem "$env:ProgramFiles" -Directory | Where-Object Name -like "*Voice*"),
-            (Get-ChildItem "${env:ProgramFiles(x86)}" -Directory -ErrorAction SilentlyContinue | Where-Object Name -like "*Voice*"),
-            (Get-ChildItem "$env:LOCALAPPDATA\Programs" -Directory -ErrorAction SilentlyContinue | Where-Object Name -like "*Voice*")
-          ) | ForEach-Object { $_ } | Select-Object -First 1
-          if (-not $candidates) {
-            Write-Error "Could not locate the install directory after silent install."
+          # Tauri v2 NSIS defaults to per-user installs →
+          # %LOCALAPPDATA%\<productName> (NOT the \Programs subfolder);
+          # per-machine builds land in %ProgramFiles%\<productName>.
+          $installRoot = $null
+          foreach ($root in @(
+              $env:LOCALAPPDATA,
+              "$env:LOCALAPPDATA\Programs",
+              $env:ProgramFiles,
+              "${env:ProgramFiles(x86)}"
+            )) {
+            if (-not $root) { continue }
+            $hit = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+              Where-Object Name -like "*Voice*" |
+              Where-Object { Test-Path (Join-Path $_.FullName "voice-typer-tauri.exe") } |
+              Select-Object -First 1
+            if ($hit) {
+              $installRoot = $hit.FullName
+              break
+            }
+          }
+          if (-not $installRoot) {
+            Write-Error "Could not locate the install directory (voice-typer-tauri.exe) after silent install. Searched LOCALAPPDATA, LOCALAPPDATA\Programs, ProgramFiles, ProgramFiles(x86)."
             exit 1
           }
-          $installRoot = $candidates.FullName
           Write-Host "Install root: $installRoot"
           "INSTALL_ROOT=$installRoot" | Out-File $evidence -Append -Encoding utf8
 
