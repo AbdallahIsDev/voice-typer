@@ -264,7 +264,15 @@ jobs:
             exit 1
           }
           Write-Host "Launching host: $($tauriHost.FullName)"
-          $p = Start-Process -FilePath $tauriHost.FullName -WorkingDirectory (Split-Path $tauriHost.FullName) -PassThru
+          # Redirect stdout/stderr so a startup crash leaves a trace, and
+          # give the app its own working dir (it writes logs under
+          # ~\.voice-typer\logs\).
+          $outFile = "arm-validation/evidence/host-stdout.txt"
+          $errFile = "arm-validation/evidence/host-stderr.txt"
+          $p = Start-Process -FilePath $tauriHost.FullName `
+            -WorkingDirectory (Split-Path $tauriHost.FullName) `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
+            -PassThru
           Start-Sleep -Seconds 25
           $alive = -not $p.HasExited
           "HOST_ALIVE_AFTER_25S=$alive" | Out-File $evidence -Append -Encoding utf8
@@ -274,13 +282,26 @@ jobs:
             "HOST_WORKINGSET_MB=$mem" | Out-File $evidence -Append -Encoding utf8
             taskkill /PID $p.Id /T /F 2>$null | Out-Null
           } else {
-            # SOFT failure: the backend hard gate already passed; a host
-            # exit on a headless CI VM may be environmental (WebView2
-            # window creation on a service session). Record + fail the
-            # step but label it clearly so triage knows the split.
-            Write-Host "::warning::Host exited within 25 s (exit code $($p.ExitCode)). Backend hard gate passed; GUI-on-CI-session may be environmental."
+            # SOFT diagnostics dump: the backend hard gate already passed;
+            # grab everything that explains why the GUI process exited —
+            # redirected stderr/stdout, the app's own log files, and the
+            # WebView2 runtime presence (Tauri wry fails at window
+            # creation without it).
+            Write-Host "::warning::Host exited within 25 s (exit code $($p.ExitCode)). Backend hard gate passed; capturing diagnostics."
             "HOST_EXIT_CODE=$($p.ExitCode)" | Out-File $evidence -Append -Encoding utf8
-            Write-Error "Tauri host did not stay alive on the ARM64 runner (soft gate — backend validation already passed; see evidence artifact)."
+            "── host stderr ──" | Out-File $evidence -Append -Encoding utf8
+            Get-Content $errFile -ErrorAction SilentlyContinue | Select-Object -First 40 | Out-File $evidence -Append -Encoding utf8
+            "── host stdout ──" | Out-File $evidence -Append -Encoding utf8
+            Get-Content $outFile -ErrorAction SilentlyContinue | Select-Object -First 40 | Out-File $evidence -Append -Encoding utf8
+            "── app log tail (~\.voice-typer\logs) ──" | Out-File $evidence -Append -Encoding utf8
+            Get-ChildItem "$env:USERPROFILE\.voice-typer\logs" -Filter *.log -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                "== $($_.Name) =="
+                Get-Content $_.FullName -Tail 30 -ErrorAction SilentlyContinue
+              } | Out-File $evidence -Append -Encoding utf8
+            $wv2 = Get-ItemProperty "HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue
+            "WEBVIEW2_PV=$($wv2.pv)" | Out-File $evidence -Append -Encoding utf8
+            Write-Error "Tauri host did not stay alive on the ARM64 runner (see evidence artifact for stderr + app logs + WebView2 state)."
             exit 1
           }
 
