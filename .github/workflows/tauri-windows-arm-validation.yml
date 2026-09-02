@@ -255,13 +255,16 @@ jobs:
         run: |
           $evidence = "arm-validation/evidence/arch-evidence.txt"
           $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
-          $host = Get-ChildItem $installRoot -Recurse -Filter "voice-typer-tauri.exe" | Select-Object -First 1
-          if (-not $host) {
+          # NOTE: do NOT name this variable `$host` — that is a reserved
+          # read-only automatic variable in PowerShell (Assigning fails
+          # with "Cannot overwrite variable Host").
+          $tauriHost = Get-ChildItem $installRoot -Recurse -Filter "voice-typer-tauri.exe" | Select-Object -First 1
+          if (-not $tauriHost) {
             Write-Error "voice-typer-tauri.exe not found under $installRoot."
             exit 1
           }
-          Write-Host "Launching host: $($host.FullName)"
-          $p = Start-Process -FilePath $host.FullName -WorkingDirectory (Split-Path $host.FullName) -PassThru
+          Write-Host "Launching host: $($tauriHost.FullName)"
+          $p = Start-Process -FilePath $tauriHost.FullName -WorkingDirectory (Split-Path $tauriHost.FullName) -PassThru
           Start-Sleep -Seconds 25
           $alive = -not $p.HasExited
           "HOST_ALIVE_AFTER_25S=$alive" | Out-File $evidence -Append -Encoding utf8
