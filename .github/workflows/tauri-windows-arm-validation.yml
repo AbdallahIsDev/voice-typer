@@ -131,16 +131,19 @@ jobs:
           Write-Host "SHA256: $hash"
           "INSTALLER=$($installer.Name)" | Out-File $evidence -Append -Encoding utf8
           "INSTALLER_SHA256=$hash" | Out-File $evidence -Append -Encoding utf8
-          # MachineType 0x8664 = x64 PE; assert the shipped binary is x64
-          # (the emulation premise) so a future accidental arm64 artifact
-          # fails here loudly.
+          # NSIS installers are 32-BIT STUBS (machine 0x014C) regardless of
+          # the payload architecture — that is the NSIS engine's format, not
+          # an arch claim. Assert the expected NSIS stub (0x014C) so a
+          # non-NSIS file fails loudly; the x64-ness of the shipped PAYLOAD
+          # is asserted on the frozen sidecar exe in the smoke-test step
+          # (which extracts the actual payload).
           $bytes = [System.IO.File]::ReadAllBytes($installer.FullName)
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           $machineHex = "0x{0:X4}" -f $machine
-          "INSTALLER_PE_MACHINE=$machineHex (0x8664=x64, 0xAA64=ARM64)" | Out-File $evidence -Append -Encoding utf8
-          if ($machine -ne 0x8664) {
-            Write-Error "Installer PE machine type is $machineHex — expected x64 (0x8664) for the emulation-validation premise."
+          "INSTALLER_PE_MACHINE=$machineHex (0x014C=NSIS x86 stub)" | Out-File $evidence -Append -Encoding utf8
+          if ($machine -ne 0x014C) {
+            Write-Error "Installer PE machine type is $machineHex — expected the NSIS x86 stub (0x014C). Is this actually the NSIS installer artifact?"
             exit 1
           }
           "INSTALLER_PATH=$($installer.FullName)" | Out-File $evidence -Append -Encoding utf8
@@ -191,6 +194,17 @@ jobs:
           }
           Write-Host "Sidecar: $($sidecar.FullName)"
           "SIDECAR=$($sidecar.Name)" | Out-File $evidence -Append -Encoding utf8
+          # Assert the payload really is x64 (the emulation model): the
+          # frozen sidecar must be a 0x8664 PE running on the ARM64 host.
+          $sidecarBytes = [System.IO.File]::ReadAllBytes($sidecar.FullName)
+          $sidecarPeOffset = [BitConverter]::ToInt32($sidecarBytes, 0x3C)
+          $sidecarMachine = [BitConverter]::ToUInt16($sidecarBytes, $sidecarPeOffset + 4)
+          $sidecarMachineHex = "0x{0:X4}" -f $sidecarMachine
+          "SIDECAR_PE_MACHINE=$sidecarMachineHex (0x8664=x64)" | Out-File $evidence -Append -Encoding utf8
+          if ($sidecarMachine -ne 0x8664) {
+            Write-Error "Sidecar PE machine type is $sidecarMachineHex — expected x64 (0x8664). The shipped payload architecture changed; re-derive the validation model."
+            exit 1
+          }
           # C-CI-14: GUI-subsystem PEs must be launched via .NET Process +
           # WaitForExit with redirected output — `& $exe` does not wait and
           # never sets $LASTEXITCODE for GUI-subsystem binaries. On the
