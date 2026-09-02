@@ -201,9 +201,9 @@ jobs:
           # The frozen Python sidecar is the ARM-compat question: it must
           # import the whole backend (config, event bus, i18n, keyring...)
           # and answer --version while running x64-emulated on ARM64.
-          $sidecar = Get-ChildItem $installRoot -Recurse -Filter "python-sidecar-*.exe" | Select-Object -First 1
+          $sidecar = Get-ChildItem $installRoot -Recurse -Filter "python-sidecar*.exe" | Select-Object -First 1
           if (-not $sidecar) {
-            Write-Error "python-sidecar-*.exe not found under $installRoot (installed layout changed?)."
+            Write-Error "python-sidecar*.exe not found under $installRoot (installed layout changed?)."
             exit 1
           }
           Write-Host "Sidecar: $($sidecar.FullName)"
