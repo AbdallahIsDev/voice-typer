@@ -25,6 +25,25 @@ import pytest
 from voice_typer.server.asr_setup import _verify_model_integrity
 from voice_typer.server.asr_utils import _MODEL_SIZE_MB
 
+
+@pytest.fixture(autouse=True)
+def _override_integrity_cache_path(tmp_path, monkeypatch):
+    """Pin the integrity cache inside tmp_path.
+
+    ``hash_file_cached`` (used by the failure-details path) persists
+    digests on every fresh compute — without this override those writes
+    would land in the real user config dir and leak fake-repo entries
+    across tests / CI runs. Mirrors the fixture in
+    tests/test_integrity_cache.py.
+    """
+    from voice_typer.server import security
+
+    cache_path = tmp_path / "cache" / "integrity_cache.json"
+    monkeypatch.setattr(security, "_integrity_cache_path_override", cache_path)
+    yield
+    monkeypatch.setattr(security, "_integrity_cache_path_override", None)
+
+
 # ---------------------------------------------------------------------------
 # AP-30: hash-loop failure must record failed_file (not silently skip)
 # ---------------------------------------------------------------------------

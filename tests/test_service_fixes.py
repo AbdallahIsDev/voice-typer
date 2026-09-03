@@ -173,6 +173,14 @@ class TestDownloadPollScopedToModelDir:
         monkeypatch.setattr("voice_typer.server.asr_setup.reset_download_pause_state", lambda: None)
         monkeypatch.setattr("voice_typer.server.asr_setup.wait_while_paused", lambda timeout_s=1.0: None)
 
+        # Stub segmented planning to "no big files": this test pins the
+        # classic poll loop's stat behavior — the segmented fast lane
+        # (which would call HfApi over the network) is out of scope here.
+        monkeypatch.setattr(
+            "voice_typer.server.segmented_download.plan_segmented_files",
+            lambda **kwargs: [],
+        )
+
         # Stub the tray-models cache invalidator (imported locally in
         # the success path).
         monkeypatch.setattr(

@@ -691,3 +691,64 @@ def test_save_integrity_cache_uses_secure_atomic_write(tmp_path, monkeypatch):
     assert path_arg == str(security._integrity_cache_path()), (
         f"FR-30: _save_integrity_cache must pass the integrity cache path. Got: {path_arg}"
     )
+
+
+# persist-on-fail ──────────────────────────────────────────────
+
+
+def test_failed_verify_persists_computed_hashes(tmp_path):
+    """A verify that FAILS must still persist the digests it computed.
+
+    Pre-fix, every ``return False`` skipped the end-of-function save,
+    so a tampered 3 GB download re-hashed from zero on every retry and
+    on the failure-details pass. Now the save is eager: the tampered
+    file'"'"'s fresh digest must be in the on-disk cache after a failed
+    verify.
+    """
+    from voice_typer.server import security
+
+    model_dir, repo_id, _, config_sha256 = _setup_repo(tmp_path)
+    tampered = b'{"model_type": "tampered"}'
+    (model_dir / "config.json").write_bytes(tampered)
+    with _patch_manifest(repo_id, config_sha256):
+        assert security.verify_model_integrity(str(model_dir), repo_id) is False
+
+    cache_path = tmp_path / "cache" / "integrity_cache.json"
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    entry = cache["repos"][repo_id]["config.json"]
+    assert entry["sha256"] == hashlib.sha256(tampered).hexdigest(), (
+        "failed verify must persist the computed digest for the next pass to hit instead of re-hashing."
+    )
+
+
+def test_asr_setup_failure_details_hit_cache_not_rehash(tmp_path):
+    """``asr_setup._verify_model_integrity``'"'"'s details loop must hit the
+    integrity cache populated by the failed verify — not pay a second
+    full hash pass.
+    """
+    from voice_typer.server import security
+    from voice_typer.server.asr_setup import _verify_model_integrity
+
+    model_dir, repo_id, _, config_sha256 = _setup_repo(tmp_path)
+    (model_dir / "config.json").write_bytes(b'{"model_type": "tampered"}')
+    with _patch_manifest(repo_id, config_sha256):
+        ok, details = _verify_model_integrity(repo_id, str(model_dir))
+        assert ok is False
+        assert details["failed_file"] == "config.json"
+
+        # Second details pass over the SAME bytes: zero compute calls —
+        # every digest served from the cache the first pass persisted.
+        calls: list = []
+        original_compute = security.compute_file_sha256
+
+        def _counting_compute(path: Path) -> str:
+            calls.append(path)
+            return original_compute(path)
+
+        with patch.object(security, "compute_file_sha256", side_effect=_counting_compute):
+            ok2, details2 = _verify_model_integrity(repo_id, str(model_dir))
+        assert ok2 is False
+        assert details2["failed_file"] == "config.json"
+        assert calls == [], (
+            f"failure-details path re-hashed {len(calls)} file(s) instead of hitting the integrity cache."
+        )

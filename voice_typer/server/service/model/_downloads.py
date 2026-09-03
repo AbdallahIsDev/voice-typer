@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 
+from voice_typer.server import segmented_download as segdl
 from voice_typer.server._secrets import redact_secret, redact_url
-from voice_typer.server.asr_setup import ModelDownloadAborted
+from voice_typer.server.asr_setup import ModelDownloadAborted, check_download_gate
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.service._download_helpers import DownloadOutcome
 
@@ -495,6 +496,19 @@ class DownloadsMixin:
                 # table.  Falls back to 500 MB if missing.
                 target_mb = model_meta.download_size_mb if model_meta.download_size_mb else 500
                 target_bytes = target_mb * 1024 * 1024
+                # Segmented fast lane: big, pinned files download as
+                # concurrent Range segments (see segmented_download);
+                # everything else stays on the classic snapshot path.
+                # Planning NEVER raises (None/[] = classic for all).
+                from voice_typer.server.security import MODEL_HASHES as _MH
+
+                seg_plan = segdl.plan_segmented_files(
+                    repo_id=repo_id,
+                    revision=_service_revision,
+                    allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                    file_hashes=(_MH.get(repo_id, {}) or {}).get("files", {}),
+                )
+                seg_names = [p.filename for p in seg_plan] if seg_plan else []
                 _push_progress(
                     event_bus,
                     model_name,
@@ -526,6 +540,10 @@ class DownloadsMixin:
                             repo_id=repo_id,
                             revision=_service_revision,
                             allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                            # Segmented fast lane owns the big files —
+                            # exclude them here so both paths never fetch
+                            # the same bytes (None == today's behavior).
+                            ignore_patterns=seg_names or None,
                             resume_download=True,
                             cache_dir=str(cache_dir),
                             # pause/abort gate: intercepts every ~10 MB
@@ -627,6 +645,146 @@ class DownloadsMixin:
                             "retry to resume.",
                         }
                     raise download_err[0] from None
+                # Phase B — segmented fast lane for the big files (runs on
+                # THIS thread now that the poll loop exited, so its direct
+                # progress pushes are the single source of truth — no bar
+                # jitter). Pause/cancel keep working through the shared
+                # gate (pause blocks inside the engine, cancel raises
+                # ModelDownloadAborted → mapped below).
+                if seg_plan:
+                    try:
+                        import time as _phase_time
+
+                        from voice_typer.server.service._download_helpers import (
+                            push_progress as _phase_push,
+                        )
+
+                        try:
+                            from huggingface_hub.utils import get_token as _get_token
+
+                            _token = _get_token()
+                        except Exception:
+                            _token = None
+                        _headers = {"Authorization": f"Bearer {_token}"} if _token else {}
+                        try:
+                            from voice_typer.server.service.offline_pack import (
+                                proxy_env as _proxy_env,
+                            )
+
+                            _proxies = _proxy_env()
+                        except Exception:
+                            _proxies = None
+
+                        _seg_last_push = [0.0]
+                        _seg_lock = threading.Lock()
+                        _big_total = sum(p.size for p in seg_plan)
+
+                        def _on_seg_progress(done: int, _total: int) -> None:
+                            # `done` is already cumulative across files
+                            # (the phase runner aggregates). Throttled to
+                            # ~4 Hz; same 10–95 scale the poll loop uses
+                            # so the bar reads continuously.
+                            now = _phase_time.monotonic()
+                            with _seg_lock:
+                                if now - _seg_last_push[0] < 0.25 and done < _big_total:
+                                    return
+                                _seg_last_push[0] = now
+                            _pct = min(95, int(10 + (done / max(1, _big_total)) * 85))
+                            _mb = done // (1024 * 1024)
+                            _phase_push(
+                                event_bus,
+                                model_name,
+                                _pct,
+                                f"Downloading {model_name}: {_mb} MB / ~{target_mb} MB",
+                                downloaded_bytes=done,
+                                total_bytes=target_bytes,
+                            )
+
+                        segdl.run_segmented_phase(
+                            model_name=model_name,
+                            repo_id=repo_id,
+                            commit=_service_revision,
+                            cache_dir=cache_dir,
+                            seg_plan=seg_plan,
+                            progress_cb=_on_seg_progress,
+                            gate_check=check_download_gate,
+                            headers=_headers,
+                            proxies=_proxies,
+                        )
+                    except ModelDownloadAborted:
+                        log.info(
+                            "[SERVICE] Download of '%s' aborted via transfer gate",
+                            model_name,
+                        )
+                        return {
+                            "success": False,
+                            "model": model_name,
+                            "cancelled": True,
+                            "message": f"Download of {model_name} cancelled. "
+                            "Partial files remain in cache; "
+                            "retry to resume.",
+                        }
+                    except segdl.SegmentedDownloadError as e:
+                        # Failover, not failure: anything the segmented
+                        # path cannot handle falls back to the classic
+                        # full-repo snapshot (today's behavior), which
+                        # refetches the big files single-stream.
+                        log.warning(
+                            "[SERVICE] Segmented fast lane failed for '%s' (%s) — falling back to classic download",
+                            model_name,
+                            e,
+                        )
+                        _push_progress(
+                            event_bus,
+                            model_name,
+                            10,
+                            f"Retrying {model_name} with standard download...",
+                            total_bytes=target_bytes,
+                        )
+                        from voice_typer.server.transcription import (
+                            _download_with_retry as _retry_classic,
+                        )
+
+                        _retry_classic(
+                            snapshot_download,
+                            repo_id=repo_id,
+                            revision=_service_revision,
+                            allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                            resume_download=True,
+                            cache_dir=str(cache_dir),
+                            tqdm_class=get_download_tqdm_class(),
+                        )
+                    # Self-verify the assembled snapshot by HF's own
+                    # definition (local-only probe): a layout the probe
+                    # rejects would confuse faster-whisper into a
+                    # re-download, so fail over to classic instead.
+                    try:
+                        snapshot_download(
+                            repo_id=repo_id,
+                            revision=_service_revision,
+                            allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                            local_files_only=True,
+                        )
+                    except Exception as e:
+                        log.warning(
+                            "[SERVICE] Post-segmented snapshot probe failed "
+                            "for '%s' (%s) — falling back to classic download",
+                            model_name,
+                            e,
+                        )
+                        from voice_typer.server.transcription import (
+                            _download_with_retry as _retry_verify,
+                        )
+
+                        _retry_verify(
+                            snapshot_download,
+                            repo_id=repo_id,
+                            revision=_service_revision,
+                            allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                            resume_download=True,
+                            cache_dir=str(cache_dir),
+                            tqdm_class=get_download_tqdm_class(),
+                        )
                 log.info(
                     "[SERVICE] Download of '%s' complete (%d MB)",
                     model_name,

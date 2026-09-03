@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,9 @@ class DownloadOutcome(TypedDict, total=False):
         * ``consent_required`` — present on the HuggingFace consent-gate
     path ().
     * ``reason`` — present on the parakeet failure path ().
+    * ``download_already_active`` — present on the single-flight guard
+      refusal (a second download while one is in flight, e.g. Retry
+      after the renderer's promise timed out during a long pause).
     """
 
     success: bool
@@ -72,6 +75,7 @@ class DownloadOutcome(TypedDict, total=False):
     cancelled: bool
     consent_required: bool
     reason: str
+    download_already_active: NotRequired[bool]
 
 
 def push_progress(

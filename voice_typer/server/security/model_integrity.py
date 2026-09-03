@@ -296,6 +296,64 @@ def compute_file_sha256(path: Path) -> str:
         return h.hexdigest()
 
 
+def _hash_one_file(cache: dict[str, Any], repo_id: str, file_path: Path, relpath: str) -> tuple[str, bool]:
+    """Hash one file with the integrity cache; return ``(digest, dirty)``.
+
+    ``dirty`` is True when a fresh digest was computed (the caller owns
+    persisting ``cache``). Cache resolution goes through
+    :func:`_security_pkg` at call time so tests patching
+    ``voice_typer.server.security.compute_file_sha256`` keep
+    intercepting — same contract as the former inline closure this was
+    extracted from (E7: one implementation, two callers).
+    """
+    try:
+        st = file_path.stat()
+        mtime_ns = st.st_mtime_ns
+        size = st.st_size
+    except OSError as exc:
+        log.debug(
+            "[SECURITY] stat failed for %s — computing uncached hash: %s",
+            file_path,
+            exc,
+        )
+        return _security_pkg().compute_file_sha256(file_path), False
+    repos = cache.setdefault("repos", {})
+    repo_entries = repos.setdefault(repo_id, {})
+    entry = repo_entries.get(relpath)
+    if (
+        isinstance(entry, dict)
+        and entry.get("mtime_ns") == mtime_ns
+        and entry.get("size") == size
+        and isinstance(entry.get("sha256"), str)
+    ):
+        return entry["sha256"], False
+    digest = _security_pkg().compute_file_sha256(file_path)
+    repo_entries[relpath] = {
+        "mtime_ns": mtime_ns,
+        "size": size,
+        "sha256": digest,
+    }
+    return digest, True
+
+
+def hash_file_cached(repo_id: str, file_path: Path, relpath: str) -> str:
+    """Hash one file, reusing + updating the on-disk integrity cache.
+
+    Same key format as :func:`verify_model_integrity`
+    (``(repo_id, relpath, mtime_ns, size)``), so a digest computed here
+    is a hit there and vice versa. Used by failure-detail paths (e.g.
+    ``asr_setup._verify_model_integrity``) that previously re-hashed
+    with raw ``compute_file_sha256``, paying a second full multi-GB
+    pass after every failed verification.
+    """
+    cache = _load_integrity_cache()
+    digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
+    if dirty:
+        with _integrity_cache_lock:
+            _save_integrity_cache(cache)
+    return digest
+
+
 def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     """SEC-audit-005: Verify downloaded model files against the manifest.
 
@@ -396,36 +454,20 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     cache_dirty = False
 
     def _hash_with_cache(file_path: Path, relpath: str) -> str:
-        """Return the SHA-256 of file_path, using the cache when possible."""
+        """Return the SHA-256 of file_path, using the cache when possible.
+
+        Persists eagerly on every newly computed digest (a KB-sized JSON
+        write next to a GB-sized hash is noise): every ``return False``
+        below then keeps the hashes computed so far instead of
+        discarding them, so a retry / the failure-details path never
+        re-hashes the same bytes.
+        """
         nonlocal cache_dirty
-        try:
-            st = file_path.stat()
-            mtime_ns = st.st_mtime_ns
-            size = st.st_size
-        except OSError as exc:
-            log.debug(
-                "[SECURITY] stat failed for %s — computing uncached hash: %s",
-                file_path,
-                exc,
-            )
-            return _security_pkg().compute_file_sha256(file_path)
-        repos = cache.setdefault("repos", {})
-        repo_entries = repos.setdefault(repo_id, {})
-        entry = repo_entries.get(relpath)
-        if (
-            isinstance(entry, dict)
-            and entry.get("mtime_ns") == mtime_ns
-            and entry.get("size") == size
-            and isinstance(entry.get("sha256"), str)
-        ):
-            return entry["sha256"]
-        digest = _security_pkg().compute_file_sha256(file_path)
-        repo_entries[relpath] = {
-            "mtime_ns": mtime_ns,
-            "size": size,
-            "sha256": digest,
-        }
-        cache_dirty = True
+        digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
+        if dirty:
+            cache_dirty = True
+            with _integrity_cache_lock:
+                _save_integrity_cache(cache)
         return digest
 
     # SEC-audit-005: Verify pinned file hashes if available.

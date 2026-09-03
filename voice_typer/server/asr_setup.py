@@ -224,6 +224,28 @@ class ModelDownloadAborted(BaseException):
     """
 
 
+def check_download_gate() -> None:
+    """Enforce pause/abort at a transfer chunk boundary. Shared by the
+    tqdm gate (classic snapshot path) and the segmented engine.
+
+    - Cancel → raises :class:`ModelDownloadAborted` immediately.
+    - Pause → BLOCKS until resumed (or aborted), so the transfer thread
+      parks and bytes genuinely stop flowing.
+    - Otherwise returns at once (healthy-download fast path: two flag
+      reads, no sleeping).
+
+    Safe to call from any transfer thread, at any frequency.
+    """
+    import time as _time
+
+    if _abort_requested():
+        raise ModelDownloadAborted("model download aborted (cancel)")
+    while is_download_paused():
+        if _abort_requested():
+            raise ModelDownloadAborted("model download aborted while paused")
+        _time.sleep(0.2)
+
+
 def get_download_tqdm_class() -> type:
     """Return the download progress-bar class that enforces pause/abort.
 
@@ -246,25 +268,20 @@ def get_download_tqdm_class() -> type:
     Subclasses ``huggingface_hub.utils.tqdm.tqdm`` (not vanilla tqdm) so
     the ``name=`` kwarg ``_create_progress_bar`` passes is accepted.
     The class is built lazily per call so importing ``asr_setup`` never
-    imports ``huggingface_hub``.
+    imports ``huggingface_hub``. Gate semantics live in
+    :func:`check_download_gate` (shared with the segmented engine).
     """
-    import time as _time
-
     from huggingface_hub.utils.tqdm import tqdm as _hf_tqdm
 
     class _DownloadGateTqdm(_hf_tqdm):
         def update(self, n: int | float | None = 1) -> None:
-            self._gate_check()
+            check_download_gate()
             super().update(n)
 
+        # Kept for back-compat with the gate unit tests (delegates to
+        # the shared implementation).
         def _gate_check(self) -> None:
-            """Raise on abort; block while paused. See class docstring."""
-            if _abort_requested():
-                raise ModelDownloadAborted("model download aborted (cancel)")
-            while is_download_paused():
-                if _abort_requested():
-                    raise ModelDownloadAborted("model download aborted while paused")
-                _time.sleep(0.2)
+            check_download_gate()
 
     return _DownloadGateTqdm
 
@@ -394,7 +411,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
     pinned_files: dict[str, str] = manifest.get("files", {}) or {}
 
     if pinned_files and model_path.exists():
-        from voice_typer.server.security import compute_file_sha256
+        from voice_typer.server.security.model_integrity import hash_file_cached
 
         for filename, expected_hash in pinned_files.items():
             file_path = model_path / filename
@@ -404,7 +421,11 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
                 details["actual_hash"] = None
                 break
             try:
-                actual_hash = compute_file_sha256(file_path)
+                # Cache-aware: a digest computed by the failed
+                # verify_model_integrity() pass above is a cache hit
+                # here — no second multi-GB hash. (Same key format,
+                # same manifest comparison, same first-failure break.)
+                actual_hash = hash_file_cached(repo_id, file_path, filename)
             except Exception as exc:
                 # Record the unhashable file as ``failed_file``
                 # (with ``actual_hash = None`` to distinguish "could not
@@ -466,6 +487,53 @@ def _cleanup_failed_cache(repo_id: str) -> None:
     from voice_typer.server._hf_cache_cleanup import cleanup_hf_cache_dir
 
     cleanup_hf_cache_dir(repo_id, log_prefix="[ASR_SETUP]")
+
+
+def _run_parakeet_segmented_phase(
+    *,
+    repo_id: str,
+    commit: str,
+    seg_plan: Any,
+    progress_callback: Callable[[str], None] | None,
+) -> None:
+    """Fetch the planned big Parakeet files via the segmented engine.
+
+    Thin wrapper over :func:`segmented_download.run_segmented_phase`
+    that maps per-file starts onto the message-only progress callback
+    this module's callers already speak (the Parakeet UI never had byte
+    granularity — it shows status text at a fixed 50%).
+
+    Raises :class:`segdl.SegmentedDownloadError` (caller falls back to
+    classic) or propagates the gate's ``ModelDownloadAborted`` (caller
+    maps to cancelled).
+    """
+    from voice_typer.server import segmented_download as segdl
+    from voice_typer.server.config import _config_dir
+
+    try:
+        from huggingface_hub.utils import get_token
+
+        token = get_token()
+    except Exception:
+        token = None
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    def on_file(filename: str, index: int, total: int) -> None:
+        if progress_callback:
+            progress_callback(f"Downloading {filename} (fast lane, file {index + 1}/{total})...")
+
+    segdl.run_segmented_phase(
+        model_name="parakeet",
+        repo_id=repo_id,
+        commit=commit,
+        cache_dir=_config_dir() / "huggingface" / "hub",
+        seg_plan=seg_plan,
+        progress_cb=None,
+        file_cb=on_file,
+        gate_check=check_download_gate,
+        headers=headers,
+        proxies=None,
+    )
 
 
 def download_parakeet_weights(
@@ -660,6 +728,22 @@ def download_parakeet_weights(
     if progress_callback:
         progress_callback(msg)
 
+    # Segmented fast lane for the big ONNX files (same design as the
+    # whisper branch): small files via classic snapshot (big ones
+    # ignored), big files via the segmented engine, probe-verify, classic
+    # fallback on any segmented failure. Planning NEVER raises (None =
+    # classic for everything, i.e. today's behavior).
+    from voice_typer.server import segmented_download as segdl
+    from voice_typer.server.security import MODEL_HASHES as _MH
+
+    seg_plan = segdl.plan_segmented_files(
+        repo_id=repo_id,
+        revision=parakeet_revision,
+        allow_patterns=_HF_ALLOW_PATTERNS_PARAKEET_ONNX,
+        file_hashes=(_MH.get(repo_id, {}) or {}).get("files", {}),
+    )
+    seg_names = [p.filename for p in seg_plan] if seg_plan else []
+
     # Force the gateable HTTP transfer path (see force_http_download_path):
     # the pause/abort gate lives in the HTTP chunk loop's progress-bar
     # updates; the xet path reports from native threads where a callback
@@ -681,10 +765,46 @@ def download_parakeet_weights(
             repo_id=repo_id,
             revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS_PARAKEET_ONNX,
+            # Segmented fast lane owns the big files — exclude them here.
+            ignore_patterns=seg_names or None,
             resume_download=True,
             # pause/abort gate — see get_download_tqdm_class.
             tqdm_class=get_download_tqdm_class(),
         )
+        if seg_plan:
+            _run_parakeet_segmented_phase(
+                repo_id=repo_id,
+                commit=parakeet_revision,
+                seg_plan=seg_plan,
+                progress_callback=progress_callback,
+            )
+            # Self-verify by HF's own definition before the integrity
+            # check below: fail over to classic rather than shipping a
+            # layout the loader would reject.
+            try:
+                snapshot_download(
+                    repo_id=repo_id,
+                    revision=parakeet_revision,
+                    allow_patterns=sorted(_HF_ALLOW_PATTERNS_PARAKEET_ONNX),
+                    local_files_only=True,
+                )
+            except Exception as e:
+                log.warning(
+                    "[ASR_SETUP] Post-segmented snapshot probe failed (%s) — falling back to classic download",
+                    e,
+                )
+                if progress_callback:
+                    progress_callback("Retrying with standard download...")
+                local_dir = _download_with_retry(
+                    snapshot_download,
+                    max_attempts=_MAX_DOWNLOAD_ATTEMPTS,
+                    delays=tuple(2**i for i in range(_MAX_DOWNLOAD_ATTEMPTS)),
+                    repo_id=repo_id,
+                    revision=parakeet_revision,
+                    allow_patterns=_HF_ALLOW_PATTERNS_PARAKEET_ONNX,
+                    resume_download=True,
+                    tqdm_class=get_download_tqdm_class(),
+                )
     except Exception as e:
         # Capture the full ``sys.exc_info()`` triple into the
         # return tuple so the IPC layer / diagnostic bundle consumer
