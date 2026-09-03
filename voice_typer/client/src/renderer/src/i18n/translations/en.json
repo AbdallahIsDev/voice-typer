@@ -852,6 +852,10 @@
 		"audioEnhancement": {
 			"title": "Audio Enhancement",
 			"description": "Volume ducking and noise filtering for cleaner dictation.",
+			"vadFilter": "Voice activity filtering",
+			"vadFilterInfo": "Remove leading and trailing silence before transcription. Turn off to send raw audio to the model for comparison testing.",
+			"vadFilterInfoSearch": "Voice activity silence filter raw audio model testing.",
+			"vadFilterAria": "Voice activity filtering",
 			"volumeBackend": "Volume Backend",
 			"volumeBackendInfo": "The active audio control backend. 'disabled' means ducking won't work on this platform — install the platform's optional dependency (pycaw on Windows, pyobjc on macOS).",
 			"volumeBackendInfoSearch": "The active audio control backend.",

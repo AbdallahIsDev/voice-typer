@@ -167,6 +167,7 @@ function makeConfig(
 		noise_filter_limiter_release_ms: 0,
 		noise_filter_notch: false,
 		noise_filter_notch_frequency_hz: 0,
+		vad_filter_enabled: true,
 		...overrides,
 	} as VoiceTyperConfig;
 }
@@ -279,5 +280,58 @@ describe("AudioSettingsSection — cross-link banner to Microphone page", () => 
 		// The banner must contain the cross-link text + the button.
 		expect(banner?.textContent).toMatch(/Microphone page/i);
 		expect(banner?.querySelector("button")).toBeTruthy();
+	});
+});
+
+describe("AudioSettingsSection — voice activity filtering toggle", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		vi.clearAllMocks();
+		cleanup();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	function renderSection(
+		configOverrides: Partial<VoiceTyperConfig> = {},
+		updateConfig = vi.fn(),
+	) {
+		render(
+			<AudioSettingsSection
+				config={makeConfig(configOverrides)}
+				updateConfig={updateConfig}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+			/>,
+		);
+		return updateConfig;
+	}
+
+	it("renders the toggle reflecting the persisted value", () => {
+		renderSection({ vad_filter_enabled: true });
+		const toggle = screen.getByTestId("vad-filter-switch");
+		expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+		cleanup();
+		renderSection({ vad_filter_enabled: false });
+		expect(
+			screen.getByTestId("vad-filter-switch").getAttribute("aria-checked"),
+		).toBe("false");
+	});
+
+	it("persists the flipped value through set_config on click", () => {
+		const updateConfig = renderSection({ vad_filter_enabled: true });
+		fireEvent.click(screen.getByTestId("vad-filter-switch"));
+		expect(updateConfig).toHaveBeenCalledWith({ vad_filter_enabled: false });
+	});
+
+	it("is searchable via the section search (label registered for filtering)", () => {
+		// The row registers its label/info in sectionItems so settings
+		// search can find it — assert the label renders (the row would
+		// be absent if it were dropped from the visible surface).
+		renderSection();
+		expect(screen.getByText("Voice activity filtering")).toBeTruthy();
 	});
 });

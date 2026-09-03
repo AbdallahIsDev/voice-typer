@@ -823,6 +823,10 @@
 		"audioEnhancement": {
 			"title": "音频增强",
 			"description": "音量降低和噪声过滤，用于更清晰的听写。",
+			"vadFilter": "语音活动过滤",
+			"vadFilterInfo": "在转录前去除开头和结尾的静音。关闭可将原始音频发送到模型以进行对比测试。",
+			"vadFilterInfoSearch": "语音活动 静音 过滤 原始音频 模型测试。",
+			"vadFilterAria": "语音活动过滤",
 			"volumeBackend": "音量后端",
 			"volumeBackendInfo": "活动的音频控制后端。「disabled」表示音量降低在此平台上不工作 — 请安装平台的可选依赖（Windows 上为 pycaw，macOS 上为 pyobjc）。",
 			"volumeBackendInfoSearch": "活动的音频控制后端。",

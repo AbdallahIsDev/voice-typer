@@ -110,6 +110,10 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	const volumeBackendInfoSearch = t(
 		"settings.audioEnhancement.volumeBackendInfoSearch",
 	);
+	const vadFilterLabel = t("settings.audioEnhancement.vadFilter");
+	const vadFilterInfoSearch = t(
+		"settings.audioEnhancement.vadFilterInfoSearch",
+	);
 	const autoDuckVolumeLabel = t("settings.audioEnhancement.autoDuckVolume");
 	const autoDuckVolumeInfoSearch = t(
 		"settings.audioEnhancement.autoDuckVolumeInfoSearch",
@@ -190,6 +194,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	//section-level visibility check for the Audio Enhancement section.
 	const audioSectionTitle = t("settings.audioEnhancement.title");
 	const sectionItems = [
+		{ label: vadFilterLabel, info: vadFilterInfoSearch },
 		{ label: volumeBackendLabel, info: volumeBackendInfoSearch },
 		{ label: autoDuckVolumeLabel, info: autoDuckVolumeInfoSearch },
 		{ label: duckLevelLabel, info: duckLevelInfoSearch },
@@ -220,6 +225,8 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	}
 
 	// ── Inline handler extraction ─────────────────────────────────
+	const handleVadFilterChange = (checked: boolean) =>
+		updateConfig({ vad_filter_enabled: checked });
 	const handleAutoDuckChange = (checked: boolean) =>
 		updateConfig({ volume_duck_enabled: checked });
 	const handleDuckLevelChange = (v: number) =>
@@ -266,6 +273,25 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                 section (including all rows) when ANY row matched,
                                 which defeated the purpose of in-section search. */}
 				<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
+					{/* ── Voice activity filtering ── */}
+					{isVisible(
+						vadFilterLabel,
+						vadFilterInfoSearch,
+						audioSectionTitle,
+					) && (
+						<SettingRow
+							label={vadFilterLabel}
+							info={t("settings.audioEnhancement.vadFilterInfo")}
+						>
+							<Switch
+								checked={config.vad_filter_enabled ?? true}
+								onCheckedChange={handleVadFilterChange}
+								aria-label={t("settings.audioEnhancement.vadFilterAria")}
+								data-testid="vad-filter-switch"
+							/>
+						</SettingRow>
+					)}
+
 					{/* ── Volume Backend status ── */}
 					{isVisible(
 						volumeBackendLabel,

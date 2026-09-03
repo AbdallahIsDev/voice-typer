@@ -214,6 +214,7 @@ const baseConfig: VoiceTyperConfig = {
 	beam_size: 5,
 	best_of: 1,
 	condition_on_previous_text: false,
+	vad_filter_enabled: true,
 	streaming_transcription: false,
 	streaming_chunk_seconds: 0,
 	streaming_step_seconds: 0,

@@ -829,6 +829,10 @@
 		"audioEnhancement": {
 			"title": "Audioverbesserung",
 			"description": "Lautstärke-Senken und Rauschfilter für saubereres Diktat.",
+			"vadFilter": "Sprachaktivitätsfilter",
+			"vadFilterInfo": "Entfernt führende und abschließende Stille vor der Transkription. Zum Vergleich deaktivieren, um Rohaudio an das Modell zu senden.",
+			"vadFilterInfoSearch": "Sprachaktivität Stille Filter Rohaudio Modelltest.",
+			"vadFilterAria": "Sprachaktivitätsfilter",
 			"volumeBackend": "Lautstärke-Backend",
 			"volumeBackendInfo": "Das aktive Audiosteuerungs-Backend. 'disabled' bedeutet, dass Senken auf dieser Plattform nicht funktioniert — installieren Sie die optionale Abhängigkeit der Plattform (pycaw unter Windows, pyobjc unter macOS).",
 			"volumeBackendInfoSearch": "Das aktive Audiosteuerungs-Backend.",

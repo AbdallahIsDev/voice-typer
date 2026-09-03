@@ -340,6 +340,10 @@
 		"audioEnhancement": {
 			"title": "Amélioration audio",
 			"description": "Atténuation du volume et filtrage du bruit pour une dictée plus claire.",
+			"vadFilter": "Filtrage d'activité vocale",
+			"vadFilterInfo": "Supprime les silences de début et de fin avant la transcription. Désactivez pour envoyer l'audio brut au modèle à des fins de comparaison.",
+			"vadFilterInfoSearch": "Activité vocale silence filtre audio brut test modèle.",
+			"vadFilterAria": "Filtrage d'activité vocale",
 			"volumeBackend": "Backend de volume",
 			"volumeBackendInfo": "Le backend de contrôle audio actif. 'disabled' signifie que l'atténuation ne fonctionnera pas sur cette plateforme — installez la dépendance optionnelle de la plateforme (pycaw sous Windows, pyobjc sous macOS).",
 			"volumeBackendInfoSearch": "Le backend de contrôle audio actif.",

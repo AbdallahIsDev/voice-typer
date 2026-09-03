@@ -284,6 +284,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 			beam_size: 5,
 			best_of: 1,
 			condition_on_previous_text: false,
+			vad_filter_enabled: true,
 			streaming_transcription: false,
 			streaming_chunk_seconds: 0,
 			streaming_step_seconds: 0,

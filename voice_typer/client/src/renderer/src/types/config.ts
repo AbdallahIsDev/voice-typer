@@ -77,6 +77,8 @@ export interface VoiceTyperConfig {
 	/** Whisper-specific beam width; 1 = automatic device/model-aware default. Optional for wire tolerance with older sidecars. */
 	whisper_beam_size?: number;
 	condition_on_previous_text: boolean;
+	/** Master switch for voice-activity (silence) filtering before transcription. */
+	vad_filter_enabled: boolean;
 
 	// Hidden streaming
 	streaming_transcription: boolean;
