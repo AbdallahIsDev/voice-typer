@@ -13,11 +13,11 @@
 //! The constants deliberately stay in THIS file rather than a
 //! `consts` submodule: the cross-language source-inspection tests in
 //! `tests/tauri/mig15|16|17` regex these exact `pub(crate) const`
-//! declarations against this file's raw source (and assert that
-//! removed constants — e.g. `SHUTDOWN_POLL_INTERVAL_MS` — never
-//! reappear here), so relocating them would regress the suite without
-//! a coordinated test update. `SUPERVISOR_MAX_RETRIES`'s doc comment
-//! below documents the same contract.
+//! declarations against this file's raw source (and assert that dead
+//! constants removed in past refactors never reappear here), so
+//! relocating them would regress the suite without a coordinated test
+//! update. `SUPERVISOR_MAX_RETRIES`'s doc comment below documents the
+//! same contract.
 
 pub(crate) mod atomic_fs;
 pub(crate) mod crypto;
@@ -116,6 +116,14 @@ pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// [`DISPATCH_SHORT_TIMEOUT_SECS`] (15s). See `dispatch_timeout_for` in
 /// `commands/sidecar_cmds.rs` for the per-command routing.
 pub(crate) const DISPATCH_TIMEOUT_SECS: u64 = 120;
+
+/// Download-scale dispatch timeout (1h). `download_model` / `import_model`
+/// stream multi-GB model files and legitimately run for many minutes on
+/// normal connections — the previous uniform 120s long-running cap
+/// aborted the host-side dispatch (and therefore the renderer's promise)
+/// while the Python sidecar kept downloading, producing a false-failure
+/// UI over a download that was still progressing.
+pub(crate) const DISPATCH_DOWNLOAD_TIMEOUT_SECS: u64 = 3600;
 
 //short per-dispatch response timeout (15s). Used for every
 /// command NOT in `_LONG_RUNNING_COMMANDS` (i.e. everything except

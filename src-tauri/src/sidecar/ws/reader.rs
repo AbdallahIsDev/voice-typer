@@ -208,34 +208,21 @@ pub(super) fn spawn_reader_task(
                             ) {
                                 last_bubble_level = Some(now);
                                 // ADR-0020 "Sidecar→UI Event Table" (channel 2):
-                                // emit BOTH the specific event (for direct
-                                // listeners like the bubble window) AND the
-                                // generic `python-event` (for the usePython
-                                // hook's onEvent catch-all, matching the
-                                // Electron path's ipcRenderer.on("python-event")).
-                                // The current frame's `payload` is emitted
-                                // directly — the prior `last_bubble_payload`
-                                // Option was redundant (always overwritten
-                                // before being read).
+                                // emit the typed event for direct
+                                // listeners like the bubble window.
                                 // Typed-only carve-out for `bubble_level`
                                 // (ADR-0020 §9 + "Sidecar→UI Event Table"):
                                 // this frame is emitted on the typed channel
                                 // ONLY — NO generic `python-event` duplicate.
-                                // Its sole consumer listens typed (bubble
-                                // window `onLevel` →
-                                // tauri.event.listen("bubble_level")) and ZERO
-                                // `usePythonEvent("bubble_level")` subscribers
-                                // exist (grep-verified across the renderer), so
-                                // skipping the per-frame `json!({...})` envelope
-                                // saves ~30 Map allocations/sec at the 30 Hz
-                                // coalesce ceiling. Every LOW-RATE server event
-                                // — including `mic_level`, whose meter consumer
-                                // rides the generic envelope — keeps BOTH
-                                // emissions; see the generic branch below.
-                                // The current frame's `payload` is emitted
-                                // directly — the prior `last_bubble_payload`
-                                // Option was redundant (always overwritten
-                                // before being read).
+                                // Its bubble-window consumer listens typed
+                                // (`onLevel` → tauri.event.listen("bubble_level"));
+                                // the MAIN renderer's live recording indicator
+                                // deliberately does NOT ride this 30 Hz channel —
+                                // it consumes the server's separate ≤8 Hz
+                                // `recording_level` event on the generic
+                                // envelope instead (see ALLOWED_EVENT_TYPES),
+                                // so this carve-out's PERF rationale holds
+                                // while both windows stay fed.
                                 let _ = app_for_reader.emit("bubble_level", payload.clone());
                             }
                             continue;

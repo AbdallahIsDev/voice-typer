@@ -10,7 +10,9 @@ use crate::state::SidecarState;
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
 // the lock) does not re-panic and permanently brick the dispatch path.
 use crate::state::lock as mutex_lock;
-use crate::util::{DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS};
+use crate::util::{
+    DISPATCH_DOWNLOAD_TIMEOUT_SECS, DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::borrow::Cow;
@@ -44,16 +46,27 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
     "resume_model_download",
 ];
 
+// Commands that stream a multi-GB model file and can legitimately run
+// for tens of minutes. They get the download-scale 1h cap instead of the
+// 120s long-running cap — the sidecar keeps the download running after
+// a host-side timeout, so a premature cap produced a false-failure UI
+// (Retry button) over an in-flight download.
+const _DOWNLOAD_COMMANDS: &[&str] = &["download_model", "import_model"];
+
 // returns the dispatch timeout (in seconds) for `cmd`.
 ///
-/// - 120s (`DISPATCH_TIMEOUT_SECS`) for the 6 model lifecycle commands
-///   listed in [`_LONG_RUNNING_COMMANDS`] — downloads / imports can
-///   legitimately take >15s.
+/// - 1h (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`) for the multi-GB transfer
+///   commands (`download_model` / `import_model`).
+/// - 120s (`DISPATCH_TIMEOUT_SECS`) for the remaining model lifecycle
+///   commands listed in [`_LONG_RUNNING_COMMANDS`] — delete / cancel /
+///   pause / resume complete in seconds but can stall on slow disk.
 /// - 15s (`DISPATCH_SHORT_TIMEOUT_SECS`) for everything else — the
 ///   sidecar's median response time is <50ms, so 15s is generous
 ///   while still bounding the worst-case UI freeze.
 fn dispatch_timeout_for(cmd: &str) -> u64 {
-    if _LONG_RUNNING_COMMANDS.contains(&cmd) {
+    if _DOWNLOAD_COMMANDS.contains(&cmd) {
+        DISPATCH_DOWNLOAD_TIMEOUT_SECS
+    } else if _LONG_RUNNING_COMMANDS.contains(&cmd) {
         DISPATCH_TIMEOUT_SECS
     } else {
         DISPATCH_SHORT_TIMEOUT_SECS

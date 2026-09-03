@@ -76,6 +76,11 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "bubble_hide",
     "bubble_config",
     "bubble_set_state",
+    // Main-window mirror of the recording level (≤8 Hz, generic
+    // envelope) — the typed `bubble_level` channel is consumed by the
+    // bubble window only, so the Home page's live recording indicator
+    // rides this low-rate event instead.
+    "recording_level",
     // Recording (server emits *_started/*_stopped; `recording_state` in
     // the spec list above is the umbrella name some future server may
     // adopt — keep both):

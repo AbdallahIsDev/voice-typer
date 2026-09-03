@@ -102,6 +102,10 @@ libc = "0.2"
 # Windows host will surface the resolution failure — bump the major.minor
 # to match Tauri's resolved version in that case.
 [target.'cfg(windows)'.dependencies]
+# AUMID registration for toasts (see src/notify_aumid.rs): without a
+# registered AppUserModelId, Windows attributes dev toasts to the host
+# process (PowerShell) and plays no sound.
+winreg = "0.55"
 windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",

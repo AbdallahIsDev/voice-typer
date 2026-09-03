@@ -35,6 +35,7 @@ mod commands;
 mod error;
 mod host_events;
 mod migrate;
+mod notify_aumid;
 mod platform;
 mod sidecar;
 mod state;
@@ -193,6 +194,11 @@ fn main() {
             set_host_locale,
         ])
         .setup(|app| {
+            // Register the toast AUMID so Windows notifications show the
+            // Voice Typer name/icon (not the launching terminal) and play
+            // the default notification sound. Idempotent per launch.
+            crate::notify_aumid::register(app.handle());
+
             // Custom-title-bar parity with Electron's main window (see
             // `main-window.ts` for the Electron side). The window is NOT
             // auto-created — `tauri.conf.json` declares it with
