@@ -173,6 +173,17 @@ class _ConfigSchema:
     beam_size: int = 1  # 1 = fastest greedy decoding; higher values trade speed for accuracy
     best_of: int = 1
     condition_on_previous_text: bool = False
+    # Voice-activity (silence) filtering before transcription. When True
+    # (default — identical to historical behavior), the engine trims
+    # leading/trailing silence itself (faster-whisper ``vad_filter``) or
+    # via the duration-aware pre-trim in ``vad_policy``. When False, audio
+    # reaches the model completely unfiltered — the model-testing mode:
+    # raw audio in, plain transcription out, no silence processing, so
+    # different models/backends can be compared fairly. Recording-side
+    # behavior (silence auto-stop, level meter) is unaffected — this gate
+    # covers only what is filtered out of the audio sent for decoding.
+    # In the SEC-002 IPC allowlist so the Settings UI toggle persists it.
+    vad_filter_enabled: bool = True
     # Whisper-specific beam size override. Defaults to 1 (matching the
     # legacy ``beam_size`` field above) for backwards compat — existing
     # config files without this key continue to behave identically.

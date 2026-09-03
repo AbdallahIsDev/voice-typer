@@ -49,6 +49,7 @@ from voice_typer.server.hallucination import (
     log_hallucination_rejection,
     should_reject_low_audio_hallucination,
 )
+from voice_typer.server.vad_policy import decide_vad_filter
 
 np = lazy_module("numpy")
 
@@ -134,6 +135,18 @@ def transcribe_unlocked(
         rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         peak = float(np.max(np.abs(audio)))
         silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
+    # Duration-aware VAD policy: trim once here when the recording is
+    # already known-clean so the engine-side Silero rescan can be
+    # skipped; short/long/uncertain audio keeps historical behavior
+    # (no trim, filter ON). ``duration`` is recomputed below so the log
+    # line and the hallucination gate describe the decoded audio.
+    audio, use_vad_filter, _trim_offset_s = decide_vad_filter(
+        audio,
+        _WHISPER_SAMPLE_RATE,
+        (rms, peak, silence_pct),
+        getattr(engine.config, "vad_filter_enabled", True),
+    )
+    duration = len(audio) / _WHISPER_SAMPLE_RATE
     log.info(
         "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
         len(audio),
@@ -153,7 +166,7 @@ def transcribe_unlocked(
         beam_size=engine.beam_size,
         best_of=engine.best_of,
         temperature=0.0,
-        vad_filter=True,
+        vad_filter=use_vad_filter,
         vad_parameters=dict(
             min_silence_duration_ms=500,
             speech_pad_ms=200,
@@ -346,12 +359,23 @@ def transcribe_words_unlocked(
 
     from voice_typer.server.streaming import WordTiming
 
+    # Same duration-aware VAD policy as the batch path (stats are
+    # computed inside the policy — streaming chunks carry none). The
+    # trim offset is added back below: word timings are relative to the
+    # passed audio, so a trimmed lead-in must not shift them.
+    audio, use_vad_filter, trim_offset_s = decide_vad_filter(
+        audio,
+        _WHISPER_SAMPLE_RATE,
+        None,
+        getattr(engine.config, "vad_filter_enabled", True),
+    )
+
     segments, _info = engine._model.transcribe(
         audio,
         beam_size=engine.beam_size,
         best_of=engine.best_of,
         temperature=0.0,
-        vad_filter=True,
+        vad_filter=use_vad_filter,
         vad_parameters=dict(
             min_silence_duration_ms=500,
             speech_pad_ms=200,
@@ -387,8 +411,8 @@ def transcribe_words_unlocked(
             text = (word.word or "").strip()
             if not text:
                 continue
-            start = (word.start or 0.0) + offset_seconds
-            end = (word.end or word.start or 0.0) + offset_seconds
+            start = (word.start or 0.0) + offset_seconds + trim_offset_s
+            end = (word.end or word.start or 0.0) + offset_seconds + trim_offset_s
             words.append(
                 WordTiming(
                     word=text,

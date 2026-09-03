@@ -200,6 +200,10 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # default resolved by the engine; values >1 pin the width explicitly.
     "whisper_beam_size": (int, _make_int_validator(lo=1, hi=10)),
     "condition_on_previous_text": (bool, _bool_validator),
+    # Master switch for voice-activity (silence) filtering before
+    # transcription (see ``vad_policy``). Surfaced in Settings → Audio
+    # so model comparisons can run on raw, unfiltered audio.
+    "vad_filter_enabled": (bool, _bool_validator),
     # ── Streaming (hidden) ────────────────────────────────────────────
     "streaming_transcription": (bool, _bool_validator),
     "streaming_chunk_seconds": (float, _make_float_validator(lo=0.1, hi=120.0)),
