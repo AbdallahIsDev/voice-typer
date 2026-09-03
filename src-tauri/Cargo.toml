@@ -57,7 +57,7 @@ tauri-plugin-dialog = "2"
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "process"] }
-tokio-tungstenite = { version = "0.27", features = ["connect"] }
+tokio-tungstenite = { version = "0.30", features = ["connect"] }
 futures-util = "0.3"
 
 # ADR-0020 §3: per-launch bearer token (32 random bytes hex-encoded).
@@ -66,7 +66,7 @@ futures-util = "0.3"
 # "HMAC" wording, the Rust host treats it as a bearer token (the
 # sidecar's `ipc_server.py` validates the literal string match). The
 # `hmac`+`sha2` crates are therefore NOT needed in the host.
-rand = "0.9"
+rand = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -105,8 +105,8 @@ libc = "0.2"
 # AUMID registration for toasts (see src/notify_aumid.rs): without a
 # registered AppUserModelId, Windows attributes dev toasts to the host
 # process (PowerShell) and plays no sound.
-winreg = "0.55"
-windows = { version = "0.61", features = [
+winreg = "0.56"
+windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Threading",
