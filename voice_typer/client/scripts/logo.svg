@@ -1,7 +1,9 @@
 <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
   <title>Voice Typer logo — audio waveform bars</title>
-  <rect x="15" y="48" width="14" height="32" rx="7" fill="currentColor"/>
-  <rect x="43" y="32" width="14" height="64" rx="7" fill="currentColor"/>
-  <rect x="71" y="16" width="14" height="96" rx="7" fill="currentColor"/>
-  <rect x="99" y="40" width="14" height="48" rx="7" fill="currentColor"/>
+  <!-- Solid white bars (user decision): the app icon is always the
+       white glyph on transparent. No outline, no contour. -->
+  <rect x="15" y="48" width="14" height="32" rx="7" fill="white"/>
+  <rect x="43" y="32" width="14" height="64" rx="7" fill="white"/>
+  <rect x="71" y="16" width="14" height="96" rx="7" fill="white"/>
+  <rect x="99" y="40" width="14" height="48" rx="7" fill="white"/>
 </svg>

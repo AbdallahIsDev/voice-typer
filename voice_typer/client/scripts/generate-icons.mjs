@@ -225,9 +225,12 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 
 async function main() {
 	const rawSvg = readFileSync(svgPath, "utf-8");
-	// The source SVG uses currentColor — replace with explicit colors for rendering
-	const lightSvg = rawSvg.replace(/currentColor/g, "black");
-	const darkSvg = rawSvg.replace(/currentColor/g, "white");
+	// The source SVG is the solid-white brand mark. Derive the black
+	// variant for light chrome by flipping the bar fills (the root
+	// `fill="none"` is untouched by this replace — only the four
+	// `fill="white"` bar rects match).
+	const lightSvg = rawSvg.replace(/fill="white"/g, 'fill="black"');
+	const darkSvg = rawSvg;
 
 	// Tauri host icons dir — computed once at the top so the --tray
 	// fast path can target it directly.
@@ -311,16 +314,17 @@ async function main() {
 	//   - 128x128@2x.png — Retina/HiDPI window icon (macOS + Linux Wayland)
 	//   - icon.png       — large 512x512 source icon (macOS .iconset)
 	//
-	// All four use the same black-on-transparent light SVG so the
-	// brand mark is consistent across the dock/taskbar/menubar.
+	// All four use the white brand mark (solid white bars on
+	// transparent — user decision, no outline). White carries on the
+	// dark taskbar / Alt-Tab chrome.
 	mkdirSync(tauriIconsDir, { recursive: true });
-	await sharp(Buffer.from(lightSvg)).resize(32, 32).png()
+	await sharp(Buffer.from(darkSvg)).resize(32, 32).png()
 		.toFile(resolve(tauriIconsDir, "32x32.png"));
-	await sharp(Buffer.from(lightSvg)).resize(128, 128).png()
+	await sharp(Buffer.from(darkSvg)).resize(128, 128).png()
 		.toFile(resolve(tauriIconsDir, "128x128.png"));
-	await sharp(Buffer.from(lightSvg)).resize(256, 256).png()
+	await sharp(Buffer.from(darkSvg)).resize(256, 256).png()
 		.toFile(resolve(tauriIconsDir, "128x128@2x.png"));
-	await sharp(Buffer.from(lightSvg)).resize(512, 512).png()
+	await sharp(Buffer.from(darkSvg)).resize(512, 512).png()
 		.toFile(resolve(tauriIconsDir, "icon.png"));
 	console.log("Created src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png");
 

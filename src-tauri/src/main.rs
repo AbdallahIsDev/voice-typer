@@ -39,6 +39,7 @@ mod notify_aumid;
 mod platform;
 mod sidecar;
 mod state;
+mod theme_icon;
 mod tray;
 mod util;
 
@@ -49,6 +50,11 @@ mod util;
 // `#[path]` attribute.
 #[cfg(test)]
 mod state_tests;
+
+// Sibling test home for the theme-reactive window icon (`theme_icon.rs`),
+// wired the same way as `state_tests` above.
+#[cfg(test)]
+mod theme_icon_tests;
 
 // Sibling test home for the unified command error enum (`error.rs`),
 // wired the same way as `state_tests` above (no `#[path]` attribute
@@ -227,6 +233,10 @@ fn main() {
             let main_window = main_window_builder
                 .build()
                 .expect("[SETUP] main window build failed");
+            // TR-4 dynamic: match the main-window icon to the current OS
+            // theme (white glyph on dark, black on light). Body lives in
+            // `theme_icon.rs` so this file stays wiring-only.
+            crate::theme_icon::apply_startup(&main_window);
             // Respect VT_START_HIDDEN=1 (set by autostart_launcher when
             // launched with --hidden). Electron honors it via START_HIDDEN
             // in the main process; Tauri previously ignored it, so a
@@ -362,6 +372,17 @@ fn main() {
             // `commands::sidecar_cmds::on_main_window_close`.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 on_main_window_close(window.app_handle(), window, api);
+            }
+            // TR-4 dynamic: OS theme flipped while running — swap the
+            // main-window icon so the taskbar button + Alt-Tab tile keep
+            // contrasting (white glyph on dark, black on light). The
+            // bubble window is excluded: it is skipTaskbar, so it never
+            // shows on the taskbar or in Alt-Tab. Body lives in
+            // `theme_icon.rs` so this file stays wiring-only.
+            if let WindowEvent::ThemeChanged(theme) = event {
+                if window.label() == crate::theme_icon::MAIN_WINDOW_LABEL {
+                    crate::theme_icon::apply_to_window(window, theme);
+                }
             }
             // Durable bubble drag-position persistence: observe USER drags
             // of the bubble window and write them back to the Python config
