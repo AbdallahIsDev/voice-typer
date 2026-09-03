@@ -4,15 +4,19 @@
  * Covers the History page's list behaviors (the Home page uses the same
  * component flat, without the new props, and must be unaffected):
  *
- *   1. ``groupByDate`` renders one section per local calendar day with a
- *      localized heading, and rows show only their TIME (no repeated
- *      full date).
+ *   1. ``groupByDate`` renders one SEPARATE CARD per local calendar day
+ *      (card surface + header inside, clear gap between cards), and rows
+ *      show only their TIME (no repeated full date).
  *   2. Rows carrying the 500-char preview (``text_truncated``) become
  *      click-to-expand: first expansion fetches the FULL text via
  *      ``onFetchFullText`` (the same row also copies the displayed
- *      text, so an expanded row copies the full transcript).
+ *      text, so an expanded row copies the full transcript). The reveal
+ *      affordance is INLINE — a masked "Show more" over the truncated
+ *      line end (no separate button row, no hover wash behind text);
+ *      expanded rows show an inline "Show less" at the end of the text.
  *   3. The text block is keyboard-operable (Enter / Space) and exposes
- *      the disclosure state via ``aria-expanded``.
+ *      the disclosure state via ``aria-expanded``; the inline controls
+ *      are real focusable <button>s with aria-labels.
  *   4. Short, non-truncated rows stay INERT — no button role, no hover
  *      affordance (hover states only where a genuine click action
  *      exists).
@@ -111,6 +115,42 @@ describe("ActivityList date grouping", () => {
 		}
 	});
 
+	it("renders one SEPARATE CARD per local day with a visible gap between cards", () => {
+		const items = [
+			rec(1, localIso(0, 12)),
+			rec(2, localIso(0, 5)),
+			rec(3, localIso(1, 8)),
+		];
+		const { container } = render(
+			<ActivityList items={items} lineClamp={3} groupByDate />,
+		);
+
+		// Two date sections, each its own card surface (background +
+		// border + rounded corners — the flat list's card token).
+		const sections = container.querySelectorAll("section");
+		expect(sections).toHaveLength(2);
+		for (const section of sections) {
+			expect(section.className).toContain("rounded-lg");
+			expect(section.className).toContain("border");
+			expect(section.className).toContain("bg-(--bg-subtle)");
+		}
+
+		// The cards are siblings under a gap parent ("new card = new
+		// day" readable without reading labels); no border-t separators
+		// between groups anymore.
+		expect(sections[0]?.parentElement).toBe(sections[1]?.parentElement);
+		expect(sections[0]?.parentElement?.className).toContain("gap-4");
+		expect(container.querySelector(".border-t")).toBeNull();
+
+		// Each date heading lives INSIDE its own card.
+		expect(screen.getByText("Today").closest("section")).toHaveTextContent(
+			"entry 1",
+		);
+		expect(screen.getByText("Yesterday").closest("section")).toHaveTextContent(
+			"entry 3",
+		);
+	});
+
 	it("flat mode (no groupByDate) keeps the legacy date+time line and no headers", () => {
 		render(<ActivityList items={[rec(1, localIso(0, 12))]} lineClamp={2} />);
 		expect(screen.queryByText("Today")).toBeNull();
@@ -124,6 +164,23 @@ describe("ActivityList date grouping", () => {
 	it("hideHeader suppresses the title row (History renders under its own page heading)", () => {
 		render(<ActivityList items={[rec(1, localIso(0, 12))]} hideHeader />);
 		expect(screen.queryByText(t("home.recentActivity"))).toBeNull();
+	});
+
+	it("list root carries NO margin utilities — vertical rhythm comes from the parent gap", () => {
+		// Regression guard for the doubled-spacing bug: the root used
+		// to carry mt-4, which stacked with the page container's gap
+		// and pushed the card far below its section label.
+		for (const props of [
+			{ items: [rec(1, localIso(0, 12))] },
+			{ items: [rec(1, localIso(0, 12))], groupByDate: true },
+			{ items: [] as HistoryRecord[] },
+		]) {
+			const { container, unmount } = render(<ActivityList {...props} />);
+			const root = container.firstElementChild;
+			expect(root).not.toBeNull();
+			expect(root?.className).not.toMatch(/(^|\s)(m[trblxy]|space-[xy])-/);
+			unmount();
+		}
 	});
 });
 
@@ -333,5 +390,163 @@ describe("ActivityList click-to-expand rows", () => {
 				.getByTestId("activity-row-text-toggle")
 				.getAttribute("aria-expanded"),
 		).toBe("false");
+	});
+
+	it("rows vertically CENTER the action column (items-center, not items-start)", () => {
+		// Multi-line rows used to pin the Copy/Favorite/Delete cluster
+		// to the top, leaving dead space underneath on 2–3 line rows.
+		// Centering distributes the cluster within the row's actual
+		// height, with no overlap of the text itself.
+		const { container } = render(
+			<ActivityList
+				items={[rec(1, localIso(0, 12), { text: "multi ".repeat(40).trim() })]}
+				onDelete={vi.fn()}
+				onToggleFavorite={vi.fn()}
+			/>,
+		);
+		const row = container.querySelector("p")?.closest("div.gap-3");
+		expect(row).not.toBeNull();
+		expect(row?.className).toContain("items-center");
+		expect(row?.className).not.toContain("items-start");
+	});
+});
+
+describe("ActivityList inline masked reveal", () => {
+	afterEach(() => {
+		cleanup();
+		resetStableMocks();
+	});
+
+	it("collapsed expandable row shows the masked inline Show more over the truncated line end", () => {
+		const { container } = render(
+			<ActivityList
+				items={[truncatedRec(11, localIso(0, 12))]}
+				onFetchFullText={vi.fn().mockResolvedValue("FULL")}
+			/>,
+		);
+		const moreBtn = screen.getByRole("button", {
+			name: t("home.showMore"),
+		});
+		// A real focusable button with an explicit accessible name —
+		// not a decorative span with a click handler.
+		expect(moreBtn.tagName).toBe("BUTTON");
+		expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
+		// Sits inside the fade overlay anchored to the truncated line
+		// end — not as a separate row below the text.
+		const overlay = moreBtn.parentElement;
+		expect(overlay?.className).toContain("absolute");
+		expect(overlay?.className).toContain("bg-gradient-to-r");
+		expect(overlay?.className).toContain("pointer-events-none");
+		expect(moreBtn.className).toContain("pointer-events-auto");
+		expect(container.querySelector("button.self-start")).toBeNull();
+		// No hover wash behind the text block itself.
+		const toggle = screen.getByTestId("activity-row-text-toggle");
+		expect(toggle.className).not.toContain("hover:");
+	});
+
+	it("clicking the inline Show more expands exactly once (no double-toggle)", async () => {
+		const fetchFullText = vi.fn().mockResolvedValue("FULL INLINE TEXT");
+		render(
+			<ActivityList
+				items={[truncatedRec(12, localIso(0, 12))]}
+				onFetchFullText={fetchFullText}
+			/>,
+		);
+		// The inner button stops propagation: the outer toggle block
+		// must not fire a second time for the same click.
+		fireEvent.click(screen.getByRole("button", { name: t("home.showMore") }));
+		await waitFor(() => {
+			expect(
+				screen
+					.getByTestId("activity-row-text-toggle")
+					.getAttribute("aria-expanded"),
+			).toBe("true");
+		});
+		expect(fetchFullText).toHaveBeenCalledTimes(1);
+		expect(screen.getByText("FULL INLINE TEXT")).toBeTruthy();
+	});
+
+	it("keyboard events on the inline button do not double-toggle via the outer block", async () => {
+		const fetchFullText = vi.fn().mockResolvedValue("FULL KB TEXT");
+		render(
+			<ActivityList
+				items={[truncatedRec(13, localIso(0, 12))]}
+				onFetchFullText={fetchFullText}
+			/>,
+		);
+		const moreBtn = screen.getByRole("button", { name: t("home.showMore") });
+		// keyDown alone must not toggle through the outer block's
+		// handler (the inner button stops propagation; real browsers
+		// synthesize the activation click natively on <button>).
+		fireEvent.keyDown(moreBtn, { key: "Enter" });
+		expect(fetchFullText).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByTestId("activity-row-text-toggle")
+				.getAttribute("aria-expanded"),
+		).toBe("false");
+		// The native-equivalent activation expands exactly once.
+		fireEvent.click(moreBtn);
+		await waitFor(() => {
+			expect(
+				screen
+					.getByTestId("activity-row-text-toggle")
+					.getAttribute("aria-expanded"),
+			).toBe("true");
+		});
+		expect(fetchFullText).toHaveBeenCalledTimes(1);
+	});
+
+	it("expanded row shows inline Show less at the end of the text and no overlay", async () => {
+		render(
+			<ActivityList
+				items={[truncatedRec(14, localIso(0, 12))]}
+				onFetchFullText={vi.fn().mockResolvedValue("FULL")}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("activity-row-text-toggle"));
+		await waitFor(() => {
+			expect(
+				screen
+					.getByTestId("activity-row-text-toggle")
+					.getAttribute("aria-expanded"),
+			).toBe("true");
+		});
+		const lessBtn = screen.getByRole("button", { name: t("home.showLess") });
+		// Inline at the end of the expanded paragraph — same muted to
+		// primary hover treatment, no separate row, overlay gone.
+		expect(lessBtn.parentElement?.tagName).toBe("P");
+		expect(lessBtn.className).toContain("hover:text-(--text-primary)");
+		expect(
+			screen.queryByRole("button", { name: t("home.showMore") }),
+		).toBeNull();
+		// Clicking it collapses back to the masked preview.
+		fireEvent.click(lessBtn);
+		await waitFor(() => {
+			expect(
+				screen
+					.getByTestId("activity-row-text-toggle")
+					.getAttribute("aria-expanded"),
+			).toBe("false");
+		});
+		expect(
+			screen.getByRole("button", { name: t("home.showMore") }),
+		).toBeTruthy();
+	});
+
+	it("inert rows render no overlay and no inline controls", () => {
+		const { container } = render(
+			<ActivityList
+				items={[rec(15, localIso(0, 12), { text: "hello world" })]}
+				onFetchFullText={vi.fn()}
+			/>,
+		);
+		expect(container.querySelector(".absolute")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: t("home.showMore") }),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: t("home.showLess") }),
+		).toBeNull();
 	});
 });

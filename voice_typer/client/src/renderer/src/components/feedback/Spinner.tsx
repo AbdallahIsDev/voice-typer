@@ -35,7 +35,7 @@
 // backend is starting) wrap the Spinner in their own
 // ``<output aria-live="polite">``. The ``decorative`` prop is
 // unchanged (still renders ``<div aria-hidden>`` for nested cases
-// like the refresh button in LastUpdatedIndicator).
+// where the parent element already supplies the accessible name).
 
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";

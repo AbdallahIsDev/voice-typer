@@ -14,7 +14,11 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LevelBar } from "@/components/feedback/LevelBar";
+import {
+	FILL_CLIPPING_LEVEL,
+	getFillColorTier,
+	LevelBar,
+} from "@/components/feedback/LevelBar";
 
 vi.mock("@/i18n/i18n", () => ({
 	t: (key: string) => key,
@@ -113,19 +117,34 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 		expect(getFill().className).toContain("origin-left");
 	});
 
-	it("transitions only transform + opacity (no transition-all)", () => {
+	it("transitions transform + opacity + background-color together (no transition-all)", () => {
 		render(<LevelBar level={0.3} playing={false} />);
 		const cls = getFill().className;
-		expect(cls).toContain("transition-[transform,opacity]");
+		expect(cls).toContain("transition-[transform,opacity,background-color]");
 		expect(cls).not.toContain("transition-all");
+		// Split durations map 1:1 onto the transition-property order:
+		// fast smoothing for the per-frame transform/opacity, snappy
+		// (but non-instant) crossfade for the rare tier colour flips.
+		expect(cls).toContain("duration-[75ms,75ms,120ms]");
+		expect(cls).not.toContain("duration-75");
 	});
 
-	it("fills solid primary regardless of level tier (no colour ladder)", () => {
-		for (const lvl of [0.1, 0.45, 0.85]) {
+	it("colours the fill primary below clipping, destructive red above 90%", () => {
+		// Below the clipping onset → primary (token, not hardcoded).
+		// Note 0.85 announces "loud" but still paints blue — paint
+		// bands intentionally differ from announcement bands.
+		for (const lvl of [0.2, 0.6, 0.85, 0.9]) {
 			render(<LevelBar level={lvl} playing={false} />);
-			expect(getFill().className).toContain("bg-primary");
+			const cls = getFill().className;
+			expect(cls).toContain("bg-primary");
+			expect(cls).not.toContain("bg-destructive");
 			cleanup();
 		}
+		// Above 90% → destructive token.
+		render(<LevelBar level={0.95} playing={false} />);
+		const cls = getFill().className;
+		expect(cls).toContain("bg-destructive");
+		expect(cls).not.toContain("bg-primary");
 	});
 
 	it("never sets an inline backgroundColor on the fill", () => {
@@ -133,17 +152,29 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 		expect(getFill().style.backgroundColor).toBe("");
 	});
 
-	it("counter-scales the cap radius so caps stay round at every level", () => {
+	it("counter-scales ONLY the leading-edge cap; anchored corners stay fixed 3px", () => {
 		// scaleX compresses painted geometry — a fixed border-radius would
-		// render squared caps at small levels. The fill divides the
-		// horizontal radius by the level (CSS var --level) so the
-		// POST-transform caps stay 3px semicircles; vertical stays 3px.
+		// render squared caps at small levels. Only the RIGHT
+		// (leading/moving) edge divides its horizontal radius by the
+		// level (CSS var --level) so the POST-transform cap stays a 3px
+		// semicircle; the LEFT edge is anchored (origin-left, never
+		// moves) so it takes a plain fixed 3px matching the track's own
+		// corners. Feeding the anchored corners the compensated formula
+		// left track background bleeding through them.
 		render(<LevelBar level={0.25} playing={false} />);
 		const fill = getFill();
 		expect(fill.style.getPropertyValue("--level")).toBe("0.25");
-		expect(fill.style.borderRadius).toBe(
-			"calc(3px / max(var(--level), 0.03)) / 3px",
+		expect(fill.style.borderTopRightRadius).toBe(
+			"calc(3px / max(var(--level), 0.03)) 3px",
 		);
+		expect(fill.style.borderBottomRightRadius).toBe(
+			"calc(3px / max(var(--level), 0.03)) 3px",
+		);
+		expect(fill.style.borderTopLeftRadius).toBe("3px");
+		expect(fill.style.borderBottomLeftRadius).toBe("3px");
+		// No uniform shorthand — a single borderRadius would reintroduce
+		// the compensated formula on the anchored corners.
+		expect(fill.style.borderRadius).toBe("");
 		// Full scale → plain 3px/3px (a perfect capsule end).
 		cleanup();
 		render(<LevelBar level={1} playing={false} />);
@@ -165,11 +196,37 @@ describe("LevelBar — neutral borderless track", () => {
 		expect(cls.split(/\s+/).some((c) => c.startsWith("border"))).toBe(false);
 	});
 
-	it("uses the neutral bg-border track when idle and the muted swap when frozen", () => {
+	it("uses the neutral bg-input/30 track when idle and the muted swap when frozen", () => {
 		render(<LevelBar level={0} playing={false} />);
-		expect(getProgressbar().className).toContain("bg-border");
+		expect(getProgressbar().className).toContain("bg-input/30");
 		cleanup();
 		render(<LevelBar level={0} playing={true} />);
 		expect(getProgressbar().className).toContain("bg-(--text-muted)/10");
+	});
+});
+
+describe("LevelBar — getFillColorTier thresholds", () => {
+	it("maps 0.9 and below to normal, above 0.9 to clipping", () => {
+		expect(getFillColorTier(0)).toBe("normal");
+		expect(getFillColorTier(0.6)).toBe("normal");
+		expect(getFillColorTier(0.85)).toBe("normal");
+		expect(getFillColorTier(FILL_CLIPPING_LEVEL)).toBe("normal");
+		expect(getFillColorTier(0.91)).toBe("clipping");
+		expect(getFillColorTier(1)).toBe("clipping");
+	});
+});
+
+describe("LevelBar — full-width meter, no clipping icon", () => {
+	it("renders the track as the component root with no reserved icon slot or glyph", () => {
+		const { container } = render(<LevelBar level={0.85} playing={false} />);
+		// Root IS the progressbar — no wrapper div, no sibling slot.
+		expect(container.firstElementChild?.getAttribute("role")).toBe(
+			"progressbar",
+		);
+		expect(
+			container.querySelector('[data-testid="levelbar-clipping-slot"]'),
+		).toBeNull();
+		// No icon glyph anywhere in the output.
+		expect(container.querySelector("svg")).toBeNull();
 	});
 });

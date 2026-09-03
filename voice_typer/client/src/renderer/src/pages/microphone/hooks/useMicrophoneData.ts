@@ -54,6 +54,40 @@ function deviceMatches(device: MicrophoneDevice, micId: string): boolean {
 	return (device.id ?? String(device.index)) === micId;
 }
 
+type MicReconcileDecision =
+	| { action: "rearm" }
+	| { action: "fallback"; micId: string }
+	| { action: "noop" };
+
+/**
+ * Pure active-mic reconciliation decision, shared by the full
+ * ``loadData`` path and the lightweight ``config_changed`` path (E7:
+ * one decision implementation, not two copies of the guard logic).
+ *
+ * Mirrors the historical inline rules exactly: nothing to do when no
+ * mic is selected, the list is empty, or the id is already guarded;
+ * re-arm the guard when the id resolves again; fall back only when a
+ * persisted id matches no enumerated device. Side effects (snack +
+ * select) stay with the callers.
+ */
+function decideMicReconcile(
+	cfg: VoiceTyperConfig | null,
+	mics: readonly MicrophoneDevice[],
+	lastMissingId: string | null,
+): MicReconcileDecision {
+	const activeMicId = cfg?.microphone ?? null;
+	if (activeMicId === null || mics.length === 0) {
+		return { action: "noop" };
+	}
+	if (lastMissingId === activeMicId) {
+		return { action: "noop" };
+	}
+	if (mics.some((m) => deviceMatches(m, activeMicId))) {
+		return { action: "rearm" };
+	}
+	return { action: "fallback", micId: activeMicId };
+}
+
 interface UseMicrophoneDataOptions {
 	/**
 	 * Ref-to-latest ``selectMicrophone`` closure owned by
@@ -174,24 +208,21 @@ export function useMicrophoneData({
 			 *     itself must not re-snack while the stale id is still persisted).
 			 */
 			function reconcileActiveMic(cfg: VoiceTyperConfig | null): void {
-				const activeMicId = cfg?.microphone ?? null;
-				if (
-					activeMicId === null ||
-					lastMissingMicIdRef.current === activeMicId ||
-					_cachedMicrophones.length === 0
-				) {
-					return;
-				}
-				const stillPresent = _cachedMicrophones.some((m) =>
-					deviceMatches(m, activeMicId),
+				const decision = decideMicReconcile(
+					cfg,
+					_cachedMicrophones,
+					lastMissingMicIdRef.current,
 				);
-				if (stillPresent) {
+				if (decision.action === "rearm") {
 					// Device is back (or selection is valid again) — re-arm the
 					// guard so a FUTURE disappearance of the same id falls back.
 					lastMissingMicIdRef.current = null;
 					return;
 				}
-				lastMissingMicIdRef.current = activeMicId;
+				if (decision.action === "noop") {
+					return;
+				}
+				lastMissingMicIdRef.current = decision.micId;
 				showSnackRef.current(t("microphone.activeMicUnavailable"), "warning");
 				// Auto-fallback to system default. selectMicrophone(null)
 				// already handles stopping any active test, clearing the
@@ -334,9 +365,62 @@ export function useMicrophoneData({
 	usePythonEvent(
 		"config_changed",
 		useCallback((): (() => void) | undefined => {
-			void loadData();
+			// Hot/cold split: a config echo (including the ones OUR OWN
+			// updateConfig writes trigger) only needs the fresh config —
+			// re-running the full loadData() here re-fired the native
+			// PortAudio enumeration on every preset/filter/mic click, so
+			// N rapid interactions queued N native enumerations. Fetch
+			// get_config only and reconcile the selection against the
+			// already-cached device list; real device deltas still arrive
+			// via microphones_changed (untouched above). Escalate to a
+			// full loadData() only when there is no device cache to
+			// reconcile against (first load raced / cache cleared).
+			void (async () => {
+				let cfg: VoiceTyperConfig;
+				try {
+					cfg = await callRef.current<VoiceTyperConfig>("get_config");
+				} catch (err) {
+					console.error(
+						"[renderer:useMicrophoneData] Failed to refresh config on config_changed:",
+						err,
+					);
+					return;
+				}
+				_cachedConfig = cfg;
+				setConfig(cfg);
+				if (_cachedMicrophones.length === 0) {
+					await loadData();
+					return;
+				}
+				const decision = decideMicReconcile(
+					cfg,
+					_cachedMicrophones,
+					lastMissingMicIdRef.current,
+				);
+				if (decision.action === "rearm") {
+					lastMissingMicIdRef.current = null;
+					return;
+				}
+				if (decision.action === "noop") {
+					return;
+				}
+				lastMissingMicIdRef.current = decision.micId;
+				showSnackRef.current(t("microphone.activeMicUnavailable"), "warning");
+				try {
+					await selectMicrophoneRef.current(null);
+				} catch (err) {
+					console.warn(
+						"[renderer:useMicrophoneData] auto-fallback to system default failed:",
+						err,
+					);
+				}
+			})();
 			return undefined;
-		}, [loadData]),
+			// selectMicrophoneRef (object, never `.current`): mirrors the
+			// microphones_changed handler — depending on the ref object is
+			// safe (stable identity); depending on `.current` would
+			// re-subscribe on every closure change (render-loop hazard).
+		}, [loadData, selectMicrophoneRef]),
 	);
 
 	return {

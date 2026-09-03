@@ -206,4 +206,36 @@ describe("History date-grouped list", () => {
 			expect(screen.getByText("THE EXPANDED FULL TEXT")).toBeTruthy();
 		});
 	});
+
+	it("Recent Activity label and Last-updated indicator share one space-between header row", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_history")
+				return Promise.resolve([rec(1, localIso(0, 12))]);
+			if (type === "get_today_stats") return Promise.resolve(zeroStats);
+			return Promise.resolve({});
+		});
+
+		const { default: HistoryPage } = await import("@/pages/History");
+		render(<HistoryPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("entry 1")).toBeTruthy();
+		});
+
+		// Label left, freshness right — one row, no orphaned
+		// full-width indicator row.
+		const label = screen.getByText(t("home.recentActivity"));
+		const indicator = screen.getByTestId("last-updated-indicator");
+		expect(label.parentElement).toBe(indicator.parentElement);
+		expect(label.parentElement?.className).toContain("justify-between");
+
+		// The label row is grouped WITH the list card in a tight-gap
+		// section wrapper — not a loose sibling under the page's
+		// wide gap-6 rhythm (that stacking doubled the space above
+		// the card).
+		const section = label.parentElement?.parentElement;
+		expect(section?.textContent).toContain("entry 1");
+		expect(section?.className).toContain("gap-2.5");
+		expect(section?.className).not.toContain("gap-6");
+	});
 });

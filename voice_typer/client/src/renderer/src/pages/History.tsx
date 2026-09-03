@@ -365,14 +365,76 @@ export default function HistoryPage() {
 					}
 				/>
 
-				{/* F4: "Last updated" indicator + manual refresh.
-                                    Uses `pb-2` to match the spacing on the sibling feature pages
-                                    (Microphone/Templates/Vocabulary) which all settled on `pb-2`
-                                    for their LastUpdatedIndicator wrapper — pre-fix this was
-                                    `pb-1`, producing a visible vertical alignment mismatch on
-                                    the page-header row across pages. */}
-				<div className="flex flex-col gap-3">
-					<div className="flex justify-end pb-2">
+				{/* Action buttons — shared filter/sort visual pattern with
+                                    Vocabulary/Templates (SortSelect + muted controls,
+                                    w-full flex-wrap so row wraps cleanly on narrow
+                                    viewports). */}
+				<div className="flex w-full flex-wrap items-center justify-between gap-2">
+					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={toggleFavorites}
+							aria-pressed={favoritesOnly}
+							aria-label={t("history.favorites")}
+							className={`gap-2 ${
+								favoritesOnly
+									? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
+									: "text-(--text-muted) hover:text-(--text-primary)"
+							}`}
+						>
+							<HugeiconsIcon
+								icon={StarIcon}
+								strokeWidth={2}
+								className={`h-4 w-4 ${favoritesOnly ? "text-warning" : ""}`}
+							/>
+							{t("history.favorites")}
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleClearAll}
+							aria-label={t("history.clearAllAria")}
+							className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
+						>
+							<HugeiconsIcon
+								icon={Delete01Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{t("history.clearAll")}
+						</Button>
+						<SortSelect
+							value={sortOrder}
+							onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
+						/>
+					</div>
+					<div>
+						<ExportFormatMenu
+							onExport={doExport}
+							disabled={records.length === 0}
+						/>
+					</div>
+				</div>
+
+				{/* The label row and the content below it form ONE section:
+				    the wrapper's tight gap (matching the list's own
+				    header rhythm on Home) keeps the "Recent Activity"
+				    header glued to its card instead of floating at the
+				    page container's wide gap-6 rhythm. */}
+				<div className="flex w-full flex-col gap-2.5">
+					{/* Section label + freshness share ONE row: "Recent Activity"
+					    on the left, "Last updated … ago" + refresh on the right
+					    (justify-between). The indicator previously lived in its
+					    own full-width right-aligned row, leaving a large empty
+					    gap on the left; anchoring it to the list header gives
+					    the refresh control a logical home next to the list it
+					    refreshes. Label styling matches the list header row on
+					    Home (`text-[12px] font-semibold`). */}
+					<div className="flex w-full items-center justify-between">
+						<span className="text-[12px] font-semibold text-(--text-primary)">
+							{t("home.recentActivity")}
+						</span>
 						<LastUpdatedIndicator
 							agoLabel={agoLabel}
 							onRefresh={handleManualRefresh}
@@ -380,125 +442,72 @@ export default function HistoryPage() {
 						/>
 					</div>
 
-					{/* Action buttons — shared filter/sort visual pattern with
-                                    Vocabulary/Templates (SortSelect + muted controls,
-                                    w-full flex-wrap so row wraps cleanly on narrow
-                                    viewports). */}
-					<div className="flex w-full flex-wrap items-center justify-between gap-2">
-						<div className="flex flex-wrap items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={toggleFavorites}
-								aria-pressed={favoritesOnly}
-								aria-label={t("history.favorites")}
-								className={`gap-2 ${
-									favoritesOnly
-										? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
-										: "text-(--text-muted) hover:text-(--text-primary)"
-								}`}
-							>
-								<HugeiconsIcon
-									icon={StarIcon}
-									strokeWidth={2}
-									className={`h-4 w-4 ${favoritesOnly ? "text-warning" : ""}`}
-								/>
-								{t("history.favorites")}
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleClearAll}
-								aria-label={t("history.clearAllAria")}
-								className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
-							>
-								<HugeiconsIcon
-									icon={Delete01Icon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								{t("history.clearAll")}
-							</Button>
-							<SortSelect
-								value={sortOrder}
-								onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
-							/>
-						</div>
-						<div>
-							<ExportFormatMenu
-								onExport={doExport}
-								disabled={records.length === 0}
-							/>
-						</div>
-					</div>
-				</div>
-
-				{loading && records.length === 0 ? (
-					<ListPageSkeleton />
-				) : loadError && records.length === 0 ? (
-					//distinguish "backend failed to load" from
-					// "history is genuinely empty".
-					// variant="error" so the destructive
-					// tint + Alert02Icon swap make the failure visually
-					// distinct from a genuine empty list (matches the
-					//Vocabulary/Templates load-failure pattern from ).
-					<EmptyState
-						variant="error"
-						icon={AlertCircleIcon}
-						title={t("history.loadFailedTitle")}
-						description={loadError}
-						actionLabel={t("history.retry")}
-						onAction={() => runLoad()}
-					/>
-				) : records.length === 0 ? (
-					<EmptyState
-						icon={HistoryIcon}
-						title={
-							searchQuery
-								? t("history.noResults")
-								: favoritesOnly
-									? t("history.noFavorites")
-									: t("history.noTranscriptions")
-						}
-						description={
-							searchQuery
-								? t("history.noResultsDescription")
-								: favoritesOnly
-									? t("history.noFavoritesDescription")
-									: t("history.noTranscriptionsDescription")
-						}
-						actionLabel={
-							!searchQuery && !favoritesOnly
-								? t("history.startDictation")
-								: undefined
-						}
-						actionIcon={Mic02Icon}
-						onAction={
-							!searchQuery && !favoritesOnly
-								? () => navigate("home")
-								: undefined
-						}
-					/>
-				) : (
-					<div className="flex flex-col gap-4">
-						<ActivityList
-							// Visible window: at most `visibleCount` rows of the
-							// loaded cache are mounted (starts at one page;
-							// "Load More" widens it). The hard cap below keeps
-							// the window from ever exceeding the display limit.
-							items={sortedRecords.slice(
-								0,
-								Math.min(visibleCount, HISTORY_DISPLAY_CAP),
-							)}
-							lineClamp={3}
-							onDelete={handleDelete}
-							onToggleFavorite={handleToggleFavorite}
-							groupByDate={groupByDate}
-							onFetchFullText={handleFetchFullText}
-							hideHeader
+					{loading && records.length === 0 ? (
+						<ListPageSkeleton />
+					) : loadError && records.length === 0 ? (
+						//distinguish "backend failed to load" from
+						// "history is genuinely empty".
+						// variant="error" so the destructive
+						// tint + Alert02Icon swap make the failure visually
+						// distinct from a genuine empty list (matches the
+						//Vocabulary/Templates load-failure pattern from ).
+						<EmptyState
+							variant="error"
+							icon={AlertCircleIcon}
+							title={t("history.loadFailedTitle")}
+							description={loadError}
+							actionLabel={t("history.retry")}
+							onAction={() => runLoad()}
 						/>
+					) : records.length === 0 ? (
+						<EmptyState
+							icon={HistoryIcon}
+							title={
+								searchQuery
+									? t("history.noResults")
+									: favoritesOnly
+										? t("history.noFavorites")
+										: t("history.noTranscriptions")
+							}
+							description={
+								searchQuery
+									? t("history.noResultsDescription")
+									: favoritesOnly
+										? t("history.noFavoritesDescription")
+										: t("history.noTranscriptionsDescription")
+							}
+							actionLabel={
+								!searchQuery && !favoritesOnly
+									? t("history.startDictation")
+									: undefined
+							}
+							actionIcon={Mic02Icon}
+							onAction={
+								!searchQuery && !favoritesOnly
+									? () => navigate("home")
+									: undefined
+							}
+						/>
+					) : (
+						<div className="flex flex-col gap-4">
+							<ActivityList
+								// Visible window: at most `visibleCount` rows of the
+								// loaded cache are mounted (starts at one page;
+								// "Load More" widens it). The hard cap below keeps
+								// the window from ever exceeding the display limit.
+								items={sortedRecords.slice(
+									0,
+									Math.min(visibleCount, HISTORY_DISPLAY_CAP),
+								)}
+								lineClamp={3}
+								onDelete={handleDelete}
+								onToggleFavorite={handleToggleFavorite}
+								groupByDate={groupByDate}
+								onFetchFullText={handleFetchFullText}
+								hideHeader
+							/>
 
-						{/*once the visible window reaches BOTH the end of the
+							{/*once the visible window reaches BOTH the end of the
                                                         loaded cache AND the 200-row display cap while the
                                                         backend still reports more available (`hasMore`),
                                                         further "Load More" clicks could not reveal anything —
@@ -510,42 +519,43 @@ export default function HistoryPage() {
                                                         each click fetches the next page AND widens the visible
                                                         window to include it.
                                                 */}
-						{records.length >= HISTORY_DISPLAY_CAP &&
-						visibleCount >= records.length &&
-						hasMore ? (
-							<p className="text-center text-xs text-(--text-muted)">
-								{t("history.showingCap", { shown: "200", total: "N+" })}
-							</p>
-						) : hasMore ? (
-							<Button
-								variant="outline"
-								size="default"
-								onClick={() => {
-									void loadMore();
-									setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
-								}}
-								disabled={loadingMore}
-								className="w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
-							>
-								{loadingMore ? (
-									<>
-										<Spinner className="border-current" />
-										{t("history.loading")}
-									</>
-								) : (
-									<>
-										<HugeiconsIcon
-											icon={ArrowDown01Icon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("history.loadMore")}
-									</>
-								)}
-							</Button>
-						) : null}
-					</div>
-				)}
+							{records.length >= HISTORY_DISPLAY_CAP &&
+							visibleCount >= records.length &&
+							hasMore ? (
+								<p className="text-center text-xs text-(--text-muted)">
+									{t("history.showingCap", { shown: "200", total: "N+" })}
+								</p>
+							) : hasMore ? (
+								<Button
+									variant="outline"
+									size="default"
+									onClick={() => {
+										void loadMore();
+										setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
+									}}
+									disabled={loadingMore}
+									className="w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
+								>
+									{loadingMore ? (
+										<>
+											<Spinner className="border-current" />
+											{t("history.loading")}
+										</>
+									) : (
+										<>
+											<HugeiconsIcon
+												icon={ArrowDown01Icon}
+												strokeWidth={2}
+												className="h-4 w-4"
+											/>
+											{t("history.loadMore")}
+										</>
+									)}
+								</Button>
+							) : null}
+						</div>
+					)}
+				</div>
 			</div>
 
 			{/* ConfirmDialog for Clear All. variant="destructive" is

@@ -12,7 +12,9 @@
  *     error message is captured into `loadError` so the render path can
  *     show a retry EmptyState instead of an ambiguous empty list
  *   - microphones_changed event: triggers a loadData refresh
- *   - config_changed event: triggers a loadData refresh
+ *   - config_changed event: get_config-only refresh against the cached
+ *     device list (NO native re-enumeration); escalates to a full
+ *     loadData refresh only when the device cache is empty
  *   - hot-swap fallback: when the active mic is no longer present, the
  *     hook shows a warning snack + invokes selectMicrophoneRef(null)
  *   - startup fallback: a persisted id absent from the freshly enumerated
@@ -317,6 +319,120 @@ describe("useMicrophoneData — microphones_changed + config_changed event subsc
 			(c) => c[0] === "get_config",
 		);
 		expect(getConfigCalls.length).toBeGreaterThan(1);
+	});
+});
+
+describe("useMicrophoneData — config_changed hot/cold split", () => {
+	it("does NOT re-enumerate devices when the cache is populated", async () => {
+		const mics = [makeMic("mic-1", "USB Mic"), makeMic("mic-2", "Built-in")];
+		let currentMic: string | null = "mic-1";
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones") return Promise.resolve(mics);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: currentMic }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.microphones.length).toBe(2);
+		});
+
+		// Simulate the user picking the other mic (backend echo arrives
+		// as config_changed with the new persisted id).
+		currentMic = "mic-2";
+		callMock.mockClear();
+
+		await act(async () => {
+			getEventHandler("config_changed")?.();
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		// Config refreshed WITHOUT the native enumeration…
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "get_microphones"),
+		).toHaveLength(0);
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "get_config").length,
+		).toBeGreaterThan(0);
+		// …and the UI reflects the new selection from the cache.
+		await waitFor(() => {
+			expect(result.current.config?.microphone).toBe("mic-2");
+		});
+		expect(result.current.microphones).toEqual(mics);
+	});
+
+	it("escalates to a full loadData when the device cache is empty", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones") return Promise.resolve([]);
+			if (cmd === "get_config") return Promise.resolve(makeConfig());
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		callMock.mockClear();
+
+		await act(async () => {
+			getEventHandler("config_changed")?.();
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		// No cached devices to reconcile against → full reload including
+		// the native enumeration.
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "get_microphones").length,
+		).toBeGreaterThan(0);
+	});
+
+	it("still falls back on a stale persisted id without re-enumerating", async () => {
+		const mics = [makeMic("mic-1", "USB Mic")];
+		let currentMic: string | null = "mic-1";
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones") return Promise.resolve(mics);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: currentMic }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		renderHook(() => useMicrophoneData({ selectMicrophoneRef }));
+
+		await waitFor(() => {
+			expect(callMock.mock.calls.some((c) => c[0] === "get_microphones")).toBe(
+				true,
+			);
+		});
+
+		// Backend echo carries an id that matches no cached device
+		// (hot-unplug raced the echo).
+		currentMic = "mic-gone";
+		callMock.mockClear();
+		showSnackMock.mockClear();
+
+		await act(async () => {
+			getEventHandler("config_changed")?.();
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "get_microphones"),
+		).toHaveLength(0);
+		expect(showSnackMock).toHaveBeenCalledWith(
+			"microphone.activeMicUnavailable",
+			"warning",
+		);
+		expect(selectMicrophoneRef.current).toHaveBeenCalledWith(null);
 	});
 });
 

@@ -56,10 +56,11 @@ interface ActivityListProps {
 	onDelete?: (id: number) => void;
 	onToggleFavorite?: (id: number) => void;
 	/**
-	 * Group the list under date section headers ("Today" / "Yesterday" /
-	 * long date). Rows then show only their TIME — the date lives in the
-	 * section header. Only meaningful for chronologically-sorted lists;
-	 * the History page disables grouping for alphabetical sorts.
+	 * Group the list into one separate card per date ("Today" /
+	 * Yesterday / long date as the card header). Rows then show only
+	 * their TIME — the date lives in the card header. Only meaningful
+	 * for chronologically-sorted lists; the History page disables
+	 * grouping for alphabetical sorts.
 	 */
 	groupByDate?: boolean;
 	/**
@@ -193,63 +194,113 @@ const ActivityListRow = memo(function ActivityListRow({
 	);
 
 	return (
-		<div className="flex items-start gap-3 px-4 py-2">
-			<div className="flex flex-col gap-1 flex-1 min-w-0">
-				{/* The text block doubles as the expand/collapse control when
-				    the row can reveal more: clicking anywhere on the text
-				    toggles, Enter/Space activate it from keyboard focus, and
-				    aria-expanded exposes the disclosure state. The hover wash +
-				    pointer cursor appear ONLY on expandable rows — inert rows
-				    get no click affordance. Action buttons are OUTSIDE this
-				    block, so their click targets never collide with it.
-				    Not a native <button>: transcript text must stay
-				    mouse-selectable, so the disclosure semantics are carried
-				    by role/tabIndex/aria-expanded with explicit keyboard
-				    activation instead. */}
-				{/* biome-ignore lint/a11y/noStaticElementInteractions: the block IS the disclosure control (see comment above) — text selection inside a native <button> is blocked by the UA stylesheet. */}
-				{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded is the disclosure state; the conditional undefined keeps it off inert rows. */}
-				<div
-					role={expandable ? "button" : undefined}
-					tabIndex={expandable ? 0 : undefined}
-					aria-expanded={expandable ? expanded : undefined}
-					data-testid={expandable ? "activity-row-text-toggle" : undefined}
-					onClick={expandable ? () => void toggleExpanded() : undefined}
-					onKeyDown={expandable ? handleTextKeyDown : undefined}
-					className={`rounded-md transition-colors ${
-						expandable
-							? "cursor-pointer hover:bg-foreground/5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden"
-							: ""
-					} ${loadingText ? "opacity-60" : ""}`}
-				>
-					<p
-						className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
-						style={
-							expanded
-								? undefined
-								: {
-										display: "-webkit-box",
-										WebkitLineClamp: lineClamp,
-										WebkitBoxOrient: "vertical",
-									}
-						}
+		// Row layout: the action cluster is vertically CENTERED against
+		// the full row height (items-center), not top-pinned. Entry text
+		// wraps to 1–3 lines, so top alignment leaves dead space under
+		// the icons on taller rows; centering distributes the cluster
+		// within whatever height the row ends up being, with no overlap
+		// of the text itself.
+		<div className="flex items-center gap-3 px-4 py-2">
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
+				{/* Positioning context for the collapsed fade overlay. */}
+				<div className="relative min-w-0">
+					{/* The text block doubles as the expand/collapse control
+					    when the row can reveal more: clicking anywhere on the
+					    text toggles, Enter/Space activate it from keyboard
+					    focus, and aria-expanded exposes the disclosure state.
+					    There is deliberately NO hover wash behind the text —
+					    the truncated line already carries the inline fade +
+					    "Show more" affordance below, so a background box
+					    would just add noise. Action buttons are OUTSIDE this
+					    block, so their click targets never collide with it.
+					    Not a native <button>: transcript text must stay
+					    mouse-selectable, so the disclosure semantics are
+					    carried by role/tabIndex/aria-expanded with explicit
+					    keyboard activation instead. */}
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: the block IS the disclosure control (see comment above) — text selection inside a native <button> is blocked by the UA stylesheet. */}
+					{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded is the disclosure state; the conditional undefined keeps it off inert rows. */}
+					<div
+						role={expandable ? "button" : undefined}
+						tabIndex={expandable ? 0 : undefined}
+						aria-expanded={expandable ? expanded : undefined}
+						data-testid={expandable ? "activity-row-text-toggle" : undefined}
+						onClick={expandable ? () => void toggleExpanded() : undefined}
+						onKeyDown={expandable ? handleTextKeyDown : undefined}
+						className={`rounded-md transition-colors ${
+							expandable
+								? "cursor-pointer focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden"
+								: ""
+						} ${loadingText ? "opacity-60" : ""}`}
 					>
-						{displayedText}
-					</p>
+						<p
+							className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
+							style={
+								expanded
+									? undefined
+									: {
+											display: "-webkit-box",
+											WebkitLineClamp: lineClamp,
+											WebkitBoxOrient: "vertical",
+										}
+							}
+						>
+							{displayedText}
+							{/* Inline collapse affordance at the end of the
+							    expanded text — same treatment as the "Show
+							    more" reveal (muted inline text, no separate
+							    row, no extra vertical space). Nested inside
+							    the toggle block, so it stops propagation to
+							    avoid double-toggling. */}
+							{expandable && expanded && (
+								<>
+									{" "}
+									<button
+										type="button"
+										aria-expanded={expanded}
+										aria-label={t("home.showLess")}
+										onClick={(e) => {
+											e.stopPropagation();
+											void toggleExpanded();
+										}}
+										onKeyDown={(e) => e.stopPropagation()}
+										className="cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+									>
+										{t("home.showLess")}
+									</button>
+								</>
+							)}
+						</p>
+					</div>
+					{/* Inline masked reveal over the truncated end of the
+					    last visible line (collapsed expandable rows only).
+					    A small right-anchored overlay fades the clipped
+					    text out (transparent → card background) with the
+					    "Show more" control sitting on the solid end of the
+					    fade, inline with the text line — no separate button
+					    row, no extra vertical space, no horizontal padding
+					    stolen from the text. The wrapper is
+					    pointer-events-none so text selection and clicks
+					    pass through everywhere except the real <button>
+					    itself (which stops propagation: it lives inside the
+					    toggle block and must not double-toggle). */}
+					{expandable && !expanded && (
+						<div className="pointer-events-none absolute end-0 bottom-0 flex items-center bg-gradient-to-r from-transparent to-(--bg-subtle) ps-10 rtl:bg-gradient-to-l">
+							<button
+								type="button"
+								aria-expanded={expanded}
+								aria-label={t("home.showMore")}
+								onClick={(e) => {
+									e.stopPropagation();
+									void toggleExpanded();
+								}}
+								onKeyDown={(e) => e.stopPropagation()}
+								className="pointer-events-auto cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+							>
+								{loadingText ? t("history.loading") : t("home.showMore")}
+							</button>
+						</div>
+					)}
 				</div>
-				{expandable && (
-					<button
-						type="button"
-						aria-expanded={expanded}
-						onClick={() => void toggleExpanded()}
-						className="self-start cursor-pointer text-xs text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden rounded-md"
-					>
-						{loadingText
-							? t("history.loading")
-							: expanded
-								? t("home.showLess")
-								: t("home.showMore")}
-					</button>
-				)}
 				<span className="text-xs text-(--text-muted) block">
 					{grouped
 						? formatRecordTime(item.timestamp)
@@ -388,7 +439,10 @@ function ActivityListInner({
 	// populated list so the visual rhythm is preserved.
 	if (items.length === 0) {
 		return (
-			<div className="mt-4 flex w-full flex-col gap-2.5">
+			// No top margin here (or below): vertical rhythm comes from
+			// the PARENT's gap — a margin on this root would stack with
+			// it and double the space above the card.
+			<div className="flex w-full flex-col gap-2.5">
 				{!hideHeader && (
 					<div className="flex items-center justify-between w-full">
 						<span className="text-[12px] font-semibold text-(--text-primary)">
@@ -420,7 +474,7 @@ function ActivityListInner({
 	const groups = groupByDate ? groupRecordsByDate(items) : null;
 
 	return (
-		<div className="mt-4 flex w-full flex-col gap-2.5">
+		<div className="flex w-full flex-col gap-2.5">
 			{!hideHeader && (
 				<div className="flex items-center justify-between w-full">
 					<span className="text-[12px] font-semibold text-(--text-primary)">
@@ -439,14 +493,18 @@ function ActivityListInner({
 				</div>
 			)}
 			{groups ? (
-				<div className="rounded-lg border border-border/5 bg-(--bg-subtle)">
+				// One SEPARATE card per date — the card surface (background,
+				// border, rounded corners) matches the flat list's card, and
+				// the parent gap between cards makes "new card = new day"
+				// readable at a glance without scanning for labels.
+				<div className="flex w-full flex-col gap-4">
 					{groups.map((group, gi) => (
 						<section
 							key={group.key || `unknown-date-${gi}`}
 							aria-labelledby={
 								group.label ? `history-date-${group.key}` : undefined
 							}
-							className={gi > 0 ? "border-t border-border/5" : undefined}
+							className="rounded-lg border border-border/5 bg-(--bg-subtle)"
 						>
 							{group.label && (
 								<div className="px-4 pt-3 pb-1">

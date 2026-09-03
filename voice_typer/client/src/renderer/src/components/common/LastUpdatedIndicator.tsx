@@ -1,6 +1,5 @@
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -56,6 +55,15 @@ export function LastUpdatedIndicator({
 			<span aria-live="polite">
 				<span>{t("common.lastUpdatedWithValue", { value: agoLabel })}</span>
 			</span>
+			{/* While a refresh is in flight the SAME icon spins in place
+			    (animate-spin on the unchanged h-3.5 glyph). Swapping in a
+			    different element here (e.g. a border-2 Spinner at a
+			    different box size) reads as a size/color jump on every
+			    click; rotating the mounted icon keeps the box, stroke,
+			    and color identical so the only motion is the rotation.
+			    The button stays disabled while refreshing (muted +
+			    pointer-events-none per the Button base), and its
+			    aria-label/title are untouched. */}
 			<Button
 				variant="ghost"
 				size="icon-xs"
@@ -64,19 +72,12 @@ export function LastUpdatedIndicator({
 				aria-label={t("common.refreshAria")}
 				title={t("common.refreshAria")}
 			>
-				{refreshing ? (
-					// Decorative — the parent <Button aria-label>
-					// already supplies the accessible name; a nested
-					// role="img" aria-label="Loading" would compete with
-					// (and re-announce over) the button's own label.
-					<Spinner decorative className="border-current h-3 w-3" />
-				) : (
-					<HugeiconsIcon
-						icon={RefreshIcon}
-						strokeWidth={1.625}
-						className="h-3.5 w-3.5"
-					/>
-				)}
+				<HugeiconsIcon
+					icon={RefreshIcon}
+					strokeWidth={1.625}
+					aria-hidden="true"
+					className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
+				/>
 			</Button>
 		</div>
 	);
