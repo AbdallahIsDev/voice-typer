@@ -51,6 +51,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -179,15 +180,32 @@ def test_script_includes_ctranslate2_dll(script_text: str):
     )
 
 
-def test_script_onefile_tempdir_uses_localappdata(script_text: str):
-    """``--onefile-tempdir-spec`` must pin to ``%LOCALAPPDATA%\\voice-typer``.
+def test_script_onefile_tempdir_uses_supported_cache_dir_token(script_text: str):
+    """``--onefile-tempdir-spec`` must pin to ``{CACHE_DIR}/voice-typer``.
 
     ADR-0020 §4.2 + §11 Known Issues: pinning the extract dir prevents
     tempdir bloat from onefile re-extractions across launches.
+
+    Token migration: the spec previously used ``%LOCALAPPDATA%``, which
+    Nuitka does NOT support as a spec variable — 2.8.10 fails the build
+    with "Found unknown variable name" (it rewrites the legacy
+    ``%VAR%`` form to ``{LOCALAPPDATA}``, then rejects it; observed on
+    the 2026-09-02 windows-2022 CI run of the worker build). The
+    documented token ``{CACHE_DIR}`` expands to
+    ``C:\\Users\\<user>\\AppData\\Local`` — identical semantics.
     """
-    assert "%LOCALAPPDATA%" in script_text, (
+    assert "{CACHE_DIR}" in script_text, (
         "build_sidecar_windows.sh --onefile-tempdir-spec must use "
-        "%LOCALAPPDATA% (Windows env var expanded by Nuitka at runtime)."
+        "{CACHE_DIR} (Nuitka-supported token expanding to the user's "
+        "AppData\\Local)."
+    )
+    # The legacy spec VALUE must be gone (ban the spec line, not prose —
+    # comments explaining the migration may mention the old token).
+    assert not re.search(
+        r"--onefile-tempdir-spec=\"?%LOCALAPPDATA%", script_text
+    ), (
+        "%LOCALAPPDATA% is not a supported --onefile-tempdir-spec variable "
+        "(Nuitka FATAL 'Found unknown variable name'); use {CACHE_DIR}."
     )
     assert "voice-typer" in script_text
 

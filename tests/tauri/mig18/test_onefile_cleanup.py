@@ -13,7 +13,10 @@ ADR-0020 §4 mandates that the onefile extraction dir is:
 
 Per-platform spec (per the MIG-1.8 task brief):
 
-  - Windows: ``%LOCALAPPDATA%/voice-typer/onefile-tmp``
+  - Windows: ``{CACHE_DIR}/voice-typer/onefile-tmp`` (Nuitka token =
+             AppData\Local; migrated from ``%LOCALAPPDATA%`` which Nuitka
+             rejects as a spec variable; ``%LOCALAPPDATA%`` remains an
+             accepted legacy pattern)
              (or ``$XDG_CACHE_HOME/voice-typer/onefile-tmp``)
   - macOS:   ``~/Library/Caches/voice-typer/onefile-tmp``
              (or ``$XDG_CACHE_HOME/voice-typer/onefile-tmp``)
@@ -151,10 +154,17 @@ BUILD_SCRIPTS: dict[str, Path] = {
 # ``$HOME`` / ``$XDG_CACHE_HOME``).
 PLATFORM_TEMPDIR_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "windows": [
+        # {CACHE_DIR}/voice-typer/onefile-tmp — the Nuitka-documented token
+        # expanding to the user's AppData\Local (spec migrated from
+        # %LOCALAPPDATA%, which Nuitka 2.8.10 rejects as a spec variable:
+        # "Found unknown variable name" — observed on the 2026-09-02 CI run).
+        re.compile(r"\{CACHE_DIR\}[/\\]+voice-typer[/\\]+onefile-tmp"),
         # %LOCALAPPDATA%\voice-typer\onefile-tmp — the bash script source uses
         # \\ (escaped backslash in double quotes) so the file content has TWO
         # backslash chars; [/\\]+ matches one or more / or \ to handle both
-        # the source (\\) and the runtime-expanded (\) forms.
+        # the source (\\) and the runtime-expanded (\) forms. KEPT as a
+        # legacy-accept pattern for older branches; new scripts must use
+        # {CACHE_DIR} (see the mig15 pin).
         re.compile(r"%LOCALAPPDATA%[/\\]+voice-typer[/\\]+onefile-tmp"),
         # $XDG_CACHE_HOME/voice-typer/onefile-tmp (rare on Windows but allowed)
         re.compile(r"\$XDG_CACHE_HOME/voice-typer/onefile-tmp"),

@@ -223,7 +223,7 @@ NUITKA_ARGS=(
     --include-package=websockets
     --include-package-data=voice_typer.server
     --windows-console-mode=disable
-    --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\worker-onefile-tmp"
+    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/worker-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$WORKER_DIR"
     "$PROJECT_ROOT/voice_typer/worker/__main__.py"

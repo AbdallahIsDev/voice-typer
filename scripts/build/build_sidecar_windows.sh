@@ -28,7 +28,7 @@
 #     RELATIVE to the dist folder — absolute dests are silently ignored)
 #   - --include-dll=<SITE>/ctranslate2/lib/ctranslate2.dll
 #   - --windows-disable-console
-#   - --onefile-tempdir-spec=%LOCALAPPDATA%\voice-typer\onefile-tmp
+#   - --onefile-tempdir-spec={CACHE_DIR}/voice-typer/onefile-tmp
 #
 # IMPORTANT: Nuitka does NOT auto-collect Intel MKL / OpenMP runtimes. If
 # libiomp5md.dll / mkl_*.dll / libgomp-*.dll are missing from the build env,
@@ -133,8 +133,10 @@ echo "[build_sidecar_windows] CT2_DLL=$CT2_DLL"
 mkdir -p "$SIDECAR_DIR"
 
 # ─── Run Nuitka (ADR-0020 §4.2) ──────────────────────────────────────────────
-# NOTE: --onefile-tempdir-spec uses Windows env var %LOCALAPPDATA%; Nuitka
-# expands it at runtime. The build runs on Windows so the var exists.
+# NOTE: --onefile-tempdir-spec uses the Nuitka-documented {CACHE_DIR}
+# token, which expands to the user's AppData\Local (previously
+# %LOCALAPPDATA%, which Nuitka 2.8.10 does NOT support as a spec variable
+# and rejects with FATAL 'Found unknown variable name').
 #
 # S4-CR-25 / nu-opt-1: psutil imports ALL platform submodules (_pslinux,
 # _psosx, _psbsd, _pssunos, _psaix) at the module root — Nuitka compiles
@@ -191,7 +193,7 @@ NUITKA_ARGS=(
     --include-data-dir="$CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST"
     --include-dll="$CT2_DLL"
     --windows-disable-console
-    --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\onefile-tmp"
+    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$SIDECAR_DIR"
     "$PROJECT_ROOT/voice_typer/server/ipc_server.py"

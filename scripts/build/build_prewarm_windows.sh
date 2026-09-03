@@ -185,7 +185,7 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --include-package=websockets \
     --include-package-data=voice_typer.server \
     --windows-disable-console \
-    --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\prewarm-onefile-tmp" \
+    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" \
     --output-filename="$OUTPUT_NAME" \
     --output-dir="$RESOURCES_DIR" \
     "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"
