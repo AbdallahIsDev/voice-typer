@@ -156,16 +156,20 @@ def test_workflow_runs_signtool_sign_on_sidecar(workflow_text: str):
     )
 
 
-def test_workflow_runs_signtool_sign_on_prewarm(workflow_text: str):
-    """The CI workflow must run ``signtool sign`` on the prewarm exe.
+def test_workflow_does_not_sign_prewarm(workflow_text: str):
+    """The CI workflow must NOT reference the prewarm exe.
 
-    ADR-0020 §13.1 + signing-guide.md mandate that
-    ``prewarm-x86_64-pc-windows-msvc.exe`` is Authenticode-signed
-    alongside the sidecar (same reason — unsigned prewarm triggers
-    SmartScreen / AV).
+    The standalone prewarm binary was REMOVED per
+    plan-runtime-pack-split.md §6.2 P-1 (prewarm is an in-process startup
+    phase of the worker exe; see tests/test_architecture_doc_accuracy.py's
+    deletion pin and the workflow's removal note). This pins the removal
+    so a stale signing entry (which would hard-fail every signed build
+    with 'Cannot sign missing binary') cannot silently return.
     """
-    assert "prewarm-x86_64-pc-windows-msvc.exe" in workflow_text, (
-        "tauri-windows-build.yml must sign prewarm-x86_64-pc-windows-msvc.exe (the Nuitka-produced prewarm binary)."
+    assert "prewarm-x86_64-pc-windows-msvc.exe" not in workflow_text, (
+        "tauri-windows-build.yml must NOT reference prewarm-*.exe — the "
+        "standalone prewarm binary was removed per plan-runtime-pack-split "
+        "§6.2 P-1."
     )
 
 
@@ -586,18 +590,24 @@ def test_adr_0020_section_13_1_documents_windows_signing():
 
 
 # ─── 8. Workflow file structural sanity (not a stub for signing) ─────────────
-def test_workflow_has_signing_step_for_sidecar_and_prewarm(workflow_text: str):
-    """The workflow must have a dedicated signing step for sidecar+prewarm.
+def test_workflow_has_signing_step_for_sidecar(workflow_text: str):
+    """The workflow must have a dedicated signing step for the sidecar.
 
     This is a structural check: the workflow must have a step named
-    "Sign sidecar + prewarm" (or similar) that runs BEFORE the Tauri
+    "Sign sidecar + native listener" that runs BEFORE the Tauri
     build step (so the binaries are signed before they enter the bundle).
+
+    Prewarm was REMOVED from the signing list per
+    plan-runtime-pack-split.md §6.2 P-1 (the standalone prewarm binary
+    no longer exists — prewarm is an in-process startup phase of the
+    worker exe; see the workflow's removal note at the former prewarm
+    build step and tests/test_architecture_doc_accuracy.py's pin).
     """
-    # The step name appears as `name: Sign sidecar + prewarm (...)`.
-    assert "Sign sidecar + prewarm" in workflow_text, (
+    # The step name appears as `name: Sign sidecar + native listener (...)`.
+    assert "Sign sidecar + native listener" in workflow_text, (
         "tauri-windows-build.yml must have a step named 'Sign sidecar + "
-        "prewarm' (runs signtool on the sidecar + prewarm BEFORE the "
-        "Tauri build, per ADR-0020 §13.1 signing order)."
+        "native listener' (runs signtool on the sidecar + native listener "
+        "BEFORE the Tauri build, per ADR-0020 §13.1 signing order)."
     )
 
 
@@ -616,23 +626,23 @@ def test_workflow_has_signing_step_for_nsis(workflow_text: str):
 
 
 def test_workflow_signing_step_runs_before_tauri_build(workflow_text: str):
-    """The sidecar+prewarm signing step must run BEFORE the Tauri build step.
+    """The sidecar signing step must run BEFORE the Tauri build step.
 
     ADR-0020 §13.1 signing order:
       1. Sign sidecar (before bundling — unsigned sidecars trigger SmartScreen).
-      2. Sign prewarm (same).
+      2. Sign the native listener (same step; prewarm removed per §6.2 P-1).
       3. Tauri builds the MSI/EXE.
       4. Sign the NSIS installer (after bundling).
 
-    This test asserts the sidecar+prewarm signing step appears BEFORE
+    This test asserts the sidecar signing step appears BEFORE
     the "Build the Tauri app" step in the workflow YAML.
     """
-    sign_sidecar_pos = workflow_text.find("Sign sidecar + prewarm")
+    sign_sidecar_pos = workflow_text.find("Sign sidecar + native listener")
     build_tauri_pos = workflow_text.find("Build the Tauri app")
-    assert sign_sidecar_pos != -1, "tauri-windows-build.yml must have a 'Sign sidecar + prewarm' step."
+    assert sign_sidecar_pos != -1, "tauri-windows-build.yml must have a 'Sign sidecar + native listener' step."
     assert build_tauri_pos != -1, "tauri-windows-build.yml must have a 'Build the Tauri app' step."
     assert sign_sidecar_pos < build_tauri_pos, (
-        "tauri-windows-build.yml: the 'Sign sidecar + prewarm' step must "
+        "tauri-windows-build.yml: the 'Sign sidecar + native listener' step must "
         "appear BEFORE the 'Build the Tauri app' step (ADR-0020 §13.1 "
         "signing order — sign the sidecar before it enters the bundle)."
     )

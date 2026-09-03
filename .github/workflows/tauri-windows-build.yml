@@ -205,12 +205,13 @@ jobs:
     # x86_64-pc-windows-msvc). These literals are listed here so the
     # mig18 signing tests (tests/tauri/mig18/test_windows_signing.py)
     # that grep for the default binary names keep passing — the actual
-    # build steps below interpolate `python-sidecar-${{ matrix.target }}.exe`
-    # and `prewarm-${{ matrix.target }}.exe`, which resolve to:
+    # build steps below interpolate `python-sidecar-${{ matrix.target }}.exe`,
+    # which resolves to:
     #   python-sidecar-x86_64-pc-windows-msvc.exe   (x86_64 leg)
-    #   prewarm-x86_64-pc-windows-msvc.exe          (x86_64 leg)
     #   python-sidecar-aarch64-pc-windows-msvc.exe  (aarch64 template, commented)
-    #   prewarm-aarch64-pc-windows-msvc.exe         (aarch64 template, commented)
+    # NOTE: no prewarm filename — the standalone prewarm binary was
+    # removed per plan-runtime-pack-split.md §6.2 P-1 (see the removal
+    # note at the former prewarm build step).
     #
     # AARCH64 LEG TEMPLATE (commented out — VALIDATE ON WINDOWS HOST):
     # When GitHub ships `windows-11-arm` to public repos, uncomment this
@@ -592,57 +593,14 @@ jobs:
           }
           Write-Host "Runtime pack size within 200 MB limit (size gate passed)."
 
-      - name: Build the prewarm binary with Nuitka (ADR-0020 §5)
-        shell: pwsh
-        run: |
-          $env:CLCACHE_DISABLE = "1"
-          $PYBS = $env:PYBS
-          # S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
-          # faster_whisper/ctranslate2 at runtime — it only calls
-          # importlib.util.find_spec() to locate their installed files for
-          # OS-cache warming, then reads file bytes directly. These heavy
-          # packages are still BUNDLED as bytecode (so find_spec works)
-          # but NOT compiled to C, saving ~90 min of compile time.
-          # Also removed deprecated --enable-plugin=numpy, removed
-          # --include-package=faster_whisper,ctranslate2 (not needed for
-          # find_spec — they're pulled in transitively via voice_typer),
-          # and added psutil platform-module exclusions.
-          # IPD-1: --include-package-data=voice_typer.server for consistency
-          # with the sidecar (prewarm doesn't read package data today, but a
-          # future import-time read must not silently crash the exe).
-          & $PYBS\python.exe -m nuitka `
-              --standalone --onefile `
-              --assume-yes-for-downloads `
-              --jobs=3 `
-              --nofollow-import-to=torch `
-              --nofollow-import-to=transformers `
-              --nofollow-import-to=faster_whisper `
-              --nofollow-import-to=ctranslate2 `
-              --nofollow-import-to=sounddevice `
-              --nofollow-import-to=pystray `
-              --nofollow-import-to=pynput `
-              --nofollow-import-to=PIL `
-              --nofollow-import-to=scipy `
-              --nofollow-import-to=whisper `
-              --nofollow-import-to=psutil._pslinux `
-              --nofollow-import-to=psutil._psosx `
-              --nofollow-import-to=psutil._psbsd `
-              --nofollow-import-to=psutil._pssunos `
-              --nofollow-import-to=psutil._psaix `
-              --nofollow-import-to=sympy `
-              --nofollow-import-to=mpmath `
-              --nofollow-import-to=pytest `
-              --include-package=voice_typer `
-              --include-package=websockets `
-              --include-package-data=voice_typer.server `
-              --windows-console-mode=disable `
-              --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
-              --output-filename=prewarm-${{ matrix.target }}.exe `
-              --output-dir=src-tauri\resources `
-              voice_typer\server\prewarm\__main__.py
-          if (-not (Test-Path "src-tauri\resources\prewarm-${{ matrix.target }}.exe")) {
-            Write-Error "Prewarm binary not built"; exit 1
-          }
+      # NOTE: the standalone prewarm binary was REMOVED per
+      # plan-runtime-pack-split.md §6.2 P-1 (prewarm is now an in-process
+      # startup phase of the worker exe — see ADR-0011 "Status: Superseded"
+      # and tests/test_architecture_doc_accuracy.py's deletion pin). The
+      # former Nuitka prewarm step FATALed on main (2026-09-03): its entry
+      # point voice_typer/server/prewarm/__main__.py no longer exists. Do
+      # NOT re-add a prewarm build step without reversing that plan
+      # decision.
 
       - name: Build the native windows-key-listener (ADR-0020 §6.4)
         shell: pwsh
@@ -663,7 +621,7 @@ jobs:
           Write-Error "sign=true was requested but WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD are missing. Add the secrets to the repository, or dispatch with sign=false."
           exit 1
 
-      # S1-CR-99: sign sidecar + prewarm + native listener. Pre-fix the loop
+      # S1-CR-99: sign sidecar + native listener. Pre-fix the loop
       # only covered python-sidecar + prewarm; the native windows-key-listener.exe
       # was bundled into the NSIS installer UNSIGNED. SmartScreen on Windows 11
       # treats unsigned binaries inside a signed installer as suspicious and
@@ -681,7 +639,7 @@ jobs:
       # migration path (Azure Trusted Signing) is tracked in the security
       # roadmap; it replaces the manual PFX material with a managed HSM
       # identity and is the recommended next step for this repo.
-      - name: Sign sidecar + prewarm + native listener (optional — ADR-0020 §13.1)
+      - name: Sign sidecar + native listener (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
@@ -700,9 +658,10 @@ jobs:
           $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           # TX-40: signing targets use matrix.target so the aarch64 leg
           # (when enabled) signs its own binaries, not the x86_64 ones.
+          # (prewarm is ABSENT per plan-runtime-pack-split §6.2 P-1 — see
+          # the removal note at the former prewarm build step.)
           foreach ($exe in @(
                 "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe",
-                "src-tauri\resources\prewarm-${{ matrix.target }}.exe",
                 "src-tauri\resources\native\windows-key-listener.exe"
           )) {
             if (-not (Test-Path $exe)) {
@@ -1116,7 +1075,7 @@ jobs:
           path: ${{ steps.artifacts.outputs.msi_path }}
           if-no-files-found: warn
 
-      - name: Upload sidecar + prewarm + native listener
+      - name: Upload sidecar + native listener
         uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Tauri-Sidecar-Binaries
@@ -1136,7 +1095,6 @@ jobs:
           # existing download picks it up with no orchestrator change.
           path: |
             src-tauri/bin/python-sidecar-${{ matrix.target }}.exe
-            src-tauri/resources/prewarm-${{ matrix.target }}.exe
             src-tauri/resources/native/windows-key-listener.exe
             src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe
           if-no-files-found: error
@@ -1154,7 +1112,6 @@ jobs:
                 "${{ steps.artifacts.outputs.nsis_path }}",
                 "${{ steps.artifacts.outputs.msi_path }}",
                 "src-tauri/bin/python-sidecar-${{ matrix.target }}.exe",
-                "src-tauri/resources/prewarm-${{ matrix.target }}.exe",
                 "src-tauri/resources/native/windows-key-listener.exe",
                 "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe",
                 "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe"

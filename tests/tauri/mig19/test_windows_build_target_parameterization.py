@@ -274,15 +274,42 @@ def test_nuitka_sidecar_output_uses_matrix_target(workflow_text: str):
     )
 
 
-def test_nuitka_prewarm_output_uses_matrix_target(workflow_text: str):
-    """The Nuitka prewarm build step must emit ``prewarm-${{ matrix.target }}.exe``.
+# ─── 4b. Prewarm build step REMOVED (plan-runtime-pack-split §6.2 P-1) ───────
+def test_workflow_has_no_prewarm_build_step(workflow_text: str):
+    """The workflow must NOT build a prewarm binary.
 
-    Same rationale as ``test_nuitka_sidecar_output_uses_matrix_target`` —
-    the aarch64 leg must produce ``prewarm-aarch64-pc-windows-msvc.exe``.
+    The standalone prewarm binary was REMOVED per
+    plan-runtime-pack-split.md §6.2 P-1 (prewarm is an in-process startup
+    phase of the worker exe — see ADR-0011 "Status: Superseded" and
+    tests/test_architecture_doc_accuracy.py's deletion pin). The former
+    Nuitka prewarm step FATALed on main (2026-09-03) because its entry
+    point voice_typer/server/prewarm/__main__.py no longer exists. This
+    pins the removal so a stale cherry-pick cannot resurrect it.
     """
-    assert "prewarm-${{ matrix.target }}.exe" in workflow_text, (
-        "Nuitka prewarm output filename must use ${{ matrix.target }} so "
-        "the aarch64 leg produces prewarm-aarch64-pc-windows-msvc.exe."
+    assert "Build the prewarm binary" not in workflow_text, (
+        "tauri-windows-build.yml must not contain a prewarm build step — "
+        "the standalone prewarm binary was removed per "
+        "plan-runtime-pack-split §6.2 P-1."
+    )
+    assert "prewarm-${{ matrix.target }}.exe" not in workflow_text, (
+        "No Nuitka prewarm output filename may appear — the prewarm build "
+        "step was removed per plan-runtime-pack-split §6.2 P-1."
+    )
+
+
+def test_workflow_does_not_reference_prewarm_filename(workflow_text: str):
+    """The literal ``prewarm-x86_64-pc-windows-msvc.exe`` must be GONE.
+
+    Inverted from the old backward-compat pin (which required this
+    literal for the mig18 signing test) — the mig18 signing test now
+    asserts the ABSENCE of the prewarm filename (the binary no longer
+    exists and must not be signed/uploaded/checksummed).
+    """
+    assert "prewarm-x86_64-pc-windows-msvc.exe" not in workflow_text, (
+        "The literal 'prewarm-x86_64-pc-windows-msvc.exe' must not appear "
+        "in the workflow — the standalone prewarm binary was removed per "
+        "plan-runtime-pack-split §6.2 P-1 (the mig18 signing test pins "
+        "its ABSENCE)."
     )
 
 
@@ -320,16 +347,7 @@ def test_default_sidecar_filename_preserved(workflow_text: str):
     )
 
 
-def test_default_prewarm_filename_preserved(workflow_text: str):
-    """The literal ``prewarm-x86_64-pc-windows-msvc.exe`` must appear.
-
-    Backward-compat assertion: tests/tauri/mig18/test_windows_signing.py:167
-    asserts this literal is in the workflow text. The matrix-based
-    parameterization keeps this literal in a documentation comment
-    listing the default filenames, so the mig18 signing test keeps passing.
-    """
-    assert "prewarm-x86_64-pc-windows-msvc.exe" in workflow_text, (
-        "The literal 'prewarm-x86_64-pc-windows-msvc.exe' must still appear "
-        "(in a documentation comment listing the default filenames) so "
-        "tests/tauri/mig18/test_windows_signing.py keeps passing."
-    )
+# (test_default_prewarm_filename_preserved REMOVED — inverted: the prewarm
+# literal must NOT appear; see test_workflow_does_not_reference_prewarm_filename
+# and test_workflow_has_no_prewarm_build_step above, per
+# plan-runtime-pack-split §6.2 P-1.)
