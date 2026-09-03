@@ -1,6 +1,13 @@
 import type { Ref } from "react";
+import { useMemo, useState } from "react";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
-import { formatHotkey } from "@/components/hotkey/hotkey-format";
+import {
+	configHotkeyLabels,
+	formatHotkey,
+	REPASTE_HOTKEY_DEFAULT,
+} from "@/components/hotkey/hotkey-format";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
@@ -12,9 +19,6 @@ export interface DoneStepProps {
 	selectedModel: string;
 	selectedMic: string;
 	microphones: MicrophoneOption[];
-	// Local-vs-cloud choice made on the Model step (shown in the summary
-	// so the user sees what they opted into — nothing is downloaded
-	// automatically).
 	selectedBackend: BackendChoice;
 }
 
@@ -35,6 +39,22 @@ export function DoneStep({
 	//use existing `summaryHotkey`/`summaryMic`/`summaryModel`.
 	// The old `doneHotkey`/`doneMic`/`doneModel` keys never existed in any
 	// locale, so the Done step rendered raw key strings instead of labels.
+	//
+	// The cheat-sheet link opens the SAME shared HelpOverlay component
+	// the app's `?` shortcut opens (the punctuation cheat sheet lives
+	// inside it). The overlay instance is page-local because the
+	// wizard page can't reach App.tsx's instance; the `?`-shortcut's
+	// open-dialog guard prevents the two from stacking.
+	const [helpOpen, setHelpOpen] = useState(false);
+	const helpLabels = useMemo(
+		() =>
+			configHotkeyLabels({
+				hotkey: selectedHotkey || null,
+				repaste_hotkey: REPASTE_HOTKEY_DEFAULT,
+			}),
+		[selectedHotkey],
+	);
+
 	return (
 		<>
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
@@ -44,12 +64,12 @@ export function DoneStep({
 			    locale; this is the only consumer. It no longer promises a
 			    background model download — the user already chose local
 			    (explicit download) or cloud on the Model step. */}
-			<p className="mb-4 text-sm text-(--text-secondary)">
+			<p className="text-sm text-(--text-secondary)">
 				{t("onboarding.completeDescription", {
 					hotkey: formatHotkey(selectedHotkey),
 				})}
 			</p>
-			<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
+			<div className="flex flex-col gap-2 text-sm text-(--text-secondary)">
 				<p>
 					{t("onboarding.summaryBackend")}{" "}
 					<strong>{backendLabel(selectedBackend)}</strong>
@@ -71,6 +91,36 @@ export function DoneStep({
 					</p>
 				)}
 			</div>
+			{/* Cheat-sheet entry point + `?` shortcut tip, consistent with
+			    the summary block's visual language. The link opens the
+			    shared HelpOverlay (which contains the punctuation cheat
+			    sheet); the tip names the `?` shortcut via HotkeyChips (no
+			    "+" text — C-UI-1). */}
+			<div
+				className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm text-(--text-secondary)"
+				data-testid="onboarding-done-help"
+			>
+				<Button
+					variant="link"
+					size="sm"
+					className="h-auto p-0"
+					onClick={() => setHelpOpen(true)}
+					aria-label={t("help.openCheatSheet")}
+					data-testid="done-step-cheatsheet-link"
+				>
+					{t("help.openCheatSheet")}
+				</Button>
+				<span className="text-(--text-secondary)">
+					{t("onboarding.doneHelpHint")}
+				</span>
+				<HotkeyChips keys="?" />
+			</div>
+			<HelpOverlay
+				open={helpOpen}
+				onClose={() => setHelpOpen(false)}
+				dictationLabel={helpLabels.dictationLabel}
+				repasteLabel={helpLabels.repasteLabel}
+			/>
 		</>
 	);
 }

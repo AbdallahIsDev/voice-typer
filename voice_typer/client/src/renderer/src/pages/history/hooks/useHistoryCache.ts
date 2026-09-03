@@ -40,7 +40,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
+import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
+
+// Module-cache keys for the SWR seed (see lib/ipcCache.ts). Only the
+// FIRST page + stats are cached — that's what a revisit renders
+// instantly; `load` always revalidates fresh data over it.
+const HISTORY_CACHE_KEY = "history.firstPage";
+const HISTORY_STATS_CACHE_KEY = "history.todayStats";
 
 // Page size used for both the initial load and ``loadMore`` paging.
 // Mirrors the Python ``history_db.get_history`` default limit (50).
@@ -89,15 +96,22 @@ export interface UseHistoryCacheReturn {
 }
 
 export function useHistoryCache(): UseHistoryCacheReturn {
-	const [records, setRecords] = useState<HistoryRecord[]>([]);
-	const [stats, setStats] = useState<TodayStats>({
-		count: 0,
-		chars: 0,
-		word_count: 0,
-		duration: 0,
-	});
+	// SWR seed: render the LAST visit's first page + stats immediately
+	// (module cache survives page unmount) and skip the loading state —
+	// the mount `load` below still revalidates in the background.
+	const cachedRecords = peekIpcCache<HistoryRecord[]>(HISTORY_CACHE_KEY);
+	const cachedStats = peekIpcCache<TodayStats>(HISTORY_STATS_CACHE_KEY);
+	const [records, setRecords] = useState<HistoryRecord[]>(cachedRecords ?? []);
+	const [stats, setStats] = useState<TodayStats>(
+		cachedStats ?? {
+			count: 0,
+			chars: 0,
+			word_count: 0,
+			duration: 0,
+		},
+	);
 	const [hasMore, setHasMore] = useState(false);
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(cachedRecords === undefined);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -231,15 +245,19 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 					callRef.current<TodayStats>("get_today_stats"),
 				]);
 				const safeRows = Array.isArray(rows) ? rows : [];
-				setRecords(safeRows.slice(0, HISTORY_MAX_ROWS));
-				setStats(
-					todayStats ?? {
-						count: 0,
-						chars: 0,
-						word_count: 0,
-						duration: 0,
-					},
-				);
+				const firstPage = safeRows.slice(0, HISTORY_MAX_ROWS);
+				const nextStats = todayStats ?? {
+					count: 0,
+					chars: 0,
+					word_count: 0,
+					duration: 0,
+				};
+				setRecords(firstPage);
+				setStats(nextStats);
+				// SWR write-through — the next visit to this page seeds
+				// from this snapshot instead of showing a loading state.
+				writeIpcCache(HISTORY_CACHE_KEY, firstPage);
+				writeIpcCache(HISTORY_STATS_CACHE_KEY, nextStats);
 				// ``hasMore`` is true when the backend returned a full page
 				// (i.e. there MAY be more rows beyond this offset). The
 				// backend's frame cap (200 rows max) means a full page is

@@ -90,6 +90,11 @@ const MODIFIER_GUARDS: Record<
 	// Ctrl OR Cmd, never Shift/Alt — the original
 	// `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard.
 	ctrlCmd: (e) => (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey,
+	// Ctrl OR Cmd AND Shift, never Alt — the toggleDictation profile.
+	// e.key arrives uppercased while Shift is held ("M"), and the
+	// catalog's eventKeys cover both cases for non-Shift-modifier
+	// keyboard layouts (e.g. Caps-Locked input).
+	ctrlShiftCmd: (e) => (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey,
 };
 
 interface UseGlobalKeyboardShortcutsArgs {
@@ -222,6 +227,26 @@ export function useGlobalKeyboardShortcuts({
 				if (isTyping(e)) return;
 				e.preventDefault();
 				bumpTextSize(-1);
+			},
+			// Toggle dictation (Ctrl/Cmd+Shift+M) — reuses the exact
+			// `toggle_dictation` IPC the Home mic button fires, so the
+			// keyboard path can never drift from the click path. The
+			// backend's recording-lifecycle consent gate remains the
+			// enforcement backstop for hotkey-triggered dictation (same
+			// as tray/bubble-triggered toggles — the renderer-side
+			// consent dialog only wraps the Home button path). NOT
+			// typing-gated: dictating INTO the focused field is the
+			// whole point of the shortcut — and not modal-gated for the
+			// same reason.
+			toggleDictation: (e) => {
+				e.preventDefault();
+				callRef.current("toggle_dictation").catch((err: unknown) => {
+					console.error(
+						"[renderer:useGlobalKeyboardShortcuts] toggle_dictation failed:",
+						err,
+					);
+					toast.error(t("home.toggleFailed"));
+				});
 			},
 		};
 

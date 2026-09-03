@@ -110,7 +110,7 @@ export function ActiveMicrophoneCard({
 	return (
 		<div
 			className={cn(
-				"rounded-xl border border-border/5 p-5 transition-colors",
+				"rounded-xl border border-border/5 p-4 transition-colors",
 				"bg-(--bg-subtle)",
 			)}
 		>

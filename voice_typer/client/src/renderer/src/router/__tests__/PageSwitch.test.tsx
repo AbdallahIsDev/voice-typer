@@ -48,9 +48,23 @@ vi.mock("@/pages/Onboarding", () => ({
 	),
 }));
 vi.mock("@/pages/Settings", () => ({
-	default: ({ page }: { page: string }) => (
-		<div data-testid={`settings-${page}`}>Settings sub-page {page}</div>
-	),
+	default: ({ page }: { page: string }) =>
+		// The real SettingsPage renders SettingsHub (whose rows carry
+		// `settings-hub-row-<section>` testids) when page === "settings",
+		// and the section UI otherwise. Mirror that contract so the
+		// PageSwitch mapping test can assert the hub path.
+		page === "settings" ? (
+			<section aria-label="Settings">
+				<button type="button" data-testid="settings-hub-row-settingsGeneral">
+					General
+				</button>
+				<button type="button" data-testid="settings-hub-row-settingsPrivacy">
+					Privacy
+				</button>
+			</section>
+		) : (
+			<div data-testid={`settings-${page}`}>Settings sub-page {page}</div>
+		),
 }));
 
 import { PageSwitch } from "@/router/PageSwitch";
@@ -93,7 +107,7 @@ describe("PageSwitch — route table mapping", () => {
 
 	it.each([
 		"settingsGeneral",
-		"settingsAiAudio",
+		"settingsAudio",
 		"settingsAppearance",
 		"settingsPrivacy",
 	] as const)("renders %s with its sub-page prop", async (sub) => {
@@ -101,9 +115,14 @@ describe("PageSwitch — route table mapping", () => {
 		expect(await screen.findByTestId(`settings-${sub}`)).toBeTruthy();
 	});
 
-	it("legacy 'settings' literal defensively renders the General sub-page", async () => {
+	it("renders 'settings' as the Settings HUB with its section rows", async () => {
 		renderFor("settings");
-		expect(await screen.findByTestId("settings-settingsGeneral")).toBeTruthy();
+		expect(
+			await screen.findByTestId("settings-hub-row-settingsGeneral"),
+		).toBeTruthy();
+		expect(
+			await screen.findByTestId("settings-hub-row-settingsPrivacy"),
+		).toBeTruthy();
 	});
 
 	it("passes the completion callback through to the onboarding wizard", async () => {

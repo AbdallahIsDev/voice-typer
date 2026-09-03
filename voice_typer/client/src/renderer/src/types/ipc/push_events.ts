@@ -304,6 +304,15 @@ export interface BubbleLevelEvent {
 	data: Record<string, unknown>;
 }
 
+// Main-window mirror of the recording level (≤8 Hz, generic envelope).
+// The typed `bubble_level` channel is consumed by the bubble window
+// only, so the Home page's live recording indicator subscribes to this
+// low-rate event instead. Payload mirrors BubbleLevelEvent.
+export interface RecordingLevelEvent {
+	type: "recording_level";
+	data: { rms: number; peak: number };
+}
+
 export interface BubbleConfigEvent {
 	type: "bubble_config";
 	data: Record<string, unknown>;
@@ -752,6 +761,7 @@ export type PythonPushEvent =
 	| BubbleHideEvent
 	| BubbleSetStateEvent
 	| BubbleLevelEvent
+	| RecordingLevelEvent
 	| BubbleConfigEvent
 	| ShowWindowEvent
 	| QuitAppEvent

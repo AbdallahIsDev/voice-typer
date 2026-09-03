@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { RouteSkeleton } from "@/components/feedback/skeletons";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
 // Route-level code splitting. Home is the default landing page
@@ -8,6 +9,8 @@ import { useT } from "@/i18n/i18n";
 // React.lazy so Vite emits per-route chunks and the initial JS payload
 // only carries the Home page's transitive deps. Each lazy import
 // resolves to the page module's default export.
+// Chunks are ALSO prefetched at idle + sidebar hover (router/prefetch.ts),
+// so the Suspense fallback below is a one-frame affordance, not a wait.
 import Home from "@/pages/Home";
 import type { Page } from "@/types/ipc";
 
@@ -24,27 +27,15 @@ const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
 /**
  * Suspense fallback for the lazy-loaded secondary routes.
  *
- * Inline (not a separate component file) so we don't introduce a new    * module outside the refactor scope. The spinner matches the visual
- * style already used by ``DoneStep.tsx`` and ``MicToggleButton.tsx``
- * (``animate-spin rounded-full border-2 border-current
- * border-t-transparent``) so the user sees a consistent loading
- * indicator across the app.
- *
- * The fallback is intentionally minimal — a route chunk typically
- * loads in <100ms on a local dev server and <300ms from a packaged
- * build, so a full-screen skeleton would flash too briefly to register.
+ * A page-shaped Skeleton (the app's single loading primitive) instead
+ * of the former centered spinner: it matches the target page's layout
+ * so the chunk-load → content transition doesn't jump. In practice it's
+ * a one-frame flash — all route chunks are prefetched at idle
+ * (router/prefetch.ts), on sidebar hover via `prefetchPage`, and
+ * React.lazy caches resolved modules so revisits render synchronously.
  */
 function RouteSuspenseFallback() {
-	const t = useT();
-	return (
-		<output
-			aria-live="polite"
-			aria-label={t("a11y.loading")}
-			className="flex h-full w-full items-center justify-center p-8"
-		>
-			<span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-(--text-muted) border-t-transparent" />
-		</output>
-	);
+	return <RouteSkeleton />;
 }
 
 interface PageSwitchProps {
@@ -91,28 +82,31 @@ export function PageSwitch({
 				return <MicrophonePage />;
 			case "analytics":
 				return <DashboardPage />;
-			// The Settings page is now a nested-sidebar navigation
-			// target (ADR-0021). The 4 sub-page literals
-			// (settingsGeneral / settingsAiAudio / settingsAppearance /
-			// settingsPrivacy) each render `<SettingsPage page={...} />`
-			// — the page derives the active tab from the prop instead
-			// of owning tab state locally. The legacy "settings"
-			// parent literal is redirected to "settingsGeneral" inside
-			// useNavigation.navigate BEFORE this switch is reached, so
-			// the `case "settings"` below is a defensive fallback
-			// (e.g. for a stale persisted `vt_nav_state` from an older
-			// build that resolves before the redirect fires) — it
-			// renders the General sub-page rather than an empty
-			// parent.
+			// The Settings surface is HUB + nested section pages. "settings"
+			// renders the hub (one card whose rows open the section pages —
+			// see SettingsHub + settingsSections.ts); each section literal
+			// renders `<SettingsPage page={...} />` with exactly that
+			// domain's cards. All literals resolve to the same lazy chunk.
 			case "settings":
+				return <SettingsPage page="settings" />;
 			case "settingsGeneral":
 				return <SettingsPage page="settingsGeneral" />;
-			case "settingsAiAudio":
-				return <SettingsPage page="settingsAiAudio" />;
+			case "settingsOverlay":
+				return <SettingsPage page="settingsOverlay" />;
+			case "settingsHotkeys":
+				return <SettingsPage page="settingsHotkeys" />;
+			case "settingsTranscription":
+				return <SettingsPage page="settingsTranscription" />;
+			case "settingsAI":
+				return <SettingsPage page="settingsAI" />;
+			case "settingsAudio":
+				return <SettingsPage page="settingsAudio" />;
 			case "settingsAppearance":
 				return <SettingsPage page="settingsAppearance" />;
 			case "settingsPrivacy":
 				return <SettingsPage page="settingsPrivacy" />;
+			case "settingsAdvanced":
+				return <SettingsPage page="settingsAdvanced" />;
 			case "aboutAndPrivacy":
 				return <AboutAndPrivacyPage />;
 			case "onboarding":

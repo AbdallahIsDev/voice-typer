@@ -401,7 +401,7 @@ export class ErrorBoundary extends Component<
 					role="alert"
 					aria-live="assertive"
 				>
-					<div className="space-y-2">
+					<div className="flex flex-col gap-2">
 						<h1 className="text-2xl font-bold text-(--text-primary)">
 							{t("errorBoundary.title")}
 						</h1>

@@ -10,6 +10,13 @@
  *   1. Spawns the Vite dev server (vite.tauri.config.ts — port 1420,
  *      strictPort, HMR, renderer plugins/aliases/CSP) as a child.
  *   2. Waits until http://localhost:1420 answers.
+ *   2b. Ensures the Tauri externalBin/resource STUB binaries exist
+ *      (`gen_tauri_icons_stub.py --check || generate`). The repo's test
+ *      suite deliberately deletes stubs (`--clean` — they are
+ *      gitignored build scratch), so without this step every full
+ *      pytest run breaks the next `tauri dev` with
+ *      "resource path ... doesn't exist". Stubs are regenerated on
+ *      demand; real built binaries are never touched.
  *   3. Spawns `tauri dev --config src-tauri/tauri.dev.conf.json` from
  *      the REPO ROOT. The committed override blanks
  *      `build.beforeDevCommand` (the CLI spawns it with a CWD where
@@ -25,7 +32,7 @@
  * Rust file changes: the tauri CLI rebuilds + relaunches the app
  * automatically. Renderer file changes: Vite HMR pushes instantly.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -110,7 +117,38 @@ try {
 	await new Promise(() => {});
 }
 
-// ── 2. Tauri CLI (Rust host + sidecar supervisor) ────────────────────
+// ── 2b. Ensure the Tauri stub binaries exist ─────────────────────────
+//
+// The stub generator is the sanctioned flow (repo AGENTS.md dev notes):
+// `--check` exits 0 iff every externalBin/resource path is present AND
+// structurally valid (stub bytes or a REAL binary); the bare run
+// generates what is missing and never touches real artifacts. The test
+// suite's `--clean` deletes stubs by design, so this check-then-generate
+// must run before EVERY `tauri dev` — otherwise pytest (often running
+// concurrently in another terminal) breaks the next dev launch.
+console.log("[tauri-dev] checking Tauri stub binaries...");
+const stubScript = path.join(repoRoot, "scripts", "gen_tauri_icons_stub.py");
+const stubCheck = spawnSync("python", [stubScript, "--check"], {
+	cwd: repoRoot,
+	windowsHide: true,
+});
+if (stubCheck.status !== 0) {
+	console.log("[tauri-dev] stubs missing — regenerating...");
+	const gen = spawnSync("python", [stubScript], {
+		cwd: repoRoot,
+		stdio: "inherit",
+		windowsHide: true,
+	});
+	if (gen.status !== 0) {
+		console.error(
+			"[tauri-dev] stub generation failed — aborting (see output above)",
+		);
+		teardown(1);
+		await new Promise(() => {});
+	}
+}
+
+// ── 3. Tauri CLI (Rust host + sidecar supervisor) ────────────────────
 console.log("[tauri-dev] starting tauri dev (debug host + source sidecar)...");
 cliChild = spawn(
 	"cmd",

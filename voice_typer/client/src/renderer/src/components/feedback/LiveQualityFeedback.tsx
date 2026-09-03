@@ -31,14 +31,12 @@ export function LiveQualityFeedback({
 	};
 
 	return (
-		<div className="mt-2 space-y-2">
+		<div className="mt-2 text-center">
 			{/* Timer — visual-only; rapid updates would spam SR if live */}
-			<div className="text-center">
-				<span className="text-xs font-mono tabular-nums text-(--text-muted)">
-					{t("microphoneTest.qualityFeedback.recording")}{" "}
-					{formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}
-				</span>
-			</div>
+			<span className="text-xs font-mono tabular-nums text-(--text-muted)">
+				{t("microphoneTest.qualityFeedback.recording")}{" "}
+				{formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}
+			</span>
 		</div>
 	);
 }

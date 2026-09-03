@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { Spinner } from "@/components/feedback/Spinner";
+import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -122,11 +122,7 @@ export default function TemplatesPage() {
 	}, [call, loadRows, showSnack]);
 
 	if (loading) {
-		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner label={t("templates.loading")} />
-			</div>
-		);
+		return <ListPageSkeleton />;
 	}
 
 	//distinguish "no templates exist" (valid empty array from
@@ -138,7 +134,7 @@ export default function TemplatesPage() {
 	// backend connectivity problem.
 	if (loadError && templates.length === 0) {
 		return (
-			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
@@ -157,7 +153,7 @@ export default function TemplatesPage() {
 
 	return (
 		<>
-			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
 				    it (not inside PageHeading's children slot) — mirrors
 				    the Vocabulary page layout exactly. */}
@@ -165,75 +161,79 @@ export default function TemplatesPage() {
 					title={t("templates.title")}
 					description={t("templates.description")}
 				/>
-				<TemplateToolbar
-					importInputRef={importInputRef}
-					onImportClick={handleImportClick}
-					onImportFile={handleImportFile}
-					onExport={(format) => doExport(format)}
-					onAdd={openAddDialog}
-					exportDisabled={templates.length === 0}
-					onClearAll={() => setShowClearAllConfirm(true)}
-					clearAllDisabled={templates.length === 0}
-					sortOrder={sortOrder}
-					onSortOrderChange={setSortOrder}
-					hasEntries={templates.length > 0}
-				/>
+				<div className="flex flex-col gap-4">
+					<TemplateToolbar
+						importInputRef={importInputRef}
+						onImportClick={handleImportClick}
+						onImportFile={handleImportFile}
+						onExport={(format) => doExport(format)}
+						onAdd={openAddDialog}
+						exportDisabled={templates.length === 0}
+						onClearAll={() => setShowClearAllConfirm(true)}
+						clearAllDisabled={templates.length === 0}
+						sortOrder={sortOrder}
+						onSortOrderChange={setSortOrder}
+						hasEntries={templates.length > 0}
+					/>
 
-				<div className="mt-4">
-					{templates.length === 0 ? (
-						<EmptyState
-							icon={File02Icon}
-							title={t("templates.emptyTitle")}
-							description={t("templates.emptyDescription")}
-							actionLabel={t("templates.createFirst")}
-							onAction={openAddDialog}
-						/>
-					) : filteredSortedTemplates.length === 0 ? (
-						//search returned no matches — use the dedicated
-						// templates.noResults / templates.noResultsDescription
-						// keys instead of borrowing history.noResultsDescription
-						// (cross-module coupling) and the misleading
-						// templates.emptyTitle ("No templates yet").
-						<EmptyState
-							icon={File02Icon}
-							title={t("templates.noResults")}
-							description={t("templates.noResultsDescription")}
-						/>
-					) : (
-						<>
-							<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-								<TemplateListHeader
-									visibleIds={filteredSortedTemplates
-										.slice(0, displayCount)
-										.map((r) => r.id)}
-									selectedIds={selection.selectedIds}
-									onSelectAll={selection.setSelectMany}
-								/>
-								<div className="divide-y divide-border/5">
-									{filteredSortedTemplates.slice(0, displayCount).map((row) => (
-										<TemplateListRow
-											key={row.id}
-											row={row}
-											selected={selection.selectedIds.has(row.id)}
-											onToggleSelect={selection.toggleSelect}
-											onEdit={handleEdit}
-											onDelete={instantDeleteTemplate}
-										/>
-									))}
+					<div className="flex flex-col gap-3">
+						{templates.length === 0 ? (
+							<EmptyState
+								icon={File02Icon}
+								title={t("templates.emptyTitle")}
+								description={t("templates.emptyDescription")}
+								actionLabel={t("templates.createFirst")}
+								onAction={openAddDialog}
+							/>
+						) : filteredSortedTemplates.length === 0 ? (
+							//search returned no matches — use the dedicated
+							// templates.noResults / templates.noResultsDescription
+							// keys instead of borrowing history.noResultsDescription
+							// (cross-module coupling) and the misleading
+							// templates.emptyTitle ("No templates yet").
+							<EmptyState
+								icon={File02Icon}
+								title={t("templates.noResults")}
+								description={t("templates.noResultsDescription")}
+							/>
+						) : (
+							<>
+								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
+									<TemplateListHeader
+										visibleIds={filteredSortedTemplates
+											.slice(0, displayCount)
+											.map((r) => r.id)}
+										selectedIds={selection.selectedIds}
+										onSelectAll={selection.setSelectMany}
+									/>
+									<div className="divide-y divide-border/5">
+										{filteredSortedTemplates
+											.slice(0, displayCount)
+											.map((row) => (
+												<TemplateListRow
+													key={row.id}
+													row={row}
+													selected={selection.selectedIds.has(row.id)}
+													onToggleSelect={selection.toggleSelect}
+													onEdit={handleEdit}
+													onDelete={instantDeleteTemplate}
+												/>
+											))}
+									</div>
 								</div>
-							</div>
-							{filteredSortedTemplates.length > displayCount && (
-								<button
-									type="button"
-									data-testid="templates-show-more"
-									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
-								>
-									{t("templates.showMore")}
-								</button>
-							)}
-						</>
-					)}
+								{filteredSortedTemplates.length > displayCount && (
+									<button
+										type="button"
+										data-testid="templates-show-more"
+										onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
+										className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+									>
+										{t("templates.showMore")}
+									</button>
+								)}
+							</>
+						)}
+					</div>
 				</div>
 
 				{/* Floating bulk bar — appears when templates are selected.

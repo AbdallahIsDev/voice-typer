@@ -21,8 +21,8 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/i18n/i18n", () => ({
-	t: (key: string, params?: Record<string, string>) => {
+vi.mock("@/i18n/i18n", () => {
+	const tFn = (key: string, params?: Record<string, string>) => {
 		const catalog: Record<string, string> = {
 			"common.cancel": "Cancel",
 			"common.save": "Save",
@@ -52,8 +52,9 @@ vi.mock("@/i18n/i18n", () => ({
 			}
 		}
 		return result;
-	},
-}));
+	};
+	return { t: tFn, useT: () => tFn, getLocale: () => "en" };
+});
 
 vi.mock("@/components/ui/button", () => ({
 	Button: ({
@@ -99,6 +100,8 @@ vi.mock("@/components/ui/input", () => ({
 	),
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { TemplateDialog } from "@/pages/templates/components/TemplateDialog";
 import type { TemplateRow } from "@/pages/templates/lib/types";
 
@@ -119,20 +122,22 @@ function renderDialog(overrides: Record<string, unknown> = {}) {
 	const onClose = vi.fn();
 	const onSave = vi.fn();
 	render(
-		<TemplateDialog
-			open={true}
-			editingTemplate={null}
-			trigger=""
-			expansion=""
-			matchMode="exact"
-			onTriggerChange={vi.fn()}
-			onExpansionChange={vi.fn()}
-			onMatchModeChange={vi.fn()}
-			onClose={onClose}
-			onSave={onSave}
-			onInsertVariable={vi.fn()}
-			{...overrides}
-		/>,
+		<TooltipProvider delayDuration={200}>
+			<TemplateDialog
+				open={true}
+				editingTemplate={null}
+				trigger=""
+				expansion=""
+				matchMode="exact"
+				onTriggerChange={vi.fn()}
+				onExpansionChange={vi.fn()}
+				onMatchModeChange={vi.fn()}
+				onClose={onClose}
+				onSave={onSave}
+				onInsertVariable={vi.fn()}
+				{...overrides}
+			/>
+		</TooltipProvider>,
 	);
 	return { onClose, onSave };
 }

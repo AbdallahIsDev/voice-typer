@@ -170,7 +170,7 @@ export default function AboutAndPrivacyPage() {
 	}, []);
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col space-y-6 px-16 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 			<PageHeading
 				title={t("aboutAndPrivacy.title")}
 				description={t("aboutAndPrivacy.description")}
@@ -181,7 +181,7 @@ export default function AboutAndPrivacyPage() {
 			    split, version + update check. */}
 			<div className="rounded-xl border border-border/5 bg-(--bg-subtle)">
 				{/* Identity row: logo + name + capability summary. */}
-				<div className="flex items-center gap-3 px-5 pt-5">
+				<div className="flex items-center gap-3 px-4 pt-4">
 					<Logo size={40} className="shrink-0" />
 					<div className="min-w-0">
 						<h2 className="text-lg font-semibold tracking-tight text-(--text-primary)">
@@ -193,15 +193,15 @@ export default function AboutAndPrivacyPage() {
 					</div>
 				</div>
 
-				<p className="max-w-prose px-5 pt-4 text-sm leading-relaxed text-(--text-muted)">
+				<p className="p-4 text-sm leading-relaxed text-(--text-muted)">
 					{t("about.productDesc")}
 				</p>
 
 				{/* Local vs Cloud — the capability split made visually
 				    obvious: two side-by-side blocks with their own icon
 				    + title + one-line description. */}
-				<div className="grid gap-3 px-5 pt-5 sm:grid-cols-2">
-					<div className="rounded-lg border border-border/5 bg-(--bg) p-3.5">
+				<div className="grid pt-5 sm:grid-cols-2">
+					<div className="flex flex-col gap-2 border border-border/5 border-b-0 border-l-0 p-4 sm:border-r-0">
 						<div className="flex items-center gap-2">
 							<HugeiconsIcon
 								icon={Mic02Icon}
@@ -213,11 +213,11 @@ export default function AboutAndPrivacyPage() {
 								{t("about.localTitle")}
 							</p>
 						</div>
-						<p className="mt-1.5 text-xs leading-relaxed text-(--text-muted)">
+						<p className="text-xs leading-relaxed text-(--text-muted)">
 							{t("about.localDesc")}
 						</p>
 					</div>
-					<div className="rounded-lg border border-border/5 bg-(--bg) p-3.5">
+					<div className="flex flex-col gap-2 border border-border/5 border-b-0 border-r-0 p-4">
 						<div className="flex items-center gap-2">
 							<HugeiconsIcon
 								icon={CloudIcon}
@@ -229,25 +229,27 @@ export default function AboutAndPrivacyPage() {
 								{t("about.cloudTitle")}
 							</p>
 						</div>
-						<p className="mt-1.5 text-xs leading-relaxed text-(--text-muted)">
+						<p className="text-xs leading-relaxed text-(--text-muted)">
 							{t("about.cloudDesc")}
 						</p>
 					</div>
 				</div>
 
 				{/* Version + update check — the card's single meta row: the
-			    version text with the (smaller) update-check button beside
-			    it at a 24px gap (user spec). The check is user-initiated
+			    version pair (label + value, visually bound as one unit)
+			    on the left, the update-check action pushed to the row's
+			    right edge via justify-between. The check is user-initiated
 			    against the release manifest (C-DATA-1 category-2 allowed
-			    update check; fires ONLY on button click, never on
-			    mount). */}
-				<div className="mt-5 flex flex-wrap items-center gap-6 border-t border-border/5 px-5 py-4">
-					<span className="text-sm font-medium text-(--text-primary)">
-						{t("about.version")}
-					</span>
-					<span className="text-sm text-(--text-muted)">
-						{t("about.versionValue", { version: APP_VERSION })}
-					</span>
+			    update check; fires ONLY on button click, never on mount). */}
+				<div className="flex flex-wrap items-center justify-between gap-4 border-t border-border/5 p-4">
+					<div className="flex items-baseline gap-2">
+						<span className="text-sm font-medium text-(--text-primary)">
+							{t("about.version")}
+						</span>
+						<span className="text-sm text-(--text-muted)">
+							{t("about.versionValue", { version: APP_VERSION })}
+						</span>
+					</div>
 					<Button
 						variant="outline"
 						size="xs"
@@ -271,7 +273,7 @@ export default function AboutAndPrivacyPage() {
 							aria-hidden="true"
 							className="mt-0.5 size-5 shrink-0 text-(--text-muted)"
 						/>
-						<div className="min-w-0 text-sm leading-relaxed text-(--text-muted)">
+						<div className="flex min-w-0 flex-col gap-1 text-sm leading-relaxed text-(--text-muted)">
 							<p className="font-medium text-(--text-primary)">
 								{t(topic.title)}
 							</p>
@@ -279,7 +281,7 @@ export default function AboutAndPrivacyPage() {
 							    readable; the rows can stay full width.
 							    text-balance: even out the final line of
 							    the description when it wraps. */}
-							<p className="mt-1 max-w-prose text-balance">
+							<p className="max-w-prose text-balance">
 								{t(topic.desc, {
 									configDir: configDir || t("about.unknown"),
 								})}

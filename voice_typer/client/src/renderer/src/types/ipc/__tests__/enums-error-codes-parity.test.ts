@@ -48,7 +48,7 @@ import type { ErrorCodes } from "../enums";
  * at compile time) if the literal somehow slips through.
  */
 
-describe("ZU-18: ErrorCodes union — cross-language parity codes are present", () => {
+describe("ErrorCodes union — cross-language parity codes are present", () => {
 	it("'pending_full' is assignable to ErrorCodes (Rust PENDING_FULL_CODE parity)", () => {
 		// VP-5: the Rust host emits the BARE legacy form `pending_full`
 		// (allowlist.rs PENDING_FULL_CODE) — the namespaced

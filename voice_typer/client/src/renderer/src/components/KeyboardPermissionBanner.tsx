@@ -179,7 +179,7 @@ export function KeyboardPermissionBanner({
 	return (
 		<div
 			role="alert"
-			className="rounded-lg border border-warning/40 bg-warning/10 p-4 space-y-2"
+			className="rounded-lg border border-warning/40 bg-warning/10 p-4 flex flex-col gap-2"
 		>
 			<div className="flex items-start gap-2">
 				<HugeiconsIcon
@@ -187,7 +187,7 @@ export function KeyboardPermissionBanner({
 					strokeWidth={1.625}
 					className="h-4 w-4 shrink-0 mt-0.5 text-warning"
 				/>
-				<div className="flex-1 space-y-1">
+				<div className="flex-1 flex flex-col gap-1">
 					<p className="text-sm font-semibold text-warning">
 						{t("keyboard.permissionDeniedTitle")}
 					</p>
@@ -200,7 +200,7 @@ export function KeyboardPermissionBanner({
 				<a
 					href={deepLink}
 					aria-label={t("keyboard.openSettingsAria")}
-					className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/5 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 transition-colors"
+					className="inline-flex items-center gap-2 self-start rounded-md border border-warning/40 bg-warning/5 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 transition-colors"
 				>
 					<HugeiconsIcon
 						icon={Settings03Icon}

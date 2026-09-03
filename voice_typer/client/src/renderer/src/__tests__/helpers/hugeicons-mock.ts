@@ -35,6 +35,7 @@ const hugeiconsMock = {
 	AlertCircleIcon: make("AlertCircleIcon"),
 	Analytics01Icon: make("Analytics01Icon"),
 	ArrowDown01Icon: make("ArrowDown01Icon"),
+	ArrowLeft01Icon: make("ArrowLeft01Icon"),
 	ArrowRight01Icon: make("ArrowRight01Icon"),
 	ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 	ArrowUp01Icon: make("ArrowUp01Icon"),
@@ -63,6 +64,7 @@ const hugeiconsMock = {
 	Download01Icon: make("Download01Icon"),
 	Download03Icon: make("Download03Icon"),
 	EraserIcon: make("EraserIcon"),
+	EyeIcon: make("EyeIcon"),
 	FacebookIcon: make("FacebookIcon"),
 	File02Icon: make("File02Icon"),
 	FileDownloadIcon: make("FileDownloadIcon"),
@@ -128,6 +130,7 @@ const hugeiconsMock = {
 	ViewIcon: make("ViewIcon"),
 	ViewOffIcon: make("ViewOffIcon"),
 	VoiceIdIcon: make("VoiceIdIcon"),
+	VolumeHighIcon: make("VolumeHighIcon"),
 	WhatsappIcon: make("WhatsappIcon"),
 	ZapIcon: make("ZapIcon"),
 };

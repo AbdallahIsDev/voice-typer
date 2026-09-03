@@ -10,9 +10,11 @@
  *
  * Visual states:
  *   1. Active model, available (downloaded) →
- *      disabled "Active" tick. NO Delete icon — the backend refuses to
- *      delete an in-use model, so a Delete button here would be a
- *      dead-end affordance that always errors.
+ *      disabled "Active" tick + Delete icon. Deleting the active model
+ *      is allowed: the backend removes the files and reassigns the
+ *      selection (first other downloaded model, or the "no model
+ *      selected" state when none exists) — the old refuse-and-switch
+ *      flow dead-ended users with a single downloaded model.
  *   2. Not downloaded → "Download" button (disabled while any other
  *      download is in progress; shows a localized "one at a time"
  *      tooltip when disabled). NO Delete icon — a model that isn't on
@@ -52,9 +54,11 @@
 import {
 	Delete01Icon,
 	Download01Icon,
+	Loading03Icon,
 	Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -87,6 +91,11 @@ export interface ModelCardActionsProps {
 	isDownloadingThis: boolean;
 	/** True while ANY download is in progress (disables the Download button on other models). */
 	anyDownloading: boolean;
+	/** True while ANY deps install is in flight (disables the other
+	 * models' Download/Deps buttons — the backend installs one deps set
+	 * at a time, and a second concurrent click cleared the first model's
+	 * in-flight spinner because `installingDepsModel` is a single slot). */
+	anyInstallingDeps?: boolean;
 	onSelect: () => void;
 	onDownload: () => void;
 	onDelete: () => void;
@@ -100,13 +109,33 @@ export interface ModelCardActionsProps {
 }
 
 /**
- *  fix #12 helper: returns the "one download at a time" tooltip
- * text. Falls back to a literal English string when the i18n key is
- * missing (translation catalogue additions are a separate task — see
- * the i18n review sub-agent's findings).
+ * fix #12 helper: returns the "one download at a time" tooltip text.
+ * The key is verified present in every locale catalogue.
  */
 function oneAtATimeTitle(): string {
 	return t("models.download.oneAtATime");
+}
+
+/**
+ * Native `title` tooltips never fire on a disabled Button: button.tsx
+ * applies `disabled:pointer-events-none`, and a pointer-events:none
+ * element is never hit-tested — the hint was dead on arrival. The hint
+ * must live on a WRAPPER that keeps pointer events. The button keeps
+ * its `title` attribute too (tests assert its presence there).
+ */
+function DisabledHintTooltip({
+	hint,
+	children,
+}: {
+	hint?: string;
+	children: ReactNode;
+}) {
+	if (!hint) return <>{children}</>;
+	return (
+		<span className="inline-flex" title={hint}>
+			{children}
+		</span>
+	);
 }
 
 /**
@@ -129,6 +158,10 @@ export function ModelCardActions({
 	isSelectingThis,
 	isDownloadingThis,
 	anyDownloading,
+	//previously declared on the interface but never
+	// destructured or read — the Download/Deps buttons now disable on
+	// any in-flight deps install, not just downloads.
+	anyInstallingDeps,
 	onSelect,
 	onDownload,
 	onDelete,
@@ -141,14 +174,15 @@ export function ModelCardActions({
 	// ── Branch 1: Active model, available ───────────────────────────
 	//
 	// Renders only when the active model is actually usable (downloaded).
-	// The Delete icon is GONE here. The backend refuses to delete an
-	// in-use model ("Cannot delete the active model. Switch to another
-	// model first.") — showing a Delete button that ALWAYS errors is a
-	// dead-end affordance. Users switch to another model first; the
-	// Delete icon appears on the downloaded (inactive) card.
+	// The Delete icon is PRESENT: deleting the active model is allowed —
+	// the backend removes the files and reassigns the selection (first
+	// other downloaded model, or the "no model selected" state when none
+	// exists). The old refuse-and-switch flow was a dead-end for users
+	// with a single downloaded model.
 	if (model.isActive && model.downloaded) {
 		return (
 			<div className="flex items-center gap-2 shrink-0">
+				<DeleteButton model={model} onDelete={onDelete} />
 				<Button
 					variant="secondary"
 					size="sm"
@@ -181,41 +215,49 @@ export function ModelCardActions({
 	// button's in-flight treatment so SR users hear the in-progress
 	// state (not the stale per-model label).
 	if (model.depsInstallable && !model.depsOk) {
+		// Disabled while ANOTHER model's download OR deps install is in
+		// flight (this model's own in-flight install disables it too — it
+		// shows the "Downloading…" spinner).
+		const depsDisabled =
+			anyDownloading || (Boolean(anyInstallingDeps) && !isInstallingDepsThis);
+		const depsHint =
+			depsDisabled && !isInstallingDepsThis ? oneAtATimeTitle() : undefined;
 		return (
 			<div className="flex items-center gap-2 shrink-0">
-				<Button
-					variant="outline"
-					size="sm"
-					//(2026-08-21): left-aligned like the size Download
-					// buttons (content shares the same start position).
-					className={cn("gap-1", DOWNLOAD_CONTENT_ALIGNMENT)}
-					onClick={onInstallDeps}
-					disabled={anyDownloading}
-					aria-busy={isInstallingDepsThis}
-					aria-label={
-						isInstallingDepsThis
+				<DisabledHintTooltip hint={depsHint}>
+					<Button
+						variant="outline"
+						size="sm"
+						//(2026-08-21): left-aligned like the size Download
+						// buttons (content shares the same start position).
+						className={cn("gap-1", DOWNLOAD_CONTENT_ALIGNMENT)}
+						onClick={onInstallDeps}
+						disabled={depsDisabled}
+						aria-busy={isInstallingDepsThis}
+						aria-label={
+							isInstallingDepsThis
+								? t("models.downloading")
+								: t("models.download.depsAria", { name: model.name })
+						}
+						//fix #12: explain why the button is disabled.
+						//skip the tooltip when THIS is the in-flight
+						// install (the button is showing "Downloading…" — the
+						// "one at a time" hint would be contradictory).
+						title={depsHint}
+					>
+						<HugeiconsIcon
+							//in-flight presentation: a LOADING spinner glyph
+							// (spinning) — the static download icon spinning
+							// in place read as a broken/odd affordance.
+							icon={isInstallingDepsThis ? Loading03Icon : Download01Icon}
+							strokeWidth={2}
+							className={cn("h-4 w-4", isInstallingDepsThis && "animate-spin")}
+						/>
+						{isInstallingDepsThis
 							? t("models.downloading")
-							: t("models.download.depsAria", { name: model.name })
-					}
-					//fix #12: explain why the button is disabled.
-					//skip the tooltip when THIS is the in-flight
-					// install (the button is showing "Downloading…" — the
-					// "one at a time" hint would be contradictory).
-					title={
-						anyDownloading && !isInstallingDepsThis
-							? oneAtATimeTitle()
-							: undefined
-					}
-				>
-					<HugeiconsIcon
-						icon={Download01Icon}
-						strokeWidth={2}
-						className={cn("h-4 w-4", isInstallingDepsThis && "animate-spin")}
-					/>
-					{isInstallingDepsThis
-						? t("models.downloading")
-						: t("models.download.deps")}
-				</Button>
+							: t("models.download.deps")}
+					</Button>
+				</DisabledHintTooltip>
 				{/* A downloaded model whose deps are missing can still be
 				    deleted (files on disk). A NOT-downloaded model has
 				    nothing to delete — no trash icon (matches the
@@ -239,64 +281,75 @@ export function ModelCardActions({
 	// anything — a trash affordance next to "Download" falsely implies
 	// an installed model that can be removed.)
 	if (!model.downloaded) {
+		// Disabled while another model's download OR deps install is in
+		// flight (this model's own in-flight download disables it too —
+		// it shows the "Downloading…" spinner).
+		const downloadDisabled =
+			anyDownloading || (Boolean(anyInstallingDeps) && !isDownloadingThis);
+		const downloadHint =
+			downloadDisabled && !isDownloadingThis ? oneAtATimeTitle() : undefined;
 		return (
 			<div className="flex items-center gap-2 shrink-0">
-				<Button
-					variant="outline"
-					size="sm"
-					//(2026-08-21): fixed, identical width for every model-size
-					// Download button (see DOWNLOAD_SIZE_BUTTON_WIDTH above) —
-					// "75 MB" / "3 GB" / "809 MB" all render the same button
-					// width + alignment instead of fitting their content. The
-					// content is left-aligned (justify-start) so the icon +
-					// size text begin at the same horizontal position in every
-					// model row instead of being centered.
-					className={cn(
-						"gap-2 text-xs",
-						DOWNLOAD_SIZE_BUTTON_WIDTH,
-						DOWNLOAD_CONTENT_ALIGNMENT,
-					)}
-					onClick={onDownload}
-					disabled={anyDownloading}
-					aria-busy={isDownloadingThis}
-					aria-label={
-						isDownloadingThis
-							? t("models.downloading")
-							: t("models.card.downloadAria", { name: model.name })
-					}
-					//fix #12: explain why the button is disabled
-					// (one download at a time) so users don't think the
-					//button is broken. : skip the tooltip when THIS
-					// is the in-flight download (the button is showing
-					// "Downloading…" — the "one at a time" hint would be
-					// contradictory).
-					title={
-						anyDownloading && !isDownloadingThis ? oneAtATimeTitle() : undefined
-					}
-				>
-					<HugeiconsIcon
-						icon={Download01Icon}
-						strokeWidth={2}
-						//(2026-08-28): compact 12px icon so it visually
-						// matches the text-xs size instead of dominating
-						// the button.
+				<DisabledHintTooltip hint={downloadHint}>
+					<Button
+						variant="outline"
+						size="sm"
+						//(2026-08-21): fixed, identical width for every model-size
+						// Download button at REST (see DOWNLOAD_SIZE_BUTTON_WIDTH
+						// above) — "75 MB" / "3 GB" / "809 MB" all render the same
+						// button width + alignment. The content is left-aligned
+						// (justify-start) so the icon + size text begin at the same
+						// horizontal position in every model row.
+						// (2026-09-03): the IN-FLIGHT state drops the fixed width —
+						// the label swaps to the localized "Downloading…" so a
+						// content-fitted width is used for that state (user request:
+						// no truncated size text inside a disabled spinner button).
 						className={cn(
-							DOWNLOAD_ICON_CLASS,
-							isDownloadingThis && "animate-spin",
+							"gap-2 text-xs whitespace-nowrap",
+							!isDownloadingThis && DOWNLOAD_SIZE_BUTTON_WIDTH,
+							DOWNLOAD_CONTENT_ALIGNMENT,
 						)}
-					/>
-					{/* (UI/UX overhaul 2026-08-20, point 7): the download
-					    button shows the download icon followed by the model
-					    size ONLY (e.g. "↓ 75 MB") — no "Size:" label prefix
-					    (the icon communicates "download"). The size was
-					    moved here from the muted metadata line where it was
-					    easy to overlook. The downloadAria aria-label still
-					    carries the full affordance, and the label swaps to
-					    "Downloading…" while in-flight. (2026-08-21:
-					    `formatModelSize` strips `~`/`≈` and inserts the
-					    number/unit space — see lib/utils/models.) */}
-					<span className="font-medium">{formatModelSize(model.size)}</span>
-				</Button>
+						onClick={onDownload}
+						disabled={downloadDisabled}
+						aria-busy={isDownloadingThis}
+						aria-label={
+							isDownloadingThis
+								? t("models.downloading")
+								: t("models.card.downloadAria", { name: model.name })
+						}
+						//fix #12: explain why the button is disabled
+						// (one download at a time) so users don't think the
+						//button is broken. : skip the tooltip when THIS
+						// is the in-flight download (the button is showing
+						// "Downloading…" — the "one at a time" hint would be
+						// contradictory).
+						title={downloadHint}
+					>
+						<HugeiconsIcon
+							//in-flight presentation: a LOADING spinner glyph
+							// (spinning) replaces the download glyph — the
+							// static download icon spinning around itself read
+							// as broken. At rest the compact download icon
+							// matches the text-xs size.
+							icon={isDownloadingThis ? Loading03Icon : Download01Icon}
+							strokeWidth={2}
+							className={cn(
+								isDownloadingThis ? "h-3.5 w-3.5" : DOWNLOAD_ICON_CLASS,
+								isDownloadingThis && "animate-spin",
+							)}
+						/>
+						{/* At rest: download icon + model size only (the icon
+						    communicates "download" — see the 2026-08-20 overhaul,
+						    point 7). In-flight: the localized "Downloading…" label
+						    replaces the size (a frozen size number inside a
+						    disabled spinner button misreads as "downloaded"). */}
+						{isDownloadingThis ? (
+							t("models.downloading")
+						) : (
+							<span className="font-medium">{formatModelSize(model.size)}</span>
+						)}
+					</Button>
+				</DisabledHintTooltip>
 			</div>
 		);
 	}
@@ -305,8 +358,12 @@ export function ModelCardActions({
 	//
 	//#9: Select now uses `Tick02Icon` (was `PlayIcon`) —
 	// Select is a "mark active" affordance, not a "play media" one.
+	// Destructive control sits LEFT of the primary action — same
+	// position as Branch 1's Delete-before-Active layout, so the
+	// trash icon doesn't jump between card states.
 	return (
 		<div className="flex items-center gap-2 shrink-0">
+			<DeleteButton model={model} onDelete={onDelete} />
 			<Button
 				variant={isSelectingThis ? "secondary" : "outline"}
 				size="sm"
@@ -325,14 +382,13 @@ export function ModelCardActions({
 				/>
 				{isSelectingThis ? t("models.selecting") : t("models.select")}
 			</Button>
-			<DeleteButton model={model} onDelete={onDelete} />
 		</div>
 	);
 }
 
 // ── Sub-component: Delete icon button ─────────────────────────────────
 //
-// Extracted because it appears in both Branch 1 (Active) and Branch 3
+// Extracted because it appears in Branch 1 (Active) and Branch 3
 // (Downloaded) — a verbatim duplicate in the original 60-line ternary.
 
 interface DeleteButtonProps {

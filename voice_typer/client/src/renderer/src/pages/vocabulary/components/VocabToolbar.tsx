@@ -138,8 +138,12 @@ export function VocabToolbar({
 					// + text-destructive-foreground / white icon) — the same
 					// interaction must be reused for every Clear All control
 					// (Vocabulary, Templates, History) so hover always reads
-					// as solid red + white, not a tinted wash.
-					className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+					// as solid red + white, not a tinted wash. The dark:hover
+					// restatement is REQUIRED: the outline variant's
+					// dark:hover:bg-input/30 out-specifies a plain
+					// hover:bg-destructive (Tailwind v4 `&:is(.dark *)`), so
+					// dark mode would hover translucent grey, not solid red.
+					className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
 					aria-label={t("vocabulary.clearAllAria")}
 					title={t("vocabulary.clearAllAria")}
 				>
@@ -174,7 +178,9 @@ export function VocabToolbar({
 				size="sm"
 				onClick={onAdd}
 				disabled={addDisabled}
-				className="ms-auto gap-2"
+				// Parent row is `justify-between`, so the single primary
+				// action needs no auto-margin to reach the right edge.
+				className="gap-2"
 			>
 				<HugeiconsIcon
 					icon={Add01Icon}

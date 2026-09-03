@@ -53,13 +53,15 @@
 		"group": {
 			"system": "Sistema",
 			"main": "Principal"
-		},
-		"settingsGeneral": "General",
-		"settingsAiAudio": "IA y Audio",
-		"settingsAppearance": "Apariencia",
-		"settingsPrivacy": "Privacidad"
+		}
 	},
 	"home": {
+		"showMore": "Mostrar más",
+		"showLess": "Mostrar menos",
+		"copy": "Copiar",
+		"copyAria": "Copiar la transcripción al portapapeles",
+		"discard": "Descartar",
+		"discardAria": "Descartar esta transcripción de la vista previa",
 		"ready": "LISTO",
 		"recording": "GRABANDO",
 		"transcribing": "TRANSCRIBIENDO",
@@ -383,7 +385,7 @@
 		"correctionsTooltip": "Correcciones de vocabulario que el motor aplicó durante el dictado",
 		"correctionsRate": "{pct}% de los dictados",
 		"shareTooltip": "Exporta una imagen de resumen compartible",
-		"totalDictationsPeriod": "Dictados totales ({range})",
+		"totalDictations": "Dictados totales",
 		"trendDownLabel": "{pct}% menos que el período anterior",
 		"trendFlatLabel": "Igual que el período anterior",
 		"trendUpLabel": "{pct}% más que el período anterior",
@@ -561,6 +563,8 @@
 		"loadedViaHint": "Cómo se cargó el modelo de voz (integrado, descargado o una ruta personalizada)."
 	},
 	"settings": {
+		"apiUrlInvalid": "Introduce una URL http(s) válida",
+		"otherTabsResults": "Resultados de otras pestañas",
 		"title": "Configuración",
 		"searchPlaceholder": "Buscar configuración…",
 		"searchNoMatch": "Ninguna configuración coincide con \"{query}\"",
@@ -572,12 +576,6 @@
 		},
 		"noResultsTitle": "Sin resultados",
 		"noResultsMessage": "Pruebe con otro término de búsqueda o borre el filtro para ver todos los ajustes.",
-		"tabs": {
-			"appearance": "Apariencia",
-			"general": "General",
-			"aiAudio": "IA y Audio",
-			"privacy": "Privacidad"
-		},
 		"general": "General",
 		"language": "Idioma",
 		"languageDescription": "Idioma de reconocimiento de voz",
@@ -730,7 +728,6 @@
 		"resetToDefaultsToast": "Configuración restablecida a los valores predeterminados",
 		"fetchDefaultsFailed": "No se pudieron obtener los valores predeterminados del backend",
 		"resetFailed": "No se pudo restablecer a los valores predeterminados",
-		"tabsAria": "Pestañas de configuración",
 		"appearance": {
 			"title": "Apariencia",
 			"description": "Esquema de color, tema predefinido y tamaño de texto.",
@@ -761,6 +758,24 @@
 			"contrastWarningShort": "Contraste {ratio}:1"
 		},
 		"hotkeySection": {
+			"warnPasswordPasteAria": "Confirmar pegado en campos de contraseña",
+			"warnPasswordPasteInfo": "Muestra una confirmación antes de pegar en campos de contraseña.",
+			"warnPasswordPasteInfoSearch": "aviso antes de pegar contraseñas",
+			"warnPasswordPaste": "Confirmar pegado en campos de contraseña",
+			"warnElevatedPasteAria": "Confirmar pegado en ventanas de administrador",
+			"warnElevatedPasteInfo": "Muestra una confirmación antes de pegar en ventanas de administrador (elevadas).",
+			"warnElevatedPasteInfoSearch": "aviso antes del pegado elevado",
+			"warnElevatedPaste": "Confirmar pegado en ventanas de administrador",
+			"unsafePasteAria": "Pegar en ventanas no identificadas",
+			"unsafePasteInfo": "Pega las transcripciones incluso cuando no se puede identificar la ventana enfocada anteriormente — el texto puede quedar en la ventana equivocada.",
+			"unsafePasteInfoSearch": "pegar sin comprobación de foco",
+			"unsafePaste": "Pegar en ventanas no identificadas",
+			"testSoundAria": "Reproducir un sonido de grabación de muestra",
+			"testSound": "Probar sonido",
+			"soundVolumeAria": "Volumen de los avisos sonoros",
+			"soundVolumeInfo": "Define el volumen con que suenan los indicadores de inicio y parada de grabación, desde silencio (0) hasta el máximo (1).",
+			"soundVolumeInfoSearch": "Volumen de los sonidos de inicio y parada",
+			"soundVolume": "Volumen del sonido",
 			"hotkeyTitle": "Atajo de teclado",
 			"hotkeyDescription": "Tecla para iniciar y detener el dictado.",
 			"dictationKey": "Tecla de dictado",
@@ -980,6 +995,12 @@
 			"autoApplyConfidenceAria": "Confianza para aplicación automática"
 		},
 		"privacy": {
+			"clipboardSaveRestoreAria": "Guardar y restaurar el portapapeles",
+			"clipboardSaveRestoreInfo": "Recuerda el contenido del portapapeles antes de pegar y lo restaura después.",
+			"clipboardSaveRestoreLabel": "Guardar y restaurar el portapapeles",
+			"logTranscriptionsAria": "Registrar transcripciones",
+			"logTranscriptionsInfo": "Escribe cada transcripción en el archivo de registro de la app para diagnóstico. El texto permanece en este dispositivo.",
+			"logTranscriptionsLabel": "Registrar transcripciones",
 			"audioRecoveryTitle": "Audio y recuperación",
 			"audioRecoveryDescription": "Monitoreo de calidad y seguridad.",
 			"crashRecovery": "Recuperación tras fallos",
@@ -1089,7 +1110,7 @@
 			"diagnosticBundleExportFailed": "Error al exportar el paquete de diagnóstico"
 		},
 		"fastStartup": "Inicio rápido (precalentamiento)",
-		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde Configuración → Solución de problemas → Estado del caché.",
+		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde Configuración → Avanzado → Estado del caché.",
 		"offlinePackConsent": "Descargar paquete del motor sin conexión",
 		"offlinePackConsentDescription": "Permite descargar en segundo plano el motor sin conexión (modelos de reconocimiento de voz) desde GitHub Releases. Actívelo solo si desea dictado sin conexión tras una instalación nueva; la descarga solo comienza tras activarlo.",
 		"keyring": {
@@ -1136,6 +1157,14 @@
 			"systemLayout": "Disposición del sistema: lado {side} — {buttons}",
 			"systemUnavailable": "Disposición del sistema no disponible; se usa la predeterminada (derecha, todos los botones).",
 			"followingSystem": "Siguiendo la disposición de tu escritorio"
+		},
+		"hub": {
+			"aiDescription": "Pulido con LLM, mejora gramatical y automatización de vocabulario.",
+			"advancedTitle": "Avanzado",
+			"advancedDescription": "Solución de problemas, diagnóstico, recursos, caché y actualizaciones.",
+			"backToSettings": "Volver a Configuración",
+			"on": "Activado",
+			"off": "Desactivado"
 		}
 	},
 	"models": {
@@ -1145,12 +1174,9 @@
 		"asrTitle": "Modelos",
 		"asrSubtitle": "Configura modelos de voz locales y en la nube.",
 		"title": "Modelos",
-		"description": "Configura tus motores de reconocimiento de voz",
 		"active": "Activo",
 		"delete": "Eliminar",
-		"use": "Usar",
 		"select": "Seleccionar",
-		"downloadModel": "Descargar",
 		"downloading": "Descargando…",
 		"selecting": "Seleccionando…",
 		"providers": {
@@ -1170,17 +1196,17 @@
 		"lastResortUnloaded": "El modelo no está cargado.",
 		"lastResortUnloadedHint": "Abre la página de Modelos para descargar un modelo.",
 		"snack": {
-			"parakeetDepsRequired": "Se requieren dependencias para Parakeet. Descarga primero.",
 			"depsRequiredName": "Se requieren dependencias para {name}. Descarga primero.",
 			"notDownloaded": "El modelo \"{name}\" no se ha descargado aún. Descárgalo primero.",
 			"usingModel": "Usando modelo: {name}",
 			"downloaded": "{name} descargado correctamente",
 			"downloadFailedName": "Error al descargar {name}",
 			"downloadFailed": "Error de descarga: {error}",
-			"cannotDeleteActive": "No se puede eliminar el modelo activo. Cambia a otro modelo primero.",
 			"deleted": "Eliminado: {name}",
 			"deleteFailed": "Error al eliminar",
 			"deleteFailedError": "Error al eliminar: {error}",
+			"apiKeyEmpty": "Introduce una clave API primero",
+			"apiKeyUnchanged": "Clave API sin cambios",
 			"apiKeySaved": "Clave API de {provider} guardada",
 			"consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este proveedor.",
 			"consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
@@ -1188,25 +1214,19 @@
 			"pauseFailed": "Error al pausar: {error}",
 			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
 			"cancelFailed": "Error al cancelar: {error}",
-			"parakeetDepsInstalled": "Dependencias de Parakeet instaladas correctamente.",
 			"depsInstalled": "Dependencias instaladas correctamente.",
-			"selectFailed": "No se pudo seleccionar el modelo."
+			"selectFailed": "No se pudo seleccionar el modelo.",
+			"downloadAlreadyActive": "Ya hay otra descarga de modelo en curso (puede estar en pausa). Reanúdela o cancélala primero."
 		},
 		"test": {
 			"needApiKey": "Por favor, introduce una clave API primero",
 			"connectionSuccessful": "Conexión exitosa — la clave API es válida.",
 			"connectionFailed": "Error de conexión: {status} {statusText}",
-			"endpointUnavailable": "Clave API guardada — endpoint de prueba no disponible para este proveedor.",
-			"connectionTestFailed": "Error en la prueba de conexión: {error}",
-			"connectionNetworkError": "Error de red: no se pudo conectar con el servidor de modelos."
+			"connectionTestFailed": "Error en la prueba de conexión: {error}"
 		},
 		"status": {
-			"active": "Activo",
-			"downloaded": "Descargado",
 			"depsRequired": "Dependencias requeridas",
-			"available": "Disponible",
-			"insufficientDisk": "Espacio en disco insuficiente",
-			"insufficientDiskSpace": "Espacio en disco insuficiente"
+			"insufficientDisk": "Espacio en disco insuficiente"
 		},
 		"import": {
 			"title": "Importar modelo",
@@ -1215,8 +1235,7 @@
 			"success": "{count} modelos importado(s): {models}",
 			"noModelsFound": "No se encontraron carpetas de modelo conocidas en ese directorio. Seleccione la carpeta de caché de HuggingFace (contiene directorios 'models--*').",
 			"failedAll": "No se pudo importar ningún modelo desde ese directorio.",
-			"failed": "Error al importar el modelo: {error}",
-			"importModelAria": "Importar modelo desde carpeta"
+			"failed": "Error al importar el modelo: {error}"
 		},
 		"progress": {
 			"eta": "Tiempo restante {time}",
@@ -1243,23 +1262,18 @@
 			"cancelConfirmAction": "Cancelar descarga"
 		},
 		"card": {
-			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"multilingual": "Multilingüe",
 			"englishOnly": "Solo Inglés",
 			"speedSuffix": "Velocidad {rating}",
 			"distilled": "Destilado",
 			"activeAria": "Activo: {name}",
-			"useAria": "Usar {name}",
 			"downloadAria": "Descargar {name}",
 			"selectAria": "Seleccionar {name}",
 			"deleteAria": "Eliminar {name}",
-			"accuracy": "Precisión",
 			"vramLabel": "VRAM",
 			"werLabel": "WER"
 		},
 		"cloud": {
-			"title": "Proveedores de reconocimiento de voz en la nube",
-			"description": "Configura servicios de transcripción basados en la nube",
 			"apiKey": "Clave API",
 			"apiKeyPlaceholder": "Introduce tu clave API",
 			"saveKeyAria": "Guardar clave API de {provider}",
@@ -1283,53 +1297,13 @@
 		},
 		"deleteDialog": {
 			"title": "Eliminar Modelo",
-			"message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede deshacer.",
-			"messageWithSize": "¿Eliminar {name} ({size})? Esto no se puede deshacer."
+			"message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede deshacer."
 		},
-		"subtitle": "Descarga y administra modelos de reconocimiento de voz",
 		"localModels": "Modelos Locales",
 		"localModelsDescription": "Ejecuta modelos Whisper directamente en tu dispositivo. No requiere conexión a internet después de la descarga.",
-		"downloaded": "Descargado",
-		"dependenciesRequired": "Dependencias requeridas",
-		"available": "Disponible",
-		"downloadFirst": "Descargar primero",
-		"activeModel": "Activo",
-		"noModelSelected": "Ningún modelo seleccionado",
-		"setAsActive": "Establecer como Activo",
 		"deleteModel": "Eliminar",
-		"cannotDeleteActive": "No se puede eliminar el modelo activo. Cambia a otro modelo primero.",
-		"downloadStarted": "Descarga iniciada",
-		"downloadComplete": "Descarga completa",
-		"downloadFailed": "Error en la descarga",
-		"deleteFailed": "Error al eliminar",
-		"enterApiKey": "Introduce tu clave API",
 		"apiKeyPlaceholder": "Introduce tu clave API",
-		"testConnection": "Probar Conexión",
-		"testing": "Probando...",
-		"connectionSuccessful": "Conexión exitosa — la clave API es válida.",
-		"connectionFailed": "Error de conexión",
-		"pleaseEnterApiKey": "Por favor, introduce una clave API primero",
-		"size": "Tamaño",
-		"language": "Idioma",
-		"fastest": "Más rápido",
-		"fast": "Rápido",
-		"slow": "Lento",
 		"variable": "Variable (cambiante)",
-		"gpuRequired": "GPU requerido",
-		"cpuOnly": "Solo CPU",
-		"openaiWhisperApi": "API de OpenAI Whisper",
-		"groqWhisperApi": "API de Groq Whisper",
-		"deepgramApi": "API de Deepgram",
-		"configureEngines": "Configura tus motores de reconocimiento de voz",
-		"benchmark": {
-			"notImplemented": "Benchmark aún no implementado.",
-			"title": "Benchmark de Modelo",
-			"description": "Compara el rendimiento del modelo en tu sistema",
-			"runAria": "Ejecutar benchmark de modelo",
-			"running": "Ejecutando...",
-			"run": "Ejecutar Benchmark"
-		},
-		"benchmarkNotImplemented": "Benchmark aún no implementado.",
 		"speed": {
 			"fastest": "Más rápido",
 			"variable": "Variable",
@@ -1337,21 +1311,17 @@
 			"fast": "Rápido",
 			"medium": "Media"
 		},
-		"openFolderAria": "Abrir el directorio de modelos en el explorador de archivos",
-		"openFolderFailed": "Error al abrir la carpeta",
 		"disk": {
 			"lowSpaceBody": "No hay suficiente espacio para descargar modelos",
 			"lowSpaceTitle": "Poco espacio en disco",
 			"freeSpace": "{space} libre"
 		},
-		"loading": "Cargando modelos…",
 		"openFolder": {
 			"label": "Abrir carpeta de modelos",
 			"aria": "Mostrar carpeta de modelos en el administrador de archivos"
 		},
 		"cloudModels": "Modelos en la Nube",
 		"cloudModelsDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API.",
-		"activeModelSummaryLabel": "Modelo activo:",
 		"noModelBanner": "No hay ningún modelo de voz seleccionado. Seleccione un modelo a continuación."
 	},
 	"tooltips": {
@@ -1439,6 +1409,7 @@
 			"textSizeDown": "Reducir el tamaño del texto",
 			"title": "Atajos de teclado",
 			"toggleSidebar": "Alternar barra lateral",
+			"toggleDictation": "Alternar dictado",
 			"dismissBubble": "Descartar burbuja"
 		}
 	},
@@ -1506,6 +1477,7 @@
 		"charsSuffix_other": " ({count} caracteres)"
 	},
 	"onboarding": {
+		"doneHelpHint": "Consejo: pulsa ? en cualquier lugar para abrir la ayuda de atajos de teclado.",
 		"applyFailedTitle": "No se pudo completar la configuración",
 		"applyFailedDescription": "No pudimos aplicar tu configuración. Inténtalo de nuevo, u omite este paso y termínalo más tarde en Ajustes.",
 		"welcomeTitle": "Bienvenido a {appName}",
@@ -1514,7 +1486,7 @@
 		"step2Item": "Conceder permiso de monitorización del teclado",
 		"step3Item": "Selecciona un atajo",
 		"consentTitle": "Privacidad y consentimiento",
-		"consentDescription": "Elija a qué da su consentimiento. Todo está desactivado por defecto — puede cambiarlo en cualquier momento en Configuración → Privacidad.",
+		"consentDescription": "Elija a qué da su consentimiento. Todo está desactivado por defecto — puede cambiarlo en cualquier momento en Configuración → Privacidad y consentimiento.",
 		"micTitle": "Elige tu micrófono",
 		"micDescription": "Selecciona el micrófono que deseas usar para el dictado. Puedes cambiarlo más tarde en Configuración.",
 		"micSelectAria": "Seleccionar micrófono",
@@ -1557,7 +1529,7 @@
 		"permissionsTestFailure": "No se detectó el atajo. Revisa los pasos de permiso anteriores e inténtalo de nuevo.",
 		"permissionsTestButton": "Probar atajo",
 		"skipConfirmTitle": "¿Omitir configuración?",
-		"skipConfirmMessage": "Omitir ahora significa que tu micrófono y tu atajo de teclado podrían no funcionar. Puedes volver a ejecutar este asistente de configuración más tarde desde Configuración → Solución de problemas, o configurar opciones individuales en Configuración.",
+		"skipConfirmMessage": "Omitir ahora significa que tu micrófono y tu atajo de teclado podrían no funcionar. Puedes volver a ejecutar este asistente de configuración más tarde desde Configuración → Avanzado → Solución de problemas, o configurar opciones individuales en Configuración.",
 		"skipConfirmLabel": "Omitir de todas formas",
 		"permissionsTestFailureBlocked": "Permiso aún requerido — concédelo y luego inténtalo de nuevo.",
 		"permissionsRefresh": "Actualizar permiso",
@@ -1734,7 +1706,8 @@
 		"wordsCount": "{count} palabras",
 		"removeFromFavorites": "Quitar de favoritos",
 		"addToFavorites": "Añadir a favoritos",
-		"noRecentActivity": "Sin actividad reciente"
+		"noRecentActivity": "Sin actividad reciente",
+		"loadTextFailed": "No se pudo cargar el texto completo"
 	},
 	"exportFormat": {
 		"export": "Exportar",
@@ -1961,6 +1934,10 @@
 		"restartBackendHint": "No se pudo reiniciar el backend desde esta ventana. Puede que esté administrado externamente; reinicie la aplicación."
 	},
 	"dialog": {
+		"discardChangesTitle": "¿Descartar cambios?",
+		"discardChangesMessage": "Cerrar ahora descartará tus ediciones sin guardar.",
+		"discardChangesConfirm": "Descartar cambios",
+		"discardChangesStay": "Seguir editando",
 		"pythonCrash": {
 			"title": "El backend de Python falló",
 			"body": "El backend de Python de {appName} salió inesperadamente con código {code} y ahora saldrá.",
@@ -2004,7 +1981,12 @@
 			"mic_disconnected": "Micrófono desconectado. Grabación detenida. Vuelve a conectar el micrófono para continuar.",
 			"mic_permission_revoked": "Permiso de micrófono revocado. Grabación detenida. Vuelve a conceder el acceso al micrófono en la configuración de privacidad de tu sistema para continuar.",
 			"silence_auto_stop": "Grabación detenida: no se detectó audio durante un período prolongado.",
-			"load_failed": "No se pudo cargar el modelo de voz.\n{error}\n\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga."
+			"load_failed": "No se pudo cargar el modelo de voz.\n{error}\n\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga.",
+			"start_failed_with_reason": "No se pudo iniciar la grabación.\n{reason}",
+			"mic_unplugged": "El micrófono se desconectó. Grabación detenida.",
+			"still_running": "La transcripción sigue en curso.\nLas grabaciones largas o el respaldo de CPU pueden tardar más.",
+			"xrun_title": "{app} — Problemas de audio",
+			"xrun_body": "Se detectaron {count} subdesbordamientos del búfer de audio. Cierre otras aplicaciones de audio o reduzca la carga de la CPU."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",

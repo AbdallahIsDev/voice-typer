@@ -53,13 +53,15 @@
 		"group": {
 			"system": "सिस्टम",
 			"main": "मुख्य"
-		},
-		"settingsGeneral": "सामान्य",
-		"settingsAiAudio": "AI और ऑडियो",
-		"settingsAppearance": "रूप",
-		"settingsPrivacy": "गोपनीयता"
+		}
 	},
 	"home": {
+		"showMore": "और दिखाएँ",
+		"showLess": "कम दिखाएँ",
+		"copy": "कॉपी करें",
+		"copyAria": "ट्रांसक्रिप्शन को क्लिपबोर्ड पर कॉपी करें",
+		"discard": "छोड़ें",
+		"discardAria": "इस ट्रांसक्रिप्शन को प्रीव्यू से हटाएँ",
 		"ready": "तैयार",
 		"recording": "रिकॉर्डिंग",
 		"transcribing": "लिखा जा रहा है",
@@ -383,7 +385,7 @@
 		"correctionsTooltip": "डिक्टेशन के दौरान इंजन द्वारा लागू किए गए शब्दावली सुधार",
 		"correctionsRate": "{pct}% डिक्टेशन",
 		"shareTooltip": "साझा करने योग्य सारांश छवि निर्यात करता है",
-		"totalDictationsPeriod": "कुल डिक्टेशन ({range})",
+		"totalDictations": "कुल डिक्टेशन",
 		"trendDownLabel": "पिछली अवधि से {pct}% कम",
 		"trendFlatLabel": "पिछली अवधि के समान",
 		"trendUpLabel": "पिछली अवधि से {pct}% अधिक",
@@ -561,16 +563,12 @@
 		"loadedViaHint": "वाक् मॉडल कैसे लोड हुआ (बंडल, डाउनलोड किया हुआ, या कस्टम पथ)।"
 	},
 	"settings": {
+		"apiUrlInvalid": "मान्य http(s) URL दर्ज करें",
+		"otherTabsResults": "अन्य टैब के परिणाम",
 		"title": "सेटिंग्स",
 		"searchPlaceholder": "सेटिंग्स खोजें…",
 		"noResultsTitle": "कोई परिणाम नहीं मिला",
 		"noResultsMessage": "कोई अन्य खोज शब्द आज़माएं या सभी सेटिंग्स देखने के लिए फ़िल्टर साफ़ करें।",
-		"tabs": {
-			"appearance": "रूप",
-			"general": "सामान्य",
-			"aiAudio": "AI और ऑडियो",
-			"privacy": "गोपनीयता"
-		},
 		"general": "सामान्य",
 		"language": "भाषा",
 		"languageDescription": "वाक् पहचान भाषा",
@@ -723,7 +721,6 @@
 		"resetToDefaultsToast": "सेटिंग्स डिफ़ॉल्ट पर रीसेट की गईं",
 		"fetchDefaultsFailed": "बैकएंड से डिफ़ॉल्ट लाने में विफल",
 		"resetFailed": "डिफ़ॉल्ट पर रीसेट करने में विफल",
-		"tabsAria": "सेटिंग्स टैब",
 		"appearance": {
 			"title": "रूप",
 			"description": "रंग योजना, थीम प्रीसेट और पाठ आकार।",
@@ -754,6 +751,24 @@
 			"contrastWarningShort": "कंट्रास्ट {ratio}:1"
 		},
 		"hotkeySection": {
+			"warnPasswordPasteAria": "पासवर्ड फ़ील्ड में पेस्ट की पुष्टि करें",
+			"warnPasswordPasteInfo": "पासवर्ड इनपुट में पेस्ट करने से पहले पुष्टि दिखाएँ।",
+			"warnPasswordPasteInfoSearch": "पासवर्ड पेस्ट से पहले चेतावनी",
+			"warnPasswordPaste": "पासवर्ड फ़ील्ड में पेस्ट की पुष्टि करें",
+			"warnElevatedPasteAria": "एडमिन विंडो में पेस्ट की पुष्टि करें",
+			"warnElevatedPasteInfo": "एडमिनिस्ट्रेटर (एलिवेटेड) विंडो में पेस्ट करने से पहले पुष्टि दिखाएँ।",
+			"warnElevatedPasteInfoSearch": "एलिवेटेड पेस्ट से पहले चेतावनी",
+			"warnElevatedPaste": "एडमिन विंडो में पेस्ट की पुष्टि करें",
+			"unsafePasteAria": "अनजान विंडो में पेस्ट करें",
+			"unsafePasteInfo": "पिछली फ़ोकस्ड विंडो की पहचान न हो पाने पर भी ट्रांसक्रिप्शन पेस्ट करता है — पेस्ट ग़लत विंडो में जा सकता है।",
+			"unsafePasteInfoSearch": "फ़ोकस जाँच के बिना पेस्ट",
+			"unsafePaste": "अनजान विंडो में पेस्ट करें",
+			"testSoundAria": "एक नमूना रिकॉर्डिंग ध्वनि चलाएँ",
+			"testSound": "ध्वनि जाँचें",
+			"soundVolumeAria": "ध्वनि संकेत आयतन",
+			"soundVolumeInfo": "यह तय करता है कि रिकॉर्डिंग प्रारंभ और रोकने के संकेत-ध्वनि कितनी ज़ोर से बजें — मौन (0) से पूर्ण (1) तक।",
+			"soundVolumeInfoSearch": "प्रारंभ/रोक ध्वनियों का आयतन",
+			"soundVolume": "ध्वनि आयतन",
 			"hotkeyTitle": "हॉटकी",
 			"hotkeyDescription": "डिक्टेशन शुरू और रोकने की कुंजी।",
 			"dictationKey": "डिक्टेशन कुंजी",
@@ -973,6 +988,12 @@
 			"autoApplyConfidenceAria": "स्वतः-लागू विश्वास"
 		},
 		"privacy": {
+			"clipboardSaveRestoreAria": "क्लिपबोर्ड सहेजें और पुनर्स्थापित करें",
+			"clipboardSaveRestoreInfo": "पेस्ट करने से पहले क्लिपबोर्ड की सामग्री याद रखता है और बाद में उसे पुनर्स्थापित करता है।",
+			"clipboardSaveRestoreLabel": "क्लिपबोर्ड सहेजें और पुनर्स्थापित करें",
+			"logTranscriptionsAria": "ट्रांसक्रिप्शन लॉग करें",
+			"logTranscriptionsInfo": "समस्या निवारण के लिए हर ट्रांसक्रिप्शन को ऐप की लॉग फ़ाइल में लिखता है। टेक्स्ट इसी डिवाइस पर रहता है।",
+			"logTranscriptionsLabel": "ट्रांसक्रिप्शन लॉग करें",
 			"audioRecoveryTitle": "ऑडियो और पुनर्प्राप्ति",
 			"audioRecoveryDescription": "गुणवत्ता निगरानी और सुरक्षा।",
 			"crashRecovery": "क्रैश पुनर्प्राप्ति",
@@ -1088,7 +1109,7 @@
 			"privacy": "गोपनीयता, पुनर्प्राप्ति, क्रैश, निर्यात, सहमति, समस्या निवारण, निदान, रीसेट, लॉग, बग, सहायता, एफएक्यू"
 		},
 		"fastStartup": "त्वरित स्टार्टअप (प्रीवार्म)",
-		"fastStartupDescription": "स्पीच मॉडल को 30+ सेकंड के बजाय सेकंड में लोड करने के लिए बूट पर OS फ़ाइल कैश को गर्म करें। यदि आपको अन्य ऐप के लिए डिस्क/RAM स्थान की आवश्यकता है तो अक्षम करें। आप अभी भी सेटिंग्स → समस्या निवारण → कैश स्थिति से ऑन डिमांड गर्म कर सकते हैं।",
+		"fastStartupDescription": "स्पीच मॉडल को 30+ सेकंड के बजाय सेकंड में लोड करने के लिए बूट पर OS फ़ाइल कैश को गर्म करें। यदि आपको अन्य ऐप के लिए डिस्क/RAM स्थान की आवश्यकता है तो अक्षम करें। आप अभी भी सेटिंग्स → उन्नत → कैश स्थिति से ऑन डिमांड गर्म कर सकते हैं।",
 		"offlinePackConsent": "ऑफ़लाइन इंजन पैक डाउनलोड करें",
 		"offlinePackConsentDescription": "ऑफ़लाइन इंजन (वाक् पहचान मॉडल) को GitHub Releases से पृष्ठभूमि में डाउनलोड करने की अनुमति दें। केवल तभी सक्षम करें जब आप नई स्थापना के बाद ऑफ़लाइन डिक्टेशन चाहते हैं; डाउनलोड आपके सक्षम करने के बाद ही शुरू होता है।",
 		"keyring": {
@@ -1136,6 +1157,14 @@
 			"systemLayout": "सिस्टम लेआउट: {side} ओर — {buttons}",
 			"systemUnavailable": "सिस्टम बटन लेआउट उपलब्ध नहीं — डिफ़ॉल्ट (दाईं ओर, सभी बटन) का उपयोग हो रहा है।",
 			"followingSystem": "आपके डेस्कटॉप के लेआउट का पालन कर रहा है"
+		},
+		"hub": {
+			"aiDescription": "LLM पॉलिश, व्याकरण सुधार, और शब्दावली स्वचालन।",
+			"advancedTitle": "उन्नत",
+			"advancedDescription": "ट्रबलशूटिंग, निदान, संसाधन, कैश, और अपडेट।",
+			"backToSettings": "सेटिंग्स पर वापस जाएँ",
+			"on": "चालू",
+			"off": "बंद"
 		}
 	},
 	"models": {
@@ -1145,12 +1174,9 @@
 		"asrTitle": "मॉडल",
 		"asrSubtitle": "स्थानीय और क्लाउड वाक् मॉडल कॉन्फ़िगर करें।",
 		"title": "मॉडल",
-		"description": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें",
 		"active": "सक्रिय",
 		"delete": "हटाएं",
-		"use": "उपयोग करें",
 		"select": "चुनें",
-		"downloadModel": "डाउनलोड करें",
 		"downloading": "डाउनलोड हो रहा है…",
 		"selecting": "चुना जा रहा है…",
 		"providers": {
@@ -1170,17 +1196,17 @@
 		"lastResortUnloaded": "मॉडल लोड नहीं है।",
 		"lastResortUnloadedHint": "मॉडल डाउनलोड करने के लिए मॉडल पेज खोलें।",
 		"snack": {
-			"parakeetDepsRequired": "Parakeet के लिए निर्भरताएँ आवश्यक हैं। पहले डाउनलोड करें।",
 			"depsRequiredName": "{name} के लिए निर्भरताएँ आवश्यक हैं। पहले डाउनलोड करें।",
 			"notDownloaded": "मॉडल \"{name}\" अभी तक डाउनलोड नहीं हुआ। पहले डाउनलोड करें।",
 			"usingModel": "मॉडल उपयोग में: {name}",
 			"downloaded": "{name} सफलतापूर्वक डाउनलोड हुआ",
 			"downloadFailedName": "{name} डाउनलोड करने में विफल",
 			"downloadFailed": "डाउनलोड विफल: {error}",
-			"cannotDeleteActive": "सक्रिय मॉडल को हटाया नहीं जा सकता। पहले किसी अन्य मॉडल पर स्विच करें।",
 			"deleted": "हटाया गया: {name}",
 			"deleteFailed": "हटाना विफल",
 			"deleteFailedError": "हटाना विफल: {error}",
+			"apiKeyEmpty": "पहले एक API कुंजी दर्ज करें",
+			"apiKeyUnchanged": "API कुंजी अपरिवर्तित है",
 			"apiKeySaved": "{provider} API कुंजी सहेजी गई",
 			"consentGranted": "{provider} के लिए सहमति प्रदान की गई — ऑडियो इस प्रदाता को भेजा जाएगा।",
 			"consentRevoked": "{provider} के लिए सहमति वापस ली गई — ऑडियो नहीं भेजा जाएगा।",
@@ -1188,25 +1214,19 @@
 			"pauseFailed": "रोकने में विफल: {error}",
 			"cancelled": "डाउनलोड रद्द। आंशिक फ़ाइलें पुनः प्रयास पर पुनः उपयोग होंगी।",
 			"cancelFailed": "रद्द करने में विफल: {error}",
-			"parakeetDepsInstalled": "Parakeet निर्भरताएँ सफलतापूर्वक स्थापित हुईं।",
 			"depsInstalled": "निर्भरताएं सफलतापूर्वक स्थापित हो गईं।",
-			"selectFailed": "मॉडल चयन विफल रहा।"
+			"selectFailed": "मॉडल चयन विफल रहा।",
+			"downloadAlreadyActive": "कोई अन्य मॉडल डाउनलोड पहले से चल रहा है (यह रुका हुआ हो सकता है)। पहले उसे पुनः आरंभ करें या रद्द करें।"
 		},
 		"test": {
 			"needApiKey": "कृपया पहले एक API कुंजी दर्ज करें",
 			"connectionSuccessful": "कनेक्शन सफल — API कुंजी मान्य है।",
 			"connectionFailed": "कनेक्शन विफल: {status} {statusText}",
-			"endpointUnavailable": "API कुंजी सहेजी गई — इस प्रदाता के लिए परीक्षण एंडपॉइंट उपलब्ध नहीं है।",
-			"connectionTestFailed": "कनेक्शन परीक्षण विफल: {error}",
-			"connectionNetworkError": "नेटवर्क त्रुटि: मॉडल सर्वर तक नहीं पहुंच सके।"
+			"connectionTestFailed": "कनेक्शन परीक्षण विफल: {error}"
 		},
 		"status": {
-			"active": "सक्रिय",
-			"downloaded": "डाउनलोड किया गया",
 			"depsRequired": "निर्भरताएं आवश्यक हैं",
-			"available": "उपलब्ध",
-			"insufficientDisk": "अपर्याप्त डिस्क स्थान",
-			"insufficientDiskSpace": "अपर्याप्त डिस्क स्थान"
+			"insufficientDisk": "अपर्याप्त डिस्क स्थान"
 		},
 		"import": {
 			"title": "मॉडल आयात करें",
@@ -1215,8 +1235,7 @@
 			"success": "{count} मॉडल आयात किए गए: {models}",
 			"noModelsFound": "उस निर्देशिका में कोई ज्ञात मॉडल फ़ोल्डर नहीं मिला। HuggingFace कैश फ़ोल्डर चुनें ('models--*' निर्देशिकाएँ शामिल हैं)।",
 			"failedAll": "उस निर्देशिका से कोई मॉडल आयात करने में विफल।",
-			"failed": "मॉडल आयात करने में विफल: {error}",
-			"importModelAria": "फ़ोल्डर से मॉडल आयात करें"
+			"failed": "मॉडल आयात करने में विफल: {error}"
 		},
 		"progress": {
 			"eta": "अनुमानित समय {time}",
@@ -1243,23 +1262,18 @@
 			"cancelConfirmAction": "डाउनलोड रद्द करें"
 		},
 		"card": {
-			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"multilingual": "बहुभाषी",
 			"englishOnly": "केवल अंग्रेज़ी",
 			"speedSuffix": "{rating} गति",
 			"distilled": "डिस्टिल्ड",
 			"activeAria": "सक्रिय: {name}",
-			"useAria": "{name} का उपयोग करें",
 			"downloadAria": "{name} डाउनलोड करें",
 			"selectAria": "{name} चुनें",
 			"deleteAria": "{name} हटाएँ",
-			"accuracy": "सटीकता",
 			"vramLabel": "VRAM",
 			"werLabel": "WER"
 		},
 		"cloud": {
-			"title": "क्लाउड वाक् पहचान प्रदाता",
-			"description": "क्लाउड-आधारित ट्रांसक्रिप्शन सेवाएँ कॉन्फ़िगर करें",
 			"apiKey": "API कुंजी",
 			"apiKeyPlaceholder": "अपनी API कुंजी दर्ज करें",
 			"saveKeyAria": "{provider} API कुंजी सहेजें",
@@ -1283,53 +1297,13 @@
 		},
 		"deleteDialog": {
 			"title": "मॉडल हटाएं",
-			"message": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? यह क्रिया पूर्ववत नहीं की जा सकती।",
-			"messageWithSize": "{name} ({size}) हटाएं? इसे पूर्ववत नहीं किया जा सकता।"
+			"message": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? यह क्रिया पूर्ववत नहीं की जा सकती।"
 		},
-		"subtitle": "स्पीच रिकग्निशन मॉडल डाउनलोड और प्रबंधित करें",
 		"localModels": "स्थानीय मॉडल",
 		"localModelsDescription": "अपने डिवाइस पर सीधे Whisper मॉडल चलाएँ। डाउनलोड के बाद इंटरनेट की आवश्यकता नहीं।",
-		"downloaded": "डाउनलोड किया गया",
-		"dependenciesRequired": "निर्भरताएँ आवश्यक हैं",
-		"available": "उपलब्ध",
-		"downloadFirst": "पहले डाउनलोड करें",
-		"activeModel": "सक्रिय",
-		"noModelSelected": "कोई मॉडल चयनित नहीं",
-		"setAsActive": "सक्रिय के रूप में सेट करें",
 		"deleteModel": "हटाएँ",
-		"cannotDeleteActive": "सक्रिय मॉडल को हटाया नहीं जा सकता। पहले किसी अन्य मॉडल पर स्विच करें।",
-		"downloadStarted": "डाउनलोड शुरू हुआ",
-		"downloadComplete": "डाउनलोड पूर्ण",
-		"downloadFailed": "डाउनलोड विफल",
-		"deleteFailed": "हटाना विफल",
-		"enterApiKey": "अपनी API कुंजी दर्ज करें",
 		"apiKeyPlaceholder": "अपनी API कुंजी दर्ज करें",
-		"testConnection": "कनेक्शन परीक्षण",
-		"testing": "परीक्षण हो रहा है...",
-		"connectionSuccessful": "कनेक्शन सफल — API कुंजी मान्य है।",
-		"connectionFailed": "कनेक्शन विफल",
-		"pleaseEnterApiKey": "कृपया पहले एक API कुंजी दर्ज करें",
-		"size": "आकार",
-		"language": "भाषा",
-		"fastest": "सबसे तेज़",
-		"fast": "तेज़",
-		"slow": "धीमा",
 		"variable": "परिवर्तनीय",
-		"gpuRequired": "GPU आवश्यक",
-		"cpuOnly": "केवल CPU",
-		"openaiWhisperApi": "OpenAI Whisper API सेवा",
-		"groqWhisperApi": "Groq Whisper API सेवा",
-		"deepgramApi": "Deepgram API सेवा",
-		"configureEngines": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें",
-		"benchmark": {
-			"notImplemented": "बेंचमार्क अभी तक लागू नहीं हुआ है।",
-			"title": "मॉडल बेंचमार्क",
-			"description": "अपने सिस्टम पर मॉडल के प्रदर्शन की तुलना करें",
-			"runAria": "मॉडल बेंचमार्क चलाएं",
-			"running": "चल रहा है...",
-			"run": "बेंचमार्क चलाएं"
-		},
-		"benchmarkNotImplemented": "बेंचमार्क अभी तक लागू नहीं हुआ है।",
 		"speed": {
 			"fastest": "सबसे तेज़",
 			"variable": "परिवर्तनीय",
@@ -1337,21 +1311,17 @@
 			"fast": "तेज़",
 			"medium": "मध्यम"
 		},
-		"openFolderAria": "अपने फ़ाइल प्रबंधक में मॉडल निर्देशिका खोलें",
-		"openFolderFailed": "फ़ोल्डर खोलने में विफल",
 		"disk": {
 			"lowSpaceBody": "मॉडल डाउनलोड करने के लिए पर्याप्त स्थान नहीं है",
 			"lowSpaceTitle": "डिस्क स्थान कम",
 			"freeSpace": "{space} खाली"
 		},
-		"loading": "मॉडल लोड हो रहे हैं…",
 		"openFolder": {
 			"label": "मॉडल फ़ोल्डर खोलें",
 			"aria": "फ़ाइल प्रबंधक में मॉडल फ़ोल्डर दिखाएं"
 		},
 		"cloudModels": "क्लाउड मॉडल",
 		"cloudModelsDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।",
-		"activeModelSummaryLabel": "सक्रिय मॉडल:",
 		"noModelBanner": "कोई वाक् मॉडल चयनित नहीं है। नीचे एक मॉडल चुनें।"
 	},
 	"tooltips": {
@@ -1439,6 +1409,7 @@
 			"textSizeDown": "टेक्स्ट आकार घटाएं",
 			"title": "कीबोर्ड शॉर्टकट",
 			"toggleSidebar": "साइडबार टॉगल करें",
+			"toggleDictation": "डिक्टेशन टॉगल करें",
 			"dismissBubble": "बबल हटाएँ"
 		}
 	},
@@ -1506,6 +1477,7 @@
 		"charsSuffix_other": " ({count} अक्षर)"
 	},
 	"onboarding": {
+		"doneHelpHint": "सुझाव: कीबोर्ड शॉर्टकट सहायता खोलने के लिए कहीं भी ? दबाएँ।",
 		"applyFailedTitle": "सेटअप पूरा नहीं हो सका",
 		"applyFailedDescription": "हम आपकी सेटिंग्स लागू नहीं कर सके। फिर से प्रयास करें, या अभी छोड़ें और बाद में सेटिंग्स में पूरा करें।",
 		"welcomeTitle": "{appName} में आपका स्वागत है",
@@ -1514,7 +1486,7 @@
 		"step2Item": "कीबोर्ड-निगरानी अनुमति प्रदान करें",
 		"step3Item": "एक हॉटकी चुनें",
 		"consentTitle": "गोपनीयता और सहमति",
-		"consentDescription": "चुनें कि आप किससे सहमत हैं। सब कुछ डिफ़ॉल्ट रूप से बंद है — आप इसे कभी भी सेटिंग्स → गोपनीयता में बदल सकते हैं।",
+		"consentDescription": "चुनें कि आप किससे सहमत हैं। सब कुछ डिफ़ॉल्ट रूप से बंद है — आप इसे कभी भी सेटिंग्स → गोपनीयता और सहमति में बदल सकते हैं।",
 		"micTitle": "अपना माइक्रोफ़ोन चुनें",
 		"micDescription": "वह माइक्रोफ़ोन चुनें जिसे आप डिक्टेशन के लिए उपयोग करना चाहते हैं। आप इसे बाद में सेटिंग्स में बदल सकते हैं।",
 		"micSelectAria": "माइक्रोफ़ोन चुनें",
@@ -1557,7 +1529,7 @@
 		"permissionsTestFailure": "कोई हॉटकी पहचाना नहीं गया। ऊपर अनुमति चरण जाँचें और पुनः प्रयास करें।",
 		"permissionsTestButton": "हॉटकी परीक्षण",
 		"skipConfirmTitle": "सेटअप छोड़ें?",
-		"skipConfirmMessage": "अभी छोड़ने का अर्थ है कि आपका माइक्रोफ़ोन और हॉटकी काम नहीं कर सकते। आप इस सेटअप विज़ार्ड को बाद में सेटिंग्स → ट्रबलशूटिंग से पुनः चला सकते हैं, या अलग-अलग सेटिंग्स को सेटिंग्स में कॉन्फ़िगर कर सकते हैं।",
+		"skipConfirmMessage": "अभी छोड़ने का अर्थ है कि आपका माइक्रोफ़ोन और हॉटकी काम नहीं कर सकते। आप इस सेटअप विज़ार्ड को बाद में सेटिंग्स → उन्नत → ट्रबलशूटिंग से पुनः चला सकते हैं, या अलग-अलग सेटिंग्स को सेटिंग्स में कॉन्फ़िगर कर सकते हैं।",
 		"skipConfirmLabel": "फिर भी छोड़ें",
 		"permissionsTestFailureBlocked": "अनुमति अभी भी आवश्यक है — इसे प्रदान करें, फिर पुनः प्रयास करें।",
 		"permissionsRefresh": "अनुमति ताज़ा करें",
@@ -1734,7 +1706,8 @@
 		"wordsCount": "{count} शब्द",
 		"removeFromFavorites": "पसंदीदा से हटाएं",
 		"addToFavorites": "पसंदीदा में जोड़ें",
-		"noRecentActivity": "कोई हालिया गतिविधि नहीं"
+		"noRecentActivity": "कोई हालिया गतिविधि नहीं",
+		"loadTextFailed": "पूरा टेक्स्ट लोड करने में विफल"
 	},
 	"exportFormat": {
 		"export": "निर्यात",
@@ -1961,6 +1934,10 @@
 		"restartBackendHint": "इस विंडो से बैकएंड पुनरारंभ नहीं हो सका। यह बाहरी रूप से प्रबंधित हो सकता है — कृपया ऐप फिर से लॉन्च करें।"
 	},
 	"dialog": {
+		"discardChangesTitle": "बदलाव छोड़ें?",
+		"discardChangesMessage": "अभी बंद करने पर आपके सहेजे न गए बदलाव छोड़ दिए जाएँगे।",
+		"discardChangesConfirm": "बदलाव छोड़ें",
+		"discardChangesStay": "संपादन जारी रखें",
 		"pythonCrash": {
 			"title": "Python बैकएंड क्रैश हो गया",
 			"body": "{appName} का Python बैकएंड अप्रत्याशित रूप से कोड {code} के साथ बाहर निकला और अब बाहर निकलेगा।",
@@ -2004,7 +1981,12 @@
 			"mic_disconnected": "माइक्रोफ़ोन डिस्कनेक्ट हो गया। रिकॉर्डिंग रुक गई। फिर से शुरू करने के लिए माइक्रोफ़ोन दोबारा कनेक्ट करें।",
 			"mic_permission_revoked": "माइक्रोफ़ोन अनुमति रद्द कर दी गई। रिकॉर्डिंग रुक गई। फिर से शुरू करने के लिए अपने OS गोपनीयता सेटिंग्स में माइक्रोफ़ोन एक्सेस फिर से दें।",
 			"silence_auto_stop": "रिकॉर्डिंग रुकी: लंबे समय तक कोई ऑडियो नहीं मिला।",
-			"load_failed": "वॉइस मॉडल लोड नहीं हो सका।\n{error}\n\nऐप चलता रहेगा। पुनः लोड करने के लिए {hotkey} दबाएँ।"
+			"load_failed": "वॉइस मॉडल लोड नहीं हो सका।\n{error}\n\nऐप चलता रहेगा। पुनः लोड करने के लिए {hotkey} दबाएँ।",
+			"start_failed_with_reason": "रिकॉर्डिंग शुरू नहीं हो सकी।\n{reason}",
+			"mic_unplugged": "माइक्रोफ़ोन अनप्लग हो गया था। रिकॉर्डिंग रुक गई।",
+			"still_running": "ट्रांसक्रिप्शन अभी भी चल रहा है।\nलंबी रिकॉर्डिंग या CPU फ़ॉलबैक में अतिरिक्त समय लग सकता है।",
+			"xrun_title": "{app} — ऑडियो समस्याएँ",
+			"xrun_body": "{count} ऑडियो बफ़र अंडररन मिले। दूसरे ऑडियो ऐप बंद करें या CPU लोड घटाएँ।"
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",

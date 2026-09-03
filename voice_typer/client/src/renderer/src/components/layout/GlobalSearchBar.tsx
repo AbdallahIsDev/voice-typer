@@ -1,5 +1,9 @@
 import { memo, useEffect, useRef } from "react";
 import { SearchField } from "@/components/common/SearchField";
+import {
+	isSettingsSurface,
+	SETTINGS_SECTION_PAGES,
+} from "@/components/settings/settingsSections";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
 import type { Page } from "@/types/ipc";
@@ -17,7 +21,7 @@ import type { Page } from "@/types/ipc";
  *   - history            → t("history.searchPlaceholder")        "Search History"
  *   - templates          → t("templates.searchPlaceholder")      "Search templates…"
  *   - vocabulary         → t("vocabulary.searchPlaceholderCount") "Search {count} corrections"
- *   - settings* (parent + 4 subpages) → t("settings.searchPlaceholder") "Search settings…"
+ *   - settings* (hub + all section pages) → t("settings.searchPlaceholder") "Search settings…"
  * All other pages (home, models, microphone, analytics, aboutAndPrivacy,
  * onboarding) hide the bar entirely — no search exists there.
  */
@@ -26,27 +30,19 @@ const SEARCHABLE_PAGES: ReadonlySet<Page> = new Set<Page>([
 	"templates",
 	"vocabulary",
 	"settings",
-	"settingsGeneral",
-	"settingsAiAudio",
-	"settingsAppearance",
-	"settingsPrivacy",
+	...SETTINGS_SECTION_PAGES,
 ]);
 
 function isSettingsPage(page: Page): boolean {
-	return (
-		page === "settings" ||
-		page === "settingsGeneral" ||
-		page === "settingsAiAudio" ||
-		page === "settingsAppearance" ||
-		page === "settingsPrivacy"
-	);
+	return isSettingsSurface(page);
 }
 
 /**
- * Stable group identity for query-reset purposes. Settings' 4 subpages
- * share one search (and its auto-switch navigates BETWEEN them while
- * preserving the query) — so the query must NOT reset on subpage
- * navigation, only when leaving the whole Settings group.
+ * Stable group identity for query-reset purposes. The Settings hub and
+ * its section pages share one search (and its auto-switch navigates
+ * BETWEEN section pages while preserving the query) — so the query must
+ * NOT reset on section-page navigation, only when leaving the whole
+ * Settings group.
  */
 function searchGroup(page: Page): string {
 	if (isSettingsPage(page)) return "settings";

@@ -38,7 +38,7 @@ vi.mock("next-themes", () => nextThemesMock());
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — NH-15 search-no-results uses dedicated i18n keys", () => {
+describe("Templates page — search-no-results uses dedicated i18n keys", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// Seed two templates so the page renders the list (not the empty-title state)

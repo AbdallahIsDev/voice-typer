@@ -179,9 +179,10 @@ const baseProps = {
 	totalBytes: null,
 	speedBps: null,
 	etaSeconds: null,
-	//failedDownload + onRetryDownload are now required props on
+	//failedDownload + onRetryDownload are optional props on
 	// LocalModelsPanel (forwarded to <DownloadProgressBar> for the
-	// inline error UI + Retry button).
+	// inline error UI + Retry button); the canonical consumer
+	// (Models.tsx) always passes both, as does this fixture.
 	failedDownload: null,
 	installingDepsModel: null,
 	onSelectModel: noop,

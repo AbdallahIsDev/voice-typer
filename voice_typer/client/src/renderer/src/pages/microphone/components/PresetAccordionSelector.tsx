@@ -150,7 +150,7 @@ export function PresetAccordionSelector({
 					// is untouched, so every other accordion keeps its "+".
 					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
 				>
-					<span className="flex items-center gap-1.5 min-w-0">
+					<span className="flex items-center gap-2 min-w-0">
 						<span className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 							{t("settings.audioEnhancement.microphoneQuality")}
 						</span>
@@ -198,7 +198,7 @@ export function PresetAccordionSelector({
 				header. Rows keep the radio FIRST in DOM (Radix
 				roving-tabindex/reading order) and push it to the visual far
 				end via ms-auto, aligning its inset with the header chevron. */}
-				<AccordionContent>
+				<AccordionContent className="flex flex-col gap-2">
 					<div className="border-t border-border/5 pt-4">
 						<RadioGroup
 							value={preset}
@@ -243,7 +243,7 @@ export function PresetAccordionSelector({
 								    The inline span's stopPropagation (owned by
 								    InfoTooltip) keeps clicks/keys off the row
 								    handler. */}
-									<span className="flex items-center gap-1.5 min-w-0">
+									<span className="flex items-center gap-2 min-w-0">
 										<span className="text-sm font-medium text-(--text-primary) truncate">
 											{option.label}
 										</span>
@@ -261,7 +261,7 @@ export function PresetAccordionSelector({
 						<>
 							<button
 								type="button"
-								className="mt-2 flex w-full items-center justify-between rounded-lg border border-border/5 px-3 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-foreground/5 transition-colors cursor-pointer"
+								className="flex w-full items-center justify-between rounded-lg border border-border/5 px-3 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-foreground/5 transition-colors cursor-pointer"
 								onClick={onToggleAdvanced}
 								aria-expanded={showAdvanced}
 								aria-controls={panelId}
@@ -285,7 +285,7 @@ export function PresetAccordionSelector({
 							</button>
 
 							{showAdvanced && (
-								<div id={panelId} className="mt-2">
+								<div id={panelId}>
 									<AudioFilterChain
 										config={config}
 										onConfigChange={onConfigChange}

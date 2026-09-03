@@ -1,10 +1,16 @@
-import { AlertCircleIcon, Search01Icon } from "@hugeicons/core-free-icons";
-import type { ReactNode } from "react";
+import {
+	AlertCircleIcon,
+	ArrowLeft01Icon,
+	Search01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { Spinner } from "@/components/feedback/Spinner";
+import { SettingsPageSkeleton } from "@/components/feedback/skeletons";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
+import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -14,17 +20,22 @@ import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection
 import { DiagnosticsSettingsSection } from "@/components/settings/DiagnosticsSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { LinuxWindowButtonsSettingsSection } from "@/components/settings/LinuxWindowButtonsSettingsSection";
-import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
+import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
+import { OverlaySettingsSection } from "@/components/settings/OverlaySettingsSection";
+import { PostProcessingSettingsSection } from "@/components/settings/PostProcessingSettingsSection";
 import PrewarmAndUpdates, {
 	getPrewarmAndUpdatesLabels,
 } from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import { ResourcesSettingsSection } from "@/components/settings/ResourcesSettingsSection";
+import { SettingsHub } from "@/components/settings/SettingsHub";
 import {
-	getTabLabels,
-	type SettingsTab,
-} from "@/components/settings/settingsTabLabels";
+	isSettingsSectionPage,
+	SECTION_TITLE_BY_PAGE,
+	type SettingsSectionPage,
+} from "@/components/settings/settingsSections";
+import { getSectionLabels } from "@/components/settings/settingsTabLabels";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
@@ -38,7 +49,7 @@ import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
-//1-C Finding 11: keys excluded from reset-to-defaults because they
+// keys excluded from reset-to-defaults because they
 // encode one-time state (schema version, onboarding flag, OS-specific
 // warning dismissal) that must survive a factory reset of user-tunable
 // preferences. Hoisted to module scope so `resetToDefaults` can be a
@@ -49,85 +60,71 @@ const CONFIG_PROTECTED_KEYS = [
 	"onboarding_completed",
 ] as const;
 
-// Map a Settings sub-page literal (the new sidebar nav target) to the
-// SettingsTab union (the section-renderer's internal discriminator).
-// The mapping is the source of truth for "which sub-page shows which
-// sections" — derived from the old `activeTab === "..."` switch that
-// used to live inline in the JSX.
-//
-// The `settings` parent literal is intentionally NOT in the map —
-// `useNavigation.navigate("settings")` redirects it to
-// `settingsGeneral` before this component ever sees it (see
-// useNavigation.ts navigate action). If somehow `settings` reaches
-// here anyway (e.g. a stale persisted nav state from an older build),
-// the fallback in `pageToTab` resolves to `general` so the page
-// renders instead of crashing.
-const PAGE_TO_TAB: Partial<Record<Page, SettingsTab>> = {
-	settingsGeneral: "general",
-	settingsAiAudio: "aiAudio",
-	settingsAppearance: "appearance",
-	settingsPrivacy: "privacy",
-};
-
-function pageToTab(page: Page): SettingsTab {
-	return PAGE_TO_TAB[page] ?? "general";
-}
-
-// Reverse mapping for the search auto-switch: when the search finds
-// a match in another Settings section, it needs to navigate to the
-// right sub-page. Returns the Page literal the navigate action wants.
-function tabToPage(tab: SettingsTab): Page {
-	switch (tab) {
-		case "general":
-			return "settingsGeneral";
-		case "aiAudio":
-			return "settingsAiAudio";
-		case "appearance":
-			return "settingsAppearance";
-		case "privacy":
-			return "settingsPrivacy";
-	}
+/**
+ * Back affordance for a Settings section page: a compact ghost row that
+ * returns to the Settings hub. Deliberately NOT a PageHeading — every
+ * section component renders its own `<SettingsSection title>` card
+ * header, so a page-level heading would duplicate the title right
+ * below it. Top-level (not inline in the page component) so React can
+ * skip re-creating the element type on every render.
+ */
+function SectionBackButton({ onBack }: { onBack: () => void }) {
+	return (
+		<button
+			type="button"
+			data-testid="settings-back-to-hub"
+			aria-label={t("settings.hub.backToSettings")}
+			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+			onClick={onBack}
+		>
+			{/* Left-pointing chevron — mirrored in RTL by the shared
+			    directional-icon rule (index.css) so it always points
+			    "back". */}
+			<HugeiconsIcon
+				icon={ArrowLeft01Icon}
+				strokeWidth={2}
+				aria-hidden="true"
+				className="nav-directional-icon h-4 w-4"
+			/>
+			{t("nav.settings")}
+		</button>
+	);
 }
 
 interface SettingsPageProps {
-	// The active Settings sub-page literal. The Settings page no
-	// longer owns tab state locally — the navigation store does (so
-	// the sidebar's nested Settings submenu stays in sync with the
-	// page content). Defaults to "settingsGeneral" when not provided
-	// (legacy callers that still pass `<SettingsPage />` without a
-	// prop fall through to General, matching the previous default-tab
-	// behavior).
+	/**
+	 * The active Settings surface: `"settings"` (the hub — one card of
+	 * section rows) or one of the section pages (a focused page rendering
+	 * only that domain's cards). The nav store is the source of truth;
+	 * App.tsx's route switch passes the literal. Defaults to the hub.
+	 */
 	page?: Page;
 }
 
-//NOTE: App.tsx prop passing will be removed by
-//(BACKLOG-004): SettingsPage now obtains `navigate` via
-// useNavigation and theme state via useTheme directly, eliminating the
-// `onNavigate` / `themeMode` / `onThemeChange` prop drills from App.tsx.
+// Settings page = HUB + nested section pages. The hub (`page ===
+// "settings"`) renders ONE card whose rows open the section pages
+// (see SettingsHub + settingsSections.ts). Each section page renders
+// only its own domain's cards, so the user edits one concern at a time
+// instead of scrolling a stack of unrelated sections.
 //
-//The 4-tab SegmentedControl that used to live at the top of the
-// Settings page has been removed — the tab navigation now lives in
-// the application Sidebar as a nested submenu (see Sidebar.tsx
-// NavSubmenu + ADR-0021). The per-page SearchField + sticky header
-// are gone too — the search query now lives in the global
-// `useGlobalSearch` store (title-bar GlobalSearchBar), and this page
-// renders only the active tab's sections filtered by that shared
-// query. The search auto-switch still navigates to the
-// best-matching Settings sub-page (via `navigate(tabToPage(bestTab),
-// { settingsScrollTarget: { rowHint } })`) instead of locally
-// switching `setActiveTab(bestTab)` — the transient
-// `pendingSettingsScrollTarget` field is consumed by this component
-// on mount + tab change to scroll to + briefly highlight the matched
-// row (mirrors the proven consent-deep-link pattern).
-export default function SettingsPage({
-	page = "settingsGeneral",
-}: SettingsPageProps) {
+// The per-page SearchField + sticky header are gone — the search query
+// lives in the global `useGlobalSearch` store (title-bar
+// GlobalSearchBar). On the hub a query FILTERS the section rows (and
+// lists the matched row labels under each row); on a section page the
+// query filters rows in place via the sections' `isVisible` predicate,
+// the auto-switch navigates to a better-matching section page (via
+// `navigate(bestPage, { settingsScrollTarget: { rowHint } })`), and the
+// cross-section results card lists matches from OTHER section pages.
+// The transient `pendingSettingsScrollTarget` field is consumed on
+// mount + page change to scroll to + briefly highlight the matched row.
+export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	const {
 		config,
 		updateConfig,
 		updateConfigDebounced,
 		loadConfig,
 		loadError,
+		error: saveError,
 		mergeExternalConfig,
 	} = useSettingsConfig();
 	const { call } = usePython();
@@ -149,37 +146,36 @@ export default function SettingsPage({
 	} = useNavigation();
 	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
+	// Local help-overlay state for the Troubleshooting "Keyboard
+	// Shortcuts" button. The app-level instance lives in App.tsx
+	// (`useHelpOverlayShortcut`), which this page can't reach — a second
+	// mount of the SAME shared component keeps the mechanism reused
+	// without a global event bus. The `?`-shortcut's dialog guard
+	// (`[role="dialog"][data-state="open"]`) prevents the two instances
+	// from ever stacking.
+	const [helpOpen, setHelpOpen] = useState(false);
 	const settingsFilter = useGlobalSearch((s) => s.query);
 	const clearQuery = useGlobalSearch((s) => s.clearQuery);
-	// The active tab is DERIVED from the current Settings sub-page
-	// (passed in as `page` prop by App.tsx's renderPage switch). No
-	// more local tab state + localStorage persistence — the nav
-	// store is the single source of truth. The scroll-positions ref
-	// survives across sub-page transitions inside the Settings
-	// surface (all 4 sub-pages share this component instance via the
-	// `page` prop swap), so the per-tab scroll-restore behavior is
-	// preserved.
-	const activeTab = pageToTab(page);
-	const scrollPositionsRef = useRef<Record<SettingsTab, number>>({
-		appearance: 0,
-		general: 0,
-		aiAudio: 0,
-		privacy: 0,
-	});
-	const prevTabRef = useRef(activeTab);
+	// The active surface is DERIVED from the current page literal
+	// (passed in as `page` prop by the route switch). The nav store is
+	// the single source of truth. The scroll-positions ref survives
+	// across surface transitions inside the Settings component instance
+	// (hub ↔ section pages share it via the `page` prop swap), so the
+	// per-surface scroll-restore behavior is preserved. Keyed by the raw
+	// page literal (including the hub's "settings") so every surface
+	// remembers its own scroll offset.
+	const activeSection: SettingsSectionPage | null = isSettingsSectionPage(page)
+		? page
+		: null;
+	const scrollPositionsRef = useRef<Record<string, number>>({});
+	const prevSurfaceRef = useRef<Page>(page);
 
 	// Consent deep-link (``client.consent_required`` path). A consent
 	// refusal elsewhere (mic test / level monitor / dictation gate)
 	// navigates here with ``{ consentField }`` (see NavigateOptions in
 	// useNavigation.ts); the field is staged in the nav store as
-	// ``pendingConsentField`` and consumed ONCE here. Cleared
-	// highlight state so the ring only shows for the toggle the
-	// refusal actually named. NOTE: consent deep-links always target
-	// the Privacy sub-page — the navigate call now goes through
-	// `navigate("settingsPrivacy", { consentField })` (the nav store
-	// handles routing + the `pendingConsentField` arming), but this
-	// component still consumes the field once the Privacy sub-page
-	// mounts.
+	// ``pendingConsentField`` and consumed ONCE on the Privacy section
+	// page — the only surface that renders the consent toggles.
 	const [focusedConsentField, setFocusedConsentField] = useState<string | null>(
 		null,
 	);
@@ -190,25 +186,23 @@ export default function SettingsPage({
 	// target can be active at a time.
 	const scrolledTargetRef = useRef<string | null>(null);
 	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// Cross-page search deep-link target hint (consumed on sub-page
-	// mount + on tab change). The Settings search may fire this from
-	// any Settings sub-page — the source page sets it via
-	// `navigate(tabToPage(bestTab), { settingsScrollTarget: { rowHint } })`,
-	// the destination sub-page consumes it here.
+	// Cross-page search deep-link target hint (consumed on section-page
+	// mount + on page change). The Settings search may fire this from
+	// any section page — the source page sets it via
+	// `navigate(bestPage, { settingsScrollTarget: { rowHint } })`,
+	// the destination page consumes it here.
 	const [searchScrollHint, setSearchScrollHint] = useState<string | null>(null);
 
 	// Consume the pending consent deep-link target: clear any active
 	// search filter (so the consent row is visible) and arm the
-	// highlight state. The Privacy tab is now routed via the `page`
-	// prop (the nav store sent the user to "settingsPrivacy"), so we
-	// don't need to call setActiveTab("privacy") here anymore — just
-	// arm the highlight.
+	// highlight state. The nav store routed the user to
+	// "settingsPrivacy"; we just arm the highlight here.
 	useEffect(() => {
 		if (!pendingConsentField) return;
 		const field = consumeConsentField();
 		if (!field) return;
 		clearQuery();
-		scrollPositionsRef.current.privacy = 0;
+		scrollPositionsRef.current.settingsPrivacy = 0;
 		setFocusedConsentField(field);
 	}, [pendingConsentField, consumeConsentField, clearQuery]);
 
@@ -227,8 +221,8 @@ export default function SettingsPage({
 	}, [pendingSettingsScrollTarget, consumeSettingsScrollTarget, clearQuery]);
 
 	// Scroll the deep-linked consent row into view once it's rendered
-	// (Privacy sub-page active + config loaded). The row is rendered by
-	// PrivacySettingsSection with a ``data-consent-field`` attribute;
+	// (Privacy section page active + config loaded). The row is rendered
+	// by PrivacySettingsSection with a ``data-consent-field`` attribute;
 	// retry until found (bounded) in case the lazy page / config fetch
 	// is still settling. The scroll is ONE-SHOT per deep-link target
 	// (``scrolledTargetRef``) so a config identity change — e.g. the
@@ -237,7 +231,7 @@ export default function SettingsPage({
 	// row is actually found, so a slow ``get_config`` can't clear the
 	// ring before the row renders.
 	useEffect(() => {
-		if (!focusedConsentField || !config || activeTab !== "privacy") return;
+		if (!focusedConsentField || !config || page !== "settingsPrivacy") return;
 		if (scrolledTargetRef.current === focusedConsentField) return;
 		let attempts = 0;
 		let cancelled = false;
@@ -275,7 +269,7 @@ export default function SettingsPage({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [focusedConsentField, config, activeTab]);
+	}, [focusedConsentField, config, page]);
 
 	// Cross-page Settings search deep-link scroll + highlight. Mirrors
 	// the consent-deep-link scroll logic but matches by VISIBLE TEXT
@@ -349,43 +343,47 @@ export default function SettingsPage({
 		return () => clearTimeout(timer);
 	}, [focusedConsentField, searchScrollHint]);
 
-	// label-based search auto-switch. Score each tab by counting
-	// label matches and switch to the highest-scoring one. Requires
+	// label-based search auto-switch (SECTION PAGES ONLY — on the hub a
+	// query filters the section rows instead of yanking the user to a
+	// section page mid-typing). Score each section page by counting
+	// label matches and navigate to the highest-scoring one. Requires
 	// q.length >= 2 to avoid jarring switches as the user types.
 	//
-	// Supplement the privacy tab labels with PrewarmAndUpdates
+	// The Advanced page's label set is supplemented with PrewarmAndUpdates
 	// row labels (e.g. "Prewarm cache status", "Installed version",
-	// "Latest release") so the auto-switch routes queries like "prewarm",
-	// "cache", "version", "update" to the privacy tab where the
-	// PrewarmAndUpdates component lives. The labels are translated at the
-	// moment the user types via getPrewarmAndUpdatesLabels().
+	// "Latest release") so queries like "prewarm", "cache", "version",
+	// "update" route to the page where the PrewarmAndUpdates component
+	// lives. The labels are translated at the moment the user types via
+	// getPrewarmAndUpdatesLabels().
 	//
-	// When the best-matching tab is DIFFERENT from the current sub-page,
-	// navigate to the corresponding sub-page + carry the matched label
-	// as a settingsScrollTarget rowHint so the destination can scroll to
-	// + highlight the matched row. When the best-matching tab IS the
-	// current sub-page, no navigation is needed — the local filter
-	// predicate (`_filter_settings`) handles the in-page filtering.
+	// When the best-matching page is DIFFERENT from the current section
+	// page, navigate + carry the matched label as a settingsScrollTarget
+	// rowHint so the destination can scroll to + highlight the matched
+	// row. When it IS the current page, no navigation is needed — the
+	// local filter predicate (`_filter_settings`) handles in-page
+	// filtering.
 	//
-	// The query now lives in the global search store (title-bar
-	// GlobalSearchBar), so this fires on store-query changes instead of a
-	// per-page onChange handler. The very first render is skipped so a
-	// stale query left in the store by a previous visit doesn't yank the
-	// user to another sub-page on mount.
+	// The very first render is skipped so a stale query left in the
+	// store by a previous visit doesn't yank the user to another page
+	// on mount.
 	const searchNavFirstRenderRef = useRef(true);
 	useEffect(() => {
 		if (searchNavFirstRenderRef.current) {
 			searchNavFirstRenderRef.current = false;
 			return;
 		}
+		if (!activeSection) return;
 		const q = settingsFilter.toLowerCase().trim();
 		if (!q || q.length < 2) return;
-		let bestTab: SettingsTab | null = null;
+		let bestPage: SettingsSectionPage | null = null;
 		let bestScore = 0;
 		let bestLabel = "";
-		const tabLabels = getTabLabels();
-		tabLabels.privacy = [...tabLabels.privacy, ...getPrewarmAndUpdatesLabels()];
-		for (const [tab, labels] of Object.entries(tabLabels)) {
+		const sectionLabels = getSectionLabels();
+		sectionLabels.settingsAdvanced = [
+			...sectionLabels.settingsAdvanced,
+			...getPrewarmAndUpdatesLabels(),
+		];
+		for (const [sectionPage, labels] of Object.entries(sectionLabels)) {
 			for (const label of labels) {
 				const matches =
 					label.toLowerCase().includes(q) || q.includes(label.toLowerCase());
@@ -393,27 +391,27 @@ export default function SettingsPage({
 					const score = label.length; // prefer the longest (most specific) match
 					if (score > bestScore) {
 						bestScore = score;
-						bestTab = tab as SettingsTab;
+						bestPage = sectionPage as SettingsSectionPage;
 						bestLabel = label;
 					}
 				}
 			}
 		}
-		if (bestTab && bestScore > 0 && bestTab !== activeTab) {
+		if (bestPage && bestScore > 0 && bestPage !== activeSection) {
 			// Cross-page navigation — carry the matched label as a
-			// rowHint so the destination sub-page can scroll + ring.
-			navigate(tabToPage(bestTab), {
+			// rowHint so the destination page can scroll + ring.
+			navigate(bestPage, {
 				settingsScrollTarget: { rowHint: bestLabel },
 			});
 		}
-	}, [settingsFilter, activeTab, navigate]);
+	}, [settingsFilter, activeSection, navigate]);
 
-	// Restore scroll position when the active tab changes (i.e. the
-	// user navigated between Settings sub-pages via the sidebar).
+	// Restore scroll position when the active surface changes (hub ↔
+	// section page ↔ another section page).
 	useEffect(() => {
-		if (prevTabRef.current !== activeTab) {
-			prevTabRef.current = activeTab;
-			const saved = scrollPositionsRef.current[activeTab];
+		if (prevSurfaceRef.current !== page) {
+			prevSurfaceRef.current = page;
+			const saved = scrollPositionsRef.current[page] ?? 0;
 			if (saved > 0) {
 				requestAnimationFrame(() => {
 					const mainEl = document.getElementById("main-content");
@@ -421,7 +419,7 @@ export default function SettingsPage({
 				});
 			}
 		}
-	}, [activeTab]);
+	}, [page]);
 
 	// Always re-fetch on mount, even when the module-level cache is
 	// populated. Pre-fix, the `if (!config)` guard short-circuited the
@@ -501,32 +499,72 @@ export default function SettingsPage({
 		[mergeExternalConfig, handleThemeChange],
 	);
 
-	//empty-state sentinel — previously a render-phase mutation
-	// anti-pattern (a ref bumped during children's render + a no-deps
-	// useEffect that flipped `hasAnyVisibleRow` state). Now derived
-	// purely from `settingsFilter` via useMemo: if no tab label (across
-	// all four tabs + the PrewarmAndUpdates rows) matches the query, the
-	// empty banner is shown. The label sets come from the same
-	// `getTabLabels()` / `getPrewarmAndUpdatesLabels()` helpers used by
-	// the auto-switch effect, so the derivation stays consistent with the
-	// auto-switch scoring.
+	//empty-state sentinel — derived purely from `settingsFilter` via
+	// useMemo: if no section label (across all section pages + the
+	// PrewarmAndUpdates rows) matches the query, the empty banner is
+	// shown on section pages. The label sets come from the same
+	// `getSectionLabels()` / `getPrewarmAndUpdatesLabels()` helpers used
+	// by the auto-switch effect, so the derivation stays consistent with
+	// the auto-switch scoring. (The hub renders its own empty state
+	// inside SettingsHub.)
 	const hasAnyVisibleRow = useMemo(() => {
 		if (!settingsFilter.trim()) return true;
 		const q = settingsFilter.toLowerCase();
-		const tabLabels = getTabLabels();
+		const sectionLabels = getSectionLabels();
 		const allLabels = [
-			...Object.values(tabLabels).flat(),
+			...Object.values(sectionLabels).flat(),
 			...getPrewarmAndUpdatesLabels(),
 		];
 		return allLabels.some((label) => label.toLowerCase().includes(q));
 	}, [settingsFilter]);
 
+	// "Results from other section pages" (search grouping): matches the
+	// SAME label sets as the empty-state + auto-switch derivations above,
+	// but keeps every match from every OTHER section page (the active
+	// page's own matches are filtered inline by the sections). Each
+	// entry navigates to its page with a rowHint so the destination
+	// scrolls to + rings the matched row (the proven search deep-link
+	// path). Only rendered on section pages — the hub's rows already
+	// list their matched labels inline.
+	const otherSectionGroups = useMemo(() => {
+		if (!activeSection || !settingsFilter.trim()) return [];
+		const q = settingsFilter.toLowerCase();
+		const sectionLabels = getSectionLabels();
+		sectionLabels.settingsAdvanced = [
+			...sectionLabels.settingsAdvanced,
+			...getPrewarmAndUpdatesLabels(),
+		];
+		return Object.entries(sectionLabels)
+			.filter(([sectionPage]) => sectionPage !== activeSection)
+			.map(([sectionPage, labels]) => ({
+				sectionPage: sectionPage as SettingsSectionPage,
+				// Different section titles can render the same translated
+				// word — dedupe so a match produces ONE chip per unique
+				// label (and unique React keys).
+				labels: [...new Set(labels)].filter((label) =>
+					label.toLowerCase().includes(q),
+				),
+			}))
+			.filter((g) => g.labels.length > 0);
+	}, [settingsFilter, activeSection]);
+
+	// Help-overlay labels derived from the user's config via the shared
+	// configHotkeyLabels helper (same source App.tsx's overlay uses).
+	const helpLabels = useMemo(
+		() =>
+			configHotkeyLabels({
+				hotkey: config?.hotkey ?? null,
+				repaste_hotkey: config?.repaste_hotkey ?? null,
+			}),
+		[config?.hotkey, config?.repaste_hotkey],
+	);
+
 	// Filter predicate — wrapped in useCallback with
 	// [settingsFilter] deps so memoized section children don't re-render
-	//unless the query actually changes. : this is now a PURE
-	// predicate (no render-phase side effect) — `hasAnyVisibleRow` is
-	// derived above via useMemo from the same label set. NOTE: declared
-	// BEFORE the `if (!config)` early return so React's Rules of Hooks are
+	// unless the query actually changes. This is a PURE predicate (no
+	// render-phase side effect) — `hasAnyVisibleRow` is derived above via
+	// useMemo from the same label set. NOTE: declared BEFORE the
+	// `if (!config)` early return so React's Rules of Hooks are
 	// satisfied (useCallback is a hook and must be called unconditionally
 	// on every render).
 	const _filter_settings = useCallback(
@@ -553,6 +591,67 @@ export default function SettingsPage({
 		[config, updateConfig, updateConfigDebounced, _filter_settings],
 	);
 
+	// Which section page's cards render — a single data-driven switch so
+	// the hub/section split stays declarative. Top-level (not inline in
+	// JSX) so no component types are re-created during render.
+	const renderSectionCards = (active: SettingsSectionPage) => {
+		switch (active) {
+			case "settingsGeneral":
+				return <GeneralSettingsSection {...sectionProps} />;
+			case "settingsOverlay":
+				return <OverlaySettingsSection {...sectionProps} />;
+			case "settingsHotkeys":
+				return <RecordingSettingsSection {...sectionProps} />;
+			case "settingsTranscription":
+				return <PostProcessingSettingsSection {...sectionProps} />;
+			case "settingsAI":
+				return (
+					<>
+						<LlmPolishingSettingsSection {...sectionProps} />
+						<AiEnhancementSettingsSection {...sectionProps} />
+					</>
+				);
+			case "settingsAudio":
+				return <AudioSettingsSection {...sectionProps} />;
+			case "settingsAppearance":
+				return (
+					<>
+						<ThemeSettingsSection
+							{...sectionProps}
+							themeModeProp={themeModeProp}
+							onThemeChange={handleThemeChangeLocal}
+						/>
+						{/* Linux-only (returns null elsewhere): the frameless
+						    title bar's window-button layout — follow the desktop's
+						    button-layout or pick a custom side/visibility. */}
+						<LinuxWindowButtonsSettingsSection {...sectionProps} />
+					</>
+				);
+			case "settingsPrivacy":
+				return (
+					<PrivacySettingsSection
+						{...sectionProps}
+						consentFocusField={focusedConsentField}
+					/>
+				);
+			case "settingsAdvanced":
+				return (
+					<>
+						<TroubleshootingSettingsSection
+							isVisible={_filter_settings}
+							updateConfig={updateConfig}
+							onNavigate={navigate}
+							onResetClick={() => setShowResetDialog(true)}
+							onOpenHelp={() => setHelpOpen(true)}
+						/>
+						<DiagnosticsSettingsSection isVisible={_filter_settings} />
+						<ResourcesSettingsSection isVisible={_filter_settings} />
+						<PrewarmAndUpdates isVisible={_filter_settings} />
+					</>
+				);
+		}
+	};
+
 	if (!config) {
 		// Initial-load failure: render the load-failure EmptyState
 		// (variant="error" + Retry) instead of an endless "Loading…"
@@ -573,66 +672,72 @@ export default function SettingsPage({
 				</div>
 			);
 		}
-		return (
-			<div className="flex h-full items-center justify-center">
-				<output
-					aria-live="polite"
-					aria-busy="true"
-					className="flex flex-col items-center gap-2"
-				>
-					<Spinner size={24} className="mx-auto" />
-					<p className="text-sm text-(--text-muted)">{t("settings.loading")}</p>
-				</output>
-			</div>
-		);
+		return <SettingsPageSkeleton />;
 	}
 
-	const showEmptyBanner = settingsFilter.trim() !== "" && !hasAnyVisibleRow;
-
-	// renderTabPanel wraps the section children in a `role="tabpanel"`
-	// container. The `id` / `aria-labelledby` pair is kept for
-	// backward compat with screen readers that expect the tablist
-	// contract — even though the SegmentedControl tab bar is gone,
-	// each Settings sub-page is still a "panel" that the sidebar
-	// submenu item controls (aria-controls on the sidebar child
-	// button is wired via the `id` here).
-	const renderTabPanel = (tab: SettingsTab, children: ReactNode) => (
-		<div
-			role="tabpanel"
-			id={`panel-${tab}`}
-			aria-labelledby={`tab-${tab}`}
-			className="space-y-8 focus-visible:outline-none"
-		>
-			{children}
-		</div>
-	);
+	// The empty banner only applies on section pages when the query
+	// matched NOTHING anywhere — if other section pages have matches, the
+	// cross-section results section below replaces it (a bare "no
+	// settings match" would be misleading copy when other pages do
+	// match).
+	const showEmptyBanner =
+		activeSection !== null &&
+		settingsFilter.trim() !== "" &&
+		!hasAnyVisibleRow &&
+		otherSectionGroups.length === 0;
 
 	return (
 		<div className="flex min-h-full flex-col">
-			<div className="mx-auto w-full max-w-4xl flex-1 space-y-8 px-16 pt-6 pb-6">
-				<PageHeading
-					title={t("settings.title")}
-					description={t("settings.description")}
-				/>
-				{/* amber keyboard-permission banner —
-                                                placed immediately under PageHeading so the user sees the
-                                                "click to fix" prompt before scrolling into the tab panels.
-                                                Renders null when permission is granted / not needed, so the
-                                                layout is unchanged on platforms where the banner doesn't
-                                                apply (Windows). */}
+			<div className="mx-auto w-full max-w-4xl flex-1 flex flex-col gap-8 px-16 pt-28 pb-6">
+				{page === "settings" ? (
+					<PageHeading
+						title={t("settings.title")}
+						description={t("settings.description")}
+					/>
+				) : (
+					activeSection !== null && (
+						<SectionBackButton onBack={() => navigate("settings")} />
+					)
+				)}
+				{/* amber keyboard-permission banner — placed immediately under
+				    the page heading (hub) / back button (section pages) so the
+				    user sees the "click to fix" prompt before the settings
+				    content. Renders null when permission is granted / not
+				    needed, so the layout is unchanged on platforms where the
+				    banner doesn't apply (Windows). */}
 				<KeyboardPermissionBanner />
 
-				{/* Empty-state banner rendered via the shared
-                                                EmptyState component (variant="info") so the visual
-                                                treatment matches Dashboard / Models / Vocabulary.
-                                                Reuses the existing searchNoMatch / noResultsMessage /
-                                                a11y.clearSearch i18n keys — `searchNoMatch` preserves
-                                                the "{query}" interpolation so screen readers + sighted
-                                                users see what they searched for; `noResultsMessage`
-                                                adds the actionable hint; the action button gives a
-                                                one-click escape hatch. The EmptyState wraps its title
-                                                in an <h3> so SR users can navigate empty-state cards
-                                                by heading. */}
+				{/* Save-failure banner — the REAL save-status surface.
+                                    useSettingsConfig auto-saves silently (no success
+                                    indicator, by design), but a failed write must not be
+                                    invisible: the hook's per-flush `error` carries the
+                                    backend's specific validator text and is shown here
+                                    until the next successful save clears it. aria-live so
+                                    screen readers announce the failure. data-testid pins
+                                    the contract for tests. */}
+				{saveError && (
+					<div
+						role="status"
+						aria-live="polite"
+						data-testid="settings-save-error"
+						className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+					>
+						{saveError}
+					</div>
+				)}
+
+				{/* Empty-state banner (section pages only — the hub renders
+                                    its own inside SettingsHub) via the shared EmptyState
+                                    component (variant="info") so the visual treatment
+                                    matches Dashboard / Models / Vocabulary. Reuses the
+                                    existing searchNoMatch / noResultsMessage /
+                                    a11y.clearSearch i18n keys — `searchNoMatch` preserves
+                                    the "{query}" interpolation so screen readers +
+                                    sighted users see what they searched for;
+                                    `noResultsMessage` adds the actionable hint; the action
+                                    button gives a one-click escape hatch. The EmptyState
+                                    wraps its title in an <h3> so SR users can navigate
+                                    empty-state cards by heading. */}
 				{showEmptyBanner && (
 					<EmptyState
 						variant="info"
@@ -646,73 +751,94 @@ export default function SettingsPage({
 					/>
 				)}
 
-				{activeTab === "appearance" &&
-					renderTabPanel(
-						"appearance",
+				{/* The active surface's content. HUB: the single card of
+                                    section rows. SECTION PAGE: the cross-section search
+                                    results card (when a query matches elsewhere) followed
+                                    by the page's own section cards. */}
+				{page === "settings" ? (
+					<SettingsHub
+						config={config}
+						onNavigateSection={(sectionPage) => navigate(sectionPage)}
+					/>
+				) : (
+					activeSection !== null && (
 						<>
-							<ThemeSettingsSection
-								{...sectionProps}
-								themeModeProp={themeModeProp}
-								onThemeChange={handleThemeChangeLocal}
-							/>
-							{/* Linux-only (returns null elsewhere): the
-							    frameless title bar's window-button layout —
-							    follow the desktop's button-layout or pick a
-							    custom side/visibility. */}
-							<LinuxWindowButtonsSettingsSection {...sectionProps} />
-						</>,
-					)}
-
-				{activeTab === "general" &&
-					renderTabPanel(
-						"general",
-						<>
-							<GeneralSettingsSection {...sectionProps} />
-							<RecordingSettingsSection {...sectionProps} />
-						</>,
-					)}
-
-				{activeTab === "aiAudio" &&
-					renderTabPanel(
-						"aiAudio",
-						<>
-							<ModelSettingsSection {...sectionProps} />
-							<AudioSettingsSection {...sectionProps} />
-							<AiEnhancementSettingsSection {...sectionProps} />
-						</>,
-					)}
-
-				{activeTab === "privacy" &&
-					renderTabPanel(
-						"privacy",
-						<>
-							<PrivacySettingsSection
-								{...sectionProps}
-								consentFocusField={focusedConsentField}
-							/>
-							<TroubleshootingSettingsSection
-								isVisible={_filter_settings}
-								updateConfig={updateConfig}
-								onNavigate={navigate}
-								onResetClick={() => setShowResetDialog(true)}
-							/>
-							<DiagnosticsSettingsSection isVisible={_filter_settings} />
-							<ResourcesSettingsSection isVisible={_filter_settings} />
-							<PrewarmAndUpdates isVisible={_filter_settings} />
-						</>,
-					)}
+							{otherSectionGroups.length > 0 && (
+								<section
+									aria-label={t("settings.otherTabsResults")}
+									data-testid="settings-other-tabs-results"
+									className="rounded-lg border border-border/10 bg-(--bg-subtle) px-3.5 py-3"
+								>
+									<h2 className="text-sm font-medium text-(--text-primary)">
+										{t("settings.otherTabsResults")}
+									</h2>
+									<div className="flex flex-col gap-2">
+										{otherSectionGroups.map((group) => (
+											<div
+												key={group.sectionPage}
+												className="flex flex-col gap-1"
+											>
+												<p className="text-xs font-medium text-(--text-muted)">
+													{t(SECTION_TITLE_BY_PAGE[group.sectionPage])}
+												</p>
+												<div className="flex flex-wrap gap-2">
+													{group.labels.map((label) => (
+														<button
+															key={`${group.sectionPage}-${label}`}
+															type="button"
+															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+															onClick={() =>
+																navigate(group.sectionPage, {
+																	settingsScrollTarget: { rowHint: label },
+																})
+															}
+														>
+															{label}
+														</button>
+													))}
+												</div>
+											</div>
+										))}
+									</div>
+								</section>
+							)}
+							{renderSectionCards(activeSection)}
+						</>
+					)
+				)}
 			</div>
 
-			<ConfirmDialog
-				open={showResetDialog}
-				title={t("settings.troubleshooting.resetToDefaults")}
-				message={t("settings.troubleshooting.resetDialogMessage")}
-				confirmLabel={t("settings.troubleshooting.resetToDefaults")}
-				cancelLabel={t("common.cancel")}
-				variant="destructive"
-				onConfirm={resetToDefaults}
-				onCancel={() => setShowResetDialog(false)}
-			/>
+			{/* Reset-confirm + page-level help overlay serve the Advanced
+			    page's Troubleshooting section only — gated so the hub and
+			    other section pages don't mount them. The hooks backing them
+			    (showResetDialog / helpOpen) stay at the top of the component
+			    per the Rules of Hooks. */}
+			{page === "settingsAdvanced" && (
+				<>
+					<ConfirmDialog
+						open={showResetDialog}
+						title={t("settings.troubleshooting.resetToDefaults")}
+						message={t("settings.troubleshooting.resetDialogMessage")}
+						confirmLabel={t("settings.troubleshooting.resetToDefaults")}
+						cancelLabel={t("common.cancel")}
+						variant="destructive"
+						onConfirm={resetToDefaults}
+						onCancel={() => setShowResetDialog(false)}
+					/>
+
+					{/* Page-level help overlay for the Troubleshooting section's
+					    "Keyboard Shortcuts" button. Same shared component App.tsx
+					    mounts for the `?` shortcut; labels come from the user's
+					    config via the shared configHotkeyLabels helper so both
+					    instances can never drift. */}
+					<HelpOverlay
+						open={helpOpen}
+						onClose={() => setHelpOpen(false)}
+						dictationLabel={helpLabels.dictationLabel}
+						repasteLabel={helpLabels.repasteLabel}
+					/>
+				</>
+			)}
 		</div>
 	);
 }

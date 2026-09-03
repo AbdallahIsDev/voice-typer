@@ -53,13 +53,15 @@
 		"group": {
 			"system": "系统",
 			"main": "主要"
-		},
-		"settingsGeneral": "常规",
-		"settingsAiAudio": "AI 与音频",
-		"settingsAppearance": "外观",
-		"settingsPrivacy": "隐私"
+		}
 	},
 	"home": {
+		"showMore": "展开更多",
+		"showLess": "收起",
+		"copy": "复制",
+		"copyAria": "将转写内容复制到剪贴板",
+		"discard": "丢弃",
+		"discardAria": "从预览中丢弃这条转写",
 		"ready": "就绪",
 		"recording": "录音中",
 		"transcribing": "转写中",
@@ -383,7 +385,7 @@
 		"correctionsTooltip": "听写时引擎应用的词汇修正",
 		"correctionsRate": "占听写的 {pct}%",
 		"shareTooltip": "导出可分享的摘要图片",
-		"totalDictationsPeriod": "听写总数 ({range})",
+		"totalDictations": "听写总数",
 		"trendDownLabel": "比上一时间段少 {pct}%",
 		"trendFlatLabel": "与上一时间段持平",
 		"trendUpLabel": "比上一时间段多 {pct}%",
@@ -561,16 +563,12 @@
 		"loadedViaHint": "语音模型是如何加载的（内置、下载或自定义路径）。"
 	},
 	"settings": {
+		"apiUrlInvalid": "请输入有效的 http(s) URL",
+		"otherTabsResults": "其他标签页的结果",
 		"title": "设置",
 		"searchPlaceholder": "搜索设置…",
 		"noResultsTitle": "未找到结果",
 		"noResultsMessage": "尝试其他搜索词或清除过滤器以查看所有设置。",
-		"tabs": {
-			"appearance": "外观",
-			"general": "常规",
-			"aiAudio": "AI 与音频",
-			"privacy": "隐私"
-		},
 		"general": "常规",
 		"language": "语言",
 		"languageDescription": "语音识别语言",
@@ -723,7 +721,6 @@
 		"resetToDefaultsToast": "设置已重置为默认值",
 		"fetchDefaultsFailed": "从后端获取默认值失败",
 		"resetFailed": "重置为默认值失败",
-		"tabsAria": "设置选项卡",
 		"appearance": {
 			"title": "外观",
 			"description": "自定义外观 — 配色方案、主题预设和文本大小。",
@@ -754,6 +751,24 @@
 			"contrastWarningShort": "对比度 {ratio}:1"
 		},
 		"hotkeySection": {
+			"warnPasswordPasteAria": "粘贴到密码字段前确认",
+			"warnPasswordPasteInfo": "在粘贴到密码输入框之前显示确认。",
+			"warnPasswordPasteInfoSearch": "密码粘贴前警告",
+			"warnPasswordPaste": "粘贴到密码字段前确认",
+			"warnElevatedPasteAria": "粘贴到管理员窗口前确认",
+			"warnElevatedPasteInfo": "在粘贴到管理员（提升权限）窗口之前显示确认。",
+			"warnElevatedPasteInfoSearch": "提升权限粘贴前警告",
+			"warnElevatedPaste": "粘贴到管理员窗口前确认",
+			"unsafePasteAria": "粘贴到未识别的窗口",
+			"unsafePasteInfo": "即使无法识别之前聚焦的窗口也粘贴转写文本 — 粘贴可能落在错误的窗口。",
+			"unsafePasteInfoSearch": "粘贴时不检查焦点",
+			"unsafePaste": "粘贴到未识别的窗口",
+			"testSoundAria": "播放示例录音提示音",
+			"testSound": "试听提示音",
+			"soundVolumeAria": "提示音音量",
+			"soundVolumeInfo": "设置录音开始和停止提示音的播放音量，从静音（0）到最大（1）。",
+			"soundVolumeInfoSearch": "开始/停止提示音的音量",
+			"soundVolume": "提示音音量",
 			"hotkeyTitle": "快捷键",
 			"hotkeyDescription": "用于开始和停止听写的键。",
 			"dictationKey": "听写键",
@@ -973,6 +988,12 @@
 			"autoApplyConfidenceAria": "自动应用置信度"
 		},
 		"privacy": {
+			"clipboardSaveRestoreAria": "保存并恢复剪贴板",
+			"clipboardSaveRestoreInfo": "在粘贴前记住剪贴板内容，之后将其恢复。",
+			"clipboardSaveRestoreLabel": "保存并恢复剪贴板",
+			"logTranscriptionsAria": "记录转写内容",
+			"logTranscriptionsInfo": "将每次转写写入应用日志文件以便排查问题。文本保留在此设备上。",
+			"logTranscriptionsLabel": "记录转写内容",
 			"audioRecoveryTitle": "音频与恢复",
 			"audioRecoveryDescription": "监控录音质量并保护您的转写免受崩溃影响。",
 			"crashRecovery": "崩溃恢复",
@@ -1088,7 +1109,7 @@
 			"privacy": "隐私, 恢复, 崩溃, 导出, 同意, 故障排除, 诊断, 重置, 日志, 错误, 帮助, 常见问题"
 		},
 		"fastStartup": "快速启动（预热）",
-		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可从「设置 → 疑难解答 → 缓存状态」按需预热。",
+		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可从「设置 → 高级 → 缓存状态」按需预热。",
 		"offlinePackConsent": "下载离线引擎包",
 		"offlinePackConsentDescription": "允许从 GitHub Releases 后台下载离线引擎（语音识别模型）。仅在新安装后需要离线听写时启用；只有启用后才会开始下载。",
 		"keyring": {
@@ -1136,6 +1157,14 @@
 			"systemLayout": "系统布局：{side}侧 — {buttons}",
 			"systemUnavailable": "系统按钮布局不可用——使用默认值（右侧，全部按钮）。",
 			"followingSystem": "正在跟随您的桌面布局"
+		},
+		"hub": {
+			"aiDescription": "LLM 润色、语法增强与词汇自动化。",
+			"advancedTitle": "高级",
+			"advancedDescription": "故障排除、诊断、资源、缓存与更新。",
+			"backToSettings": "返回设置",
+			"on": "开",
+			"off": "关"
 		}
 	},
 	"models": {
@@ -1145,12 +1174,9 @@
 		"asrTitle": "模型",
 		"asrSubtitle": "配置本地和云端语音模型。",
 		"title": "模型",
-		"description": "配置您的语音转文本引擎",
 		"active": "活动",
 		"delete": "删除",
-		"use": "使用",
 		"select": "选择",
-		"downloadModel": "下载",
 		"downloading": "下载中…",
 		"selecting": "选择中…",
 		"providers": {
@@ -1170,17 +1196,17 @@
 		"lastResortUnloaded": "模型未加载。",
 		"lastResortUnloadedHint": "打开模型页面以下载模型。",
 		"snack": {
-			"parakeetDepsRequired": "Parakeet 需要依赖项。请先下载。",
 			"depsRequiredName": "{name} 需要依赖项。请先下载。",
 			"notDownloaded": "模型 \"{name}\" 尚未下载。请先下载。",
 			"usingModel": "正在使用模型：{name}",
 			"downloaded": "{name} 下载成功",
 			"downloadFailedName": "下载 {name} 失败",
 			"downloadFailed": "下载失败：{error}",
-			"cannotDeleteActive": "无法删除使用中的模型。请先切换到其他模型。",
 			"deleted": "已删除：{name}",
 			"deleteFailed": "删除失败",
 			"deleteFailedError": "删除失败：{error}",
+			"apiKeyEmpty": "请先输入 API 密钥",
+			"apiKeyUnchanged": "API 密钥未更改",
 			"apiKeySaved": "{provider} API 密钥已保存",
 			"consentGranted": "已授予 {provider} 许可 — 音频将发送到此提供商。",
 			"consentRevoked": "已撤销对 {provider} 的许可 — 音频将不会被发送。",
@@ -1188,25 +1214,19 @@
 			"pauseFailed": "暂停失败：{error}",
 			"cancelled": "下载已取消。部分文件将在重试时被复用。",
 			"cancelFailed": "取消失败：{error}",
-			"parakeetDepsInstalled": "Parakeet 依赖项安装成功。",
 			"depsInstalled": "依赖项已安装",
-			"selectFailed": "选择失败"
+			"selectFailed": "选择失败",
+			"downloadAlreadyActive": "另一个模型下载正在进行中（可能已暂停）。请先恢复或取消该下载。"
 		},
 		"test": {
 			"needApiKey": "请先输入 API 密钥",
 			"connectionSuccessful": "连接成功 — API 密钥有效。",
 			"connectionFailed": "连接失败：{status} {statusText}",
-			"endpointUnavailable": "API 密钥已保存 — 此提供商没有可用的测试端点。",
-			"connectionTestFailed": "连接测试失败：{error}",
-			"connectionNetworkError": "连接网络错误"
+			"connectionTestFailed": "连接测试失败：{error}"
 		},
 		"status": {
-			"active": "活跃",
-			"downloaded": "已下载",
 			"depsRequired": "需要依赖项",
-			"available": "可用",
-			"insufficientDisk": "磁盘空间不足",
-			"insufficientDiskSpace": "磁盘空间不足"
+			"insufficientDisk": "磁盘空间不足"
 		},
 		"import": {
 			"title": "导入模型",
@@ -1215,8 +1235,7 @@
 			"success": "已导入 {count} 个模型：{models}",
 			"noModelsFound": "在该目录中未找到已知的模型文件夹。请选择 HuggingFace 缓存文件夹（包含 'models--*' 目录）。",
 			"failedAll": "无法从该目录导入任何模型。",
-			"failed": "导入模型失败：{error}",
-			"importModelAria": "从文件夹导入模型"
+			"failed": "导入模型失败：{error}"
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1243,23 +1262,18 @@
 			"cancelConfirmAction": "取消下载"
 		},
 		"card": {
-			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"multilingual": "多语言",
 			"englishOnly": "仅支持英语",
 			"speedSuffix": "{rating} 速度",
 			"distilled": "蒸馏版",
 			"activeAria": "当前使用：{name}",
-			"useAria": "使用 {name}",
 			"downloadAria": "下载 {name}",
 			"selectAria": "选择 {name}",
 			"deleteAria": "删除 {name}",
-			"accuracy": "准确率",
 			"vramLabel": "VRAM",
 			"werLabel": "WER"
 		},
 		"cloud": {
-			"title": "云端语音识别提供商",
-			"description": "配置云端转写服务",
 			"apiKey": "API 密钥",
 			"apiKeyPlaceholder": "输入您的 API 密钥",
 			"saveKeyAria": "保存 {provider} API 密钥",
@@ -1283,53 +1297,13 @@
 		},
 		"deleteDialog": {
 			"title": "删除模型",
-			"message": "确定要删除 \"{name}\" 吗？此操作无法撤销。",
-			"messageWithSize": "确定要删除 {name}（{size}）吗？"
+			"message": "确定要删除 \"{name}\" 吗？此操作无法撤销。"
 		},
-		"subtitle": "下载和管理语音识别模型",
 		"localModels": "本地模型",
 		"localModelsDescription": "直接在您的设备上运行 Whisper 模型。下载后无需联网。",
-		"downloaded": "已下载",
-		"dependenciesRequired": "需要依赖项",
-		"available": "可用",
-		"downloadFirst": "先下载",
-		"activeModel": "使用中",
-		"noModelSelected": "未选择模型",
-		"setAsActive": "设为使用中",
 		"deleteModel": "删除",
-		"cannotDeleteActive": "无法删除使用中的模型。请先切换到其他模型。",
-		"downloadStarted": "下载已开始",
-		"downloadComplete": "下载完成",
-		"downloadFailed": "下载失败",
-		"deleteFailed": "删除失败",
-		"enterApiKey": "输入您的 API 密钥",
 		"apiKeyPlaceholder": "输入您的 API 密钥",
-		"testConnection": "测试连接",
-		"testing": "测试中...",
-		"connectionSuccessful": "连接成功 — API 密钥有效。",
-		"connectionFailed": "连接失败",
-		"pleaseEnterApiKey": "请先输入 API 密钥",
-		"size": "大小",
-		"language": "语言",
-		"fastest": "最快",
-		"fast": "快速",
-		"slow": "慢速",
 		"variable": "可变",
-		"gpuRequired": "需要 GPU",
-		"cpuOnly": "仅 CPU",
-		"openaiWhisperApi": "OpenAI Whisper API 接口",
-		"groqWhisperApi": "Groq Whisper API 接口",
-		"deepgramApi": "Deepgram API 接口",
-		"configureEngines": "配置您的语音转文字引擎",
-		"benchmark": {
-			"notImplemented": "基准测试尚未实现。",
-			"title": "模型基准测试",
-			"description": "在您的系统上比较模型性能",
-			"runAria": "运行模型基准测试",
-			"running": "运行中...",
-			"run": "运行基准测试"
-		},
-		"benchmarkNotImplemented": "基准测试尚未实现。",
 		"speed": {
 			"fastest": "最快",
 			"variable": "可变",
@@ -1337,21 +1311,17 @@
 			"fast": "快速",
 			"medium": "中等"
 		},
-		"openFolderAria": "在文件管理器中打开模型目录",
-		"openFolderFailed": "打开文件夹失败",
 		"disk": {
 			"lowSpaceBody": "没有足够的空间下载模型",
 			"lowSpaceTitle": "磁盘空间不足",
 			"freeSpace": "{space} 可用"
 		},
-		"loading": "正在加载模型…",
 		"openFolder": {
 			"label": "打开模型文件夹",
 			"aria": "在文件管理器中显示模型文件夹"
 		},
 		"cloudModels": "云端模型",
 		"cloudModelsDescription": "使用云端 API 进行更快的转录。需要 API 密钥。",
-		"activeModelSummaryLabel": "活动模型：",
 		"noModelBanner": "未选择语音模型。请在下方选择一个模型。"
 	},
 	"tooltips": {
@@ -1439,6 +1409,7 @@
 			"textSizeDown": "减小文字大小",
 			"title": "键盘快捷键",
 			"toggleSidebar": "切换侧边栏",
+			"toggleDictation": "切换听写",
 			"dismissBubble": "隐藏悬浮气泡"
 		}
 	},
@@ -1506,6 +1477,7 @@
 		"exportFilteredToast": "已导出筛选后的记录"
 	},
 	"onboarding": {
+		"doneHelpHint": "提示：在任意位置按 ? 可打开键盘快捷键帮助。",
 		"applyFailedTitle": "无法完成设置",
 		"applyFailedDescription": "无法应用你的设置。请重试，或先跳过，稍后在设置中完成。",
 		"welcomeTitle": "欢迎使用 {appName}",
@@ -1514,7 +1486,7 @@
 		"step2Item": "授予键盘监听权限",
 		"step3Item": "选择快捷键",
 		"consentTitle": "隐私与同意",
-		"consentDescription": "选择您同意的事项。默认全部关闭 — 您可以随时在 设置 → 隐私 中更改。",
+		"consentDescription": "选择您同意的事项。默认全部关闭 — 您可以随时在 设置 → 隐私与同意 中更改。",
 		"micTitle": "选择您的麦克风",
 		"micDescription": "选择您想用于听写的麦克风。您可以稍后在设置中更改。",
 		"micSelectAria": "选择麦克风",
@@ -1557,7 +1529,7 @@
 		"permissionsTestFailure": "未检测到热键。请检查上述权限步骤后重试。",
 		"permissionsTestButton": "测试热键",
 		"skipConfirmTitle": "跳过设置？",
-		"skipConfirmMessage": "现在跳过意味着您的麦克风和快捷键可能无法工作。您可以稍后从设置 → 故障排除重新运行此设置向导，或在设置中配置各个选项。",
+		"skipConfirmMessage": "现在跳过意味着您的麦克风和快捷键可能无法工作。您可以稍后从设置 → 高级 → 故障排除重新运行此设置向导，或在设置中配置各个选项。",
 		"skipConfirmLabel": "仍然跳过",
 		"permissionsTestFailureBlocked": "仍需要权限 — 请先授予权限，然后重试。",
 		"permissionsRefresh": "刷新权限",
@@ -1734,7 +1706,8 @@
 		"wordsCount": "{count} 个字",
 		"removeFromFavorites": "从收藏夹移除",
 		"addToFavorites": "添加到收藏夹",
-		"noRecentActivity": "暂无近期活动"
+		"noRecentActivity": "暂无近期活动",
+		"loadTextFailed": "加载完整文本失败"
 	},
 	"exportFormat": {
 		"export": "导出",
@@ -1961,6 +1934,10 @@
 		"restartBackendHint": "无法从此窗口重新启动后端。它可能由外部管理——请重新启动应用。"
 	},
 	"dialog": {
+		"discardChangesTitle": "放弃更改？",
+		"discardChangesMessage": "现在关闭将放弃未保存的修改。",
+		"discardChangesConfirm": "放弃更改",
+		"discardChangesStay": "继续编辑",
 		"pythonCrash": {
 			"title": "Python 后端崩溃",
 			"body": "{appName} 的 Python 后端意外退出，代码为 {code}，现在将退出。",
@@ -2004,7 +1981,12 @@
 			"mic_disconnected": "麦克风已断开。录音已停止。请重新连接麦克风以继续。",
 			"mic_permission_revoked": "麦克风权限已被撤销。录音已停止。请在系统隐私设置中重新授予麦克风访问权限以继续。",
 			"silence_auto_stop": "录音已停止：长时间未检测到音频。",
-			"load_failed": "无法加载语音模型。\n{error}\n\n应用将继续运行。按 {hotkey} 重试加载。"
+			"load_failed": "无法加载语音模型。\n{error}\n\n应用将继续运行。按 {hotkey} 重试加载。",
+			"start_failed_with_reason": "无法开始录音。\n{reason}",
+			"mic_unplugged": "麦克风已被拔出。录音已停止。",
+			"still_running": "转写仍在进行中。\n较长的录音或 CPU 后备模式可能需要更多时间。",
+			"xrun_title": "{app} — 音频问题",
+			"xrun_body": "检测到 {count} 次音频缓冲区欠载。请尝试关闭其他音频应用或降低 CPU 负载。"
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",

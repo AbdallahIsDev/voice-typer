@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
+import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import { resolveActiveModel } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
@@ -52,6 +53,9 @@ import {
 
 /** History sample size for the dashboard's derived stats. */
 export const DASHBOARD_SAMPLE_LIMIT = 500;
+
+// Module-cache key for the SWR seed (see lib/ipcCache.ts).
+const DASHBOARD_CACHE_KEY = "analytics.dashboardData";
 
 /**
  * Arguments for {@link useDashboardData}.
@@ -100,12 +104,12 @@ export interface UseDashboardDataResult {
 export function useDashboardData({
 	call,
 }: UseDashboardDataArgs): UseDashboardDataResult {
-	// Per-instance cache ref (replaced the prior module-level
-	// `let _cachedData` mutable binding). The initial `useState` value
-	// seeds from this ref so the first render after a navigation back
-	// to the dashboard shows the previously-fetched data instead of
-	// flashing empty.
-	const cachedDataRef = useRef<DashboardData | null>(null);
+	// SWR seed: the initial `useState` value reads the MODULE-level IPC
+	// cache (survives page unmount, so navigation back to the dashboard
+	// shows the previously-fetched data instantly — the former
+	// per-instance ref died with the unmounted page and never actually
+	// survived navigation). `refreshData` still revalidates fresh data
+	// over it every mount.
 
 	// Ref mirror of `call` so `refreshData` keeps a STABLE identity
 	// ([] deps). `call` is useCallback-stable in production, but test
@@ -117,14 +121,15 @@ export function useDashboardData({
 		callRef.current = call;
 	}, [call]);
 
-	const [data, setData] = useState<DashboardData | null>(cachedDataRef.current);
+	const [data, setData] = useState<DashboardData | null>(
+		() => peekIpcCache<DashboardData>(DASHBOARD_CACHE_KEY) ?? null,
+	);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
 	const [configDir, setConfigDir] = useState<string>("");
-	// F4 (b-review Finding 11): "Last updated" indicator state. The
-	// per-instance `cachedDataRef` survives re-renders within the same
-	// mount, so we mark the timestamp after each successful refreshData()
-	// to surface staleness to the user.
+	// F4 (b-review Finding 11): "Last updated" indicator state. We mark
+	// the timestamp after each successful refreshData() to surface
+	// staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
 	// Ref mirror of `markUpdated` — same rationale as the callRef above.
 	const markUpdatedRef = useRef(markUpdated);
@@ -267,7 +272,9 @@ export function useDashboardData({
 				activeDays: streaks.activeDays,
 				sampleSize: recs.length,
 			};
-			cachedDataRef.current = newData;
+			// SWR write-through — the next dashboard visit seeds from
+			// this snapshot instead of flashing empty.
+			writeIpcCache(DASHBOARD_CACHE_KEY, newData);
 			setData(newData);
 			setSample(recs);
 			setCorrectionUsage(correctionUsage ?? null);

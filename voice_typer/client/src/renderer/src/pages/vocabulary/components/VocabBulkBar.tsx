@@ -66,7 +66,7 @@ export function VocabBulkBar({
 				variant="outline"
 				size="sm"
 				onClick={onDeleteSelected}
-				className="gap-1.5 text-xs text-(--text-muted) hover:text-destructive hover:border-destructive/40"
+				className="gap-2 text-xs text-(--text-muted) hover:text-destructive hover:border-destructive/40"
 			>
 				<HugeiconsIcon
 					icon={Delete01Icon}
@@ -82,7 +82,7 @@ export function VocabBulkBar({
 						variant="outline"
 						size="sm"
 						aria-label={t("vocabulary.exportSelected")}
-						className="gap-1.5 text-xs text-(--text-muted) hover:text-(--text-primary)"
+						className="gap-2 text-xs text-(--text-muted) hover:text-(--text-primary)"
 					>
 						<HugeiconsIcon
 							icon={Download01Icon}

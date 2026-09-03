@@ -55,7 +55,7 @@
  * consumer identity stays stable (no `state.downloadingModel` access
  * pattern leaks into consumers).
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
 import type { ShowSnackOptions } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -80,6 +80,11 @@ interface UseModelDownloadArgs {
 	) => void;
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 	refreshModelStatus: () => Promise<void>;
+	/** Full reconcile after a successful download: re-fetches config +
+	 * status so the Active badge reflects BACKEND truth (the backend
+	 * does not auto-activate a downloaded model, so the renderer must
+	 * not invent an Active state locally). */
+	reconcileAfterDownload: () => Promise<void>;
 }
 
 export interface UseModelDownloadResult {
@@ -156,11 +161,25 @@ export function useModelDownload({
 	showSnack,
 	setModels,
 	refreshModelStatus,
+	reconcileAfterDownload,
 }: UseModelDownloadArgs): UseModelDownloadResult {
 	// Consolidated download-progress state — previously 10 separate
 	// useState calls. Each `download_progress` event now produces ONE
 	// setState via the functional-update form below.
 	const [state, setState] = useState<DownloadState>(INITIAL_DOWNLOAD_STATE);
+
+	// Stale-resolution guard: `download_model` is a long-running promise
+	// that keeps resolving AFTER the user cancels (or after a failed
+	// attempt when the user immediately retries / starts another
+	// download). Without a generation token, the stale resolution's
+	// state writes (resetProgress / failedDownload / bar clear) would
+	// corrupt the NEW download's state — zeroing its progress bar,
+	// unmounting it, or showing a stale error toast mid-download.
+	// `downloadModel` captures the generation at start; every state
+	// write after an await is gated on still being the current run.
+	// Cancel bumps the generation so the cancelled promise's eventual
+	// resolution is always treated as stale.
+	const downloadRunRef = useRef(0);
 
 	// ── download_progress event subscription ────────────────────────
 	//
@@ -186,14 +205,26 @@ export function useModelDownload({
 					patch.downloadedBytes = data.downloaded_bytes;
 				if (typeof data.total_bytes === "number")
 					patch.totalBytes = data.total_bytes;
+				// Speed/ETA: set when present; cleared ONLY on a state
+				// transition (pause/resume/status change) — the backend
+				// also pushes transition-only events (e.g. a lone
+				// `paused: true`) whose absent speed/ETA fields mean
+				// "not re-measured", not "reset to zero". Clearing on
+				// absence made every partial event wipe the live
+				// speed/ETA readout, contradicting the patch contract
+				// above (only fields present in the event are set).
+				const isTransition =
+					typeof data.status === "string" ||
+					typeof data.paused === "boolean" ||
+					data.resumed === true;
 				if (typeof data.speed_bytes_per_sec === "number") {
 					patch.speedBps = data.speed_bytes_per_sec;
-				} else if (data.speed_bytes_per_sec == null) {
+				} else if (data.speed_bytes_per_sec == null && isTransition) {
 					patch.speedBps = null;
 				}
 				if (typeof data.eta_seconds === "number") {
 					patch.etaSeconds = data.eta_seconds;
-				} else if (data.eta_seconds == null) {
+				} else if (data.eta_seconds == null && isTransition) {
 					patch.etaSeconds = null;
 				}
 				if (typeof data.paused === "boolean") patch.isPaused = data.paused;
@@ -259,6 +290,16 @@ export function useModelDownload({
 	// `failedDownload` (clear any stale failure for a re-download).
 	const downloadModel = useCallback(
 		async (model: ModelInfo) => {
+			// Claim the download generation — any earlier in-flight
+			// `download_model` promise now resolves stale (see the guard
+			// below) and must not touch state.
+			const runId = ++downloadRunRef.current;
+			// True while THIS run is still the current download. Checked
+			// after every await so a cancelled / superseded promise can
+			// no longer clobber the live download's state (progress bar,
+			// error UI, toasts).
+			const isCurrent = () => downloadRunRef.current === runId;
+
 			setState((prev) => ({
 				...prev,
 				downloadingModel: model.name,
@@ -271,16 +312,50 @@ export function useModelDownload({
 					error?: string;
 					message?: string;
 					cancelled?: boolean;
+					/** Set when the backend refused to start because another
+					 * gateable download is still in flight (e.g. the renderer's
+					 * promise timed out during a long PAUSE). Not a failure —
+					 * the live download owns the bar; restore it. */
+					download_already_active?: boolean;
 				}>("download_model", { model: model.name });
+				if (!isCurrent()) {
+					// A cancel or a newer download superseded this run —
+					// the state now belongs to the current run, so this
+					// stale resolution must be a no-op.
+					return;
+				}
+				if (result.download_already_active) {
+					// Another gateable download is still running (possibly
+					// paused) — this attempt never started. Surface a hint
+					// and hand the bar back to the live download instead of
+					// treating the refusal as a failure of THIS model.
+					showSnack(
+						result.error || t("models.snack.downloadAlreadyActive"),
+						"warning",
+					);
+					setState((prev) => ({
+						...prev,
+						downloadingModel: null,
+						failedDownload: null,
+					}));
+					resetProgress();
+					return;
+				}
 				if (result.success) {
-					setModels((prev) => {
-						const anyActive = prev.some((m) => m.isActive);
-						return prev.map((m) =>
+					setModels((prev) =>
+						prev.map((m) =>
 							m.name === model.name
-								? { ...m, downloaded: true, isActive: !anyActive }
+								? // downloaded: true only — the ACTIVE badge is
+									// NOT set here: the backend does not
+									// auto-activate a downloaded model, so an
+									// optimistic isActive here showed a phantom
+									// "Active" badge while dictation still used
+									// the previous model. `reconcileAfterDownload`
+									// (below) re-applies the backend's truth.
+									{ ...m, downloaded: true, isActive: false }
 								: m,
-						);
-					});
+						),
+					);
 					showSnack(
 						result.message ||
 							t("models.snack.downloaded", { name: model.name }),
@@ -292,6 +367,10 @@ export function useModelDownload({
 						downloadingModel: null,
 						failedDownload: null,
 					}));
+					// Reconcile with backend truth: re-fetches get_config +
+					// get_model_status so `downloaded` / `isActive` match
+					// what the backend will actually use (MDL-9 contract).
+					await reconcileAfterDownload();
 				} else if (result.cancelled) {
 					// User-initiated cancel: the cancel path
 					// (handleCancelDownload) already surfaced the
@@ -330,6 +409,7 @@ export function useModelDownload({
 					});
 				}
 			} catch (err) {
+				if (!isCurrent()) return;
 				const message = t("models.snack.downloadFailed", {
 					// Known codes map to curated localized copy; anything
 					// else keeps the real formatted reason (never a
@@ -355,7 +435,7 @@ export function useModelDownload({
 			// so the bar stays mounted. The success branch clears it
 			// explicitly.
 		},
-		[call, resetProgress, showSnack, setModels],
+		[call, resetProgress, showSnack, setModels, reconcileAfterDownload],
 	);
 
 	//Action: retryDownload ( priority #3) ───────────────────
@@ -423,15 +503,21 @@ export function useModelDownload({
 	// deps). The IPC call (`pause_model_download` vs.
 	// `resume_model_download`) is chosen based on the closure value.
 	const handleTogglePause = useCallback(async () => {
+		// Capture the pre-toggle value so the failure revert restores THIS
+		// attempt's starting state instead of blindly re-flipping: a
+		// `download_progress` event that legitimately set `isPaused` (or
+		// cleared it) during the failed IPC's await would otherwise be
+		// inverted by the catch-path re-flip.
+		const wasPaused = state.isPaused;
 		setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
 		try {
-			if (state.isPaused) {
+			if (wasPaused) {
 				await call("resume_model_download");
 			} else {
 				await call("pause_model_download");
 			}
 		} catch (err) {
-			setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
+			setState((prev) => ({ ...prev, isPaused: wasPaused }));
 			const reason = userFacingErrorMessage(err, t, formatErrorMessage(err));
 			showSnack(
 				state.isPaused
@@ -462,6 +548,12 @@ export function useModelDownload({
 			// downloading, but the renderer's view reflects the user's
 			// intent and the next download_progress event (if any)
 			// will re-establish state.
+			//
+			// Bump the generation so the still-pending `download_model`
+			// promise's eventual resolution (cancelled / failed /
+			// even success) is treated as stale and cannot clobber a
+			// download the user starts right after cancelling.
+			downloadRunRef.current += 1;
 			setState((prev) => ({
 				...prev,
 				downloadingModel: null,

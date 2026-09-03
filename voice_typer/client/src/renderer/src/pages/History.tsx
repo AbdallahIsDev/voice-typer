@@ -17,6 +17,7 @@ import { SortSelect } from "@/components/common/SortSelect";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
+import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { Button } from "@/components/ui/button";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
@@ -316,9 +317,34 @@ export default function HistoryPage() {
 		[records, sortOrder],
 	);
 
+	// Date-grouped sections are only meaningful when the list reads
+	// chronologically — grouping an alphabetical sort would interleave
+	// date headers between A→Z entries and break the reading order.
+	const groupByDate = sortOrder === "newest" || sortOrder === "oldest";
+
+	// Full-text fetch for expandable rows. The list payload carries a
+	// 500-char preview; the row calls this lazily on first expansion.
+	// Resolves with the full text, or ``null`` when the row is gone /
+	// the backend failed (the row surfaces a toast instead of expanding
+	// to a clipped preview).
+	const handleFetchFullText = useCallback(
+		async (id: number): Promise<string | null> => {
+			try {
+				const data = await call<{ id: number; text: string }>(
+					"get_transcription_text",
+					{ id },
+				);
+				return data?.text ?? null;
+			} catch {
+				return null;
+			}
+		},
+		[call],
+	);
+
 	return (
 		<>
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("history.title")}
 					description={
@@ -345,81 +371,70 @@ export default function HistoryPage() {
                                     for their LastUpdatedIndicator wrapper — pre-fix this was
                                     `pb-1`, producing a visible vertical alignment mismatch on
                                     the page-header row across pages. */}
-				<div className="flex justify-end pb-2">
-					<LastUpdatedIndicator
-						agoLabel={agoLabel}
-						onRefresh={handleManualRefresh}
-						refreshing={refreshing}
-					/>
-				</div>
+				<div className="flex flex-col gap-3">
+					<div className="flex justify-end pb-2">
+						<LastUpdatedIndicator
+							agoLabel={agoLabel}
+							onRefresh={handleManualRefresh}
+							refreshing={refreshing}
+						/>
+					</div>
 
-				{/* Action buttons — shared filter/sort visual pattern with
+					{/* Action buttons — shared filter/sort visual pattern with
                                     Vocabulary/Templates (SortSelect + muted controls,
                                     w-full flex-wrap so row wraps cleanly on narrow
                                     viewports). */}
-				<div className="flex w-full flex-wrap items-center gap-2 mt-3">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={toggleFavorites}
-						//aria-pressed conveys the toggle state to
-						// assistive tech. The accessible name stays stable
-						// (always "Favorites") so the visible label matches
-						// the announced name (Label-in-Name). The toggle
-						// state is communicated via aria-pressed rather
-						// than by swapping the label.
-						aria-pressed={favoritesOnly}
-						aria-label={t("history.favorites")}
-						className={`gap-2 ${
-							favoritesOnly
-								? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
-								: "text-(--text-muted) hover:text-(--text-primary)"
-						}`}
-					>
-						<HugeiconsIcon
-							icon={StarIcon}
-							strokeWidth={2}
-							className={`h-4 w-4 ${favoritesOnly ? "text-warning" : ""}`}
-						/>
-						{t("history.favorites")}
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleClearAll}
-						aria-label={t("history.clearAllAria")}
-						// Destructive Clear All — muted at rest like the
-						// sibling Import/Export/Favorites controls; on hover
-						// the background becomes the same solid destructive
-						// red used by ConfirmDialog's Clear All action
-						// (bg-destructive + text-destructive-foreground / white
-						// icon). Shared pattern across History / Vocabulary /
-						// Templates so hover always reads as solid red.
-						className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
-					>
-						<HugeiconsIcon
-							icon={Delete01Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{t("history.clearAll")}
-					</Button>
-					<SortSelect
-						value={sortOrder}
-						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
-					/>
-					<div className="ms-auto">
-						<ExportFormatMenu
-							onExport={doExport}
-							disabled={records.length === 0}
-						/>
+					<div className="flex w-full flex-wrap items-center justify-between gap-2">
+						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={toggleFavorites}
+								aria-pressed={favoritesOnly}
+								aria-label={t("history.favorites")}
+								className={`gap-2 ${
+									favoritesOnly
+										? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
+										: "text-(--text-muted) hover:text-(--text-primary)"
+								}`}
+							>
+								<HugeiconsIcon
+									icon={StarIcon}
+									strokeWidth={2}
+									className={`h-4 w-4 ${favoritesOnly ? "text-warning" : ""}`}
+								/>
+								{t("history.favorites")}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleClearAll}
+								aria-label={t("history.clearAllAria")}
+								className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
+							>
+								<HugeiconsIcon
+									icon={Delete01Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								{t("history.clearAll")}
+							</Button>
+							<SortSelect
+								value={sortOrder}
+								onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
+							/>
+						</div>
+						<div>
+							<ExportFormatMenu
+								onExport={doExport}
+								disabled={records.length === 0}
+							/>
+						</div>
 					</div>
 				</div>
 
 				{loading && records.length === 0 ? (
-					<div className="flex min-h-full items-center justify-center py-20">
-						<Spinner label={t("history.loading")} />
-					</div>
+					<ListPageSkeleton />
 				) : loadError && records.length === 0 ? (
 					//distinguish "backend failed to load" from
 					// "history is genuinely empty".
@@ -465,7 +480,7 @@ export default function HistoryPage() {
 						}
 					/>
 				) : (
-					<>
+					<div className="flex flex-col gap-4">
 						<ActivityList
 							// Visible window: at most `visibleCount` rows of the
 							// loaded cache are mounted (starts at one page;
@@ -478,6 +493,9 @@ export default function HistoryPage() {
 							lineClamp={3}
 							onDelete={handleDelete}
 							onToggleFavorite={handleToggleFavorite}
+							groupByDate={groupByDate}
+							onFetchFullText={handleFetchFullText}
+							hideHeader
 						/>
 
 						{/*once the visible window reaches BOTH the end of the
@@ -495,7 +513,7 @@ export default function HistoryPage() {
 						{records.length >= HISTORY_DISPLAY_CAP &&
 						visibleCount >= records.length &&
 						hasMore ? (
-							<p className="mt-4 text-center text-xs text-(--text-muted)">
+							<p className="text-center text-xs text-(--text-muted)">
 								{t("history.showingCap", { shown: "200", total: "N+" })}
 							</p>
 						) : hasMore ? (
@@ -507,7 +525,7 @@ export default function HistoryPage() {
 									setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
 								}}
 								disabled={loadingMore}
-								className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
+								className="w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
 							>
 								{loadingMore ? (
 									<>
@@ -526,7 +544,7 @@ export default function HistoryPage() {
 								)}
 							</Button>
 						) : null}
-					</>
+					</div>
 				)}
 			</div>
 

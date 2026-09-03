@@ -149,7 +149,7 @@ export function ModelStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.modelTitle")}
 			</h2>
-			<p className="mb-4 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.modelDescription")}
 			</p>
 
@@ -196,7 +196,7 @@ export function ModelStep({
 			</div>
 
 			{selectedBackend === "local" ? (
-				<div className="mt-5 space-y-4">
+				<div className="flex flex-col gap-4">
 					{/* Brand strip — lets the user see which families the
                                             local models come from BEFORE opening the picker.
                                             Families are derived from the options list so the
@@ -211,7 +211,7 @@ export function ModelStep({
 							</span>
 							<div className="flex items-center gap-4">
 								{localFamilies.map((family) => (
-									<span key={family} className="flex items-center gap-1.5">
+									<span key={family} className="flex items-center gap-2">
 										<FamilyLogo family={family} />
 										<span className="text-xs font-medium text-(--text-secondary)">
 											{FAMILY_STRIP_LABELS[family] ?? family}
@@ -244,7 +244,7 @@ export function ModelStep({
 										value={m.name}
 										textValue={`${m.description} — ${m.size} (${formatModelSpeed(m.speed)})`}
 									>
-										<span className="flex flex-wrap items-center gap-1.5">
+										<span className="flex flex-wrap items-center gap-2">
 											<span>
 												{m.description} — {m.size} ({formatModelSpeed(m.speed)})
 											</span>
@@ -285,11 +285,11 @@ export function ModelStep({
 								aria-label={t("onboarding.consentHuggingFace")}
 								data-testid="onboarding-hf-consent"
 							/>
-							<span className="flex-1">
-								<span className="block font-medium text-(--text-primary)">
+							<span className="flex flex-1 flex-col gap-1">
+								<span className="font-medium text-(--text-primary)">
 									{t("onboarding.consentHuggingFace")}
 								</span>
-								<span className="mt-1 block text-xs text-(--text-muted)">
+								<span className="text-xs text-(--text-muted)">
 									{t("onboarding.consentHuggingFaceInfo")}
 								</span>
 							</span>
@@ -307,10 +307,10 @@ export function ModelStep({
 							aria-label={t("onboarding.downloadProgressAria", {
 								percent: String(progressPct),
 							})}
-							className="rounded-lg border border-accent/40 bg-accent/5 p-3"
+							className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3"
 							data-testid="onboarding-download-progress"
 						>
-							<div className="mb-1.5 flex items-center justify-between text-xs text-(--text-secondary)">
+							<div className="flex items-center justify-between text-xs text-(--text-secondary)">
 								<span className="flex items-center gap-2">
 									<span
 										className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
@@ -329,10 +329,10 @@ export function ModelStep({
 						</div>
 					) : downloadFailed ? (
 						<div
-							className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-(--text-secondary)"
+							className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-(--text-secondary)"
 							data-testid="onboarding-download-error"
 						>
-							<p className="mb-2 text-(--text-secondary)">
+							<p className="text-(--text-secondary)">
 								{t("onboarding.downloadFailedHint")}
 							</p>
 							<Button
@@ -364,13 +364,13 @@ export function ModelStep({
 					)}
 				</div>
 			) : (
-				<div className="mt-5 space-y-4">
+				<div className="flex flex-col gap-4">
 					{/* Cloud provider selection — mirrors the Models page
                                             cloud tab (same config fields). */}
-					<div>
+					<div className="flex flex-col gap-1">
 						<label
 							htmlFor="onboarding-cloud-provider"
-							className="mb-1 block text-sm font-medium text-(--text-primary)"
+							className="text-sm font-medium text-(--text-primary)"
 						>
 							{t("onboarding.cloudProviderLabel")}
 						</label>
@@ -392,10 +392,10 @@ export function ModelStep({
 						</Select>
 					</div>
 
-					<div>
+					<div className="flex flex-col gap-1">
 						<label
 							htmlFor="onboarding-cloud-api-key"
-							className="mb-1 block text-sm font-medium text-(--text-primary)"
+							className="text-sm font-medium text-(--text-primary)"
 						>
 							{t("models.cloud.apiKey")}
 						</label>
@@ -426,11 +426,11 @@ export function ModelStep({
 								})}
 								data-testid="onboarding-cloud-consent"
 							/>
-							<span className="flex-1">
-								<span className="block font-medium text-(--text-primary)">
+							<span className="flex flex-1 flex-col gap-1">
+								<span className="font-medium text-(--text-primary)">
 									{t("models.cloud.consentTitle")}
 								</span>
-								<span className="mt-1 block text-xs text-(--text-muted)">
+								<span className="text-xs text-(--text-muted)">
 									{t("models.cloud.consentDescription", {
 										provider: providerLabel(cloudProvider),
 									})}

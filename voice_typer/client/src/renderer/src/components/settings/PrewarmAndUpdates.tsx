@@ -101,7 +101,7 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 					? "about.cacheCold"
 					: "about.cacheUnknown";
 	return (
-		<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
+		<span className="inline-flex items-center gap-2 text-(--text-primary)">
 			<span className={`size-1.5 rounded-full ${colorClass}`} />
 			{t(textKey)}
 		</span>

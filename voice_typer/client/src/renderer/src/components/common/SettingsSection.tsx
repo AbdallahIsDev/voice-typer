@@ -28,9 +28,9 @@ export function SettingsSection({
 	// a generic "region" announcement.
 	const headingId = useId();
 	return (
-		<section aria-labelledby={headingId} className="space-y-4">
+		<section aria-labelledby={headingId} className="flex flex-col gap-4">
 			<div className="flex items-start justify-between gap-4">
-				<div className="space-y-1">
+				<div className="flex flex-col gap-1">
 					<h2
 						id={headingId}
 						className="font-sans text-lg font-semibold text-(--text-primary)"

@@ -18,12 +18,11 @@
  *     `get_model_status` block from `loadConfig`). : surfaces
  *     config-save failures instead of silently showing the success
  *     toast.
- *   • `requestDeleteModel` — refuses to delete the active model while
- *     it's on disk (deleting would break the running backend), but
- *     ALLOWS deleting an active model that is missing from disk — a
- *     stale selection the user can't otherwise get rid of (the
- *     backend clears the config and switches to another model).
- *     Otherwise stashes the target for the ConfirmDialog.
+ *   • `requestDeleteModel` — stashes the target for the ConfirmDialog.
+ *     Deleting the ACTIVE model is allowed (ACTIVE-DELETE): the backend
+ *     removes the files and reassigns the selection (first other
+ *     downloaded model, or the "no model selected" state when none
+ *     exists), so no frontend refusal is needed.
  *   • `confirmDelete` — fires the `delete_model` IPC, updates local
  *     state, and surfaces success / failure via snackbar.
  */
@@ -45,6 +44,13 @@ interface UseModelSelectionArgs {
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 	refreshModelStatus: () => Promise<void>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	/** Optimistic config-state merge after a successful save — the
+	 * `config_changed` echo would correct this within milliseconds, but
+	 * config-derived UI (e.g. the "No speech model is selected" banner)
+	 * must reflect the user's committed action IMMEDIATELY, without a
+	 * transport round-trip. Same pattern as setCloudConsent's
+	 * optimistic consent flip. */
+	setConfig: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
 }
 
 export interface UseModelSelectionResult {
@@ -64,6 +70,7 @@ export function useModelSelection({
 	setModels,
 	refreshModelStatus,
 	updateConfig,
+	setConfig,
 }: UseModelSelectionArgs): UseModelSelectionResult {
 	const [selectingModel, setSelectingModel] = useState<string | null>(null);
 	const [deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(
@@ -111,6 +118,12 @@ export function useModelSelection({
 					updates.model_size = model.name as VoiceTyperConfig["model_size"];
 				}
 				await updateConfig(updates);
+				// Optimistic config merge — same pattern as
+				// setCloudConsent. The backend publishes the `config_changed`
+				// echo for set_config, but the no-model banner (and every
+				// other config-derived surface) must flip on the committed
+				// user action, not on the transport echo's arrival time.
+				setConfig((prev) => (prev ? { ...prev, ...updates } : prev));
 				setModels((prev) =>
 					prev.map((m) => ({ ...m, isActive: m.name === model.name })),
 				);
@@ -140,28 +153,18 @@ export function useModelSelection({
 				setSelectingModel(null);
 			}
 		},
-		[refreshModelStatus, showSnack, updateConfig, setModels],
+		[refreshModelStatus, showSnack, updateConfig, setConfig, setModels],
 	);
 
 	// ── Action: requestDeleteModel + confirmDelete ──────────────────
-	const requestDeleteModel = useCallback(
-		(model: ModelInfo) => {
-			// STALE-ACTIVE fix: the "cannot delete active model" guard
-			// only applies while the active model is ACTUALLY on disk
-			// (deleting it would break the running ASR backend). An
-			// active model with `downloaded: false` was removed from
-			// disk out-of-band — the config points at a phantom. Deleting
-			// it is the ONLY way to clear the stale selection (the
-			// backend switches to another model), so allow it through to
-			// the confirm dialog.
-			if (model.isActive && model.downloaded) {
-				showSnack(t("models.cannotDeleteActive"), "warning");
-				return;
-			}
-			setDeleteModelTarget(model);
-		},
-		[showSnack],
-	);
+	const requestDeleteModel = useCallback((model: ModelInfo) => {
+		// No active-model guard here: deleting the ACTIVE model is
+		// allowed (ACTIVE-DELETE) — the backend removes the files and
+		// reassigns the selection (first other downloaded model, or the
+		// "no model selected" state when none exists). The old
+		// refuse-and-switch guard dead-ended single-model users.
+		setDeleteModelTarget(model);
+	}, []);
 
 	const confirmDelete = useCallback(async () => {
 		const target = deleteModelTarget;

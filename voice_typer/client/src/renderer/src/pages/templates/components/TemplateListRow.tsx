@@ -76,7 +76,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 			data-selected={selected ? "true" : "false"}
 			onClick={() => onToggleSelect(row.id)}
 			className={cn(
-				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
+				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>

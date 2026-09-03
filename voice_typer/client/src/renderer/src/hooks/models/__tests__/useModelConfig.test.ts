@@ -9,7 +9,8 @@
  *   - refreshModelStatus helper: get_model_status IPC + downloaded/depsOk
  *     reconciliation ( STALE-ACTIVE: the backend status is authoritative —
  *     an active model reported as NOT downloaded stays not-downloaded)
- *   - handleManualRefresh: flips `refreshing` flag around loadConfig
+ *   - removed refresh surface: refreshing / handleManualRefresh are gone
+ *     (the "Last updated / refresh" indicator was removed from the page)
  *   - updateConfig: re-throws on set_config failure (callers can branch)
  *
  * Strategy: renderHook + a captured usePythonEvent subscriber + a mock `call`.
@@ -421,8 +422,8 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 	});
 });
 
-describe("useModelConfig — handleManualRefresh", () => {
-	it("flips refreshing=true around loadConfig + calls markUpdated", async () => {
+describe("useModelConfig — removed refresh surface", () => {
+	it("no longer exposes refreshing / handleManualRefresh (the refresh indicator is gone)", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config")
 				return Promise.resolve(makeConfig({ model_size: "tiny" }));
@@ -439,15 +440,14 @@ describe("useModelConfig — handleManualRefresh", () => {
 			expect(result.current.config).not.toBeNull();
 		});
 
+		const removed = result.current as unknown as Record<string, unknown>;
+		expect(removed.refreshing).toBeUndefined();
+		expect(removed.handleManualRefresh).toBeUndefined();
+		// markUpdated is still driven by loadConfig's finally block.
 		args.markUpdated.mockClear();
-
 		await act(async () => {
-			await result.current.handleManualRefresh();
+			await result.current.loadConfig();
 		});
-
-		// refreshing should be back to false after the refresh completes.
-		expect(result.current.refreshing).toBe(false);
-		// markUpdated called by the inner loadConfig.
 		expect(args.markUpdated).toHaveBeenCalled();
 	});
 });

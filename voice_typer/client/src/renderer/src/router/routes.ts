@@ -39,18 +39,23 @@ export const ROUTES: Record<Page, RouteDef> = {
 	models: { page: "models" },
 	templates: { page: "templates" },
 	vocabulary: { page: "vocabulary" },
-	// Settings is the legacy parent literal — kept as a redirect target
-	// so existing call sites (Ctrl+, shortcut, tray menu, Python
-	// `navigate {path: "/settings"}` IPC event) continue to work.
-	// `useNavigation.navigate("settings")` internally `replace`s it
-	// with "settingsGeneral" (mirrors the onboarding-completed guard
-	// at App.tsx:131-140 — no duplicate history entry, no empty
-	// Settings parent page ever rendered).
+	// "settings" is the Settings HUB page — a real destination (one card
+	// whose rows open the section pages below). Existing call sites
+	// (Ctrl+, shortcut, tray menu, Python `navigate {path: "/settings"}`
+	// IPC event) land directly on the hub; the hub rows navigate to the
+	// focused section pages. The section-page literal set is owned by
+	// `components/settings/settingsSections.ts` and must stay in
+	// lockstep with the `Page` union.
 	settings: { page: "settings" },
 	settingsGeneral: { page: "settingsGeneral" },
-	settingsAiAudio: { page: "settingsAiAudio" },
+	settingsOverlay: { page: "settingsOverlay" },
+	settingsHotkeys: { page: "settingsHotkeys" },
+	settingsTranscription: { page: "settingsTranscription" },
+	settingsAI: { page: "settingsAI" },
+	settingsAudio: { page: "settingsAudio" },
 	settingsAppearance: { page: "settingsAppearance" },
 	settingsPrivacy: { page: "settingsPrivacy" },
+	settingsAdvanced: { page: "settingsAdvanced" },
 	analytics: { page: "analytics" },
 	aboutAndPrivacy: { page: "aboutAndPrivacy" },
 	onboarding: { page: "onboarding" },

@@ -36,21 +36,29 @@ describe("per-command timeout table (getTimeout)", () => {
 		expect(getTimeout("get_history")).toBe(10_000);
 	});
 
-	it("returns 115_000ms for `download_model` (just under the Rust 120s hard cap)", () => {
-		//the Rust `dispatch` command enforces a
-		// hard 120s timeout on `download_model` (see
-		// `src-tauri/src/commands/sidecar_cmds.rs:50-73` and
-		// `src-tauri/src/util.rs:53` `DISPATCH_TIMEOUT_SECS = 120`).
-		// The previous 600_000ms (10 min) entry was dead code: the
-		// Rust host always rejected first at 120s with the generic
-		// "dispatch timeout (120s)" string.
+	it("returns 3_595_000ms for `download_model` (just under the Rust 1h download cap)", () => {
+		// Multi-GB model downloads legitimately run for many minutes,
+		// so the Rust host routes download-scale commands to a 1h hard
+		// cap (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`, see
+		// `src-tauri/src/util.rs` + `dispatch_timeout_for` in
+		// `commands/sidecar_cmds/dispatch.rs`). The previous renderer
+		// cap of 115s (just under an old 120s host cap) fired DURING
+		// legitimate downloads: the backend kept downloading while the
+		// renderer showed a false failure + Retry, and Retry started a
+		// duplicate backend download.
 		//
-		// The renderer-side value is now capped at 115s — 5s BELOW
-		// the Rust 120s hard cap so the renderer surfaces a clearer,
-		// command-specific timeout error
-		// (`IPC command "download_model" timed out after 115000ms`)
-		// before the Rust side rejects with the generic message.
-		expect(getTimeout("download_model")).toBe(115_000);
+		// The renderer-side value stays 5s BELOW the host cap so the
+		// renderer surfaces a command-specific timeout error before
+		// the host's generic reject. A genuinely hung download is
+		// recovered by the user via Cancel (short-timeout command).
+		expect(getTimeout("download_model")).toBe(3_595_000);
+	});
+
+	it("returns 3_595_000ms for `import_model` (just under the Rust 1h download cap)", () => {
+		// Importing a multi-GB local file goes through the same
+		// long-running dispatch path; the old implicit 30s default
+		// rejected large imports while the backend was still copying.
+		expect(getTimeout("import_model")).toBe(3_595_000);
 	});
 
 	it("returns 30_000ms for `toggle_dictation` (short control RPC)", () => {

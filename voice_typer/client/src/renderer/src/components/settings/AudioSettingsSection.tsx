@@ -265,7 +265,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                 previously the section-level check showed the entire
                                 section (including all rows) when ANY row matched,
                                 which defeated the purpose of in-section search. */}
-				<div className="animate-fade-in space-y-0 divide-y divide-border/5">
+				<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
 					{/* ── Volume Backend status ── */}
 					{isVisible(
 						volumeBackendLabel,

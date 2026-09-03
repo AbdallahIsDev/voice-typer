@@ -120,7 +120,7 @@ export function ConnectionStatusScreen({
 					{description}
 				</p>
 				{(isConnecting || isRestarting) && (
-					<div className="mt-2 flex w-full flex-col items-center gap-3">
+					<div className="flex w-full flex-col items-center gap-3">
 						{/*the Spinner default is now a non-live
 						 * <span role="img">. This screen is the ONE place
 						 * where we DO want the loading state announced as
@@ -173,7 +173,7 @@ export function ConnectionStatusScreen({
 								size="sm"
 								data-testid="connection-status-force-retry"
 								onClick={onRetry}
-								className="mt-2 gap-2"
+								className="gap-2"
 							>
 								<HugeiconsIcon
 									icon={RefreshIcon}

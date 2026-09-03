@@ -40,10 +40,10 @@ export function PermissionsStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.permissionsTitle")}
 			</h2>
-			<p className="mb-4 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.permissionsDescription")}
 			</p>
-			<div aria-live="polite" aria-busy={permissionsLoading} className="mb-4">
+			<div aria-live="polite" aria-busy={permissionsLoading}>
 				{permissionsLoading && (
 					<div className="flex items-center gap-2 text-sm text-(--text-muted)">
 						<Spinner />
@@ -74,22 +74,22 @@ export function PermissionsStep({
 					permissionsResult &&
 					permissionsResult.state !== "error" &&
 					(permissionsResult.needed ? (
-						<output className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
-							<p className="mb-2 font-medium text-(--text-primary)">
+						<output className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+							<p className="font-medium text-(--text-primary)">
 								{t("onboarding.permissionsNeeded")}
 							</p>
 							{titleText && stepTexts.length > 0 && (
-								<div className="space-y-2">
+								<div className="flex flex-col gap-2">
 									<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 										{titleText}
 									</p>
-									<ol className="ms-4 list-decimal space-y-1 text-xs text-(--text-secondary)">
+									<ol className="ms-4 list-decimal flex flex-col gap-1 text-xs text-(--text-secondary)">
 										{stepTexts.map((s) => (
 											<li key={s}>{s}</li>
 										))}
 									</ol>
 									{instr?.commands && instr.commands.length > 0 && (
-										<pre className="mt-2 overflow-x-auto rounded bg-(--bg-subtle) p-2 text-xs text-(--text-secondary)">
+										<pre className="overflow-x-auto rounded bg-(--bg-subtle) p-2 text-xs text-(--text-secondary)">
 											{instr.commands.join("\n")}
 										</pre>
 									)}
@@ -108,7 +108,7 @@ export function PermissionsStep({
 			</div>
 			{/* : refresh-permission button — re-probes after granting. */}
 			{permissionsResult?.needed === true && !permissionsLoading && (
-				<div className="mb-4">
+				<div>
 					<Button
 						type="button"
 						variant="outline"
@@ -119,7 +119,7 @@ export function PermissionsStep({
 					</Button>
 				</div>
 			)}
-			<div className="space-y-2">
+			<div className="flex flex-col gap-2">
 				<Button
 					type="button"
 					variant="outline"

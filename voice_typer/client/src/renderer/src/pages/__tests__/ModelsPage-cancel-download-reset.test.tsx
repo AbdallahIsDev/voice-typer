@@ -97,7 +97,7 @@ async function renderPage() {
 	});
 }
 
-describe("ModelsPage — NH-29 cancel-download state reset", () => {
+describe("ModelsPage — cancel-download state reset", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockClear();
@@ -242,5 +242,48 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 				}),
 			).toBeNull();
 		});
+	});
+
+	it("dismiss the confirm dialog does NOT fire cancel_model_download (stray-click guard)", async () => {
+		await renderPage();
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
+		});
+
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") return new Promise(() => {});
+			if (type === "cancel_model_download") return Promise.resolve({});
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		fireEvent.click(downloadButton);
+
+		const cancelButton = await waitFor(() =>
+			screen.getByRole("button", {
+				name: t("models.download.cancelAria"),
+			}),
+		);
+		fireEvent.click(cancelButton);
+
+		// The confirm dialog is open — CANCEL the dialog instead of
+		// confirming. The download must continue untouched.
+		fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
+
+		// The IPC must NOT have fired.
+		await new Promise((r) => setTimeout(r, 0));
+		expect(mockCall).not.toHaveBeenCalledWith("cancel_model_download");
+
+		// The cancelled snackbar must NOT have fired.
+		expect(showSnack).not.toHaveBeenCalledWith(
+			t("models.snack.cancelled"),
+			"warning",
+		);
+
+		// The download is still in flight — the bar is still mounted.
+		expect(
+			screen.queryByRole("button", { name: t("models.download.cancelAria") }),
+		).not.toBeNull();
 	});
 });

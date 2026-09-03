@@ -201,6 +201,10 @@ export function trayLabelsForLocale(): Record<string, string> {
 			"notify.recording_controller.start_failed",
 		],
 		[
+			"notify.recording_controller.start_failed_with_reason",
+			"notify.recording_controller.start_failed_with_reason",
+		],
+		[
 			"notify.recording_controller.stop_failed",
 			"notify.recording_controller.stop_failed",
 		],
@@ -219,6 +223,22 @@ export function trayLabelsForLocale(): Record<string, string> {
 		[
 			"notify.recording_controller.mic_disconnected",
 			"notify.recording_controller.mic_disconnected",
+		],
+		[
+			"notify.recording_controller.mic_unplugged",
+			"notify.recording_controller.mic_unplugged",
+		],
+		[
+			"notify.recording_controller.still_running",
+			"notify.recording_controller.still_running",
+		],
+		[
+			"notify.recording_controller.xrun_title",
+			"notify.recording_controller.xrun_title",
+		],
+		[
+			"notify.recording_controller.xrun_body",
+			"notify.recording_controller.xrun_body",
 		],
 		[
 			"notify.recording_controller.mic_permission_revoked",

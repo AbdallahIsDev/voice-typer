@@ -6,21 +6,40 @@
 // parent (``useTemplateDialog`` owns them) so this component is a
 // pure presentational wrapper.
 //
-// 2026-08-28 UX pass (uniform field system):
-//   - ONE field treatment everywhere: the trigger Input, the output
-//     textarea, and the match-mode Select all use the same dark-filled
-//     surface (``bg-(--bg-subtle)``) with a 1px ``border-border/5``
-//     frame and the same ``rounded-lg`` radius — previously the Input
-//     was a filled pill, the textarea a border-only box, and the Select
-//     a third style.
-//   - Placeholders are visibly muted (``placeholder:text-(--text-muted)``
-//     + reduced opacity) so an example like "my email" can't be
-//     mistaken for saved data.
-//   - The supported variable tokens render as small tappable chips
-//     (monospace on a raised surface); clicking one appends the token
-//     to the output.
-//   - 24px rhythm between field groups, 8px between label/helper/field.
-//   - The footer sits behind a subtle top divider.
+// 2026-08-28 UX pass (uniform field system): placeholders visibly
+// muted, variable tokens as tappable keycap chips, 24px rhythm between
+// field groups.
+//
+// 2026-09-02 theme pass (native primitives, roomier panel):
+//   - The custom ``rounded-lg`` field chrome is GONE — every control
+//     now uses the app's native pill language: the shared ``Input``
+//     (rounded-xl, bg-input/50, pointer/keyboard focus modality), the
+//     new shared ``Textarea`` (same pill + focus contract), and the
+//     native ``SelectTrigger`` (rounded-4xl, mirrors the outline
+//     Button). A single overlay-wide field shell fought all three
+//     primitives and read as off-theme next to every other dialog.
+//   - Panel widened 420px → 520px (``size="lg"`` lifts the max-w cap
+//     to max-w-xl; ``w-130`` sets the width) — the form reads less
+//     cramped at 5 textarea rows.
+//   - The unknown-variable alert uses the ``--warning`` theme token
+//     (tracks the active theme like the warning Button variant)
+//     instead of hardcoded ``amber-500``.
+//
+// 2026-09-03 info architecture pass + field polish:
+//   - Trigger description moved from a body paragraph into an
+//     InfoTooltip beside the label — the exact Settings-page pattern.
+//   - Output helper split into TWO rows: description paragraph first,
+//     then ALL variable chips grouped on their own row (they used to
+//     flow inline with the sentence).
+//   - Fields (Input + Textarea) now carry per-instance polish on top of
+//     the shared primitives: ``rounded-lg`` (matches the lg panel; the
+//     default rounded-xl read too round) + ``bg-input/25`` (the 50%
+//     wash was too visible on the bg panel). Match mode is the shared
+//     two-option ``SegmentedControl`` stacked vertically (label above,
+//     control below) — same row layout as the trigger and output fields.
+//   - All spacing uses ``flex gap-`` instead of ``space-y-`` / margin
+//     utilities: each field group is a ``flex-col gap-2`` container,
+//     and the three groups are wrapped in a ``flex-col gap-6`` root.
 
 import { useState } from "react";
 
@@ -30,15 +49,11 @@ import {
 	Modal,
 	ModalFooter,
 } from "@/components/common/Modal";
+import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
@@ -58,15 +73,6 @@ interface TemplateDialogProps {
 	onSave: () => void;
 	onInsertVariable: (token: string) => void;
 }
-
-/** Shared field shell — every control in this dialog uses the SAME
- *  surface: dark-filled ``--bg-subtle``, 1px ``border-border/5``
- *  frame, ``rounded-lg``, and the same focus brightening to the accent
- *  (the blue used by the Save button). Previously each control had its
- *  own distinct chrome (Input pill / border-only textarea / separate
- *  Select). */
-const FIELD_SHELL =
-	"rounded-lg border border-border/5 bg-(--bg-subtle) text-sm text-(--text-primary) placeholder:text-(--text-muted)/40 focus:border-accent focus:outline-none";
 
 export function TemplateDialog({
 	open,
@@ -88,11 +94,12 @@ export function TemplateDialog({
 	const canSave = trigger.trim() !== "" && expansion.trim() !== "";
 
 	// Unsaved-edits gate: when the user attempts to close via Escape,
-	// the overlay, or the corner close button while the form holds
-	// content that differs from the template being edited (or any
-	// content for a fresh add), confirm the discard first. Save/Cancel
-	// button flows are NOT gated — Cancel already routes through
-	// onClose and lands in the same gate.
+	// the overlay, the corner close button, OR the footer Cancel button
+	// while the form holds content that differs from the template being
+	// edited (or any content for a fresh add), confirm the discard
+	// first. Every close path funnels through the same veto — an
+	// explicit Cancel click after edits is a silent data-loss path
+	// otherwise. Save is the only ungated exit (it commits the edits).
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	const hasEdits =
 		editingTemplate === null
@@ -105,6 +112,13 @@ export function TemplateDialog({
 		if (!hasEdits) return true;
 		setConfirmingDiscard(true);
 		return false;
+	};
+
+	// Footer Cancel: same veto gate as Esc/overlay/corner-X. Only calls
+	// onClose when the gate allows the close (clean form, or the user
+	// confirmed the discard via ConfirmDiscardDialog's own onDiscard).
+	const handleCancel = () => {
+		if (handleCloseIntent()) onClose();
 	};
 
 	// Surface unknown template-variable tokens (e.g. {date}).
@@ -126,53 +140,62 @@ export function TemplateDialog({
 			title={
 				editingTemplate ? t("templates.editTitle") : t("templates.addTitle")
 			}
-			className="w-105"
+			// Roomier form panel: size="lg" lifts the dialog max-width cap
+			// to max-w-xl on desktop and w-130 sets a 520px panel — the
+			// default 420px box cramped the 5-row textarea + chip row.
+			size="lg"
+			className="w-130"
 		>
-			<div className="space-y-6">
-				<div>
-					<label
-						htmlFor="template-trigger"
-						className="mb-2 block text-sm font-medium text-(--text-primary)"
-					>
-						{t("templates.triggerPhrase")}
-					</label>
+			<div className="flex flex-col gap-6">
+				<div className="flex flex-col gap-2">
+					{/* Label + help tooltip — the same pattern as every
+					    Settings row (SettingRow renders InfoTooltip beside
+					    the label). The trigger description moved OUT of the
+					    body into this tooltip. */}
+					<div className="flex items-center gap-2">
+						<label
+							htmlFor="template-trigger"
+							className="text-sm font-medium text-(--text-primary)"
+						>
+							{t("templates.triggerPhrase")}
+						</label>
+						<InfoTooltip
+							text={t("templates.triggerHelp")}
+							contextLabel={t("templates.triggerPhrase")}
+						/>
+					</div>
 					<Input
 						id="template-trigger"
 						value={trigger}
 						onChange={onTriggerChange}
 						placeholder={t("templates.triggerPlaceholder")}
-						className={cn("w-full", FIELD_SHELL)}
-						// autoFocus removed — Radix Dialog handles first-focus automatically
+						className="rounded-lg bg-input/25"
 					/>
-					<p className="mt-2 text-xs text-(--text-muted)">
-						{t("templates.triggerHelp")}
-					</p>
 				</div>
 
-				<div>
+				<div className="flex flex-col gap-2">
 					<label
 						htmlFor="template-output"
-						className="mb-2 block text-sm font-medium text-(--text-primary)"
+						className="text-sm font-medium text-(--text-primary)"
 					>
 						{t("templates.outputText")}
 					</label>
-					<textarea
+					<Textarea
 						id="template-output"
 						value={expansion}
 						onChange={onExpansionChange}
 						placeholder={t("templates.outputPlaceholder")}
 						rows={5}
-						className={cn("w-full resize-y px-3 py-2", FIELD_SHELL)}
+						className="resize-y rounded-lg bg-input/25"
 					/>
-					<div className="mt-2 flex flex-wrap items-center gap-1.5">
-						<span className="text-xs text-(--text-muted)">
-							{t("templates.outputHelp")}
-						</span>
+					{/* Two rows: the description alone on the first row,
+					    ALL variable chips grouped on the second — the chips
+					    no longer flow inline with the sentence. */}
+					<p className="text-xs text-(--text-muted)">
+						{t("templates.outputHelp")}
+					</p>
+					<div className="flex flex-wrap items-center gap-2">
 						{VARIABLES.map((token) => (
-							// Tappable variable chip — same bordered mono chip
-							// surface as every keycap in the app (KBD_CHIP_CLASSES),
-							// plus hover/focus affordance so it reads as tappable.
-							// Clicking inserts the token into the output.
 							<button
 								key={token}
 								type="button"
@@ -188,7 +211,7 @@ export function TemplateDialog({
 						))}
 					</div>
 					{unknownVars.length > 0 && (
-						<p role="alert" className="mt-2 text-xs font-medium text-amber-500">
+						<p role="alert" className="text-xs font-medium text-warning">
 							{t("templates.unknownVariableWarning", {
 								vars: unknownVars.join(", "),
 							})}
@@ -196,32 +219,28 @@ export function TemplateDialog({
 					)}
 				</div>
 
-				<div>
-					<label
-						htmlFor="template-match-mode"
-						className="mb-2 block text-sm font-medium text-(--text-primary)"
-					>
+				<div className="flex flex-col gap-2">
+					<span className="text-sm font-medium text-(--text-primary)">
 						{t("templates.matchMode")}
-					</label>
-					<Select value={matchMode} onValueChange={onMatchModeChange}>
-						<SelectTrigger
-							id="template-match-mode"
-							className={cn("w-full", FIELD_SHELL)}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="exact">{t("templates.exactMatch")}</SelectItem>
-							<SelectItem value="contains">
-								{t("templates.contains")}
-							</SelectItem>
-						</SelectContent>
-					</Select>
+					</span>
+					<SegmentedControl
+						options={[
+							{ value: "exact", label: t("templates.exactMatch") },
+							{ value: "contains", label: t("templates.contains") },
+						]}
+						value={matchMode}
+						onChange={onMatchModeChange}
+						ariaLabel={t("templates.matchMode")}
+						// Fit the two options instead of stretching across the
+						// full dialog width (flex-col parent stretches inline
+						// children by default).
+						className="self-start"
+					/>
 				</div>
 			</div>
 
-			<ModalFooter className="mt-2 border-t border-border/5 pt-4">
-				<Button variant="ghost" onClick={onClose}>
+			<ModalFooter>
+				<Button variant="ghost" onClick={handleCancel}>
 					{t("common.cancel")}
 				</Button>
 				<Button variant="default" onClick={onSave} disabled={!canSave}>

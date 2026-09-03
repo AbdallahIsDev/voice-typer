@@ -90,7 +90,7 @@ export function VocabInlineForm({
 					size="sm"
 					onClick={onSave}
 					disabled={!trigger.trim() || !replacement.trim()}
-					className="gap-1.5"
+					className="gap-2"
 				>
 					<HugeiconsIcon
 						icon={submitIcon}

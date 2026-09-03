@@ -15,6 +15,7 @@
 // report-bug, request-feature, security), with the last link
 // (Contributing) spanning the full row so nothing orphans at half
 // width. Each button carries an external-link indicator.
+
 import {
 	ArrowUpRight01Icon,
 	Book01Icon,
@@ -111,7 +112,7 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 							// spanning the full row so nothing orphans at
 							// half width.
 							index === RESOURCE_LINKS.length - 1 ? "col-span-2" : "",
-							"w-full justify-start gap-1.5 text-(--text-muted) hover:text-(--text-primary)",
+							"w-full justify-start gap-2 text-(--text-muted) hover:text-(--text-primary)",
 						)}
 					>
 						<a href={link.href} target="_blank" rel="noreferrer noopener">

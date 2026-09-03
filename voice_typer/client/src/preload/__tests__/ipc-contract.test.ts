@@ -142,17 +142,27 @@ describe("XS-78: preload ↔ main IPC channel-name contract", () => {
 			...extractChannels(bubbleSrc),
 		]);
 		const unused = [...CANONICAL_CHANNELS].filter((c) => !used.has(c));
-		// `bubble:locale-changed` (BubbleChannels.localeChanged) is the
-		// one intentional exception: it is sent from the main process to
-		// the bubble renderer only (the preload registers an `ipc.on`
-		// listener indirectly via `makeListener`, but the channel is
-		// currently plumbed end-to-end through the bubble preload only
-		// when locale-change wiring is active). Until that listener is
-		// re-added to `_bubble-channels.ts`, exclude it from the
-		// "every channel must be used" check so the contract test
-		// doesn't block unrelated work.
-		const intentionallyUnused = new Set<string>(["bubble:locale-changed"]);
-		const realUnused = unused.filter((c) => !intentionallyUnused.has(c));
-		expect(realUnused).toEqual([]);
+		expect(unused).toEqual([]);
+	});
+
+	it("bubble:locale-changed is wired end-to-end through the bubble preload", () => {
+		// Inclusion flip of the former `intentionallyUnused` exemption:
+		// the main process pushes locale changes to the bubble renderer
+		// (`notifyBubbleLocaleChanged` in windows/bubble/lifecycle.ts),
+		// and `_bubble-channels.ts` must expose the receiving
+		// `onLocaleChanged` listener (bubble-window-only, like
+		// `onConfig`/`onSetState`) so `useThemeSync` can flip the
+		// bubble's `dir`/`lang` live when the user switches language.
+		const bubbleSrc = fs.readFileSync(bubbleChannelsPath, "utf-8");
+		const channels = extractChannels(bubbleSrc);
+		expect(channels).toContain(BubbleChannels.localeChanged);
+		// The listener must be part of the RESTRICTED (bubble-window)
+		// API surface, not the main-renderer subset — the main window
+		// never receives the push.
+		expect(bubbleSrc).toContain("onLocaleChanged");
+		const indexSrc = fs.readFileSync(preloadIndexPath, "utf-8");
+		expect(extractChannels(indexSrc)).not.toContain(
+			BubbleChannels.localeChanged,
+		);
 	});
 });

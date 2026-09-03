@@ -16,8 +16,7 @@ import {
 	useT,
 } from "@/i18n/i18n";
 
-const HEADING_CLASS =
-	"mb-3 text-2xl font-bold text-(--text-primary) outline-none";
+const HEADING_CLASS = "text-2xl font-bold text-(--text-primary) outline-none";
 
 const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	value: locale,
@@ -37,10 +36,10 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.welcomeTitle")}
 			</h2>
-			<p className="mb-6 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.welcomeDescription")}
 			</p>
-			<ul className="mb-6 space-y-2 text-sm text-(--text-secondary)">
+			<ul className="flex flex-col gap-2 text-sm text-(--text-secondary)">
 				{[1, 2, 3, 4, 5, 6].map((n) => (
 					<li key={n} className="flex items-center gap-2">
 						<span className="text-accent">{n}.</span>{" "}
@@ -49,7 +48,7 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 				))}
 			</ul>
 			<div
-				className="mb-6 flex flex-col gap-2"
+				className="flex flex-col gap-2"
 				data-testid="onboarding-language-picker"
 			>
 				<label

@@ -22,6 +22,7 @@
 // props) skips every row's render. ``testResult`` is ``null`` for every
 // row except the one being tested, so an in-flight test re-renders
 // only its own row.
+
 import {
 	Delete01Icon,
 	PencilEdit02Icon,
@@ -124,7 +125,7 @@ export const VocabListRow = memo(function VocabListRow({
 			data-selected={selected ? "true" : "false"}
 			onClick={() => onToggleSelect(entry._id)}
 			className={cn(
-				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
+				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>
@@ -268,11 +269,11 @@ export const VocabListRow = memo(function VocabListRow({
 							// the "this is correct" signal lives in the
 							// corrected text's green colour, not a
 							// green-bordered box.
-							<div className="rounded-xl border border-border/5 bg-(--bg) px-3 py-2">
+							<div className="flex flex-col gap-0.5 rounded-xl border border-border/5 bg-(--bg) px-3 py-2">
 								<p className="text-[11px] font-semibold uppercase tracking-wide text-(--text-muted)">
 									{t("vocabulary.testCorrected")}
 								</p>
-								<p className="mt-0.5 whitespace-pre-wrap wrap-break-word text-sm font-medium text-emerald-700 dark:text-emerald-400">
+								<p className="whitespace-pre-wrap wrap-break-word text-sm font-medium text-emerald-700 dark:text-emerald-400">
 									{testResult.output}
 								</p>
 							</div>

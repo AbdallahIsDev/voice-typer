@@ -28,7 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { Spinner } from "@/components/feedback/Spinner";
+import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -259,16 +259,12 @@ export default function VocabularyPage() {
 	}, [clearSearch]);
 
 	if (loading) {
-		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner label={t("vocabulary.loading")} />
-			</div>
-		);
+		return <ListPageSkeleton />;
 	}
 
 	if (loadError && entries.length === 0) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
@@ -292,7 +288,7 @@ export default function VocabularyPage() {
 			    floating bulk bar) stays centered relative to the CONTENT
 			    in both sidebar states — the column recenters when the
 			    sidebar expands/collapses. */}
-			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
 				    it (not inside PageHeading's children slot).
 				    PageHeading wraps children in a content-sized,
@@ -307,34 +303,34 @@ export default function VocabularyPage() {
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
 				/>
-				<VocabToolbar
-					importInputRef={importInputRef}
-					onImportClick={handleImportClick}
-					onImportFile={handleImportFile}
-					onExport={doExport}
-					onAdd={() => quickAdd.openQuickAdd()}
-					exportDisabled={entries.length === 0}
-					addDisabled={saving}
-					onClearAll={() => setShowClearConfirm(true)}
-					clearAllDisabled={entries.length === 0}
-					sortOrder={sortOrder}
-					onSortOrderChange={setSortOrder}
-					hasEntries={entries.length > 0}
-				/>
-
-				{/* Pre-existing duplicates review banner. */}
-				{showDuplicateBanner && (
-					<VocabDuplicateBanner
-						count={duplicateCount}
-						onRemoveDuplicates={handleRemoveDuplicates}
-						onDismiss={() => setDuplicateBannerDismissed(true)}
+				<div className="flex flex-col gap-4">
+					<VocabToolbar
+						importInputRef={importInputRef}
+						onImportClick={handleImportClick}
+						onImportFile={handleImportFile}
+						onExport={doExport}
+						onAdd={() => quickAdd.openQuickAdd()}
+						exportDisabled={entries.length === 0}
+						addDisabled={saving}
+						onClearAll={() => setShowClearConfirm(true)}
+						clearAllDisabled={entries.length === 0}
+						sortOrder={sortOrder}
+						onSortOrderChange={setSortOrder}
+						hasEntries={entries.length > 0}
 					/>
-				)}
 
-				{/* Inline quick-add row. NOT gated on entries.length —
-					"Add Word" must work from the empty state too. */}
-				{quickAdd.open && (
-					<div className="mt-4">
+					{/* Pre-existing duplicates review banner. */}
+					{showDuplicateBanner && (
+						<VocabDuplicateBanner
+							count={duplicateCount}
+							onRemoveDuplicates={handleRemoveDuplicates}
+							onDismiss={() => setDuplicateBannerDismissed(true)}
+						/>
+					)}
+
+					{/* Inline quick-add row. NOT gated on entries.length —
+						"Add Word" must work from the empty state too. */}
+					{quickAdd.open && (
 						<VocabInlineForm
 							trigger={quickAdd.trigger}
 							replacement={quickAdd.replacement}
@@ -344,84 +340,86 @@ export default function VocabularyPage() {
 							onSave={quickAdd.saveQuickAdd}
 							onCancel={quickAdd.closeQuickAdd}
 						/>
-					</div>
-				)}
-
-				<div className="mt-4">
-					{entries.length === 0 ? (
-						<EmptyState
-							icon={BookOpen02Icon}
-							title={t("vocabulary.emptyTitle")}
-							description={t("vocabulary.emptyDescription")}
-							actionLabel={t("vocabulary.addFirstWord")}
-							onAction={() => quickAdd.openQuickAdd()}
-						/>
-					) : filteredSorted.length === 0 ? (
-						<EmptyState
-							icon={BookOpen02Icon}
-							title={t("vocabulary.noResults")}
-							description={t("vocabulary.noResultsDescription")}
-							actionLabel={t("vocabulary.clearFilters")}
-							onAction={handleClearSearch}
-						/>
-					) : (
-						<>
-							<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-								<VocabListHeader
-									visibleIds={filteredSorted.map((e) => e._id)}
-									selectedIds={selection.selectedIds}
-									onSelectAll={selection.setSelectMany}
-								/>
-								<div className="divide-y divide-border/5">
-									{filteredSorted.slice(0, displayCount).map((entry) =>
-										isEditing && editingEntry?._id === entry._id ? (
-											// In-place edit row — same inline treatment as
-											// Add (no modal). Pencil icon + no bottom
-											// border (the list's divide-y owns the
-											// separators).
-											<VocabInlineForm
-												key={entry._id}
-												testId="vocab-edit-row"
-												submitIcon={PencilEdit02Icon}
-												withBottomBorder={false}
-												trigger={trigger}
-												replacement={replacement}
-												onTriggerChange={handleTriggerChange}
-												onReplacementChange={handleReplacementChange}
-												onSave={saveEdit}
-												onCancel={closeEdit}
-											/>
-										) : (
-											<VocabListRow
-												key={entry._id}
-												entry={entry}
-												selected={selection.selectedIds.has(entry._id)}
-												onToggleSelect={selection.toggleSelect}
-												onEdit={handleEdit}
-												onDelete={instantDeleteEntry}
-												onTest={handleTestEntry}
-												testResult={
-													entryTest?.id === entry._id ? entryTest.result : null
-												}
-												usage={usageByKey.get(
-													usageKey(entry.category, entry.original),
-												)}
-											/>
-										),
-									)}
-								</div>
-							</div>
-							{filteredSorted.length > displayCount && (
-								<button
-									type="button"
-									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
-								>
-									{t("vocabulary.showMore")}
-								</button>
-							)}
-						</>
 					)}
+
+					<div className="flex flex-col gap-3">
+						{entries.length === 0 ? (
+							<EmptyState
+								icon={BookOpen02Icon}
+								title={t("vocabulary.emptyTitle")}
+								description={t("vocabulary.emptyDescription")}
+								actionLabel={t("vocabulary.addFirstWord")}
+								onAction={() => quickAdd.openQuickAdd()}
+							/>
+						) : filteredSorted.length === 0 ? (
+							<EmptyState
+								icon={BookOpen02Icon}
+								title={t("vocabulary.noResults")}
+								description={t("vocabulary.noResultsDescription")}
+								actionLabel={t("vocabulary.clearFilters")}
+								onAction={handleClearSearch}
+							/>
+						) : (
+							<>
+								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
+									<VocabListHeader
+										visibleIds={filteredSorted.map((e) => e._id)}
+										selectedIds={selection.selectedIds}
+										onSelectAll={selection.setSelectMany}
+									/>
+									<div className="divide-y divide-border/5">
+										{filteredSorted.slice(0, displayCount).map((entry) =>
+											isEditing && editingEntry?._id === entry._id ? (
+												// In-place edit row — same inline treatment as
+												// Add (no modal). Pencil icon + no bottom
+												// border (the list's divide-y owns the
+												// separators).
+												<VocabInlineForm
+													key={entry._id}
+													testId="vocab-edit-row"
+													submitIcon={PencilEdit02Icon}
+													withBottomBorder={false}
+													trigger={trigger}
+													replacement={replacement}
+													onTriggerChange={handleTriggerChange}
+													onReplacementChange={handleReplacementChange}
+													onSave={saveEdit}
+													onCancel={closeEdit}
+												/>
+											) : (
+												<VocabListRow
+													key={entry._id}
+													entry={entry}
+													selected={selection.selectedIds.has(entry._id)}
+													onToggleSelect={selection.toggleSelect}
+													onEdit={handleEdit}
+													onDelete={instantDeleteEntry}
+													onTest={handleTestEntry}
+													testResult={
+														entryTest?.id === entry._id
+															? entryTest.result
+															: null
+													}
+													usage={usageByKey.get(
+														usageKey(entry.category, entry.original),
+													)}
+												/>
+											),
+										)}
+									</div>
+								</div>
+								{filteredSorted.length > displayCount && (
+									<button
+										type="button"
+										onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
+										className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+									>
+										{t("vocabulary.showMore")}
+									</button>
+								)}
+							</>
+						)}
+					</div>
 				</div>
 
 				{/* Floating bulk bar — appears when rows are selected. It is a

@@ -24,6 +24,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 import { sortEntries, type VocabSortOrder } from "../lib/sort";
 import {
@@ -52,6 +53,9 @@ export function usageKey(category: string, original: string): string {
 }
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
+
+// Module-cache key for the SWR seed (see lib/ipcCache.ts).
+const VOCAB_CACHE_KEY = "vocabulary.entries";
 
 interface UseVocabularyArgs {
 	call: CallFn;
@@ -86,8 +90,12 @@ export function useVocabulary({
 	call,
 	showSnack,
 }: UseVocabularyArgs): UseVocabularyResult {
-	const [entries, setEntries] = useState<VocabRow[]>([]);
-	const [loading, setLoading] = useState(true);
+	// SWR seed: revisit renders the last visit's list instantly from the
+	// module cache (survives page unmount) — `loadVocabulary` below
+	// still revalidates fresh data in the background.
+	const cachedEntries = peekIpcCache<VocabRow[]>(VOCAB_CACHE_KEY);
+	const [entries, setEntries] = useState<VocabRow[]>(cachedEntries ?? []);
+	const [loading, setLoading] = useState(cachedEntries === undefined);
 	//fix #8: surface backend-load failures to the user
 	// instead of silently masking them as "no entries exist".  Matches
 	// the History/Templates retry pattern.
@@ -209,7 +217,10 @@ export function useVocabulary({
 			// contain exact repeats. Keep the first occurrence and tell
 			// the user; the next save persists the merged list.
 			const { entries: unique, mergedCount } = dedupeEntries(flat);
-			setEntries(withEntryIds(unique));
+			const withIds = withEntryIds(unique);
+			setEntries(withIds);
+			// SWR write-through — the next visit seeds from this snapshot.
+			writeIpcCache(VOCAB_CACHE_KEY, withIds);
 			if (mergedCount > 0) {
 				showSnackRef.current(
 					t("vocabulary.mergedDuplicates", {
@@ -220,7 +231,10 @@ export function useVocabulary({
 			}
 		} catch (err) {
 			console.error("[renderer:useVocabulary] Failed to load vocabulary:", err);
-			setEntries([]);
+			// SWR: keep the seeded/previous list on a FAILED revalidation —
+			// stale content beats wiping the page. The page still renders
+			// the retry EmptyState when there is genuinely nothing to show
+			// (entries.length === 0).
 			//fix #8: capture the error message so the render
 			// path can show a retry EmptyState instead of an ambiguous
 			// empty list.

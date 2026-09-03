@@ -47,8 +47,8 @@ const FILES_UNDER_TEST: { rel: string; label: string }[] = [
 		label: "HotkeyPicker.tsx",
 	},
 	{
-		rel: "components/settings/ModelSettingsSection.tsx",
-		label: "ModelSettingsSection.tsx",
+		rel: "components/settings/GeneralSettingsSection.tsx",
+		label: "GeneralSettingsSection.tsx",
 	},
 	{
 		rel: "components/settings/PrivacySettingsSection.tsx",
@@ -134,18 +134,20 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 		expect(stripped).not.toMatch(/\bml-2\b/);
 	});
 
-	it("ModelSettingsSection.tsx uses pe-8 (logical) for the API-key input padding", () => {
-		const src = readSrc("components/settings/ModelSettingsSection.tsx");
-		// Only assert that the specific pr-8 instance on the API-key input
-		// is gone — the file may legitimately use other physical utilities
-		// elsewhere (we don't run a full codemod on the whole file).
+	it("GeneralSettingsSection.tsx uses no physical ml-* / mr-* / pl-* / pr-* utilities (RTL guard)", () => {
+		// The Settings Hub migration deleted ModelSettingsSection.tsx
+		// (its `w-56 pe-8` API-key input moved with it) — this suite
+		// keeps a settings-section file in scope via
+		// GeneralSettingsSection.tsx instead, pinned to the same
+		// logical-utilities-only contract the FILES_UNDER_TEST loop
+		// asserts for it.
+		const src = readSrc("components/settings/GeneralSettingsSection.tsx");
+		// Word-boundary regex on the same stripped source the loop test
+		// uses — no physical inline-axis utilities may appear.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");
-		// The finding cited ``className="w-56 pr-8"`` on the Input for the
-		// API key. Assert that exact pair is gone (replaced with pe-8).
-		expect(stripped).not.toMatch(/w-56\s+pr-8/);
-		expect(stripped).toMatch(/w-56\s+pe-8/);
+		expect(stripped).not.toMatch(/\b(?:ml|mr|pl|pr)-\d+(?:\.\d+)?\b/);
 	});
 
 	it("PrivacySettingsSection.tsx uses ps-4 for the consent-banner list-disc indent (logical)", () => {

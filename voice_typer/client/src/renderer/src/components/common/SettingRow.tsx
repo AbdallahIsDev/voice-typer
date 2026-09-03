@@ -99,7 +99,7 @@ export function SettingRow({
 	return (
 		<div
 			className={cn(
-				"flex items-start justify-between gap-6 px-3.5 py-2.5",
+				"flex items-start justify-between gap-6 px-4 py-2",
 				align === "center" && "items-center",
 			)}
 		>
@@ -107,6 +107,7 @@ export function SettingRow({
 				<LabelTag
 					id={labelId}
 					htmlFor={htmlFor}
+					data-settings-row-label={label}
 					className="text-sm font-medium text-(--text-primary) cursor-default"
 				>
 					{label}

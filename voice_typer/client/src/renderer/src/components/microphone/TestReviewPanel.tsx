@@ -166,7 +166,7 @@ export function TestReviewPanel({
 	if (!testAudioBase64 && !rawAudioBase64) return null;
 
 	return (
-		<div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+		<div className="mt-4 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
 			{/* Header */}
 			<div className="flex items-center justify-between">
 				{" "}
@@ -183,7 +183,7 @@ export function TestReviewPanel({
 				<Button
 					variant="outline"
 					size="sm"
-					className="gap-1.5"
+					className="gap-2"
 					onClick={onRetest}
 				>
 					<HugeiconsIcon
@@ -200,7 +200,7 @@ export function TestReviewPanel({
 			    model is loaded (``transcriptionUnavailable``) a localized
 			    explanation names the actual state instead of silence. */}
 			{(transcription || transcriptionUnavailable) && (
-				<div className="space-y-1">
+				<div className="flex flex-col gap-1">
 					<p className="text-xs font-medium text-(--text-muted)">
 						{t("microphone.youSaid")}
 					</p>
@@ -270,7 +270,7 @@ export function TestReviewPanel({
 							<span className="text-(--text-muted)">
 								{t("microphoneTest.volume")}
 							</span>
-							<div className="flex items-center gap-1.5">
+							<div className="flex items-center gap-2">
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
 										quality.volume_level === "good"
@@ -291,7 +291,7 @@ export function TestReviewPanel({
 							<span className="text-(--text-muted)">
 								{t("microphoneTest.backgroundNoise")}
 							</span>
-							<div className="flex items-center gap-1.5">
+							<div className="flex items-center gap-2">
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
 										quality.noise_level === "low"
@@ -334,7 +334,7 @@ export function TestReviewPanel({
 
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
-						<div className="text-xs text-(--text-muted) space-y-1">
+						<div className="flex flex-col gap-1 text-xs text-(--text-muted)">
 							<output
 								className="font-medium text-warning"
 								// BG-71: detected issues are a status
@@ -350,7 +350,7 @@ export function TestReviewPanel({
 								return (
 									<div
 										key={issue}
-										className="space-y-0.5"
+										className="flex flex-col gap-0.5"
 										data-testid="detected-issue-row"
 									>
 										<div className="flex items-center gap-1">
@@ -370,7 +370,7 @@ export function TestReviewPanel({
                                                                                         active one (no-op CTA would be
                                                                                         misleading). */}
 										{recommendation && (
-											<div className="ms-3 mt-0.5 flex flex-wrap items-center gap-2 rounded-md border-l-2 border-warning/40 bg-warning/5 px-2 py-1 text-(--text-muted)">
+											<div className="ms-3 flex flex-wrap items-center gap-2 rounded-md border-l-2 border-warning/40 bg-warning/5 px-2 py-1 text-(--text-muted)">
 												<span
 													className="text-[11px] leading-snug"
 													data-testid="issue-recommendation"
@@ -407,7 +407,7 @@ export function TestReviewPanel({
 					<Button
 						variant="outline"
 						size="sm"
-						className="gap-1.5"
+						className="gap-2"
 						onClick={playing && !playingOriginal ? onStop : onPlayEnhanced}
 					>
 						<HugeiconsIcon
@@ -425,7 +425,7 @@ export function TestReviewPanel({
 					<Button
 						variant="outline"
 						size="sm"
-						className="gap-1.5"
+						className="gap-2"
 						onClick={playing && playingOriginal ? onStop : onPlayOriginal}
 					>
 						<HugeiconsIcon
@@ -443,7 +443,7 @@ export function TestReviewPanel({
 					<Button
 						variant="outline"
 						size="sm"
-						className="gap-1.5"
+						className="gap-2"
 						onClick={playing ? onStop : onPlayEnhanced}
 					>
 						<HugeiconsIcon

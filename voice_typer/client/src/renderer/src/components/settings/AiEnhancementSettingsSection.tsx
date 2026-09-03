@@ -95,10 +95,28 @@ export const AiEnhancementSettingsSection = memo(
 			updateConfig({ auto_capitalize: checked });
 		const handleVocabEnableChange = (checked: boolean) =>
 			updateConfig({ vocabulary_automation_enabled: checked });
-		const handleSuggestConfidenceChange = (v: number) =>
-			updateConfigDebounced("vocabulary_auto_confidence_threshold", v);
-		const handleAutoApplyConfidenceChange = (v: number) =>
-			updateConfigDebounced("vocabulary_auto_apply_threshold", v);
+
+		// Cross-slider validation: the two confidence sliders cannot
+		// cross. Auto-apply must stay >= the suggest threshold (a
+		// suggestion would otherwise need a HIGHER confidence than
+		// auto-apply requires, making auto-apply unreachable), so each
+		// change CLAMPS its own value against the other slider's
+		// committed value — the thumbs can touch but never pass.
+		const handleSuggestConfidenceChange = (v: number) => {
+			const applyThreshold = config.vocabulary_auto_apply_threshold ?? 0.95;
+			updateConfigDebounced(
+				"vocabulary_auto_confidence_threshold",
+				Math.min(v, applyThreshold),
+			);
+		};
+		const handleAutoApplyConfidenceChange = (v: number) => {
+			const suggestThreshold =
+				config.vocabulary_auto_confidence_threshold ?? 0.7;
+			updateConfigDebounced(
+				"vocabulary_auto_apply_threshold",
+				Math.max(v, suggestThreshold),
+			);
+		};
 
 		//section-level visibility check for AI Enhancement section.
 		const aiSectionTitle = t("settings.aiEnhancement.title");
@@ -131,7 +149,7 @@ export const AiEnhancementSettingsSection = memo(
 						title={aiSectionTitle}
 						description={t("settings.aiEnhancement.description")}
 					>
-						<div className="animate-fade-in space-y-0 divide-y divide-border/5">
+						<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
 							{/* ── Master toggle ── */}
 							<SettingRow
 								label={aiEnableLabel}
@@ -190,7 +208,7 @@ export const AiEnhancementSettingsSection = memo(
 						title={vocabSectionTitle}
 						description={t("settings.vocabAutomation.description")}
 					>
-						<div className="animate-fade-in space-y-0 divide-y divide-border/5">
+						<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
 							{/* ── Master toggle ── */}
 							<SettingRow
 								label={vocabEnableLabel}

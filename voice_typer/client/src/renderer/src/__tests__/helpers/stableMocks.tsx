@@ -236,7 +236,7 @@ export function nextThemesMock() {
 /**
  * The models-page `get_config` response shape — the minimal config the
  * Models page (and Dashboard) reads, previously copy-pasted as a
- * `MOCK_CONFIG` const across ModelsPage.test.tsx, ModelsPage-nh29 and
+ * `MOCK_CONFIG` const across ModelsPage.test.tsx, ModelsPage-cancel-download-reset and
  * the data-pages live-region guards. Returns a FRESH object per call so
  * a test that mutates its config can't leak into siblings.
  */

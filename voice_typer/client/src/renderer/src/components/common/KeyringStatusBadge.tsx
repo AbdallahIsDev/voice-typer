@@ -66,7 +66,7 @@ export function KeyringStatusBadge({
 						className={
 							compact
 								? `${buttonBaseClass} text-success rounded-full`
-								: `${buttonBaseClass} gap-1.5 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success`
+								: `${buttonBaseClass} gap-2 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success`
 						}
 						// Don't duplicate the tooltip text as aria-label (SR users
 						// would hear it twice — once on the button, once when the tooltip
@@ -103,7 +103,7 @@ export function KeyringStatusBadge({
 					className={
 						compact
 							? `${buttonBaseClass} text-warning rounded-full`
-							: `${buttonBaseClass} gap-1.5 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning`
+							: `${buttonBaseClass} gap-2 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning`
 					}
 					// see available branch above for the rationale on
 					// dropping the tooltipText aria-label.

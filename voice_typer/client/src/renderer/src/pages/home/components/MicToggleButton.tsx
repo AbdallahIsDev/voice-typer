@@ -1,4 +1,8 @@
-import { Mic02Icon, StopIcon } from "@hugeicons/core-free-icons";
+import {
+	AlertCircleIcon,
+	Mic02Icon,
+	StopIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
 import { cn } from "@/lib/utils";
@@ -8,6 +12,12 @@ import { cn } from "@/lib/utils";
  * spinner overlay is shown while `toggling` is true (the IPC round-trip
  * to `toggle_dictation` is in flight). The button is disabled during
  * `transcribing` so clicks aren't silently swallowed by the backend.
+ *
+ * When `error` is true (the last recording attempt failed), the idle
+ * treatment swaps from the solid destructive glow to a hollow
+ * destructive surface with an alert glyph — a distinct state that
+ * reads as "the last attempt errored", announced politely to screen
+ * readers.
  *
  *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour + props are preserved byte-for-byte.
@@ -27,6 +37,13 @@ export interface MicToggleButtonProps {
 	 * label. When `disabled` is false this prop is ignored.
 	 */
 	disabledReason?: string;
+	/**
+	 * The last recording attempt failed. Renders the idle button with a
+	 * distinct hollow-destructive treatment + alert glyph and exposes
+	 * `aria-live="polite"` so the transition is announced. Ignored while
+	 * recording (the active recording state takes precedence).
+	 */
+	error?: boolean;
 }
 
 export function MicToggleButton({
@@ -36,6 +53,7 @@ export function MicToggleButton({
 	onClick,
 	label,
 	disabledReason,
+	error = false,
 }: MicToggleButtonProps) {
 	// When disabled with a reason, surface the reason as the accessible
 	// name + tooltip so users understand why the mic can't be toggled
@@ -54,6 +72,8 @@ export function MicToggleButton({
 		onClick();
 	};
 
+	const showError = error && !isRecording;
+
 	return (
 		<div className="relative">
 			{isRecording && (
@@ -66,6 +86,8 @@ export function MicToggleButton({
 				aria-label={effectiveLabel}
 				aria-pressed={isRecording}
 				title={effectiveLabel}
+				aria-live={showError ? "polite" : undefined}
+				data-testid="mic-toggle-button"
 				className={cn(
 					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 					"transition-all duration-200 ease-out",
@@ -73,11 +95,18 @@ export function MicToggleButton({
 					"hover:scale-105",
 					isRecording
 						? "bg-foreground/15 hover:bg-foreground/25"
-						: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
+						: showError
+							? // Error state: hollow destructive — a distinct
+								// "last attempt failed" treatment next to the
+								// solid glow of the healthy idle button.
+								"bg-destructive/15 ring-2 ring-inset ring-destructive hover:bg-destructive/25"
+							: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
 				)}
 			>
 				<HugeiconsIcon
-					icon={isRecording ? StopIcon : Mic02Icon}
+					icon={
+						isRecording ? StopIcon : showError ? AlertCircleIcon : Mic02Icon
+					}
 					strokeWidth={1.625}
 					// The mic lives on the red (destructive) button in the
 					// idle state, so its glyph uses the destructive
@@ -89,8 +118,14 @@ export function MicToggleButton({
 					// raw `text-white` ignored custom palettes entirely.
 					// The stop icon on the recording state
 					// (bg-foreground/15) keeps the same near-white glyph.
+					// The error-state alert glyph sits on the hollow
+					// surface, so it uses the destructive TOKEN itself
+					// (tracks every theme's destructive red).
 					className={cn(
-						"h-8 w-8 transition-opacity text-(--destructive-foreground)",
+						"h-8 w-8 transition-opacity",
+						isRecording || showError
+							? "text-destructive"
+							: "text-(--destructive-foreground)",
 						toggling && "opacity-30",
 					)}
 				/>

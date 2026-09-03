@@ -499,18 +499,18 @@ describe("XA-5-15 — VocabToolbar merges the sort control into the single toolb
 });
 
 describe("XA-5-17 — Models page computes an active-model summary", () => {
-	it("source contains the activeModelSummary useMemo block", () => {
+	it("source does NOT render the active-model summary banner (removed per user decision)", () => {
 		const src = fs.readFileSync(
 			path.join(RENDERER_SRC_ROOT, "pages", "Models.tsx"),
 			"utf8",
 		);
-		// The active-model summary is computed via useMemo from the
-		// lifecycle.config — verify the computation + the render
-		// block exist. A regression that drops either would
-		// re-break XA-5-17.
-		expect(src).toMatch(/activeModelSummary\s*=\s*useMemo/);
-		expect(src).toMatch(/data-testid="models-active-model-summary"/);
-		expect(src).toMatch(/t\("models\.activeModelSummaryLabel"\)/);
+		// The banner was removed: the active model is already indicated by
+		// the selected card's button state, so the extra highlighted
+		// summary banner was redundant for every module. Pin its absence —
+		// a regression that re-adds it would reintroduce the duplication.
+		expect(src).not.toMatch(/data-testid="models-active-model-summary"/);
+		expect(src).not.toMatch(/activeModelSummary\s*=\s*useMemo/);
+		expect(src).not.toMatch(/t\("models\.activeModelSummaryLabel"\)/);
 	});
 });
 
@@ -556,7 +556,6 @@ describe("XA-5 locale parity for the new keys", () => {
 		"models.cloud.apiKeyShowAria",
 		"models.cloud.apiKeyHideAria",
 		"models.cloud.apiKeyFormatHint",
-		"models.activeModelSummaryLabel",
 		"vocabulary.count_zero",
 		"vocabulary.count_one",
 		"vocabulary.count_two",

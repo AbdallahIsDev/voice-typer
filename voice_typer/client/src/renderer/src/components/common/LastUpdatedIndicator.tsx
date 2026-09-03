@@ -42,7 +42,7 @@ export function LastUpdatedIndicator({
 	return (
 		<div
 			className={cn(
-				"flex items-center gap-1.5 text-xs text-(--text-muted)",
+				"flex items-center gap-2 text-xs text-(--text-muted)",
 				className,
 			)}
 			data-testid="last-updated-indicator"

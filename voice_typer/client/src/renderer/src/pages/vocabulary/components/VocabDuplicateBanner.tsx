@@ -30,7 +30,7 @@ export function VocabDuplicateBanner({
 		<div
 			data-testid="vocab-duplicate-banner"
 			role="status"
-			className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5"
+			className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2"
 		>
 			<HugeiconsIcon
 				icon={Alert01Icon}
@@ -45,7 +45,7 @@ export function VocabDuplicateBanner({
 				variant="outline"
 				size="sm"
 				onClick={onRemoveDuplicates}
-				className="gap-1.5 border-warning/30 text-xs text-warning hover:border-warning/60 hover:bg-warning/10 hover:text-warning"
+				className="gap-2 border-warning/30 text-xs text-warning hover:border-warning/60 hover:bg-warning/10 hover:text-warning"
 			>
 				{t("vocabulary.removeDuplicates")}
 			</Button>

@@ -100,7 +100,7 @@ function readStatus(): string {
 	return useAppStore.getState().connectionStatus;
 }
 
-describe("useConnection — NH-30 background reconnect poll", () => {
+describe("useConnection — background reconnect poll", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();

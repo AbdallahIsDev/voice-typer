@@ -1,5 +1,6 @@
 import { Add01Icon, Alert02Icon, Mic02Icon } from "@hugeicons/core-free-icons";
 import type { Meta, StoryObj } from "@storybook/react";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import { EmptyState } from "./EmptyState";
 
 const meta: Meta<typeof EmptyState> = {
@@ -85,4 +86,42 @@ export const ErrorVariant: Story = {
 		variant: "error",
 	},
 	name: "Error variant (load failed)",
+};
+
+export const DarkBackground: Story = {
+	args: {
+		icon: Mic02Icon,
+		title: "No dictations yet",
+		description: "Press the mic button to start your first recording.",
+	},
+	decorators: [themeVariantDecorator({ dark: true })],
+	name: "Dark background",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — the muted icon, title, description and CTA contrast must hold on the dark palette (including the destructive-tinted error variant).",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: {
+		icon: Mic02Icon,
+		title: "لا توجد إملاءات بعد",
+		description: "اضغط على زر الميكروفون لبدء أول تسجيل.",
+		actionLabel: "إضافة",
+		onAction: () => {},
+	},
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper — the icon, centered text and action button must mirror correctly for Arabic.',
+			},
+		},
+	},
 };

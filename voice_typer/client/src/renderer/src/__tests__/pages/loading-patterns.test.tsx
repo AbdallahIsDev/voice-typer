@@ -7,15 +7,20 @@
  *   1. ``Spinner`` accepts an optional ``label`` prop that renders a
  *      visible, contextual loading message (e.g. "Loading microphones…")
  *      AND uses it as the accessible name (overriding the generic
- *      ``a11y.loading`` fallback).
+ *      ``a11y.loading`` fallback). ``Spinner`` is reserved for INLINE
+ *      action-progress indicators (e.g. the History "Load More" button)
+ *      — page-content loading uses skeletons.
  *   2. The 5 first-load-only pages (History / Microphone / Templates /
- *      Vocabulary / Models) mount into a labeled full-page ``Spinner``
- *      — the spinner's accessible name is the page-specific
- *      ``X.loading`` i18n key (verified behaviorally by mounting each
- *      page in its first-load state, not by scanning source text).
- *   3. The ``X.loading`` i18n keys exist in ALL 8 locale files so
- *      every supported locale sees a translated contextual message
- *      rather than the generic English "Loading".
+ *      Vocabulary / Models) mount into a page-shaped Skeleton
+ *      composition (``components/feedback/skeletons.tsx``): an
+ *      ``<output aria-busy="true">`` region whose accessible name is
+ *      the generic ``a11y.loading`` key (verified behaviorally by
+ *      mounting each page in its first-load state, not by scanning
+ *      source text).
+ *   3. The ``X.loading`` i18n keys exist in ALL 8 locale files.
+ *      ``history.loading`` labels the History load-more button; the
+ *      remaining keys are retained in the catalogues (unused by pages
+ *      since the skeleton migration) so locales stay complete.
  *
  * Tests run on LINUX (sandbox). No backend / IPC required — the page
  * mounts are driven by the shared stable-mocks harness with a
@@ -88,9 +93,12 @@ const LOADING_KEYS = [
 	"microphone.loading",
 	"templates.loading",
 	"vocabulary.loading",
-	"models.loading",
 	"history.loading",
 ] as const;
+// `models.loading` was REMOVED from the catalogue — the Models page
+// renders a page-shaped ModelsSkeleton (no Spinner label), so the key
+// was dead surface (deleted across all 8 locales with the dead-key
+// cleanup).
 
 // Resolve a dot-separated key path against a nested JSON object.
 // Returns true if the path exists.
@@ -153,40 +161,36 @@ describe("Spinner labeled variant", () => {
 	});
 });
 
-describe("first-load-only pages mount into a labeled Spinner", () => {
+describe("first-load-only pages mount into a page-shaped Skeleton", () => {
 	// Each case dynamically imports the page so vi.mock registrations
 	// above apply, then mounts it in its FIRST-LOAD state: every data
 	// hook starts ``loading === true`` synchronously and the shared
-	// ``call`` mock below never resolves, so the labeled full-page
-	// spinner stays on screen for the assertion.
+	// ``call`` mock below never resolves, so the page-shaped skeleton
+	// composition stays on screen for the assertion. The skeleton
+	// renders as an <output> region (implicit role "status") with
+	// aria-busy="true" and the localized a11y.loading accessible name.
 	const PAGE_CASES: Array<{
 		name: string;
-		key: (typeof LOADING_KEYS)[number];
 		load: () => Promise<{ default: React.ComponentType<object> }>;
 	}> = [
 		{
 			name: "History",
-			key: "history.loading",
 			load: () => import("@/pages/History"),
 		},
 		{
 			name: "Microphone",
-			key: "microphone.loading",
 			load: () => import("@/pages/Microphone"),
 		},
 		{
 			name: "Templates",
-			key: "templates.loading",
 			load: () => import("@/pages/Templates"),
 		},
 		{
 			name: "Vocabulary",
-			key: "vocabulary.loading",
 			load: () => import("@/pages/Vocabulary"),
 		},
 		{
 			name: "Models",
-			key: "models.loading",
 			load: () => import("@/pages/Models"),
 		},
 	];
@@ -198,23 +202,28 @@ describe("first-load-only pages mount into a labeled Spinner", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		// Never-resolving IPC: the initial load stays pending so the
-		// first-load spinner state persists deterministically (no
+		// first-load skeleton state persists deterministically (no
 		// waitFor / timing dependence).
 		stableMocks.mockCall.mockImplementation(() => new Promise<never>(() => {}));
 	});
 
 	it.each(PAGE_CASES)(
-		"$name renders a first-load Spinner labeled t('$key')",
-		async ({ key, load }) => {
+		"$name renders a first-load Skeleton region (aria-busy, a11y.loading name)",
+		async ({ load }) => {
 			const mod = await load();
 			const Page = mod.default;
 			render(<Page />);
 
-			// The spinner's accessible name IS the page-specific loading
-			// message (the labeled variant), not the generic fallback.
-			expect(
-				screen.getByRole("img", { name: `[t]${key}` }),
-			).toBeInTheDocument();
+			// The skeleton's accessible name is the generic loading
+			// message and it carries aria-busy — the single loading
+			// contract shared by every page composition.
+			const status = screen.getByRole("status", {
+				name: "[t]a11y.loading",
+			});
+			expect(status).toHaveAttribute("aria-busy", "true");
+			// A real skeleton shape is on screen (pulsing placeholder
+			// blocks), not a spinner glyph.
+			expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
 		},
 	);
 });

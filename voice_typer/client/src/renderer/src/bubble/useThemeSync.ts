@@ -43,7 +43,8 @@
  * sub-agent. Until then, the inline-script + this hook's runtime
  * sync provide a best-effort first paint + correct steady state.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { setLocale } from "@/i18n/i18n";
 import { type Locale, SUPPORTED_LOCALES } from "@/i18n/locale";
 import { isRtlLocale } from "@/i18n/rtl";
 import { applyThemeVars, CUSTOM_THEME_ID } from "@/themes";
@@ -67,6 +68,33 @@ export function useThemeSync() {
 		light?: Record<string, string>;
 		dark?: Record<string, string>;
 	} | null>(null);
+	const textSizeRef = useRef<number | null>(null);
+	// Bumped when a locale-change push arrives so the component that
+	// called `useThemeSync` (via `useBubbleLifecycle`) re-renders and
+	// the bubble's module-level `t()` labels re-resolve in the new
+	// locale. See the `localeChanged` effect below.
+	const [, setLocaleRenderTick] = useState(0);
+
+	// Mirror of the main window's text-size scaling
+	// (`useTheme.ts` sets `--font-scale = textSize / 14` on
+	// `document.documentElement`; `index.css` consumes it for the root
+	// font-size). The bubble applies the same formula from the
+	// `text_size` field of the `bubble:config` push so the pill's text
+	// scales with the user's UI text-size setting. `null` (setting
+	// never pushed) leaves the CSS default (1) untouched.
+	const applyTextSize = useCallback(() => {
+		const size = textSizeRef.current;
+		if (size === null) return;
+		try {
+			document.documentElement.style.setProperty(
+				"--font-scale",
+				String(size / 14),
+			);
+		} catch (e) {
+			// `document` may be unavailable in some test contexts.
+			console.warn("[renderer:useThemeSync] text-size sync failed:", e);
+		}
+	}, []);
 
 	const applyTheme = useCallback(() => {
 		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
@@ -103,19 +131,14 @@ export function useThemeSync() {
 	}, [applyTheme]);
 
 	// `bubble:config` listener for theme_mode / theme_preset /
-	// custom_theme / locale.
+	// custom_theme / locale / text_size.
 	//
 	// `locale` sync: the bubble renderer's `<html dir>` must match the
 	// user's UI locale so RTL locales (Arabic) flip the pill's
-	// logical-property utilities. The bubble is sandboxed and has no
-	// `get_locale`, so the locale MUST come via `bubble:config` —
-	// currently the Python backend's `_push_bubble_config` (in
-	// `voice_typer/server/waveform_bubble_wiring.py`) does NOT include
-	// `locale` in the payload. Until that's added on the backend side,
-	// the `dir` attribute set by `bubble.html`'s inline first-paint
-	// script (read from localStorage) is the only source of truth —
-	// this hook's `dir` sync will be a no-op until the backend starts
-	// pushing `locale`. The defensive `isLocaleValue` check below
+	// logical-property utilities. The `bubble:config` payload's
+	// `locale` field (when present) keeps `dir`/`lang` correct after a
+	// config change; the dedicated `bubble:locale-changed` push below
+	// is the primary live path. The defensive `isLocaleValue` check
 	// ensures we don't set `dir` from an unknown payload value.
 	useEffect(() => {
 		if (!bridge) return;
@@ -149,13 +172,57 @@ export function useThemeSync() {
 			if (isLocaleValue(localeVal)) {
 				try {
 					document.documentElement.dir = isRtlLocale(localeVal) ? "rtl" : "ltr";
+					// Also sync `lang` so screen readers announce the pill's
+					// labels in the new locale (matches setLocale's behavior
+					// in the main window).
+					document.documentElement.lang = localeVal;
 				} catch (e) {
 					// `document` may be unavailable in some test contexts.
 					console.warn("[renderer:useThemeSync] dir sync failed:", e);
 				}
 			}
+			// Text-size sync: the backend pushes `text_size` in the
+			// `bubble:config` payload (same push the theme triplet rides).
+			const size = cfg.text_size;
+			if (typeof size === "number" && Number.isFinite(size) && size > 0) {
+				textSizeRef.current = size;
+			}
+			applyTextSize();
 			applyTheme();
 		});
 		return off;
-	}, [applyTheme, bridge]);
+	}, [applyTheme, applyTextSize, bridge]);
+
+	// Runtime locale-change push (`bubble:locale-changed` — the main
+	// process forwards the locale whenever the user switches app
+	// language; `notifyBubbleLocaleChanged` in windows/bubble/
+	// lifecycle.ts). This is the LIVE path — the `cfg.locale` branch
+	// above only fires when the config push happens to carry a locale.
+	// The payload is the bare locale code ("en" / "ar" / …); the
+	// `isLocaleValue` guard rejects unknown values so `dir` is never
+	// set from a hostile/garbled payload.
+	//
+	// The handler routes through the PUBLIC `setLocale` (the same
+	// orchestrator the main window uses) so the bubble's i18n runtime
+	// switches wholesale: `_currentLocale`, dynamic translation-table
+	// load, `dir`/`lang`, and subscriber notification — without
+	// duplicating that choreography here. Its IPC pushes are no-ops in
+	// the sandboxed bubble (`window.window_` / `window.python` are not
+	// exposed here), so no echo loop with the main process is possible.
+	// The state bump forces a re-render because the bubble's labels
+	// resolve via the module-level `t()` at render time — unlike
+	// `useT()` subscribers they are not notified by the locale change.
+	useEffect(() => {
+		if (!bridge) return;
+		const off = bridge.on("localeChanged", (locale) => {
+			if (!isLocaleValue(locale)) return;
+			try {
+				setLocale(locale);
+			} catch (e) {
+				console.warn("[renderer:useThemeSync] locale switch failed:", e);
+			}
+			setLocaleRenderTick((t) => t + 1);
+		});
+		return off;
+	}, [bridge]);
 }

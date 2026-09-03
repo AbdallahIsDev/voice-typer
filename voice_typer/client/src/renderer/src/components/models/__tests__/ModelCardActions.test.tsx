@@ -3,9 +3,9 @@
  *
  * Coverage:
  *   1. All five visual states render the correct button label + icon:
- *      - Branch 1a: Active + available (disabled "Active" tick, NO Delete —
- *        the backend refuses to delete an in-use model, so a Delete
- *        button would be a dead-end).
+ *      - Branch 1a: Active + available (disabled "Active" tick + Delete —
+ *        ACTIVE-DELETE: the backend removes the files and reassigns the
+ *        selection, so deleting the active model is allowed).
  *      - Branch 4: Deps-installable, not depsOk ("Download Deps" button;
  *        Delete only when the model is downloaded).
  *      - Branch 2: Not downloaded ("Download" button, NO Delete — a
@@ -73,7 +73,8 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		cleanup();
 	});
 
-	it("Branch 1a (Active + downloaded): renders disabled Active tick with NO Delete icon", () => {
+	it("Branch 1a (Active + downloaded): renders disabled Active tick WITH Delete icon (ACTIVE-DELETE)", () => {
+		const onDelete = vi.fn();
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, isActive: true, downloaded: true }}
@@ -82,7 +83,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
-				onDelete={noop}
+				onDelete={onDelete}
 			/>,
 		);
 		// Active button is disabled.
@@ -91,14 +92,21 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		});
 		expect(activeBtn).toBeDisabled();
 		// Uses the Tick02Icon (not PlayIcon — Select/Active are tick affordances).
-		expect(screen.getAllByTestId("hugeicon")[0]).toHaveAttribute(
+		// Delete icon renders FIRST, so the Active tick's icon is the second one.
+		expect(screen.getAllByTestId("hugeicon")[1]).toHaveAttribute(
 			"data-name",
 			"Tick02Icon",
 		);
-		// STALE-ACTIVE: NO Delete icon on an in-use model — the backend
-		// refuses to delete it ("Cannot delete the active model"), so a
-		// Delete button here would always error. Users switch first.
-		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
+		// ACTIVE-DELETE: the Delete icon IS present on the active card —
+		// the backend removes the files and reassigns the selection (first
+		// other downloaded model, or the "no model selected" state), so
+		// deleting the active model no longer dead-ends single-model users.
+		const deleteBtn = screen.getByRole("button", { name: /Delete tiny/i });
+		expect(deleteBtn).toBeEnabled();
+		// The delete click is surfaced to the handler (confirm dialog is
+		// the caller's responsibility, as for any other model).
+		deleteBtn.click();
+		expect(onDelete).toHaveBeenCalledTimes(1);
 	});
 
 	it("Branch 2 (Active + missing from disk): renders ONLY Download — no Delete for a not-installed model", () => {
@@ -135,7 +143,8 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
-	it("Branch 1 (Active + downloaded): hides Delete icon (in-use model can't be deleted)", () => {
+	it("Branch 1 (Active + downloaded): Delete icon present, wired to handler (ACTIVE-DELETE)", () => {
+		const onDelete = vi.fn();
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, isActive: true, downloaded: true }}
@@ -144,10 +153,12 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
-				onDelete={noop}
+				onDelete={onDelete}
 			/>,
 		);
-		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
+		const deleteBtn = screen.getByRole("button", { name: /Delete tiny/i });
+		deleteBtn.click();
+		expect(onDelete).toHaveBeenCalledTimes(1);
 	});
 
 	it("Branch 4 (Deps-installable): renders 'Download Deps' button with depsAria label", () => {
@@ -250,15 +261,44 @@ describe("ModelCardActions — BG-76 (aria-busy + aria-label swap on async butto
 		);
 		const dlBtn = screen.getByRole("button", { name: /Downloading…/i });
 		expect(dlBtn).toHaveAttribute("aria-busy", "true");
-		// Icon-only: the in-flight state is the SPINNING download icon,
-		// not visible text (2026-08-15 user request).
+		// In-flight presentation (2026-09-03 user request): the icon swaps
+		// to a LOADING spinner (spinning) — the static download icon
+		// spinning around itself read as broken — and the visible text
+		// swaps to the localized "Downloading…" (the frozen size number
+		// inside a disabled spinner button misread as "downloaded").
+		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Loading03Icon",
+		);
+		expect(dlBtn).toHaveTextContent("Downloading…");
+		// The fixed size width is dropped for the in-flight state (fit
+		// content) — no `w-24` on the spinner button.
+		expect(dlBtn.className).not.toContain("w-24");
+		// The stale per-model aria-label is NOT used while in-flight.
+		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download tiny/);
+	});
+
+	it("Download button at rest keeps the download glyph + model size + fixed width", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, size: "75 MB", downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
 		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
 			"data-name",
 			"Download01Icon",
 		);
-		expect(dlBtn).not.toHaveTextContent("Downloading…");
-		// The stale per-model aria-label is NOT used while in-flight.
-		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download tiny/);
+		// Size text present at rest; fixed width token applied.
+		expect(dlBtn.textContent).toContain("75 MB");
+		expect(dlBtn.className).toContain("w-24");
+		expect(dlBtn.className).not.toContain("Downloading");
 	});
 
 	it("Download Deps button exposes aria-busy=true and swaps aria-label to 'Downloading…' while deps-install in-flight", () => {

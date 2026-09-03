@@ -1,8 +1,7 @@
 // Shared sticky tab-bar class names.
 //
 // (UI/UX overhaul 2026-08-20): the Models page tab switcher was moved
-// into the page flow (point 2) and no longer uses the sticky bar;
-// `tabPageHeaderClassName` is now consumed by Settings only. The
+// into the page flow (point 2) and no longer uses the sticky bar. The
 // indicator styling (`tabPageIndicatorClassName`) is still shared by
 // both pages' SegmentedControls.
 //
@@ -27,7 +26,7 @@
 // it, Models didn't), indicator style (input/50 vs bg+border), and the
 // SegmentedControl className (Models added bg-subtle + rounded-lg).
 //
-// This module exports two constants — `tabPageHeaderClassName` (the
+// This module exports one constant — `tabPageIndicatorClassName` (the
 // wrapper + inner divs collapsed into one className string applied to
 // the outer sticky element) and `tabPageIndicatorClassName` (the
 // SegmentedControl indicator/label/className props collapsed into a
@@ -39,29 +38,6 @@
 // Fix-C; keeping the file under `pages/_tabBarStyles.ts` keeps it within
 // this sub-agent's file scope while still providing a single source of
 // truth for the two pages that need it.
-
-/**
- * Class names for the sticky tab-bar wrapper used by Settings and Models.
- *
- * Standardises:
- *  - `sticky top-0 z-50` — same z-index on both pages so a transient
- *    overlay (e.g. a Radix Portal tooltip or dropdown) doesn't get
- *    hidden behind one page's tab bar and shown above the other's.
- *  - `bg-(--bg-subtle) border-b border-border` — the tab bar gets its
- *    own subtle background + bottom border so it reads as a distinct
- *    sticky region even when the page content scrolls under it.
- *    Models previously had no bg/border (the tab bar inherited the
- *    page bg, so the tabs visually merged into the content when
- *    scrolled).
- *  - `left-0 right-0` — explicit horizontal anchoring (was already on
- *    both pages; kept for clarity).
- *
- * The inner max-w-4xl + px-16 + py-1.5 wrapper is NOT included here —
- * each page renders it inline (the inner wrapper sometimes also
- * contains a search field or other controls that vary by page).
- */
-export const tabPageHeaderClassName =
-	"sticky left-0 right-0 top-0 z-50 bg-(--bg-subtle) border-b border-border/5";
 
 /**
  * Standard SegmentedControl visual overrides for the Models page tab

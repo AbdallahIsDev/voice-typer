@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import { Button } from "./button";
 
 const meta: Meta<typeof Button> = {
@@ -72,5 +73,36 @@ export const Disabled: Story = {
 	args: {
 		children: "Disabled",
 		disabled: true,
+	},
+};
+
+export const DarkBackground: Story = {
+	args: {
+		children: "Save changes",
+	},
+	decorators: [themeVariantDecorator({ dark: true })],
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"The same variants rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) so dark-palette contrast can be reviewed per component.",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: {
+		children: "حفظ التغييرات",
+	},
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper, mirroring how `i18n/store.ts` flips `document.documentElement.dir` for Arabic. Verifies logical-property spacing and alignment flip correctly.',
+			},
+		},
 	},
 };

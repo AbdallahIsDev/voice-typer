@@ -186,12 +186,12 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 		}
 	});
 
-	it("vertical rhythm: sections gap-1; nav gap-5 expanded / gap-2 collapsed", () => {
+	it("vertical rhythm: sections gap-1; nav gap-4 expanded / gap-2 collapsed", () => {
 		const { rerender, container } = renderWithProviders(
 			<Sidebar {...baseProps} />,
 		);
 		const nav = container.querySelector("nav");
-		expect(nav?.className).toContain("gap-5");
+		expect(nav?.className).toContain("gap-4");
 		expect(nav?.className).not.toContain("gap-2");
 		for (const section of container.querySelectorAll("section")) {
 			expect(section.className).toContain("flex flex-col gap-1");

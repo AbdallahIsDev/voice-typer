@@ -60,10 +60,13 @@ export interface ShortcutDef extends InAppShortcut {
 	eventKeys?: readonly string[];
 	/**
 	 * Modifier profile the binding requires. "ctrlCmd" = Ctrl OR Cmd
-	 * pressed, never Shift/Alt — exactly the guard
-	 * `useGlobalKeyboardShortcuts` applies to every in-app binding.
+	 * pressed, never Shift/Alt — the guard `useGlobalKeyboardShortcuts`
+	 * applies to the navigation/zoom bindings. "ctrlShiftCmd" = Ctrl OR
+	 * Cmd AND Shift, never Alt — the guard the toggleDictation binding
+	 * requires (Shift is part of the combo, and e.key arrives
+	 * uppercased, hence the "M" eventKey entry).
 	 */
-	modifier?: "ctrlCmd";
+	modifier?: "ctrlCmd" | "ctrlShiftCmd";
 	/**
 	 * Which engine handles the binding. "renderer" = the keydown
 	 * listener in `useGlobalKeyboardShortcuts` (or another renderer
@@ -167,6 +170,26 @@ export const SHORTCUTS = {
 		labelKey: "help.activate",
 		category: "dictation",
 	},
+	toggleDictation: {
+		// Renderer keydown binding (Ctrl OR Cmd + Shift + M): toggles
+		// dictation through the same `toggle_dictation` IPC the Home
+		// page's mic button uses. NOT an OS-global accelerator and NOT
+		// a pynput reserved-key candidate — the backend's reserved list
+		// only gates the user-configurable global dictation hotkey
+		// (pure Ctrl+<letter> blocks and OS combos), so a renderer-level
+		// Ctrl+Shift+M doesn't conflict with it (Ctrl+Shift is outside
+		// the pure-Ctrl profile). `eventKeys` + the `ctrlShiftCmd`
+		// modifier profile make the binding catalog-driven like the
+		// other in-app shortcuts.
+		keys: "Ctrl+Shift+M",
+		ariaKeyshortcuts: "Control+Shift+M",
+		pynput: "<ctrl>+<shift>+<m>",
+		eventKeys: ["m", "M"],
+		modifier: "ctrlShiftCmd",
+		handledBy: "renderer",
+		labelKey: "help.shortcuts.toggleDictation",
+		category: "dictation",
+	},
 	dismissBubble: {
 		// OS-global accelerator registered in the Electron main process
 		// (`shortcuts/global-shortcuts.ts`, accelerator form
@@ -183,7 +206,7 @@ export const SHORTCUTS = {
 export type ShortcutId = keyof typeof SHORTCUTS;
 
 /**
- * The five in-app bindings `useGlobalKeyboardShortcuts` actually
+ * The six in-app bindings `useGlobalKeyboardShortcuts` actually
  * handles, in display order for the Help overlay — sourced from the
  * catalog so the overlay can never drift from the tooltips.
  */
@@ -193,6 +216,7 @@ export const IN_APP_SHORTCUT_IDS = [
 	"goHome",
 	"zoomIn",
 	"zoomOut",
+	"toggleDictation",
 ] as const satisfies readonly ShortcutId[];
 
 export type InAppShortcutId = (typeof IN_APP_SHORTCUT_IDS)[number];

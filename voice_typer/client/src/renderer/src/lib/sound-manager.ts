@@ -60,6 +60,12 @@ let _sharedAudioContext: AudioContext | null = null;
 let _initAttempted = false; // True ONLY after successful construction
 let _initSucceeded = false;
 let _enabled: boolean = true; // Mirror of config.sound_feedback_enabled
+// Mirror of config.sound_volume — a multiplier applied on top of each
+// cue's baked-in gain (1.0 = unchanged, 0.0 = silent). Kept in memory
+// only (like _enabled's in-process default); Settings syncs it on every
+// change and on config load, so a stale module default never persists
+// across a config.json edit made outside the UI.
+let _volume: number = 1;
 let _gestureListenerInstalled = false;
 //store the gesture-resume handler so _resetSoundManagerForTests
 // can detach it (previously the handler was a closure-local variable
@@ -96,6 +102,29 @@ export function setSoundFeedbackEnabled(enabled: boolean): void {
 			e,
 		);
 	}
+}
+
+/**
+ * Update the in-memory sound-volume multiplier (mirror of
+ * config.sound_volume). Values are clamped to [0, 1]; non-finite
+ * input falls back to 1 (unity) so a corrupt config value can never
+ * mute or blow out the cues silently.
+ *
+ * Called from:
+ *  - Settings → Recording when the user drags the volume slider.
+ *  - RecordingSettingsSection's config-sync effect (covers
+ *    config_changed pushes + initial load).
+ */
+export function setSoundVolume(volume: number): void {
+	_volume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
+}
+
+/**
+ * Read the current volume multiplier (test + debug surface; the
+ * production paths read the module state directly).
+ */
+export function getSoundVolume(): number {
+	return _volume;
 }
 
 /**
@@ -465,6 +494,12 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 		const now = ctx.currentTime;
 		const osc = ctx.createOscillator();
 		const gain = ctx.createGain();
+		// Master volume multiplier node — sits between the cue's own
+		// gain and the destination so the configured sound_volume scales
+		// the baked-in cue level without rewriting the automation table
+		// (the table's decay targets must stay >0 for exponentialRamp).
+		const master = ctx.createGain();
+		master.gain.value = _volume;
 
 		osc.type = spec.oscillatorType;
 		// Apply the cue's automation schedule in table order — the steps
@@ -479,7 +514,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 			}
 		}
 
-		osc.connect(gain).connect(ctx.destination);
+		osc.connect(gain).connect(master).connect(ctx.destination);
 		osc.start(now);
 		osc.stop(now + spec.duration);
 		// Explicitly disconnect the per-cue nodes once the oscillator
@@ -489,6 +524,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 		osc.onended = () => {
 			osc.disconnect();
 			gain.disconnect();
+			master.disconnect();
 		};
 	};
 
@@ -592,7 +628,9 @@ function playViaHtmlAudio(kind: SoundCueKind): boolean {
 		} else {
 			audio.src = STOP_BEEP_WAV;
 		}
-		audio.volume = 0.15;
+		// The fallback beeps are rendered at 0.15 peak amplitude — scale
+		// that baked-in level by the configured volume multiplier.
+		audio.volume = Math.min(1, Math.max(0, 0.15 * _volume));
 		audio.currentTime = 0;
 		// .play() returns a Promise; if it rejects (autoplay blocked),
 		// there's nothing more we can do — return false so the caller
@@ -691,6 +729,7 @@ export function _resetSoundManagerForTests(): void {
 	_initAttempted = false;
 	_initSucceeded = false;
 	_enabled = true;
+	_volume = 1;
 	_gestureListenerInstalled = false;
 	_fallbackAudio = null;
 }

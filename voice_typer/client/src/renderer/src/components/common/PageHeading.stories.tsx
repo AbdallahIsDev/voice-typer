@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Button } from "@/components/ui/button";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import PageHeading from "./PageHeading";
 
 const meta: Meta<typeof PageHeading> = {
@@ -54,6 +55,40 @@ export const EmptyDescription: Story = {
 			description: {
 				story:
 					"When `description` is an empty string (rather than `undefined`), the component reserves the line with a `\\u00A0` non-breaking space so layout doesn't shift between pages that have and don't have a description.",
+			},
+		},
+	},
+};
+
+export const DarkBackground: Story = {
+	args: {
+		title: "Settings",
+		description: "Configure microphone input, noise filtering and VAD.",
+	},
+	decorators: [themeVariantDecorator({ dark: true })],
+	name: "Dark background",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`).",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: {
+		title: "الإعدادات",
+		description: "تكوين إدخال الميكروفون والتحويل الصوتي.",
+	},
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper, mirroring how `i18n/store.ts` flips `document.documentElement.dir` for Arabic — the title/description column must start from the right and the action column must sit on the left.',
 			},
 		},
 	},

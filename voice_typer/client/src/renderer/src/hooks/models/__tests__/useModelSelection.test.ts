@@ -65,6 +65,7 @@ function makeHookArgs(
 		setModels?: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 		refreshModelStatus?: () => Promise<void>;
 		updateConfig?: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+		setConfig?: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
 	} = {},
 ) {
 	const setModels =
@@ -74,6 +75,11 @@ function makeHookArgs(
 		overrides.refreshModelStatus ?? vi.fn().mockResolvedValue(undefined);
 	const updateConfig =
 		overrides.updateConfig ?? vi.fn().mockResolvedValue(undefined);
+	const setConfig =
+		overrides.setConfig ??
+		(vi.fn() as unknown as React.Dispatch<
+			React.SetStateAction<VoiceTyperConfig | null>
+		>);
 	const showSnack = vi.fn();
 	return {
 		call: (overrides.call ?? callMock) as unknown as <T = unknown>(
@@ -84,6 +90,7 @@ function makeHookArgs(
 		setModels,
 		refreshModelStatus,
 		updateConfig,
+		setConfig,
 	};
 }
 
@@ -111,6 +118,19 @@ describe("useModelSelection — selectModel success path", () => {
 
 		// updateConfig invoked with the backend + model_size pair.
 		expect(args.updateConfig).toHaveBeenCalledWith({
+			asr_backend: "whisper",
+			model_size: "tiny",
+		});
+
+		// setConfig mirrors the committed selection into config state
+		// immediately (the no-model banner flips on the user action,
+		// not on the config_changed echo's arrival time).
+		expect(args.setConfig).toHaveBeenCalledTimes(1);
+		const cfgUpdater = (args.setConfig as unknown as ReturnType<typeof vi.fn>)
+			.mock.calls[0]?.[0] as (
+			prev: Partial<VoiceTyperConfig> | null,
+		) => Partial<VoiceTyperConfig>;
+		expect(cfgUpdater({ asr_backend: "whisper", model_size: "" })).toEqual({
 			asr_backend: "whisper",
 			model_size: "tiny",
 		});
@@ -284,22 +304,26 @@ describe("useModelSelection — selectModel error path", () => {
 });
 
 describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
-	it("requestDeleteModel refuses the active model + surfaces cannotDeleteActive warning", () => {
+	it("requestDeleteModel ALLOWS the active model (ACTIVE-DELETE — backend reassigns the selection)", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const active = makeModel({ name: "tiny", isActive: true });
+		const active = makeModel({
+			name: "tiny",
+			isActive: true,
+			downloaded: true,
+		});
 
 		act(() => {
 			result.current.requestDeleteModel(active);
 		});
 
-		// Target NOT stashed — the confirm dialog should not open.
-		expect(result.current.deleteModelTarget).toBeNull();
-		expect(args.showSnack).toHaveBeenCalledWith(
-			"models.cannotDeleteActive",
-			"warning",
-		);
+		// No frontend refusal: the confirm dialog opens for the active
+		// model too — the backend removes the files and reassigns the
+		// selection (first other downloaded model, or the "no model
+		// selected" state when none exists).
+		expect(result.current.deleteModelTarget).toEqual(active);
+		expect(args.showSnack).not.toHaveBeenCalled();
 	});
 
 	it("requestDeleteModel ALLOWS an active model that is missing from disk (stale selection)", () => {

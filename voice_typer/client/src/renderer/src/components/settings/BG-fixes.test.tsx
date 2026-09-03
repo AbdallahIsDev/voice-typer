@@ -9,7 +9,7 @@
  *     one row must hide the other rows in the same section (previously
  *     the section-level check showed the entire section including all
  *     rows when ANY row matched).
- *   - : ModelSettingsSection's API Key input uses
+ *   - : LlmPolishingSettingsSection's API Key input uses
  *     settings.apiKeyConfiguredPlaceholder when llm_api_key === "<redacted>"
  *     rather than the hardcoded English literal "•••••••• (configured)".
  *   - : Settings.tsx memoizes sectionProps and handleResetClick so
@@ -44,7 +44,8 @@ vi.mock("@/hooks/useSnackbar", () => snackbarMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
+import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
+import { PostProcessingSettingsSection } from "@/components/settings/PostProcessingSettingsSection";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -232,13 +233,13 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		cleanup();
 	});
 
-	it("ModelSettingsSection hides non-matching rows but keeps matching ones (Post-Processing)", () => {
+	it("PostProcessingSettingsSection hides non-matching rows but keeps matching ones (Post-Processing)", () => {
 		// Filter for "auto" — should match "Auto Punctuation" but not
 		// "Transcription Language", "Text Cleanup", "Text Snippets",
 		// or "Vocabulary".
 		const isVisible = filterByLabel("auto");
 		renderWithProviders(
-			<ModelSettingsSection
+			<PostProcessingSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
 				updateConfigDebounced={() => {}}
@@ -256,11 +257,11 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		expect(screen.queryByText("Vocabulary")).toBeNull();
 	});
 
-	it("ModelSettingsSection hides the entire section when no row matches", () => {
+	it("PostProcessingSettingsSection hides the entire section when no row matches", () => {
 		// Filter for a nonsense query that matches no row.
 		const isVisible = filterByLabel("zzzqqqxxxyyy999");
 		const { container } = renderWithProviders(
-			<ModelSettingsSection
+			<PostProcessingSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
 				updateConfigDebounced={() => {}}
@@ -300,7 +301,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 	});
 });
 
-describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeholder", () => {
+describe("BG-98: LlmPolishingSettingsSection uses i18n key for redacted API key placeholder", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -311,7 +312,7 @@ describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeho
 		// to the backend's redaction sentinel so the placeholder branch
 		// is taken.
 		renderWithProviders(
-			<ModelSettingsSection
+			<LlmPolishingSettingsSection
 				config={makeConfig({
 					llm_polish: true,
 					llm_api_key: "<redacted>",
@@ -335,7 +336,7 @@ describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeho
 
 	it("renders the regular placeholder from t('settings.apiKeyPlaceholder') when llm_api_key is empty", () => {
 		renderWithProviders(
-			<ModelSettingsSection
+			<LlmPolishingSettingsSection
 				config={makeConfig({
 					llm_polish: true,
 					llm_api_key: "",

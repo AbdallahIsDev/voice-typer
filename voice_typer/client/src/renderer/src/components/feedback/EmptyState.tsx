@@ -105,7 +105,7 @@ export function EmptyState({
 				<Button
 					ref={actionRef}
 					variant="default"
-					className="mt-2 gap-2"
+					className="gap-2"
 					onClick={onAction}
 				>
 					<HugeiconsIcon

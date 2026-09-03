@@ -91,7 +91,10 @@ export function PunctuationCheatSheet({
 		<section
 			data-testid="punctuation-cheat-sheet"
 			aria-labelledby="punctuation-cheat-sheet-title"
-			className={cn("space-y-3 border-t border-border/5 pt-4", className)}
+			className={cn(
+				"flex flex-col gap-3 border-t border-border/5 pt-4",
+				className,
+			)}
 		>
 			<h3
 				id="punctuation-cheat-sheet-title"

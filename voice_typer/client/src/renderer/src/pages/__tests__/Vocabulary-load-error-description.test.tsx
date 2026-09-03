@@ -34,7 +34,7 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-describe("Vocabulary page — BG-60 load-error variant + BG-62 localised description", () => {
+describe("Vocabulary page — load-error variant + localised description", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// get_vocabulary throws → loadVocabulary sets loadError AND
@@ -72,7 +72,7 @@ describe("Vocabulary page — BG-60 load-error variant + BG-62 localised descrip
 		expect(alertRegion.className).toContain("destructive");
 	});
 
-	it("renders the localised loadFailedDescription (BG-62)", async () => {
+	it("renders the localised loadFailedDescription", async () => {
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
 		render(<VocabularyPage />);
 

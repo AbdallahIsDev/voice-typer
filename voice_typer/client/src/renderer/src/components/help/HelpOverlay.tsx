@@ -92,14 +92,14 @@ function HelpOverlayInner({
 				    curves (no more scrollbar escaping the rounded shape). */}
 			<div
 				data-testid="help-overlay-scroll"
-				className="-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6"
+				className="-mx-6 -mb-6 flex min-h-0 flex-col gap-6 overflow-y-auto px-6 pb-6"
 			>
 				{/* Dialog header lives INSIDE the scroll area (no pinned
 				    header row): the title/description scroll away with the
 				    content. Radix wires aria-labelledby/aria-describedby to
 				    these as long as they render inside DialogContent, and
 				    DialogContent's onOpenAutoFocus still targets the title. */}
-				<DialogHeader className="mb-4">
+				<DialogHeader>
 					<DialogTitle>{t("help.title")}</DialogTitle>
 					<DialogDescription>{t("help.description")}</DialogDescription>
 				</DialogHeader>
@@ -109,7 +109,7 @@ function HelpOverlayInner({
 				    (a second `?` that opened its own cheat-sheet popup) is
 				    deliberately NOT mounted here — the only help affordance
 				    is the title-bar `?` which opens exactly this overlay. */}
-				<ul className="space-y-2 text-sm">
+				<ul className="flex flex-col gap-2 text-sm">
 					{[
 						{ keys: dictationLabel, desc: t("help.dictation") },
 						{
@@ -125,6 +125,12 @@ function HelpOverlayInner({
 						{
 							keys: SHORTCUTS.activate.keys,
 							desc: t(SHORTCUTS.activate.labelKey),
+						},
+						{
+							// Renderer keyboard binding — toggles dictation through
+							// the same `toggle_dictation` IPC the mic button uses.
+							keys: SHORTCUTS.toggleDictation.keys,
+							desc: t(SHORTCUTS.toggleDictation.labelKey),
 						},
 						{
 							// OS-global bubble-dismiss accelerator — registered in
@@ -160,25 +166,27 @@ function HelpOverlayInner({
 				(the same catalog TitleBar and Sidebar render from).
 				Rendering from the same array keeps the overlay in
 				lock-step with the actual key bindings. */}
-				<h3 className="mt-6 text-sm font-medium text-(--text-primary)">
-					{t("help.shortcuts.title")}
-				</h3>
-				<ul className="mt-2 space-y-2 text-sm">
-					{IN_APP_SHORTCUTS.map((shortcut) => (
-						<li
-							key={`${shortcut.category}-${shortcut.keys}`}
-							className="flex items-center justify-between gap-4"
-						>
-							<span className="text-(--text-muted)">
-								{t(shortcut.labelKey)}
-							</span>
-							<HotkeyChips keys={shortcut.keys} />
-						</li>
-					))}
-				</ul>
+				<div className="flex flex-col gap-2">
+					<h3 className="text-sm font-medium text-(--text-primary)">
+						{t("help.shortcuts.title")}
+					</h3>
+					<ul className="flex flex-col gap-2 text-sm">
+						{IN_APP_SHORTCUTS.map((shortcut) => (
+							<li
+								key={`${shortcut.category}-${shortcut.keys}`}
+								className="flex items-center justify-between gap-4"
+							>
+								<span className="text-(--text-muted)">
+									{t(shortcut.labelKey)}
+								</span>
+								<HotkeyChips keys={shortcut.keys} />
+							</li>
+						))}
+					</ul>
+				</div>
 
-				<PunctuationCheatSheet className="mt-6" />
-				<p className="mt-6 text-xs text-(--text-muted)">
+				<PunctuationCheatSheet />
+				<p className="text-xs text-(--text-muted)">
 					{t("help.closeHint", { key: SHORTCUTS.cancel.keys })}
 				</p>
 			</div>

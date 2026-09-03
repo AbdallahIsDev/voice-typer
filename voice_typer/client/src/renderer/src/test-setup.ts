@@ -19,8 +19,11 @@ import { cleanup } from "@testing-library/react";
 // mix jsdom and node environments across files in the same run.
 import { afterEach } from "vitest";
 
+import { __resetIpcCacheForTests } from "@/lib/ipcCache";
+
 afterEach(() => {
 	cleanup();
+	__resetIpcCacheForTests();
 	if (typeof localStorage !== "undefined") {
 		localStorage.clear();
 	}

@@ -199,12 +199,11 @@ export default function DashboardPage() {
 	};
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 			<PageHeading
 				title={t("analytics.title")}
 				description={t("analytics.description")}
 			>
-				{" "}
 				{data &&
 					configRaw &&
 					canShareStats({
@@ -247,7 +246,7 @@ export default function DashboardPage() {
 					onAction={() => navigate("home")}
 				/>
 			) : (
-				<div className="space-y-6">
+				<div className="flex flex-col gap-6">
 					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
 						{/* Single dictations card — DATA-CONSISTENCY fix: the
 						    old "Dictations" card (window count from the
@@ -263,9 +262,11 @@ export default function DashboardPage() {
 						    Time the true count is used so the card is never
 						    sample-capped. */}
 						<StatCard
-							label={t("analytics.totalDictationsPeriod", {
-								range: t(`analytics.range.${range}`),
-							})}
+							// Plain label (no range suffix) — the TimeRangeSelector
+							// + the chart's subtitle already state the active
+							// window; the suffix made this the only truncating
+							// label in the row ("Total Dictations (7 D…").
+							label={t("analytics.totalDictations")}
 							value={
 								range === "all" ? String(d.totalCount) : String(period.count)
 							}
@@ -343,7 +344,7 @@ export default function DashboardPage() {
 					{/* Current Setup — system/config info, demoted below the
 						usage analytics so it doesn't compete for attention. */}
 					<section
-						className="space-y-2.5"
+						className="flex flex-col gap-2.5"
 						aria-label={t("analytics.currentSetup")}
 					>
 						<h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">

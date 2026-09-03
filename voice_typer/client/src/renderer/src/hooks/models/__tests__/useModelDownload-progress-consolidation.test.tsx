@@ -131,6 +131,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;
@@ -200,6 +201,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;
@@ -256,6 +258,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;
@@ -290,7 +293,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(captures.current?.totalBytes).toBe(1000); // preserved
 	});
 
-	it("treats null `speed_bytes_per_sec` / `eta_seconds` as 'clear the field'", async () => {
+	it("PRESERVES speed/eta on partial events; clears them only on a transition event", async () => {
 		const { useModelDownload } = await import(
 			"@/hooks/models/useModelDownload"
 		);
@@ -307,6 +310,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;
@@ -327,9 +331,26 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(captures.current?.speedBps).toBe(2000);
 		expect(captures.current?.etaSeconds).toBe(4.2);
 
-		// Now send `null` for both — the hook should clear them.
+		// A partial event WITHOUT a transition marker (no status/paused/
+		// resumed field) means "speed/eta not re-measured" — the previous
+		// values must be PRESERVED. Clearing on absence made every
+		// transition-only backend event (e.g. a lone `paused: true`)
+		// wipe the readout, but worse, plain partial progress events
+		// reset it too. Contract: absence is not clearance.
 		act(() => {
 			handler?.({
+				speed_bytes_per_sec: null,
+				eta_seconds: null,
+			});
+		});
+		expect(captures.current?.speedBps).toBe(2000);
+		expect(captures.current?.etaSeconds).toBe(4.2);
+
+		// A TRANSITION event (status present) clears both — the old
+		// measurement window is over.
+		act(() => {
+			handler?.({
+				status: "downloading",
 				speed_bytes_per_sec: null,
 				eta_seconds: null,
 			});
@@ -355,6 +376,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;
@@ -395,6 +417,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
 				refreshModelStatus: vi.fn(),
+				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
 			return null as unknown as ReactNode;

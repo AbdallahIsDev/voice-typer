@@ -5,11 +5,32 @@ import {
 	Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+	memo,
+	type KeyboardEvent as ReactKeyboardEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
+import {
+	formatRecordTime,
+	groupRecordsByDate,
+} from "@/components/dashboard/historyGroups";
 import { Button } from "@/components/ui/button";
 import { getLocale, t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
+
+/**
+ * Transcriptions longer than this are treated as potentially clamped by
+ * the row's line clamp, so the text becomes click-to-expand (when the
+ * parent supplies ``onFetchFullText``). Mirrors the threshold used by
+ * the Home preview card. Rows ALSO become expandable when the backend
+ * flagged the 500-char preview via ``text_truncated``, regardless of
+ * length.
+ */
+const EXPAND_TEXT_LENGTH_THRESHOLD = 160;
 
 function formatTimestamp(ts: string): string {
 	try {
@@ -34,6 +55,26 @@ interface ActivityListProps {
 	onViewAll?: () => void;
 	onDelete?: (id: number) => void;
 	onToggleFavorite?: (id: number) => void;
+	/**
+	 * Group the list under date section headers ("Today" / "Yesterday" /
+	 * long date). Rows then show only their TIME — the date lives in the
+	 * section header. Only meaningful for chronologically-sorted lists;
+	 * the History page disables grouping for alphabetical sorts.
+	 */
+	groupByDate?: boolean;
+	/**
+	 * Fetch the FULL text of a record by id (the list payload carries a
+	 * 500-char preview). When provided, clamped rows become
+	 * click-to-expand (keyboard operable, ``aria-expanded`` state).
+	 * Resolve with the full text, or ``null`` on failure.
+	 */
+	onFetchFullText?: (id: number) => Promise<string | null>;
+	/**
+	 * Hide the section header row (title + "View all"). The History page
+	 * renders the list directly under its toolbar — a "Recent Activity"
+	 * heading there would duplicate the page title.
+	 */
+	hideHeader?: boolean;
 }
 
 // ── ActivityListRow ────────────────────────────────────────────────────
@@ -54,10 +95,13 @@ interface ActivityListProps {
 //                           so only the row whose copied-state actually
 //                           changed re-renders
 //   - `lineClamp`         — primitive number
+//   - `grouped`           — primitive boolean (date-grouped list mode:
+//                           rows show time only)
 //   - `onCopy`            — stable useCallback from parent (receives the
 //                           item, so the row's onClick can pass it through)
 //   - `onDelete`          — stable useCallback from parent (or undefined)
 //   - `onToggleFavorite`  — stable useCallback from parent (or undefined)
+//   - `onFetchFullText`   — stable useCallback from parent (or undefined)
 //
 // All non-primitive props are stable useCallbacks from the parent, so
 // `memo`'s default shallow-equal comparator skips re-renders for every
@@ -66,34 +110,150 @@ interface ActivityListRowProps {
 	item: HistoryRecord;
 	copied: boolean;
 	lineClamp: number;
+	grouped: boolean;
 	onCopy: (item: HistoryRecord) => void;
 	onDelete?: (id: number) => void;
 	onToggleFavorite?: (id: number) => void;
+	onFetchFullText?: (id: number) => Promise<string | null>;
 }
 
 const ActivityListRow = memo(function ActivityListRow({
 	item,
 	copied,
 	lineClamp,
+	grouped,
 	onCopy,
 	onDelete,
 	onToggleFavorite,
+	onFetchFullText,
 }: ActivityListRowProps) {
+	const [expanded, setExpanded] = useState(false);
+	// Full text fetched on demand. Local to the row so expanding never
+	// churns the parent's records array (and survives background list
+	// refreshes — the record id is stable). ``null`` until fetched.
+	const [fullText, setFullText] = useState<string | null>(null);
+	const [loadingText, setLoadingText] = useState(false);
+
+	const displayedText = fullText ?? item.text;
+	// A row is expandable when the parent can supply full text AND the
+	// text is (or may be) clamped: either the backend flagged the
+	// 500-char preview, or the text exceeds the length where the line
+	// clamp kicks in. Short rows stay inert — no cursor, no hover, no
+	// button semantics (hover states only where a genuine click action
+	// exists).
+	const expandable =
+		!!onFetchFullText &&
+		(item.text_truncated === true ||
+			item.text.length > EXPAND_TEXT_LENGTH_THRESHOLD);
+
+	const toggleExpanded = useCallback(async () => {
+		if (!onFetchFullText || loadingText) return;
+		if (expanded) {
+			setExpanded(false);
+			return;
+		}
+		// First expansion of a backend-truncated row: fetch the FULL text
+		// (the list payload carries only the 500-char preview). An empty
+		// result means the row is gone (or the fetch failed) — surface a
+		// toast instead of expanding to a clipped preview.
+		if (item.text_truncated === true && fullText === null) {
+			setLoadingText(true);
+			try {
+				const text = await onFetchFullText(item.id);
+				if (text == null || text === "") {
+					toast.error(t("activityList.loadTextFailed"));
+					return;
+				}
+				setFullText(text);
+			} catch {
+				toast.error(t("activityList.loadTextFailed"));
+				return;
+			} finally {
+				setLoadingText(false);
+			}
+		}
+		setExpanded(true);
+	}, [
+		onFetchFullText,
+		loadingText,
+		expanded,
+		item.text_truncated,
+		item.id,
+		fullText,
+	]);
+
+	const handleTextKeyDown = useCallback(
+		(e: ReactKeyboardEvent<HTMLDivElement>) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				void toggleExpanded();
+			}
+		},
+		[toggleExpanded],
+	);
+
 	return (
-		<div className="flex items-start gap-3 px-3.5 py-2.5">
+		<div className="flex items-start gap-3 px-4 py-2">
 			<div className="flex flex-col gap-1 flex-1 min-w-0">
-				<p
-					className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
-					style={{
-						display: "-webkit-box",
-						WebkitLineClamp: lineClamp,
-						WebkitBoxOrient: "vertical",
-					}}
+				{/* The text block doubles as the expand/collapse control when
+				    the row can reveal more: clicking anywhere on the text
+				    toggles, Enter/Space activate it from keyboard focus, and
+				    aria-expanded exposes the disclosure state. The hover wash +
+				    pointer cursor appear ONLY on expandable rows — inert rows
+				    get no click affordance. Action buttons are OUTSIDE this
+				    block, so their click targets never collide with it.
+				    Not a native <button>: transcript text must stay
+				    mouse-selectable, so the disclosure semantics are carried
+				    by role/tabIndex/aria-expanded with explicit keyboard
+				    activation instead. */}
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: the block IS the disclosure control (see comment above) — text selection inside a native <button> is blocked by the UA stylesheet. */}
+				{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded is the disclosure state; the conditional undefined keeps it off inert rows. */}
+				<div
+					role={expandable ? "button" : undefined}
+					tabIndex={expandable ? 0 : undefined}
+					aria-expanded={expandable ? expanded : undefined}
+					data-testid={expandable ? "activity-row-text-toggle" : undefined}
+					onClick={expandable ? () => void toggleExpanded() : undefined}
+					onKeyDown={expandable ? handleTextKeyDown : undefined}
+					className={`rounded-md transition-colors ${
+						expandable
+							? "cursor-pointer hover:bg-foreground/5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden"
+							: ""
+					} ${loadingText ? "opacity-60" : ""}`}
 				>
-					{item.text}
-				</p>
+					<p
+						className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
+						style={
+							expanded
+								? undefined
+								: {
+										display: "-webkit-box",
+										WebkitLineClamp: lineClamp,
+										WebkitBoxOrient: "vertical",
+									}
+						}
+					>
+						{displayedText}
+					</p>
+				</div>
+				{expandable && (
+					<button
+						type="button"
+						aria-expanded={expanded}
+						onClick={() => void toggleExpanded()}
+						className="self-start cursor-pointer text-xs text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden rounded-md"
+					>
+						{loadingText
+							? t("history.loading")
+							: expanded
+								? t("home.showLess")
+								: t("home.showMore")}
+					</button>
+				)}
 				<span className="text-xs text-(--text-muted) block">
-					{formatTimestamp(item.timestamp)}
+					{grouped
+						? formatRecordTime(item.timestamp)
+						: formatTimestamp(item.timestamp)}
 					{item.word_count != null && (
 						<>
 							<span className="mx-1">·</span>
@@ -108,11 +268,12 @@ const ActivityListRow = memo(function ActivityListRow({
 				{/* Action order: Copy first (copying a past transcription is
 				    the primary reason a user opens History), then
 				    Star/Favorite, then Delete LAST — destructive actions
-				    never lead the group. */}
+				    never lead the group. Copy always receives the DISPLAYED
+				    text, so an expanded row copies the full transcript. */}
 				<Button
 					variant="ghost"
 					size="icon-xs"
-					onClick={() => onCopy(item)}
+					onClick={() => onCopy({ ...item, text: displayedText })}
 					className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
 					title={t("history.copyText")}
 					aria-label={t("history.copyText")}
@@ -184,6 +345,9 @@ function ActivityListInner({
 	onViewAll,
 	onDelete,
 	onToggleFavorite,
+	groupByDate = false,
+	onFetchFullText,
+	hideHeader = false,
 }: ActivityListProps) {
 	const [copiedId, setCopiedId] = useState<number | null>(null);
 	//track copy timeout in a ref and clear on unmount
@@ -224,8 +388,41 @@ function ActivityListInner({
 	// populated list so the visual rhythm is preserved.
 	if (items.length === 0) {
 		return (
-			<div className="w-full mt-4">
-				<div className="flex items-center justify-between w-full mb-2.5">
+			<div className="mt-4 flex w-full flex-col gap-2.5">
+				{!hideHeader && (
+					<div className="flex items-center justify-between w-full">
+						<span className="text-[12px] font-semibold text-(--text-primary)">
+							{title}
+						</span>
+						{showViewAll && onViewAll && (
+							<Button
+								onClick={onViewAll}
+								variant="link"
+								size="xs"
+								className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
+							>
+								{t("activityList.viewAll")}
+							</Button>
+						)}
+					</div>
+				)}
+				<div className="rounded-lg border border-border/5 bg-(--bg-subtle)">
+					<p className="px-3.5 py-4 text-xs text-(--text-muted) text-center">
+						{t("activityList.noRecentActivity")}
+					</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Date-grouped mode: chunk the (already-sorted) items into per-day
+	// sections. Flat mode renders the list exactly as before.
+	const groups = groupByDate ? groupRecordsByDate(items) : null;
+
+	return (
+		<div className="mt-4 flex w-full flex-col gap-2.5">
+			{!hideHeader && (
+				<div className="flex items-center justify-between w-full">
 					<span className="text-[12px] font-semibold text-(--text-primary)">
 						{title}
 					</span>
@@ -240,56 +437,73 @@ function ActivityListInner({
 						</Button>
 					)}
 				</div>
+			)}
+			{groups ? (
 				<div className="rounded-lg border border-border/5 bg-(--bg-subtle)">
-					<p className="px-3.5 py-4 text-xs text-(--text-muted) text-center">
-						{t("activityList.noRecentActivity")}
-					</p>
+					{groups.map((group, gi) => (
+						<section
+							key={group.key || `unknown-date-${gi}`}
+							aria-labelledby={
+								group.label ? `history-date-${group.key}` : undefined
+							}
+							className={gi > 0 ? "border-t border-border/5" : undefined}
+						>
+							{group.label && (
+								<div className="px-4 pt-3 pb-1">
+									<h3
+										id={`history-date-${group.key}`}
+										className="text-xs font-semibold tracking-wide text-(--text-muted)"
+									>
+										{group.label}
+									</h3>
+								</div>
+							)}
+							<div className="divide-y divide-border/5">
+								{group.records.map((item) => (
+									<ActivityListRow
+										key={item.id}
+										item={item}
+										copied={copiedId === item.id}
+										lineClamp={lineClamp}
+										grouped={!!group.label}
+										onCopy={handleCopy}
+										onDelete={onDelete}
+										onToggleFavorite={onToggleFavorite}
+										onFetchFullText={onFetchFullText}
+									/>
+								))}
+							</div>
+						</section>
+					))}
 				</div>
-			</div>
-		);
-	}
-
-	return (
-		<div className="w-full mt-4">
-			<div className="flex items-center justify-between w-full mb-2.5">
-				<span className="text-[12px] font-semibold text-(--text-primary)">
-					{title}
-				</span>
-				{showViewAll && onViewAll && (
-					<Button
-						onClick={onViewAll}
-						variant="link"
-						size="xs"
-						className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
-					>
-						{t("activityList.viewAll")}
-					</Button>
-				)}
-			</div>
-			<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
-				{" "}
-				{items.map((item) => (
-					<ActivityListRow
-						key={item.id}
-						item={item}
-						copied={copiedId === item.id}
-						lineClamp={lineClamp}
-						onCopy={handleCopy}
-						onDelete={onDelete}
-						onToggleFavorite={onToggleFavorite}
-					/>
-				))}
-			</div>
+			) : (
+				<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
+					{" "}
+					{items.map((item) => (
+						<ActivityListRow
+							key={item.id}
+							item={item}
+							copied={copiedId === item.id}
+							lineClamp={lineClamp}
+							grouped={false}
+							onCopy={handleCopy}
+							onDelete={onDelete}
+							onToggleFavorite={onToggleFavorite}
+							onFetchFullText={onFetchFullText}
+						/>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }
 
 //wrap in React.memo so the list doesn't re-render on every parent
 // re-render when its props haven't changed. The non-primitive props
-// (`items`, `onDelete`, `onToggleFavorite`, `onViewAll`) are stable
-// references from the parent (Home.tsx now wraps `onViewAll` in
-// `useCallback`; `items` is the `recent` array whose identity is
-// preserved by `useAppStore` selectors; `onDelete` /
+// (`items`, `onDelete`, `onToggleFavorite`, `onViewAll`,
+// `onFetchFullText`) are stable references from the parent (Home.tsx
+// wraps `onViewAll` in `useCallback`; `items` is the `recent` array
+// whose identity is preserved by `useAppStore` selectors; `onDelete` /
 // `onToggleFavorite` are not passed by Home so they're `undefined`,
 // which memo treats as equal). The default shallow-equal comparator
 // (matching the TitleBar.tsx:324 pattern) skips re-renders until the

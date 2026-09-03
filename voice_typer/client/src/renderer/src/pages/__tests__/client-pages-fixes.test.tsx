@@ -376,6 +376,13 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		expect(src).toContain(
 			"text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
 		);
+		// dark:hover:bg-destructive must ride along: the outline variant's
+		// dark:hover:bg-input/30 out-specifies a plain hover:bg-destructive
+		// (Tailwind v4 dark = `&:is(.dark *)`), so without the restatement
+		// dark mode hovers a translucent grey instead of solid red.
+		expect(src).toContain(
+			"hover:text-destructive-foreground dark:hover:bg-destructive",
+		);
 		// Permanent tint must be gone — History used to carry
 		// border-destructive/40 text-destructive/80 at rest and a 5% wash
 		// on hover (hover:bg-destructive/5) which the pass removed.
@@ -401,6 +408,32 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		expect(slice).toContain("hover:border-destructive");
 		// Must NOT still contain the old permanent tint in the active code.
 		expect(slice).not.toContain("text-destructive/80");
+	});
+
+	it("every shared-pattern destructive-hover button restates dark:hover:bg-destructive", async () => {
+		// Vocabulary / Templates / History Clear All + the Home discard
+		// button share the muted-at-rest → solid-red-hover contract. The
+		// outline/ghost variants carry dark:hover:bg-input/30 (resp.
+		// dark:hover:bg-muted/50), which out-specifies a plain
+		// hover:bg-destructive under Tailwind v4's `&:is(.dark *)` dark
+		// variant — each call site must therefore restate
+		// dark:hover:bg-destructive or dark mode hovers grey, not red.
+		const fs = await import("node:fs");
+		const files = [
+			"src/renderer/src/pages/History.tsx",
+			"src/renderer/src/pages/templates/components/TemplateToolbar.tsx",
+			"src/renderer/src/pages/vocabulary/components/VocabToolbar.tsx",
+			"src/renderer/src/pages/home/components/LastTranscriptionPreview.tsx",
+		];
+		for (const file of files) {
+			const src = fs.readFileSync(file, "utf8");
+			expect(
+				src,
+				`${file} must restate dark:hover:bg-destructive after hover:text-destructive-foreground`,
+			).toContain(
+				"hover:text-destructive-foreground dark:hover:bg-destructive",
+			);
+		}
 	});
 });
 

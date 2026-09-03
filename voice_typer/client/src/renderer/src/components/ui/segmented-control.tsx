@@ -314,7 +314,7 @@ export function SegmentedControl<T extends string>({
 					// wash rendered visibly different from the stat cards
 					// on the Analytics page.
 					(radius === "sm"
-						? "rounded-[4px] border border-border/5 bg-(--bg-subtle) p-0.5"
+						? "rounded-lg border border-border/5 bg-(--bg-subtle) p-0.5"
 						: "rounded-full border border-border/5 bg-(--bg-subtle) p-0.75"),
 				variant === "tabs" && "bg-transparent rounded-none p-1",
 				className,
@@ -327,7 +327,7 @@ export function SegmentedControl<T extends string>({
 						"pointer-events-none absolute z-0 transition-all duration-200 ease-out",
 						variant === "default" &&
 							(radius === "sm"
-								? "inset-y-0.5 rounded-[4px] bg-primary shadow-xs"
+								? "inset-y-0.5 rounded-lg bg-primary shadow-xs"
 								: "inset-y-0.75 rounded-full bg-primary shadow-xs"),
 						variant === "tabs" && "inset-y-1 rounded-md bg-input",
 						indicatorClassName,
@@ -387,7 +387,7 @@ export function SegmentedControl<T extends string>({
 							onClick={handleRadioChange}
 							className={cn(
 								"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
-								"select-none whitespace-nowrap inline-flex items-center justify-center",
+								"select-none whitespace-nowrap inline-flex items-center justify-center gap-1",
 								// A11Y-1: visible focus indicator for keyboard users.
 								"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden",
 								"rounded-none px-3 py-2 text-[0.8125rem] font-medium",
@@ -403,7 +403,7 @@ export function SegmentedControl<T extends string>({
 									className={cn(
 										"h-4 w-4 shrink-0",
 										active ? "opacity-100" : "opacity-60",
-										opt.label && "-ms-0.5 me-1",
+										opt.label && "-ms-0.5",
 									)}
 								/>
 							)}
@@ -418,7 +418,7 @@ export function SegmentedControl<T extends string>({
 						title={opt.title}
 						className={cn(
 							"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
-							"select-none whitespace-nowrap inline-flex items-center justify-center",
+							"select-none whitespace-nowrap inline-flex items-center justify-center gap-1",
 							// A11Y-1: visible focus indicator on the wrapping label so keyboard
 							// users see which segmented-control option has focus (the inner
 							// <input type="radio" class="sr-only"> owns the focus, so we use
@@ -426,7 +426,7 @@ export function SegmentedControl<T extends string>({
 							"has-focus-visible:ring-3 has-focus-visible:ring-ring has-focus-visible:outline-hidden",
 							variant === "default" &&
 								(radius === "sm"
-									? "rounded-[4px] px-2.5 py-1 text-[0.6875rem] tracking-wider"
+									? "rounded-lg px-2.5 py-1 text-[0.6875rem] tracking-wider"
 									: "rounded-full px-2 py-1 text-[0.6875rem] tracking-wider"),
 							labelClassName,
 							active && ["text-primary-foreground", activeClassName],
@@ -456,7 +456,7 @@ export function SegmentedControl<T extends string>({
 								className={cn(
 									"h-4 w-4 shrink-0",
 									active ? "opacity-100" : "opacity-60",
-									opt.label && "-ms-0.5 me-1",
+									opt.label && "-ms-0.5",
 								)}
 							/>
 						)}

@@ -19,6 +19,7 @@
 //   - Config Directory resolves from get_status's config_dir (the
 //     backend's authoritative path — never a hardcoded Windows path)
 //   - Copy diagnostics formats a labeled block to the clipboard
+
 import { Copy01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -54,7 +55,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 	return (
 		<span
 			className={
-				"inline-flex items-center gap-1.5 " +
+				"inline-flex items-center gap-2 " +
 				(connected ? "text-(--text-primary)" : "text-destructive")
 			}
 		>
@@ -87,7 +88,7 @@ function LiveValue({
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center gap-1.5",
+				"inline-flex items-center gap-2",
 				present ? "text-(--text-primary)" : "text-destructive",
 			)}
 		>
@@ -349,7 +350,7 @@ export const DiagnosticsSettingsSection = memo(
 						variant="outline"
 						size="sm"
 						onClick={copyDiagnostics}
-						className="shrink-0 gap-1.5 text-(--text-muted) hover:text-(--text-primary)"
+						className="shrink-0 gap-2 text-(--text-muted) hover:text-(--text-primary)"
 					>
 						<HugeiconsIcon
 							icon={Copy01Icon}

@@ -8,13 +8,12 @@
 //
 // Cross-module dependency note:
 //   - `computeDailyActivity` calls `dayAbbr` / `dayLabel` from `./format`,
-//     and `./format`'s `dayLabel` calls back into `localDateKey` here.
-//     The cycle is safe because both directions are only invoked at
-//     call-time (never at module-init), so ES module live-binding
-//     resolution works.
+//     and `./format`'s `dayLabel` imports `localDateKey` from
+//     `@/lib/format` (where the date helpers now live) — no module
+//     cycle exists between `./format` and this file.
 
+import { dateKey, localDateKey, parseUtcTimestamp } from "@/lib/format";
 import type { HistoryRecord } from "@/types/ipc";
-
 import { dayAbbr, dayLabel } from "./format";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -56,65 +55,22 @@ export interface DashboardData {
 	sampleSize: number;
 }
 
-// ── Local-date key helpers ───────────────────────────────────────────
+// ── Date helpers ─────────────────────────────────────────────────────
+//
+// ``localDateKey`` / ``parseUtcTimestamp`` / ``dateKey`` moved to
+// ``@/lib/format`` (the shared locale/formatting utilities module) so
+// the History page's date-grouped list can bucket rows by the same
+// local calendar day WITHOUT importing from the dashboard feature
+// folder. They are re-exported here so the existing dashboard imports
+// (and the streaks unit tests) keep resolving unchanged. Note this
+// also removes the old format ↔ streaks import cycle: `./format` now
+// imports these helpers from `@/lib/format` directly.
 
-/**
- * Format a Date as a YYYY-MM-DD string in LOCAL time (not UTC).
- *
- * : the previous implementation used
- * ``new Date(ts).toISOString().slice(0, 10)`` which formats the date in
- * UTC. For users in negative UTC offsets (the Americas, -05:00 to
- * -10:00), a transcription logged at 8pm local on Tuesday was bucketed
- * into Wednesday's UTC date — so the dashboard's "Today" total stayed
- * at zero until the next local day, and the 7-day activity chart
- * showed entries on the wrong bars. Switching to local-date keys keeps
- * the bucket aligned with the user's calendar day.
- */
-export function localDateKey(d: Date): string {
-	const y = d.getFullYear();
-	const m = String(d.getMonth() + 1).padStart(2, "0");
-	const day = String(d.getDate()).padStart(2, "0");
-	return `${y}-${m}-${day}`;
-}
-
-/**
- * Parse a DB timestamp string into a Date, treating it as UTC.
- *
- * SQLite stores ``timestamp`` as UTC ``"YYYY-MM-DD HH:MM:SS"`` with NO
- * timezone marker. JS parses unmarked date-time strings as LOCAL time,
- * which shifts calendar-day bucketing by the user's UTC offset: a
- * dictation at 00:30 local (stored as yesterday 21:30 UTC) was parsed
- * as yesterday 21:30 LOCAL and bucketed into the WRONG day. This made
- * the chart's today-bar and the streak anchor disagree with the
- * server's (correct, local-midnight) ``get_today_stats`` — the
- * "Dictations Today: 0 but Active Days: 7" inconsistency. Appending
- * the Z marker makes the instant correct; `localDateKey` then converts
- * to the user's calendar day.
- */
-export function parseUtcTimestamp(ts: string): Date {
-	const s = ts.trim();
-	if (!s) return new Date(NaN);
-	// Already carries a zone marker, or is a bare date (local-midnight
-	// semantics are correct for pure date keys) — parse as-is.
-	if (
-		/[zZ]$/.test(s) ||
-		/[+-]\d{2}:?\d{2}$/.test(s) ||
-		/^\d{4}-\d{2}-\d{2}$/.test(s)
-	) {
-		return new Date(s);
-	}
-	// "YYYY-MM-DD HH:MM:SS" (or ISO with a space) → ISO + Z (UTC).
-	return new Date(`${s.replace(" ", "T")}Z`);
-}
-
-/** Parse a timestamp string to a YYYY-MM-DD date key (in LOCAL time). */
-export function dateKey(ts: string): string {
-	try {
-		return localDateKey(parseUtcTimestamp(ts));
-	} catch {
-		return ts;
-	}
-}
+export {
+	dateKey,
+	localDateKey,
+	parseUtcTimestamp,
+} from "@/lib/format";
 
 /** Date `now` shifted by `days` days (local calendar arithmetic). */
 function addDays(now: Date, days: number): Date {

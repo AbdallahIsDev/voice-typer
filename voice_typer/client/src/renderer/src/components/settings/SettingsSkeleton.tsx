@@ -7,6 +7,7 @@
  * state that matches the section's layout.
  */
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { t } from "@/i18n/i18n";
 
 interface SettingsSkeletonProps {
@@ -21,19 +22,22 @@ export function SettingsSkeleton({
 	className = "",
 }: SettingsSkeletonProps) {
 	return (
-		<output className={`space-y-3 ${className}`} aria-label={t("a11y.loading")}>
+		<output
+			className={`flex flex-col gap-3 ${className}`}
+			aria-label={t("a11y.loading")}
+		>
 			{Array.from({ length: rows }, (_, i) => (
 				<div
 					//restored biome-ignore — the rule fires under `preset: "recommended"` (the previous `recommended: true` was deprecated and silently skipped enforcement). Skeleton rows are static, identical, and never reorder; index is the only stable key.
 					// biome-ignore lint/suspicious/noArrayIndexKey: skeleton rows are static and identical; index is the only stable key
 					key={`row-${rows}-${i}`}
-					className="flex items-center justify-between gap-4 px-3.5 py-2.5"
+					className="flex items-center justify-between gap-4 px-4 py-2"
 				>
 					<div className="flex items-center gap-2">
-						<div className="h-4 w-24 animate-pulse rounded bg-(--bg-subtle)" />
-						<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
+						<Skeleton className="h-4 w-24" />
+						<Skeleton className="h-4 w-4" />
 					</div>
-					<div className="h-6 w-12 animate-pulse rounded bg-(--bg-subtle)" />
+					<Skeleton className="h-6 w-12" />
 				</div>
 			))}
 		</output>

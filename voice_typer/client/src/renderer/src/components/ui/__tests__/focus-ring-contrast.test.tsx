@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 afterEach(() => {
 	cleanup();
@@ -111,6 +112,24 @@ describe("focus ring WCAG 1.4.11 (3:1) — full-opacity ring-ring", () => {
 		it("preserves focus ring thickness (ring-3)", () => {
 			const { container } = render(<Input type="text" />);
 			const cls = container.querySelector("input")?.className ?? "";
+			expect(cls).toMatch(/focus-visible:ring-3/);
+		});
+	});
+
+	describe("Textarea", () => {
+		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
+			const { container } = render(<Textarea />);
+			const textarea = container.querySelector("textarea");
+			expect(textarea).toBeTruthy();
+			const cls = textarea?.className ?? "";
+			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
+		});
+
+		it("preserves focus ring thickness (ring-3)", () => {
+			const { container } = render(<Textarea />);
+			const cls = container.querySelector("textarea")?.className ?? "";
 			expect(cls).toMatch(/focus-visible:ring-3/);
 		});
 	});

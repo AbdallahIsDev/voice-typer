@@ -594,20 +594,22 @@ describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 		cleanup();
 	});
 
-	it("renders the diagnostics table inside Settings (Privacy tab) — no navigation needed", async () => {
+	it("renders the diagnostics table inside Settings (Advanced page) — no navigation needed", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 
-		// Mount the Privacy sub-page directly (sidebar IA — no tab bar to
-		// click) so the Troubleshooting section (and the Diagnostics table
-		// that lives alongside it) mounts.
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		// Mount the Advanced section page directly (hub IA — no tab bar
+		// to click) so the Troubleshooting section (and the Diagnostics
+		// table that lives alongside it) mounts.
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 		// IA split: the diagnostics table moved OFF the About page into
-		// Settings → Privacy (support area) — it renders directly in
-		// the tab, so no navigation to "about" is involved. Assert the
-		// section heading is present; the title is
-		// `t("about.diagnosticsTitle")` → "Diagnostics" (en.json).
-		const diagHeading = await waitFor(() => screen.getByText("Diagnostics"));
+		// Settings → Advanced (the support area) — it renders directly
+		// on the section page, so no navigation to "about" is involved.
+		// Assert the section heading is present; the title is
+		// t("about.diagnosticsTitle") → "Diagnostics" (en.json).
+		const diagHeading = await waitFor(() =>
+			screen.getByRole("heading", { name: "Diagnostics" }),
+		);
 		expect(diagHeading).toBeTruthy();
 		// And the old About-page redirect button is gone: nothing in the
 		// Troubleshooting section navigates to "about" anymore.
@@ -825,10 +827,10 @@ describe("useNavigation — rewrite of localStorage persistence tests", () => {
 		//
 		// Python invariant: `nav.count("saveNavState(page, ...)") >= 3`
 		// (the string appears in navigate, goBack, AND goForward).
-		// Behavioral: navigate("history") then navigate("settings") (which
-		// redirect-replaces → "settingsGeneral") then goBack() →
-		// localStorage's `page` is back to "home" (the previous entry on
-		// the stack).
+		// Behavioral: navigate("history") then navigate("settings") (the
+		// hub literal — a real destination, no redirect since the
+		// Settings hub model) then goBack() → localStorage's `page` is
+		// back to "history" (the previous entry on the stack).
 		const onReady = vi.fn();
 		render(<NavigationHarness onReady={onReady} />);
 
@@ -847,19 +849,19 @@ describe("useNavigation — rewrite of localStorage persistence tests", () => {
 			api.navigate("settings");
 		});
 
-		// Stack is now [home, settingsGeneral], index=1
-		// (`navigate("settings")` REDIRECT-REPLACES the current entry
-		// in-place with `settingsGeneral` — it never pushes).
+		// Stack is now [home, history, settings], index=2
+		// (`navigate("settings")` pushes the hub literal — the old
+		// redirect-replace to `settingsGeneral` was removed).
 		let raw = JSON.parse(localStorage.getItem("vt_nav_state") as string);
-		expect(raw.page).toBe("settingsGeneral");
+		expect(raw.page).toBe("settings");
 
 		act(() => {
 			api.goBack();
 		});
 
 		raw = JSON.parse(localStorage.getItem("vt_nav_state") as string);
-		expect(raw.page).toBe("home");
-		expect(raw.index).toBe(0);
+		expect(raw.page).toBe("history");
+		expect(raw.index).toBe(1);
 	});
 
 	it("loads the initial page from localStorage on mount", async () => {
@@ -1144,9 +1146,16 @@ describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 		//   - "{now}" in templates
 		//   - "{clipboard}" in templates
 		//   - "{username}" in templates
-		// Behavioral: mount the Templates page, click the "Add" button
-		// to open the add-template dialog, then assert the help text
-		// and the four variable <code> chips are in the DOM.
+		// Behavioral: mount the Templates page, open the seeded row's
+		// edit dialog (TemplateDialog), then assert both help strings
+		// and the four variable chips are in the DOM.
+		//
+		// 2026-09-03 info-architecture pass: the trigger description
+		// moved from a body paragraph into an InfoTooltip beside the
+		// "Trigger phrase" label — open the tooltip (Radix opens on
+		// focus / pointer enter) before asserting the triggerHelp copy.
+		// The output helper stays a paragraph, and the variable tokens
+		// render as tappable chip buttons.
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 
@@ -1156,33 +1165,50 @@ describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 			expect(screen.getByText("signoff")).toBeTruthy();
 		});
 
-		// The Add flow is now an inline quick-add row (no dialog, no
-		// help text); the triggerHelp/outputHelp copy and the four
-		// variable chips live in the EDIT dialog (TemplateDialog).
-		// Open it via the seeded row's edit affordance — its
-		// aria-label is t("templates.editAria") → "Edit template:
-		// signoff" (en.json).
+		// The Add flow is an inline quick-add row (no dialog); the
+		// triggerHelp/outputHelp copy and the four variable chips live
+		// in the EDIT dialog (TemplateDialog). Open it via the seeded
+		// row's edit affordance — its aria-label is
+		// t("templates.editAria") → "Edit template: signoff" (en.json).
 		const editBtn = screen.getByRole("button", {
 			name: /edit template: signoff/iu,
 		});
 		fireEvent.click(editBtn);
 
-		// triggerHelp → "The phrase you'll say during dictation…"
-		// outputHelp → "The text that replaces the trigger…"
+		// outputHelp → "The text that replaces the trigger. Supports
+		// variables:" — rendered as a paragraph under the output field.
 		await waitFor(() => {
 			expect(
-				screen.getByText(/The phrase you'll say during dictation/u),
+				screen.getByText(/The text that replaces the trigger/u),
 			).toBeTruthy();
 		});
-		expect(
-			screen.getByText(/The text that replaces the trigger/u),
-		).toBeTruthy();
 
-		// The four variable chips are rendered as <code> elements.
-		expect(screen.getByText("{today}")).toBeTruthy();
-		expect(screen.getByText("{now}")).toBeTruthy();
-		expect(screen.getByText("{clipboard}")).toBeTruthy();
-		expect(screen.getByText("{username}")).toBeTruthy();
+		// triggerHelp → "The phrase you'll say during dictation…" —
+		// lives in the trigger field's InfoTooltip. Its accessible
+		// name is t("a11y.moreInfoAbout", { label: "Trigger phrase" })
+		// → "More info about Trigger phrase" (en.json).
+		const infoBtn = screen.getByRole("button", {
+			name: "More info about Trigger phrase",
+		});
+		infoBtn.focus();
+		fireEvent.mouseEnter(infoBtn);
+		fireEvent.pointerEnter(infoBtn);
+
+		// The tooltip content renders into a portal at document.body;
+		// Radix may render the text twice (visible + SR-only copy) so
+		// assert via getAllByText.
+		await waitFor(() => {
+			expect(
+				screen.getAllByText(/The phrase you'll say during dictation/u).length,
+			).toBeGreaterThan(0);
+		});
+
+		// The four variable chips are rendered as tappable <button>
+		// chips (shared Kbd keycaps) inside the dialog.
+		expect(screen.getByRole("button", { name: "{today}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{now}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{clipboard}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{username}" })).toBeTruthy();
 	});
 
 	it("renders variable chips as tappable buttons that insert the token", async () => {

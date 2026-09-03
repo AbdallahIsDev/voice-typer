@@ -24,6 +24,7 @@
  * Pure presentational — receives all state + handlers as props from
  * `useModelLifecycle`.
  */
+
 import {
 	Loading03Icon,
 	Settings03Icon,
@@ -48,6 +49,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { consentKeyFor } from "@/hooks/models/useCloudProviders";
 import type { ApiTestResult } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -99,11 +101,8 @@ export function CloudProvidersPanel({
 	};
 
 	return (
-		<div className="space-y-4">
-			<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-				{t("models.cloudModels")}
-			</h2>
-			<p className="text-sm text-(--text-muted) -mt-3">
+		<div className="flex flex-col gap-4">
+			<p className="text-sm text-(--text-muted)">
 				{t("models.cloudModelsDescription")}
 			</p>
 			<ModelGroupAccordion type="multiple">
@@ -164,7 +163,7 @@ export function CloudProvidersPanel({
 									}
 								/>
 								{isConfigured && (
-									<div className="px-3.5 pb-3.5">
+									<div className="p-4">
 										<ProviderConfigForm
 											provider={provider}
 											config={config}
@@ -242,9 +241,9 @@ function ProviderConfigForm({
 	const saveDisabled = !apiKeyValue.trim();
 
 	return (
-		<div className="rounded-lg border border-border/5 bg-(--bg) p-4">
-			<div className="mb-4">
-				<div className="mb-1.5 flex items-center gap-2">
+		<div className="flex flex-col gap-4 rounded-lg border border-border/5 bg-(--bg) p-4">
+			<div className="flex flex-col gap-2">
+				<div className="flex items-center gap-2">
 					<label
 						htmlFor={`api-key-input-${provider.key}`}
 						className="text-sm font-medium text-(--text-primary)"
@@ -295,7 +294,7 @@ function ProviderConfigForm({
                                         the per-provider text is intentionally minimal so it
                                         doesn't mislead when a provider changes their key
                                         format. */}
-				<p className="mt-1.5 text-xs text-(--text-muted)">
+				<p className="text-xs text-(--text-muted)">
 					{t("models.cloud.apiKeyFormatHint", {
 						provider: getProviderLabel(provider.key),
 					})}
@@ -367,18 +366,20 @@ function ProviderConfigForm({
 				)}
 			</div>
 			{showConsent && (
-				<div className="mt-4 rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
+				<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
 					<div className="flex items-start justify-between gap-4">
-						<div className="flex-1">
-							<h4 className="text-sm font-semibold text-(--text-primary)">
-								{t("models.cloud.consentTitle")}
-							</h4>
-							<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-								{t("models.cloud.consentDescription", {
-									provider: getProviderLabel(provider.key),
-								})}
-							</p>
-							<p className="mt-2 text-xs text-(--text-muted)">
+						<div className="flex flex-1 flex-col gap-2">
+							<div className="flex flex-col gap-1">
+								<h4 className="text-sm font-semibold text-(--text-primary)">
+									{t("models.cloud.consentTitle")}
+								</h4>
+								<p className="text-xs leading-relaxed text-(--text-muted)">
+									{t("models.cloud.consentDescription", {
+										provider: getProviderLabel(provider.key),
+									})}
+								</p>
+							</div>
+							<p className="text-xs text-(--text-muted)">
 								{t("models.cloud.statusLabel")}{" "}
 								{consentGranted ? (
 									<span className="font-medium text-success">
@@ -405,12 +406,7 @@ function ProviderConfigForm({
 	);
 }
 
-// ── Local helpers (mirror the hook's internal helpers — kept local so
-//     the panel can render the consent UI without depending on the
-//     hook's internals). ────────────────────────────────────────────────
-
-function consentKeyFor(provider: string): keyof VoiceTyperConfig {
-	if (provider === "openai") return "cloud_openai_consent";
-	if (provider === "groq") return "cloud_groq_consent";
-	return "cloud_deepgram_consent";
-}
+// ── Local helpers ─────────────────────────────────────────────────────
+//
+// `consentKeyFor` is imported from the hook (single source of truth) —
+// a local duplicate drifted if a provider was ever added.

@@ -53,13 +53,15 @@
 		"group": {
 			"system": "النظام",
 			"main": "الرئيسية"
-		},
-		"settingsGeneral": "عام",
-		"settingsAiAudio": "الذكاء الاصطناعي والصوت",
-		"settingsAppearance": "المظهر",
-		"settingsPrivacy": "الخصوصية"
+		}
 	},
 	"home": {
+		"showMore": "عرض المزيد",
+		"showLess": "عرض أقل",
+		"copy": "نسخ",
+		"copyAria": "نسخ النسخة المنسوخة إلى الحافظة",
+		"discard": "تجاهل",
+		"discardAria": "تجاهل هذه النسخة من المعاينة",
 		"ready": "جاهز",
 		"recording": "تسجيل",
 		"transcribing": "كتابة",
@@ -383,7 +385,7 @@
 		"correctionsTooltip": "تصحيحات المفردات التي طبّقها المحرّك أثناء الإملاء",
 		"correctionsRate": "{pct}% من الإملاءات",
 		"shareTooltip": "يصدّر صورة ملخص قابلة للمشاركة",
-		"totalDictationsPeriod": "إجمالي الإملاءات ({range})",
+		"totalDictations": "إجمالي الإملاءات",
 		"trendDownLabel": "أقل بنسبة {pct}٪ من الفترة السابقة",
 		"trendFlatLabel": "مماثلة للفترة السابقة",
 		"trendUpLabel": "أكثر بنسبة {pct}٪ من الفترة السابقة",
@@ -561,6 +563,8 @@
 		"loadedViaHint": "كيف تم تحميل نموذج الكلام (مدمج، أو مُنزَّل، أو مسار مخصص)."
 	},
 	"settings": {
+		"apiUrlInvalid": "أدخل عنوان http(s) صالحًا",
+		"otherTabsResults": "نتائج من علامات تبويب أخرى",
 		"title": "الإعدادات",
 		"searchPlaceholder": "ابحث في الإعدادات…",
 		"searchHints": {
@@ -571,12 +575,6 @@
 		},
 		"noResultsTitle": "لا توجد نتائج",
 		"noResultsMessage": "جرّب مصطلح بحث مختلفًا أو امسح عامل التصفية لعرض جميع الإعدادات.",
-		"tabs": {
-			"appearance": "المظهر",
-			"general": "عام",
-			"aiAudio": "الذكاء الاصطناعي والصوت",
-			"privacy": "الخصوصية"
-		},
 		"general": "عام",
 		"language": "اللغة",
 		"languageDescription": "لغة التعرف على الصوت",
@@ -729,7 +727,6 @@
 		"resetToDefaultsToast": "تمت إعادة الإعدادات إلى الافتراضية",
 		"fetchDefaultsFailed": "تعذّر جلب القيم الافتراضية من الخادم الخلفي",
 		"resetFailed": "فشل إعادة التعيين إلى الافتراضي",
-		"tabsAria": "تبويبات الإعدادات",
 		"appearance": {
 			"title": "المظهر",
 			"description": "نظام الألوان وسمة القالب المسبقة وحجم النص.",
@@ -760,6 +757,24 @@
 			"contrastWarningShort": "التباين {ratio}:1"
 		},
 		"hotkeySection": {
+			"warnPasswordPasteAria": "تأكيد اللصق في حقول كلمات المرور",
+			"warnPasswordPasteInfo": "إظهار تأكيد قبل اللصق في حقول إدخال كلمات المرور.",
+			"warnPasswordPasteInfoSearch": "تحذير قبل لصق كلمات المرور",
+			"warnPasswordPaste": "تأكيد اللصق في حقول كلمات المرور",
+			"warnElevatedPasteAria": "تأكيد اللصق في نوافذ المسؤول",
+			"warnElevatedPasteInfo": "إظهار تأكيد قبل اللصق في نوافذ المسؤول (ذات الصلاحيات المرتفعة).",
+			"warnElevatedPasteInfoSearch": "تحذير قبل اللصق في نوافذ مرتفعة الصلاحية",
+			"warnElevatedPaste": "تأكيد اللصق في نوافذ المسؤول",
+			"unsafePasteAria": "اللصق في نوافذ غير محددة الهوية",
+			"unsafePasteInfo": "يلصق النصوص حتى عندما يتعذر تحديد النافذة التي كانت محظورة سابقًا — قد يصل اللصق إلى النافذة الخاطئة.",
+			"unsafePasteInfoSearch": "لصق دون فحص التركيز",
+			"unsafePaste": "اللصق في نوافذ غير محددة الهوية",
+			"testSoundAria": "تشغيل صوت تسجيل تجريبي",
+			"testSound": "اختبار الصوت",
+			"soundVolumeAria": "مستوى صوت الإشارات الصوتية",
+			"soundVolumeInfo": "يحدد مدى جهارة أصوات بدء التسجيل وإيقافه، من الصامت (0) إلى أقصى مستوى (1).",
+			"soundVolumeInfoSearch": "مستوى أصوات البدء والإيقاف",
+			"soundVolume": "مستوى الصوت",
 			"hotkeyTitle": "مفتاح الاختصار",
 			"hotkeyDescription": "مفتاح لبدء وإيقاف الإملاء.",
 			"dictationKey": "مفتاح الإملاء",
@@ -979,6 +994,12 @@
 			"autoApplyConfidenceAria": "ثقة التطبيق التلقائي"
 		},
 		"privacy": {
+			"clipboardSaveRestoreAria": "حفظ الحافظة واستعادتها",
+			"clipboardSaveRestoreInfo": "تذكّر محتوى الحافظة قبل اللصق واستعادته بعد ذلك.",
+			"clipboardSaveRestoreLabel": "حفظ الحافظة واستعادتها",
+			"logTranscriptionsAria": "تسجيل النصوص المنسوخة",
+			"logTranscriptionsInfo": "كتابة كل نسخة منسوخة في ملف سجل التطبيق لاستكشاف الأخطاء. يبقى النص على هذا الجهاز.",
+			"logTranscriptionsLabel": "تسجيل النصوص المنسوخة",
 			"audioRecoveryTitle": "الصوت والاستعادة",
 			"audioRecoveryDescription": "مراقبة الجودة والسلامة.",
 			"crashRecovery": "الاستعادة بعد الانهيار",
@@ -1088,7 +1109,7 @@
 			"diagnosticBundleExportFailed": "فشل تصدير حزمة التشخيص"
 		},
 		"fastStartup": "بدء سريع (تشغيل مسبق)",
-		"fastStartupDescription": "تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من الإعدادات ← استكشاف الأخطاء وإصلاحها ← حالة ذاكرة التخزين المؤقت.",
+		"fastStartupDescription": "تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من الإعدادات ← متقدم ← حالة ذاكرة التخزين المؤقت.",
 		"offlinePackConsent": "تنزيل حزمة المحرك دون اتصال",
 		"offlinePackConsentDescription": "السماح بتنزيل المحرك دون اتصال (نماذج التعرف على الكلام) في الخلفية من GitHub Releases. يُفعَّل فقط عندما تريد الإملاء دون اتصال بعد تثبيت جديد؛ يبدأ التنزيل فقط بعد تفعيل هذا الخيار.",
 		"keyring": {
@@ -1136,6 +1157,14 @@
 			"systemLayout": "تخطيط النظام: جانب {side} — {buttons}",
 			"systemUnavailable": "تخطيط أزرار النظام غير متاح — يُستخدم الافتراضي (اليمين، جميع الأزرار).",
 			"followingSystem": "يتبع تخطيط سطح المكتب لديك"
+		},
+		"hub": {
+			"aiDescription": "تحسين النصوص عبر نماذج LLM، وتحسين القواعد، وأتمتة المفردات.",
+			"advancedTitle": "متقدم",
+			"advancedDescription": "استكشاف الأخطاء وإصلاحها، والتشخيصات، والموارد، وذاكرة التخزين المؤقت، والتحديثات.",
+			"backToSettings": "العودة إلى الإعدادات",
+			"on": "تشغيل",
+			"off": "إيقاف"
 		}
 	},
 	"models": {
@@ -1145,12 +1174,9 @@
 		"asrTitle": "النماذج",
 		"asrSubtitle": "تكوين نماذج الكلام المحلية والسحابية.",
 		"title": "النماذج",
-		"description": "تكوين محركات تحويل الكلام إلى نص",
 		"active": "نشط",
 		"delete": "حذف",
-		"use": "استخدام",
 		"select": "تحديد",
-		"downloadModel": "تنزيل",
 		"downloading": "جارٍ التنزيل…",
 		"selecting": "جارٍ التحديد…",
 		"providers": {
@@ -1170,17 +1196,17 @@
 		"lastResortUnloaded": "النموذج غير محمّل.",
 		"lastResortUnloadedHint": "افتح صفحة النماذج لتنزيل نموذج.",
 		"snack": {
-			"parakeetDepsRequired": "التبعيات المطلوبة لـ Parakeet. حمّلها أولاً.",
 			"depsRequiredName": "التبعيات المطلوبة لـ {name}. حمّلها أولاً.",
 			"notDownloaded": "النموذج \"{name}\" غير محمّل بعد. حمّله أولاً.",
 			"usingModel": "استخدام النموذج: {name}",
 			"downloaded": "تم تحميل {name} بنجاح",
 			"downloadFailedName": "فشل تحميل {name}",
 			"downloadFailed": "فشل التحميل: {error}",
-			"cannotDeleteActive": "لا يمكن حذف النموذج النشط. بدّل إلى نموذج آخر أولاً.",
 			"deleted": "تم الحذف: {name}",
 			"deleteFailed": "فشل الحذف",
 			"deleteFailedError": "فشل الحذف: {error}",
+			"apiKeyEmpty": "أدخل مفتاح API أولاً",
+			"apiKeyUnchanged": "مفتاح API لم يتغير",
 			"apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
 			"consentGranted": "تم منح الموافقة لـ {provider} — سيتم إرسال الصوت إلى هذا المزود.",
 			"consentRevoked": "تم إلغاء الموافقة لـ {provider} — لن يتم إرسال الصوت.",
@@ -1188,25 +1214,19 @@
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
 			"cancelFailed": "فشل الإلغاء: {error}",
-			"parakeetDepsInstalled": "تم تثبيت تبعيات Parakeet بنجاح.",
 			"depsInstalled": "تم تثبيت التبعيات بنجاح.",
-			"selectFailed": "فشل تحديد النموذج."
+			"selectFailed": "فشل تحديد النموذج.",
+			"downloadAlreadyActive": "تنزيل نموذج آخر قيد التقدم بالفعل (قد يكون متوقفًا مؤقتًا). استأنفه أو ألغِه أولاً."
 		},
 		"test": {
 			"needApiKey": "الرجاء إدخال مفتاح API أولاً",
 			"connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
 			"connectionFailed": "فشل الاتصال: {status} {statusText}",
-			"endpointUnavailable": "تم حفظ مفتاح API — نقطة الاختبار غير متاحة لهذا المزود.",
-			"connectionTestFailed": "فشل اختبار الاتصال: {error}",
-			"connectionNetworkError": "خطأ في الشبكة: تعذر الوصول إلى خادم النماذج."
+			"connectionTestFailed": "فشل اختبار الاتصال: {error}"
 		},
 		"status": {
-			"active": "نشط",
-			"downloaded": "محمّل",
 			"depsRequired": "التبعيات مطلوبة",
-			"available": "متاح",
-			"insufficientDisk": "مساحة القرص غير كافية",
-			"insufficientDiskSpace": "مساحة القرص غير كافية"
+			"insufficientDisk": "مساحة القرص غير كافية"
 		},
 		"import": {
 			"title": "استيراد نموذج",
@@ -1215,8 +1235,7 @@
 			"success": "تم استيراد {count} نموذج: {models}",
 			"noModelsFound": "لم يتم العثور على مجلدات نموذج معروفة في هذا الدليل. حدد مجلد ذاكرة التخزين المؤقت لـ HuggingFace (يحتوي على مجلدات 'models--*').",
 			"failedAll": "فشل استيراد أي نموذج من هذا الدليل.",
-			"failed": "فشل استيراد النموذج: {error}",
-			"importModelAria": "استيراد نموذج من مجلد"
+			"failed": "فشل استيراد النموذج: {error}"
 		},
 		"progress": {
 			"eta": "الوقت المتبقي {time}",
@@ -1243,23 +1262,18 @@
 			"cancelConfirmAction": "إلغاء التنزيل"
 		},
 		"card": {
-			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"multilingual": "متعدد اللغات",
 			"englishOnly": "الإنجليزية فقط",
 			"speedSuffix": "سرعة {rating}",
 			"distilled": "مُقطّر",
 			"activeAria": "نشط: {name}",
-			"useAria": "استخدام {name}",
 			"downloadAria": "تنزيل {name}",
 			"selectAria": "تحديد {name}",
 			"deleteAria": "حذف {name}",
-			"accuracy": "الدقة",
 			"vramLabel": "VRAM",
 			"werLabel": "WER"
 		},
 		"cloud": {
-			"title": "مزودو التعرّف الصوتي السحابيين",
-			"description": "تكوين خدمات التفريغ الصوتي السحابية",
 			"apiKey": "مفتاح API",
 			"apiKeyPlaceholder": "أدخل مفتاح API",
 			"saveKeyAria": "حفظ مفتاح API لـ {provider}",
@@ -1283,53 +1297,13 @@
 		},
 		"deleteDialog": {
 			"title": "حذف النموذج",
-			"message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
-			"messageWithSize": "حذف {name} ({size})؟ لا يمكن التراجع عن هذا الإجراء."
+			"message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء."
 		},
-		"subtitle": "تحميل وإدارة نماذج التعرف على الصوت",
 		"localModels": "نماذج محلية",
 		"localModelsDescription": "تشغيل نماذج Whisper مباشرة على جهازك. لا يتطلب اتصالاً بالإنترنت بعد التحميل.",
-		"downloaded": "محمّل",
-		"dependenciesRequired": "التبعيات مطلوبة",
-		"available": "متاح",
-		"downloadFirst": "حمّل أولاً",
-		"activeModel": "نشط",
-		"noModelSelected": "لم يتم تحديد أي نموذج",
-		"setAsActive": "تعيين كنشط",
 		"deleteModel": "حذف",
-		"cannotDeleteActive": "لا يمكن حذف النموذج النشط. بدّل إلى نموذج آخر أولاً.",
-		"downloadStarted": "تم بدء التحميل",
-		"downloadComplete": "اكتمل التحميل",
-		"downloadFailed": "فشل التحميل",
-		"deleteFailed": "فشل الحذف",
-		"enterApiKey": "أدخل مفتاح API",
 		"apiKeyPlaceholder": "أدخل مفتاح API",
-		"testConnection": "اختبار الاتصال",
-		"testing": "جارٍ الاختبار...",
-		"connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
-		"connectionFailed": "فشل الاتصال",
-		"pleaseEnterApiKey": "الرجاء إدخال مفتاح API أولاً",
-		"size": "الحجم",
-		"language": "اللغة",
-		"fastest": "الأسرع",
-		"fast": "سريع",
-		"slow": "بطيء",
 		"variable": "متغير",
-		"gpuRequired": "مطلوب GPU",
-		"cpuOnly": "CPU فقط",
-		"openaiWhisperApi": "واجهة OpenAI Whisper API",
-		"groqWhisperApi": "واجهة Groq Whisper API",
-		"deepgramApi": "واجهة Deepgram API",
-		"configureEngines": "تكوين محركات تحويل الكلام إلى نص",
-		"benchmark": {
-			"notImplemented": "لم يتم تنفيذ المعيار بعد.",
-			"title": "معيار الأداء للنموذج",
-			"description": "قارن أداء النموذج على نظامك",
-			"runAria": "تشغيل معيار الأداء للنموذج",
-			"running": "جارٍ التشغيل...",
-			"run": "تشغيل المعيار"
-		},
-		"benchmarkNotImplemented": "لم يتم تنفيذ المعيار بعد.",
 		"speed": {
 			"fastest": "الأسرع",
 			"variable": "متغير",
@@ -1337,21 +1311,17 @@
 			"fast": "سريع",
 			"medium": "متوسطة"
 		},
-		"openFolderAria": "افتح مجلد النماذج في مدير الملفات",
-		"openFolderFailed": "فشل فتح المجلد",
 		"disk": {
 			"lowSpaceBody": "لا توجد مساحة كافية لتنزيل النماذج",
 			"lowSpaceTitle": "مساحة القرص منخفضة",
 			"freeSpace": "{space} حر"
 		},
-		"loading": "جارٍ تحميل النماذج…",
 		"openFolder": {
 			"label": "فتح مجلد النماذج",
 			"aria": "إظهار مجلد النماذج في مدير الملفات"
 		},
 		"cloudModels": "نماذج سحابية",
 		"cloudModelsDescription": "استخدم واجهات API السحابية للحصول على تفريغ أسرع. يتطلب مفتاح API.",
-		"activeModelSummaryLabel": "النموذج النشط:",
 		"noModelBanner": "لم يتم تحديد نموذج كلام. حدد نموذجا أدناه."
 	},
 	"tooltips": {
@@ -1439,6 +1409,7 @@
 			"textSizeDown": "تصغير حجم النص",
 			"title": "اختصارات لوحة المفاتيح",
 			"toggleSidebar": "تبديل الشريط الجانبي",
+			"toggleDictation": "تبديل الإملاء",
 			"dismissBubble": "إخفاء الفقاعة"
 		}
 	},
@@ -1506,6 +1477,7 @@
 		"charsSuffix_other": " ({count} حرف)"
 	},
 	"onboarding": {
+		"doneHelpHint": "نصيحة: اضغط ؟ في أي مكان لفتح تعليمات اختصارات لوحة المفاتيح.",
 		"applyFailedTitle": "تعذّر إكمال الإعداد",
 		"applyFailedDescription": "تعذر تطبيق إعداداتك. حاول مرة أخرى، أو تخطَّ الآن وأكملها لاحقًا من الإعدادات.",
 		"welcomeTitle": "مرحبًا بك في {appName}",
@@ -1514,7 +1486,7 @@
 		"step2Item": "امنح إذن مراقبة لوحة المفاتيح",
 		"step3Item": "اختر اختصارًا",
 		"consentTitle": "الخصوصية والموافقة",
-		"consentDescription": "اختر ما توافق عليه. كل شيء مغلق افتراضيًا — يمكنك تغييره في أي وقت من الإعدادات ← الخصوصية.",
+		"consentDescription": "اختر ما توافق عليه. كل شيء مغلق افتراضيًا — يمكنك تغييره في أي وقت من الإعدادات ← الخصوصية والموافقة.",
 		"micTitle": "اختر الميكروفون",
 		"micDescription": "اختر الميكروفون الذي تريد استخدامه للإملاء. يمكنك تغييره لاحقًا في الإعدادات.",
 		"micSelectAria": "اختيار الميكروفون",
@@ -1557,7 +1529,7 @@
 		"permissionsTestFailure": "لم يتم اكتشاف مفتاح الاختصار. تحقق من خطوات الإذن أعلاه وحاول مرة أخرى.",
 		"permissionsTestButton": "اختبار المفتاح",
 		"skipConfirmTitle": "تخطي الإعداد؟",
-		"skipConfirmMessage": "التخطي الآن يعني أن ميكروفونك ومفتاح الاختصار قد لا تعمل. يمكنك إعادة تشغيل هذا معجم الإعداد لاحقًا من الإعدادات → استكشاف الأخطاء وإصلاحها، أو تكوين الإعدادات الفردية في الإعدادات.",
+		"skipConfirmMessage": "التخطي الآن يعني أن ميكروفونك ومفتاح الاختصار قد لا تعمل. يمكنك إعادة تشغيل هذا معجم الإعداد لاحقًا من الإعدادات → متقدم → استكشاف الأخطاء وإصلاحها، أو تكوين الإعدادات الفردية في الإعدادات.",
 		"skipConfirmLabel": "تخطي على أي حال",
 		"permissionsTestFailureBlocked": "الإذن لا يزال مطلوبًا — امنحه، ثم حاول مرة أخرى.",
 		"permissionsRefresh": "تحديث الإذن",
@@ -1734,7 +1706,8 @@
 		"wordsCount": "{count} كلمة",
 		"removeFromFavorites": "إزالة من المفضلة",
 		"addToFavorites": "إضافة إلى المفضلة",
-		"noRecentActivity": "لا نشاط حديث"
+		"noRecentActivity": "لا نشاط حديث",
+		"loadTextFailed": "فشل تحميل النص الكامل"
 	},
 	"exportFormat": {
 		"export": "تصدير",
@@ -1961,6 +1934,10 @@
 		"restartBackendHint": "تعذر إعادة تشغيل الواجهة الخلفية من هذه النافذة. قد تكون مُدارة خارجيًا — يرجى إعادة تشغيل التطبيق."
 	},
 	"dialog": {
+		"discardChangesTitle": "تجاهل التغييرات؟",
+		"discardChangesMessage": "سيؤدي الإغلاق الآن إلى تجاهل تعديلاتك غير المحفوظة.",
+		"discardChangesConfirm": "تجاهل التغييرات",
+		"discardChangesStay": "متابعة التحرير",
 		"pythonCrash": {
 			"title": "تعطلت الواجهة الخلفية لـ Python",
 			"body": "خرجت الواجهة الخلفية لـ Python من {appName} بشكل غير متوقع برمز {code} وستخرج الآن.",
@@ -2004,7 +1981,12 @@
 			"mic_disconnected": "تم فصل الميكروفون. تم إيقاف التسجيل. أعد توصيل الميكروفون للمتابعة.",
 			"mic_permission_revoked": "تم إبطال إذن الميكروفون. تم إيقاف التسجيل. أعد منح إذن الوصول إلى الميكروفون في إعدادات الخصوصية بنظام التشغيل للمتابعة.",
 			"silence_auto_stop": "تم إيقاف التسجيل: لم يتم اكتشاف أي صوت لفترة طويلة.",
-			"load_failed": "تعذّر تحميل نموذج الكلام.\n{error}\n\nسيستمر التطبيق في العمل. اضغط {hotkey} لإعادة محاولة التحميل."
+			"load_failed": "تعذّر تحميل نموذج الكلام.\n{error}\n\nسيستمر التطبيق في العمل. اضغط {hotkey} لإعادة محاولة التحميل.",
+			"start_failed_with_reason": "تعذّر بدء التسجيل.\n{reason}",
+			"mic_unplugged": "تم فصل الميكروفون. تم إيقاف التسجيل.",
+			"still_running": "لا يزال التعرف على الكلام قيد التنفيذ.\nقد تستغرق التسجيلات الطويلة أو وضع المعالجة على وحدة المعالجة المركزية وقتًا إضافيًا.",
+			"xrun_title": "{app} — مشكلات صوتية",
+			"xrun_body": "تم رصد {count} حالة تجاوز سعة مخزن الصوت المؤقت. جرّب إغلاق تطبيقات الصوت الأخرى أو تقليل حمل المعالج."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",

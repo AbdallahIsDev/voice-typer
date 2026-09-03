@@ -55,7 +55,7 @@ function ConsentRow({
 			data-consent-field={field}
 			className={cn(
 				"rounded-lg transition-shadow duration-500",
-				highlighted && "ring-2 ring-(--primary) bg-(--bg-subtle)",
+				highlighted && "ring-2 ring-primary bg-(--bg-subtle)",
 			)}
 		>
 			{children}
@@ -116,6 +116,14 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const handleLlmPolishConsentChange = (checked: boolean) =>
 		updateConfig({ llm_polish_consent: checked });
 
+	// Hidden-config rows (previously config.json-only): transcription
+	// logging and the clipboard borrow/restore behavior (ADR-0010).
+	const handleLogTranscriptionsChange = (checked: boolean) =>
+		updateConfig({ log_transcriptions: checked });
+
+	const handleClipboardSaveRestoreChange = (checked: boolean) =>
+		updateConfig({ clipboard_save_restore: checked });
+
 	//opening the ConfirmDialog instead of granting all 6 consents
 	// immediately. The actual updateConfig call happens in
 	// `handleConfirmAgreeToAll` (below) once the user confirms.
@@ -164,6 +172,17 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const exportAllDataLabel = t("settings.privacy.exportAllDataLabel");
 	const exportAllDataInfoSearch = t("settings.privacy.exportAllDataInfoSearch");
 
+	// Hidden-config rows: one info string per row feeds both the search
+	// predicate and the tooltip.
+	const logTranscriptionsLabel = t("settings.privacy.logTranscriptionsLabel");
+	const logTranscriptionsInfo = t("settings.privacy.logTranscriptionsInfo");
+	const clipboardSaveRestoreLabel = t(
+		"settings.privacy.clipboardSaveRestoreLabel",
+	);
+	const clipboardSaveRestoreInfo = t(
+		"settings.privacy.clipboardSaveRestoreInfo",
+	);
+
 	//section-level visibility check for Audio & Recovery section.
 	const audioRecoveryTitle = t("settings.privacy.audioRecoveryTitle");
 	const audioRecoveryItems = [
@@ -183,6 +202,8 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 		{ label: deepgramCloudAsrLabel, info: deepgramCloudAsrInfoSearch },
 		{ label: llmTextPolishingLabel, info: llmTextPolishingInfoSearch },
 		{ label: exportAllDataLabel, info: exportAllDataInfoSearch },
+		{ label: logTranscriptionsLabel, info: logTranscriptionsInfo },
+		{ label: clipboardSaveRestoreLabel, info: clipboardSaveRestoreInfo },
 	];
 	const privacyVisible = privacyItems.some((item) =>
 		isVisible(item.label, item.info, privacyTitle),
@@ -240,14 +261,14 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 					bordered container as the toggles (visually grouped
 					with them) but uses a slightly different background
 					to distinguish it from per-flag rows. */}
-						<div className="px-3.5 py-3.5 space-y-3 bg-(--bg-subtle)/60">
+						<div className="flex flex-col gap-3 p-4">
 							<div className="flex items-start gap-2">
 								<HugeiconsIcon
 									icon={InformationCircleIcon}
 									strokeWidth={2}
 									className="h-4 w-4 mt-0.5 shrink-0 text-(--text-muted)"
 								/>
-								<div className="text-sm text-(--text-muted) space-y-1.5 min-w-0">
+								<div className="flex min-w-0 flex-col gap-2 text-sm text-(--text-muted)">
 									<p>{t("settings.privacy.consentBannerDesc")}</p>
 									<ul className="list-disc ps-4 space-y-0.5 text-xs">
 										<li>{t("settings.privacy.huggingFaceItem")}</li>
@@ -280,7 +301,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 								<Button
 									variant="default"
 									size="sm"
-									className="gap-1.5"
+									className="gap-2"
 									onClick={handleAgreeToAll}
 									disabled={
 										config
@@ -441,6 +462,48 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 									/>
 								</SettingRow>
 							</ConsentRow>
+						)}
+
+						{/*Hidden-config rows (previously config.json-only
+                            fields, now user-tunable): transcription logging and
+                            the clipboard borrow/restore behavior. Both are
+                            privacy-relevant (transcription text leaving traces;
+                            the app reading clipboard contents), so they live in
+                            the Privacy & Consent section. */}
+						{isVisible(
+							logTranscriptionsLabel,
+							logTranscriptionsInfo,
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={logTranscriptionsLabel}
+								info={logTranscriptionsInfo}
+							>
+								<Switch
+									checked={config.log_transcriptions ?? false}
+									onCheckedChange={handleLogTranscriptionsChange}
+									aria-label={t("settings.privacy.logTranscriptionsAria")}
+									data-testid="log-transcriptions-switch"
+								/>
+							</SettingRow>
+						)}
+
+						{isVisible(
+							clipboardSaveRestoreLabel,
+							clipboardSaveRestoreInfo,
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={clipboardSaveRestoreLabel}
+								info={clipboardSaveRestoreInfo}
+							>
+								<Switch
+									checked={config.clipboard_save_restore ?? true}
+									onCheckedChange={handleClipboardSaveRestoreChange}
+									aria-label={t("settings.privacy.clipboardSaveRestoreAria")}
+									data-testid="clipboard-save-restore-switch"
+								/>
+							</SettingRow>
 						)}
 
 						{/*GDPR right-to-export (Art. 15/20).

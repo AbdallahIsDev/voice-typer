@@ -84,6 +84,7 @@ function makeHookArgs(
 		call?: typeof callMock;
 		setModels?: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 		refreshModelStatus?: () => Promise<void>;
+		reconcileAfterDownload?: () => Promise<void>;
 	} = {},
 ) {
 	const setModels =
@@ -102,6 +103,8 @@ function makeHookArgs(
 		showSnack,
 		setModels,
 		refreshModelStatus,
+		reconcileAfterDownload:
+			overrides.reconcileAfterDownload ?? vi.fn().mockResolvedValue(undefined),
 	};
 }
 
@@ -185,10 +188,19 @@ describe("useModelDownload — download_progress event subscription", () => {
 		expect(result.current.speedBps).toBe(100);
 		expect(result.current.etaSeconds).toBe(5);
 
-		// Null clears them — guards against stale speed/ETA clinging
-		// to a finished download.
+		// A bare partial event (no status/paused/resumed marker) means
+		// "not re-measured" — previous values are PRESERVED, not cleared.
 		act(() => {
 			handler?.({ speed_bytes_per_sec: null, eta_seconds: null });
+		});
+		expect(result.current.speedBps).toBe(100);
+		expect(result.current.etaSeconds).toBe(5);
+
+		// A transition event clears them — the old measurement window
+		// is over. Guards against stale speed/ETA clinging to a
+		// finished download.
+		act(() => {
+			handler?.({ status: "downloading", speed_bytes_per_sec: null });
 		});
 		expect(result.current.speedBps).toBeNull();
 		expect(result.current.etaSeconds).toBeNull();
@@ -196,10 +208,14 @@ describe("useModelDownload — download_progress event subscription", () => {
 });
 
 describe("useModelDownload — downloadModel success path", () => {
-	it("marks the model as downloaded + active-if-none, surfaces success snack, clears downloading state", async () => {
+	it("marks the model as downloaded (NOT active — backend truth is re-fetched), surfaces success snack, clears downloading state", async () => {
 		callMock.mockResolvedValue({ success: true, message: "ok" });
 		const setModels = vi.fn();
-		const args = makeHookArgs({ setModels: setModels as never });
+		const reconcileAfterDownload = vi.fn().mockResolvedValue(undefined);
+		const args = makeHookArgs({
+			setModels: setModels as never,
+			reconcileAfterDownload,
+		});
 
 		const { result } = renderHook(() => useModelDownload(args));
 		const model = makeModel({ name: "tiny" });
@@ -209,8 +225,11 @@ describe("useModelDownload — downloadModel success path", () => {
 		});
 
 		// setModels invoked with updater that flags the just-downloaded
-		// model as downloaded:true and (because no other model was
-		// active) isActive:true.
+		// model as downloaded:true and isActive:FALSE — the backend does
+		// not auto-activate, so an optimistic Active badge here showed a
+		// phantom "Active" state while dictation still used the previous
+		// model. reconcileAfterDownload re-fetches config/status so the
+		// badge reflects backend truth.
 		expect(setModels).toHaveBeenCalledTimes(1);
 		const updater = setModels.mock.calls[0]?.[0] as (
 			prev: ModelInfo[],
@@ -222,7 +241,8 @@ describe("useModelDownload — downloadModel success path", () => {
 		const next = updater(prev);
 		const small = next.find((m) => m.name === "tiny");
 		expect(small?.downloaded).toBe(true);
-		expect(small?.isActive).toBe(true);
+		expect(small?.isActive).toBe(false);
+		expect(reconcileAfterDownload).toHaveBeenCalledTimes(1);
 
 		// Success snack surfaced.
 		expect(args.showSnack).toHaveBeenCalledWith("ok", "success");

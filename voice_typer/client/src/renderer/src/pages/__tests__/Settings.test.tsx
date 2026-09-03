@@ -325,19 +325,18 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(useAppStore.getState().config?.onboarding_completed).toBe(true);
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// The wizard button lives in the Privacy sub-page's
-		// Troubleshooting section. Mount directly on Privacy
-		// (ADR-0021 — the SegmentedControl tab UI has been removed).
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		// The wizard button lives in the Advanced section page's
+		// Troubleshooting card. Mount directly on Advanced —
+		// TroubleshootingSettingsSection renders there and nowhere else.
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
-		// Wait for the Privacy sub-page to load. The Privacy
-		// section heading rendered by PrivacySettingsSection is
-		// "Privacy & Consent" (i18n key settings.privacy.privacyTitle);
-		// match on a substring regex so the test still passes if the
-		// exact wording changes (the test only needs to know the
-		// Privacy sub-page has mounted, not assert the heading text).
+		// Wait for the Troubleshooting section card to load. The
+		// section heading rendered by TroubleshootingSettingsSection is
+		// "Troubleshooting" (i18n key settings.troubleshooting.title).
 		await waitFor(() => {
-			expect(screen.getByText(/Privacy/)).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "Troubleshooting" }),
+			).toBeTruthy();
 		});
 
 		// Wait for the wizard button to mount (it's filtered by the
@@ -426,9 +425,9 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	//
 	// The fix lives in TroubleshootingSettingsSection.tsx (extracted from
 	//the old 1125-line Settings.tsx monolith — see ). It is verified
-	// here end-to-end via the Settings page render graph (the Privacy tab
-	// mounts TroubleshootingSettingsSection) so a future refactor that
-	// accidentally re-unifies the icons would fail this test.
+	// here end-to-end via the Settings page render graph (the Advanced
+	// section page mounts TroubleshootingSettingsSection) so a future
+	// refactor that accidentally re-unifies the icons would fail this test.
 	//
 	// The HugeiconsIcon mock (top of file) renders each icon as
 	// `<span data-testid="hugeicon" data-name={icon?.name}>`, so we assert
@@ -441,13 +440,15 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// The Troubleshooting section lives on the Privacy sub-page.
-		// Mount directly on Privacy (ADR-0021 — SegmentedControl tab
-		// UI has been removed).
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		// The Troubleshooting section lives on the Advanced section page.
+		// Mount directly on Advanced — TroubleshootingSettingsSection is
+		// rendered only there.
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 		await waitFor(() => {
-			expect(screen.getByText(/Privacy/)).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "Troubleshooting" }),
+			).toBeTruthy();
 		});
 
 		// Wait for both buttons to mount.
@@ -482,7 +483,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	});
 
 	// ── Finding #127 part (b): "Reset Accessibility Permission" ────────
-	// The button lives in TroubleshootingSettingsSection (Privacy tab)
+	// The button lives in TroubleshootingSettingsSection (Advanced page)
 	// and is macOS-only (UA-gated like KeyboardPermissionBanner). Clicking
 	// it invokes the `reset_macos_accessibility` IPC; the backend runs
 	// `tccutil reset Accessibility <bundle-id>` (runtime-resolved) and
@@ -497,7 +498,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
-	async function renderSettingsOnPrivacyTabForResetA11y() {
+	async function renderSettingsOnAdvancedForResetTests() {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(baseConfig);
 			if (type === "set_config") return Promise.resolve({ success: true });
@@ -505,14 +506,14 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// After ADR-0021, the Privacy tab is rendered by mounting
-		// `<SettingsPage page="settingsPrivacy" />` directly — the
-		// top-of-page SegmentedControl tab UI has been removed (the
-		// tabs now live in the sidebar as a nested submenu).
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		// The platform-reset buttons live in TroubleshootingSettingsSection,
+		// which the Advanced section page renders.
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 		await waitFor(() => {
-			expect(screen.getByText(/Privacy/)).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "Troubleshooting" }),
+			).toBeTruthy();
 		});
 	}
 
@@ -522,7 +523,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			configurable: true,
 		});
 		try {
-			await renderSettingsOnPrivacyTabForResetA11y();
+			await renderSettingsOnAdvancedForResetTests();
 
 			const button = await waitFor(() =>
 				screen.getByRole("button", {
@@ -572,11 +573,15 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			});
 
 			const { default: SettingsPage } = await import("@/pages/Settings");
-			// Mount directly on Privacy (ADR-0021).
-			renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+			// Mount directly on the Advanced section page — the
+			// Troubleshooting card (with the macOS reset button) renders
+			// only there.
+			renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 			await waitFor(() => {
-				expect(screen.getByText(/Privacy/)).toBeTruthy();
+				expect(
+					screen.getByRole("heading", { name: "Troubleshooting" }),
+				).toBeTruthy();
 			});
 
 			// The suggested command must be rendered as code text.
@@ -610,7 +615,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			configurable: true,
 		});
 		try {
-			await renderSettingsOnPrivacyTabForResetA11y();
+			await renderSettingsOnAdvancedForResetTests();
 
 			const button = await waitFor(() =>
 				screen.getByRole("button", {
@@ -641,7 +646,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			value: windowsUA,
 			configurable: true,
 		});
-		await renderSettingsOnPrivacyTabForResetA11y();
+		await renderSettingsOnAdvancedForResetTests();
 
 		// Wait for the section to mount (via a sibling button).
 		await waitFor(() =>
@@ -711,7 +716,7 @@ describe("Settings search auto-switch navigation", () => {
 		});
 	});
 
-	it("navigates to the Privacy sub-page when the query matches a PrewarmAndUpdates label", async () => {
+	it("navigates to the Advanced section page via the cross-section results when the query matches a PrewarmAndUpdates label", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(baseConfig);
 			if (type === "set_config") return Promise.resolve({ success: true });
@@ -719,21 +724,43 @@ describe("Settings search auto-switch navigation", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
+		// PrewarmAndUpdates renders on the Advanced section page. The
+		// query must be typed while on a DIFFERENT section page so the
+		// match is cross-section and lands in the results card.
 		renderWithProviders(<SettingsPage page="settingsGeneral" />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
+		// Set the query via the global store. "Prewarm Status" is a
+		// PrewarmAndUpdates row label (Advanced page) — the General
+		// section has no match for it.
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
-		useGlobalSearch.getState().setQuery("prewarm");
+		useGlobalSearch.getState().setQuery("Prewarm Status");
 
+		// The cross-section results card renders on the current section
+		// page, grouped by the OTHER section's title ("Advanced" — the
+		// hub's advancedTitle key that SECTION_TITLE_BY_PAGE exposes).
+		const section = await waitFor(() =>
+			screen.getByTestId("settings-other-tabs-results"),
+		);
+		expect(section.textContent).toContain("Advanced");
+
+		// Click the matched label chip — it navigates to the Advanced
+		// section page with the matched label as a rowHint (the exact
+		// contract in Settings.tsx's otherSectionGroups rendering).
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "Prewarm Status",
+			})[0] as HTMLElement,
+		);
 		await waitFor(() => {
 			expect(mockNavigate).toHaveBeenCalledWith(
-				"settingsPrivacy",
+				"settingsAdvanced",
 				expect.objectContaining({
 					settingsScrollTarget: expect.objectContaining({
-						rowHint: expect.any(String),
+						rowHint: "Prewarm Status",
 					}),
 				}),
 			);

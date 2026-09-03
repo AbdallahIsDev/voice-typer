@@ -474,9 +474,10 @@ describe("Settings page — Troubleshooting section", () => {
 		cleanup();
 	});
 
-	/** Render Settings, load the default config, and switch to the
-	 *  Privacy tab so the Troubleshooting section is mounted. */
-	async function renderSettingsOnPrivacyTab(
+	/** Render Settings, load the default config, and open the Advanced
+	 *  section page so the Troubleshooting + Diagnostics sections are
+	 *  mounted. */
+	async function renderSettingsOnAdvancedPage(
 		overrides: Partial<VoiceTyperConfig> = {},
 	): Promise<void> {
 		mockCall.mockImplementation((type: string) => {
@@ -486,13 +487,14 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
-		// Wait for the Privacy sub-page to mount — the Diagnostics
-		// heading only renders once the Privacy tab is active (there
-		// is no SegmentedControl tab bar to click in the sidebar IA).
+		// Wait for the Advanced sub-page to mount — the Diagnostics
+		// section heading renders once get_config resolves (the
+		// Troubleshooting / Diagnostics / Resources / Prewarm cards all
+		// live on this section page in the hub IA).
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 	}
 
@@ -503,15 +505,15 @@ describe("Settings page — Troubleshooting section", () => {
 		//   "Report a Bug" in src OR en
 		//   "Open Log Folder" in src OR en
 		//
-		// IA split: the Diagnostics TABLE is no longer a nav button
-		// (it moved OFF the About page INTO Settings as its own
-		// section), so the section heading renders directly. The
-		// Troubleshooting buttons carry aria-labels (en.json:
+		// IA split: the Troubleshooting + Diagnostics sections live on
+		// the Settings → Advanced section page in the hub IA, so the
+		// section heading renders directly there. The Troubleshooting
+		// buttons carry aria-labels (en.json:
 		// settings.troubleshooting.*Aria) that differ from their
 		// visible text — we assert BOTH the visible text (per the
 		// Python invariant) and the accessible name (per WCAG SC
 		// 4.1.2) so a regression in either dimension fails the test.
-		await renderSettingsOnPrivacyTab();
+		await renderSettingsOnAdvancedPage();
 
 		// The Diagnostics section heading (about.diagnosticsTitle) —
 		// rendered inline, no navigation involved.
@@ -538,8 +540,9 @@ describe("Settings page — Troubleshooting section", () => {
 
 	it("renders the diagnostics table in Settings without navigating to About", async () => {
 		// Behavioral: the diagnostics panel that previously lived on
-		// the About page now renders INLINE in Settings' Privacy tab
-		// (DiagnosticsSettingsSection) — no navigation to "about" is
+		// the About page now renders INLINE on the Settings → Advanced
+		// section page (DiagnosticsSettingsSection, alongside the
+		// Troubleshooting section) — no navigation to "about" is
 		// involved, and no "Open Diagnostics" button remains.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(makeConfig());
@@ -548,7 +551,7 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 		// The diagnostics section heading renders inline.
 		await waitFor(() => {

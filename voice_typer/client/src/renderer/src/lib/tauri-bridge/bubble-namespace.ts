@@ -287,6 +287,27 @@ export function createBubbleNamespace(
 					),
 				callback,
 			),
+
+		//Locale-change push (both-runtime parity with the Electron
+		// preload's `onLocaleChanged` — same `bubble:locale-changed`
+		// event name + same string payload). Under Electron the main
+		// process sends the channel directly
+		// (`notifyBubbleLocaleChanged` in windows/bubble/lifecycle.ts).
+		// The Tauri host does not yet broadcast a locale event to the
+		// bubble window (its `set_host_locale` command only stores the
+		// pushed locale — `SidecarState::host_locale` parity sink), so
+		// this listener is wired for parity: once the host emits
+		// `bubble:locale-changed` to the bubble webview, the renderer
+		// reacts with zero further changes. Payload is the bare locale
+		// code ("en" / "ar" / …).
+		onLocaleChanged: (callback) =>
+			makeListener<string>(
+				(handler) =>
+					tauri.event.listen<string>("bubble:locale-changed", (e) =>
+						handler(String(e.payload)),
+					),
+				callback,
+			),
 	};
 
 	// ─── Bubble-window-only mutators ─────────────────────────

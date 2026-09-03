@@ -202,29 +202,10 @@ const useNavStore = create<NavStore>()((set, get) => {
 			}
 			// Same pattern for the Settings search deep-link target —
 			// even if the user is already on the destination
-			// Settings sub-page, arm the scroll/hint target so the
+			// section page, arm the scroll/hint target so the
 			// mounted page can consume it.
 			if (opts?.settingsScrollTarget) {
 				set({ pendingSettingsScrollTarget: opts.settingsScrollTarget });
-			}
-			// Redirect the legacy "settings" parent literal to
-			// "settingsGeneral" so the user always lands on a real
-			// Settings sub-page (never an empty parent). Mirrors
-			// the onboarding-completed guard at App.tsx:131-140 —
-			// uses `replace` so the history stack doesn't gain a
-			// no-op "settings" entry between the previous page and
-			// the resolved "settingsGeneral" target. Existing
-			// call sites that still send "settings" (Ctrl+,
-			// shortcut, tray menu, Python `navigate {path:
-			// "/settings"}` IPC event) continue to work without
-			// modification.
-			if (page === "settings") {
-				const target: Page = "settingsGeneral";
-				if (target === current) return;
-				const nextHistory = [...history];
-				nextHistory[index] = target;
-				apply({ page: target, history: nextHistory, index });
-				return;
 			}
 			// No-op when navigating to the page we're already
 			// on. Previously this still pushed a duplicate entry onto

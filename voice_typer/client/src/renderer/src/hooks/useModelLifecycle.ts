@@ -26,13 +26,16 @@
  * state (`models` / `setModels` / `apiKeys` / `setConfig` /
  * `updateConfig` / `refreshModelStatus` / `loadConfig`) from
  * `useModelConfig` into the sub-hooks that need it. It also pulls in
- * the cross-cutting `usePython` / `useSnackbar` / `useLastUpdated`
- * hooks so the sub-hooks can stay focused on their own state.
+ * the cross-cutting `usePython` / `useSnackbar` hooks so the sub-hooks
+ * can stay focused on their own state. (`useLastUpdated` is consumed
+ * for its `markUpdated` timestamp bump; its `agoLabel` was removed from
+ * the public surface when the "Last updated / refresh" indicator was
+ * removed from the Models page.)
  *
  * The return object shape is **identical** to the pre-split hook —
- * `Models.tsx` and its tests consume the same 39-field surface (the
- * "27-field" count in  was an undercount; the actual return has
- * 39 keys, all preserved here). The 4 internal helpers
+ * `Models.tsx` and its tests consume the same surface (minus the
+ * removed `agoLabel`; the "Last updated / refresh" indicator was
+ * removed from the page). The 4 internal helpers
  * (`refreshModelStatus`, `updateConfig`, `setConfig`, `setModels`)
  * are destructured out of `useModelConfig`'s return before spreading
  * so they don't leak into the public shape.
@@ -72,7 +75,7 @@ export type { ApiTestResult } from "@/hooks/models/useCloudProviders";
 export function useModelLifecycle() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const { agoLabel, markUpdated } = useLastUpdated();
+	const { markUpdated } = useLastUpdated();
 
 	// 1. Core config + models + apiKeys state + load / refresh / update
 	//    actions + the `config_changed` subscription.
@@ -90,25 +93,32 @@ export function useModelLifecycle() {
 	// 2. Download-progress state machine + the `download_progress`
 	//    subscription + the download / pause / cancel / install-deps
 	//    actions. Needs `setModels` (to mark the just-downloaded model
-	//    as `downloaded: true`) and `refreshModelStatus` (so `installDeps`
-	//    can reconcile the deps-installed state).
+	//    as `downloaded: true`), `refreshModelStatus` (so `installDeps`
+	//    can reconcile the deps-installed state), and `loadConfig`
+	//    (post-download reconcile — the backend does not auto-activate,
+	//    so config/status truth is re-fetched instead of guessed).
 	const download = useModelDownload({
 		call,
 		showSnack,
 		setModels,
 		refreshModelStatus,
+		reconcileAfterDownload: configRest.loadConfig,
 	});
 
 	// 3. Model-selection + deletion state + actions. Needs `setModels`
 	//    (optimistic active-model flip + post-delete state clear),
 	//    `refreshModelStatus` (post-select reconciliation), and
-	//    `updateConfig` (persist the new active model).
+	//    `updateConfig` (persist the new active model). `setConfig`
+	//    mirrors the committed selection into config state immediately
+	//    so the no-model banner flips without waiting for the
+	//    `config_changed` echo.
 	const selection = useModelSelection({
 		call,
 		showSnack,
 		setModels,
 		refreshModelStatus,
 		updateConfig,
+		setConfig,
 	});
 
 	// 4. Cloud-provider API keys + test results + consent actions.
@@ -171,7 +181,6 @@ export function useModelLifecycle() {
 		...selection,
 		...cloud,
 		...folder,
-		agoLabel,
 		// Just-in-time consent-gated download entry point (point 4).
 		handleDownloadModel,
 		// Static data (re-exported for the panels' convenience).

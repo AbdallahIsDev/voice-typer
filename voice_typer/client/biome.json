@@ -17,12 +17,14 @@
 			"!**/dist",
 			"!**/node_modules",
 			"!**/data/hotkey_reserved.json",
-			"!**/coverage"
+			"!**/coverage",
+			"!vitest-failures.json",
+			"!wip-failures.json"
 		]
 	},
 	"linter": {
 		"rules": {
-			"preset": "recommended"
+			"recommended": true
 		}
 	}
 }

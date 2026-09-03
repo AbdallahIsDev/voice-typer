@@ -53,6 +53,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		expect(SHORTCUTS.navigate.keys).toBe("Tab / Shift+Tab");
 		expect(SHORTCUTS.toggle.keys).toBe("Space");
 		expect(SHORTCUTS.activate.keys).toBe("Enter");
+		expect(SHORTCUTS.toggleDictation.keys).toBe("Ctrl+Shift+M");
 		expect(SHORTCUTS.dismissBubble.keys).toBe("Ctrl+Shift+D");
 	});
 
@@ -62,6 +63,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		expect(SHORTCUTS.openSettings.ariaKeyshortcuts).toBe("Control+,");
 		expect(SHORTCUTS.goHome.ariaKeyshortcuts).toBe("Control+h");
 		expect(SHORTCUTS.openHelp.ariaKeyshortcuts).toBe("?");
+		expect(SHORTCUTS.toggleDictation.ariaKeyshortcuts).toBe("Control+Shift+M");
 	});
 
 	it("keeps every pynput form in lockstep with its display string on win/linux", async () => {
@@ -110,6 +112,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			navigate: "Tab / \u21E7Tab", // Tab / ⇧Tab
 			toggle: "Space",
 			activate: "Enter",
+			toggleDictation: "\u2303\u21E7M", // ⌃⇧M
 			dismissBubble: "\u2303\u21E7D", // ⌃⇧D
 		};
 		for (const [id, def] of Object.entries(SHORTCUTS) as Array<
@@ -140,7 +143,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		}
 	});
 
-	it("IN_APP_SHORTCUTS exposes exactly the five in-app bindings in display order", async () => {
+	it("IN_APP_SHORTCUTS exposes exactly the six in-app bindings in display order", async () => {
 		const { IN_APP_SHORTCUTS } = await importCatalog();
 		expect(IN_APP_SHORTCUTS.map((s) => s.keys)).toEqual([
 			"Ctrl+B",
@@ -148,6 +151,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			"Ctrl+H",
 			"Ctrl+=",
 			"Ctrl+-",
+			"Ctrl+Shift+M",
 		]);
 	});
 
@@ -165,6 +169,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			"goHome",
 			"zoomIn",
 			"zoomOut",
+			"toggleDictation",
 		]);
 		expect(IN_APP_BINDINGS.map((b) => b.keys)).toEqual([
 			"Ctrl+B",
@@ -172,6 +177,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			"Ctrl+H",
 			"Ctrl+=",
 			"Ctrl+-",
+			"Ctrl+Shift+M",
 		]);
 		expect(IN_APP_BINDINGS.map((b) => b.eventKeys)).toEqual([
 			["b"],
@@ -179,14 +185,22 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			["h"],
 			["=", "+"],
 			["-"],
+			["m", "M"],
 		]);
-		// Every in-app binding carries the "ctrlCmd" modifier profile
-		// — the exact guard the hook applies (Ctrl OR Cmd, no
-		// Shift/Alt). A binding with any other profile would never
-		// fire and must be flagged here.
-		for (const binding of IN_APP_BINDINGS) {
-			expect(binding.modifier).toBe("ctrlCmd");
-		}
+		// The modifier profile per binding: the five navigation/zoom
+		// bindings use "ctrlCmd" (Ctrl OR Cmd, no Shift) and the
+		// toggleDictation binding uses "ctrlShiftCmd" (Ctrl OR Cmd AND
+		// Shift) — each profile must have a matching guard in the
+		// hook's MODIFIER_GUARDS map (type-enforced) or the binding
+		// would never fire.
+		expect(IN_APP_BINDINGS.map((b) => b.modifier)).toEqual([
+			"ctrlCmd",
+			"ctrlCmd",
+			"ctrlCmd",
+			"ctrlCmd",
+			"ctrlCmd",
+			"ctrlShiftCmd",
+		]);
 	});
 
 	it("every catalog entry with eventKeys is wired into IN_APP_BINDINGS (no silent dispatch drift)", async () => {

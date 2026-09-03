@@ -109,23 +109,33 @@ describe("Sidebar", () => {
 		expect(cls).toContain("font-medium");
 	});
 
-	it("UX-16: Settings parent does NOT take the leaf card border/background when its submenu is active (calm foreground only)", () => {
-		renderWithProviders(
-			<Sidebar {...baseProps} currentPage="settingsGeneral" />,
-		);
+	it("UX-16: Settings leaf takes the standard card treatment when a Settings surface is active", () => {
+		renderWithProviders(<Sidebar {...baseProps} currentPage="settings" />);
 		const settingsButton = findNavButton("Settings");
 		expect(settingsButton).toBeTruthy();
 		const cls = settingsButton?.className ?? "";
-		// Parent groups (Settings) stay visually calm: the active-section
-		// signal is the stronger text/icon foreground ONLY — never the
-		// leaf `bg-(--bg)` highlighted background or the leaf card border
-		// (no third active style competing with the active child).
+		// Settings is a SINGLE leaf now — the parent/submenu concept is
+		// gone (the hub page holds the section navigation). When a
+		// Settings surface is active the leaf takes the SAME standard
+		// card treatment as every other active page: the shared card
+		// border token + the card surface + primary text at medium
+		// weight. The old calm-foreground parent exemption no longer
+		// exists.
+		// NOTE: the isSettingsSurface fallback in SidebarInner carries
+		// the roving tab stop (tabIndex=0) to the Settings leaf on every
+		// Settings surface, but aria-current + the active card styling
+		// follow `isActive` (exact page match), which only the hub
+		// ("settings") satisfies — section pages (e.g. "settingsPrivacy")
+		// render the leaf inactive-by-style with the tab stop only (see
+		// Sidebar.settings-leaf.test.tsx).
+		expect(cls).toContain("border-border/5");
+		expect(cls).toContain("bg-(--bg)");
 		expect(cls).toContain("text-(--text-primary)");
 		expect(cls).toContain("font-medium");
-		expect(cls).toContain("hover:bg-foreground/5");
-		expect(cls).not.toContain("bg-(--bg)");
-		expect(cls).not.toContain("bg-(--accent-soft)");
-		expect(cls).not.toContain("border-border/5");
+		expect(settingsButton.getAttribute("aria-current")).toBe("page");
+		// The Button base's inactive weight must not leak through the
+		// active treatment (font-medium replaces font-normal).
+		expect(cls).not.toContain("font-normal");
 	});
 
 	it("UX-16: inactive nav items do NOT carry the card border or any active background", () => {

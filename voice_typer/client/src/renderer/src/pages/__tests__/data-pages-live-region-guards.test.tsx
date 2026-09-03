@@ -14,16 +14,18 @@
  *
  * Per page the guard pins:
  *   - Models  — a SETTLED page (model selected, no download) carries
- *               EXACTLY ONE live region: the active-model summary
- *               banner (`models-active-model-summary`, polite) — the
- *               designed announcer for active-model changes (without
- *               it a model switch is silent to screen-reader users).
- *               The per-card status / disk-space badges remain visual
- *               spans (they were `<output aria-live="polite">` — the
- *               Home-pill class of accidental live region; with N
- *               cards that was up to 2N live regions). The download
- *               state has EXACTLY ONE announcer: DownloadProgressBar's
- *               status line.
+ *               ZERO live regions: the former active-model summary
+ *               banner (the designed announcer) was removed per user
+ *               decision — the selected card's button state already
+ *               indicates the active model, so a page-level announcer
+ *               was redundant duplication. The per-card status /
+ *               disk-space badges remain visual spans (they were
+ *               `<output aria-live="polite">` — the Home-pill class
+ *               of accidental live region; with N cards that was up
+ *               to 2N live regions). The only sanctioned live region
+ *               on this page is the no-model banner (`role="status"`,
+ *               no-model state only) and the download state's
+ *               DownloadProgressBar status line.
  *   - History — the ONLY sanctioned page-level live region is the
  *               LastUpdatedIndicator's polite timestamp region
  *               (XA-8-L5); beyond it, a loaded list adds ZERO, and the
@@ -101,7 +103,7 @@ describe("Models page — live-region guard", () => {
 		cleanup();
 	});
 
-	it("settled page (model selected, no download) has EXACTLY ONE live region — the active-model summary", async () => {
+	it("settled page (model selected, no download) has ZERO live regions (banner removed per user decision)", async () => {
 		const { default: ModelsPage } = await import("@/pages/Models");
 		renderWithProviders(<ModelsPage />);
 
@@ -115,17 +117,12 @@ describe("Models page — live-region guard", () => {
 		// would be in the DOM.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		// The ONE sanctioned region is the active-model summary banner
-		// (polite): its text changes when the user switches models, so
-		// screen readers hear the switch. A status badge rendered as
-		// <output aria-live> would show up here as a SECOND+ region —
-		// the count must stay at exactly one.
-		const live = liveRegions();
-		expect(live).toHaveLength(1);
-		expect(live[0]?.getAttribute("data-testid")).toBe(
-			"models-active-model-summary",
-		);
-		expect(live[0]?.getAttribute("aria-live")).toBe("polite");
+		// The active-model summary banner was REMOVED (the selected card's
+		// button state already marks the active model), and a settled page
+		// renders no other sanctioned live region: no download in flight,
+		// no-model banner only appears when model_size is empty. Any live
+		// region here would be the Home-pill class of accidental announcer.
+		expect(liveRegions()).toHaveLength(0);
 	});
 
 	it("DownloadProgressBar is the ONE live region for the download state", () => {

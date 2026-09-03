@@ -41,6 +41,10 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"bubble_set_state",
 	"bubble_level",
 	"bubble_config",
+	// Main-window mirror of the recording level (≤8 Hz, generic
+	// envelope) — consumed by Home's RecordingLevelBar. The typed
+	// `bubble_level` channel reaches the bubble window only.
+	"recording_level",
 	"show_window",
 	"quit_app",
 	"relaunch_app",

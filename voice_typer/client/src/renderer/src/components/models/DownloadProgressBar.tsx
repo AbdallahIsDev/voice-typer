@@ -148,7 +148,7 @@ export function DownloadProgressBar({
 		: status;
 
 	return (
-		<div className="space-y-2">
+		<div className="flex flex-col gap-2">
 			<div
 				className="h-1.5 w-full rounded-full bg-border overflow-hidden"
 				role="progressbar"
@@ -168,14 +168,19 @@ export function DownloadProgressBar({
 			</div>
 			<div className="flex items-center justify-between gap-3">
 				<p
-					className={`flex-1 min-w-0 truncate text-xs ${
+					className={`min-w-0 flex-1 truncate text-xs ${
 						hasError ? "text-destructive font-medium" : "text-(--text-muted)"
 					}`}
+					//truncated status line gets a native tooltip with the full text.
+					title={statusText}
 					//in the error state this region becomes an
 					// assertive live region so the failure is announced
 					// automatically. In the normal state it remains a polite
-					//live region () so progress updates are announced
-					// without interrupting the user.
+					//live region () so STATUS TRANSITIONS are announced
+					// without interrupting the user. ONLY the status text (+ paused
+					// chip) lives inside the region — the bytes/speed/ETA spans below
+					// update several times per second and previously re-announced the
+					// whole line on every download_progress event.
 					role={hasError ? "alert" : undefined}
 					aria-live={hasError ? "assertive" : "polite"}
 				>
@@ -190,25 +195,25 @@ export function DownloadProgressBar({
 							{t("models.progress.paused")}
 						</span>
 					)}
-					{!hasError && downloadedBytes !== null && totalBytes !== null && (
-						<span className="ms-2 whitespace-nowrap">
-							· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
-						</span>
-					)}
-					{!hasError && speedBps !== null && speedBps > 0 && (
-						<span className="ms-2 whitespace-nowrap">
-							· {formatSpeed(speedBps)}
-						</span>
-					)}
-					{!hasError && etaSeconds !== null && etaSeconds > 0 && (
-						<span className="ms-2 whitespace-nowrap">
-							·{" "}
-							{t("models.progress.eta", {
-								time: formatEta(etaSeconds),
-							})}
-						</span>
-					)}
 				</p>
+				{!hasError && downloadedBytes !== null && totalBytes !== null && (
+					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
+						· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
+					</span>
+				)}
+				{!hasError && speedBps !== null && speedBps > 0 && (
+					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
+						· {formatSpeed(speedBps)}
+					</span>
+				)}
+				{!hasError && etaSeconds !== null && etaSeconds > 0 && (
+					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
+						·{" "}
+						{t("models.progress.eta", {
+							time: formatEta(etaSeconds),
+						})}
+					</span>
+				)}
 				<div className="flex items-center gap-2 shrink-0">
 					{hasError && onRetry && (
 						//priority #3: in-place retry. Without this
@@ -243,7 +248,7 @@ export function DownloadProgressBar({
 								? t("models.download.resumeAria")
 								: t("models.download.pauseAria")
 						}
-						className="h-7 gap-1 px-3 text-xs"
+						className="gap-1 px-3 text-xs"
 					>
 						<HugeiconsIcon
 							icon={isPaused ? PlayIcon : PauseIcon}

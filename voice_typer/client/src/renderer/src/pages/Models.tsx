@@ -37,7 +37,7 @@ import { useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { Spinner } from "@/components/feedback/Spinner";
+import { ModelsSkeleton } from "@/components/feedback/skeletons";
 import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import { Button } from "@/components/ui/button";
@@ -48,11 +48,7 @@ import {
 import { useFilterState } from "@/hooks/useFilterState";
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
-import {
-	formatModelDisplayName,
-	getActiveFamilyId,
-	groupModelsByFamily,
-} from "@/lib/utils/models";
+import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
 import { tabPageIndicatorClassName } from "./_tabBarStyles";
 
 export default function ModelsPage() {
@@ -74,43 +70,6 @@ export default function ModelsPage() {
 		{ value: "cloud", label: t("models.cloudModels") },
 	];
 
-	// "Currently active model" summary rendered as a banner
-	// at the top of the page so the user always knows which ASR backend
-	// is live without scrolling down to find the highlighted card.
-	// Resolved from the backend's `asr_backend` + `model_size` config
-	// fields (the cloud providers' `display_name` is used for cloud
-	// backends so the summary reads "OpenAI Whisper API" instead of the
-	// bare slug).
-	const activeModelSummary = useMemo(() => {
-		const cfg = lifecycle.config;
-		if (!cfg) return null;
-		if (cfg.model_size === "" && !cfg.asr_backend) return null;
-		const backend = cfg.asr_backend ?? "whisper";
-		if (backend === "whisper") {
-			if (!cfg.model_size) return null;
-			return {
-				name: `Whisper ${formatModelDisplayName(cfg.model_size)}`,
-				kind: "local" as const,
-			};
-		}
-		if (backend === "qwen") {
-			return { name: "Qwen", kind: "local" as const };
-		}
-		if (backend === "parakeet") {
-			return { name: "Parakeet TDT", kind: "local" as const };
-		}
-		// Cloud backends — the provider key matches the cloudProviders
-		// catalogue so we can resolve the localized provider label.
-		if (backend === "openai" || backend === "groq" || backend === "deepgram") {
-			const provider = lifecycle.cloudProviders.find((p) => p.key === backend);
-			return {
-				name: provider ? formatModelDisplayName(provider.model) : backend,
-				kind: "cloud" as const,
-			};
-		}
-		return null;
-	}, [lifecycle.config, lifecycle.cloudProviders]);
-
 	// Memoize the family grouping so we don't re-group on every render.
 	const modelFamilies = useMemo(
 		() => groupModelsByFamily(lifecycle.models),
@@ -123,9 +82,19 @@ export default function ModelsPage() {
 		const activeFamilyId = getActiveFamilyId(lifecycle.config);
 		return activeFamilyId ? [activeFamilyId] : [];
 		// Intentionally only depends on config — once the accordion has
-		// been opened, user interactions take over (the panel's local
-		// state owns the open/close after mount).
+		// been opened, user interactions take over (the controlled value
+		// below owns the open/close from then on).
 	}, [lifecycle.config]);
+
+	// Controlled accordion state — lives HERE, not inside
+	// LocalModelsPanel, so the open families survive the local↔cloud tab
+	// switch (the panel unmounts on switch; panel-internal state would
+	// reset). Falls back to initialAccordionValue (expand the active
+	// model's family) until the user interacts with the accordion.
+	const [userAccordionValue, setUserAccordionValue] = useState<string[] | null>(
+		null,
+	);
+	const effectiveAccordionValue = userAccordionValue ?? initialAccordionValue;
 
 	// Dismissible "no model selected" banner — compact, sticky, independent
 	// of the main content flow. Replaces the former centered EmptyState which
@@ -172,6 +141,10 @@ export default function ModelsPage() {
 	// (variant="error" + Retry) instead — without it, a rejected
 	// `get_config` left the page spinning forever with no recovery
 	// path. Mirrors the History page's established error EmptyState.
+	// Revisit case: `config` is non-null (SWR seed) while `loadError`
+	// reports the revalidation failure — the stale seed still renders
+	// (better than a blank page) but the failure is surfaced via the
+	// banner below so it is never silently silent.
 	if (!lifecycle.config) {
 		if (lifecycle.loadError) {
 			return (
@@ -189,13 +162,8 @@ export default function ModelsPage() {
 				</div>
 			);
 		}
-		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner label={t("models.loading")} />
-			</div>
-		);
+		return <ModelsSkeleton />;
 	}
-
 	return (
 		<>
 			{/*
@@ -212,7 +180,7 @@ export default function ModelsPage() {
                                   Local Models tab (importing a local model file has no
                                   meaning on the Cloud Models tab).
                         */}
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("models.asrTitle")}
 					description={t("models.asrSubtitle")}
@@ -240,39 +208,36 @@ export default function ModelsPage() {
 					)}
 				</PageHeading>
 
-				{/* Active-model summary banner — always at the
-                                        top of the page so the user knows which ASR backend is live
-                                        without scrolling. Renders only when an active model is
-                                        configured (model_size != "" or a cloud backend is set).
-                                        Plain text in an aria-live=polite region so SR users are
-                                        notified when the active model changes (e.g. via the model
-                                        selection action). */}
-				{activeModelSummary && (
+				{/* Revisit revalidation failure: the SWR seed keeps the page
+				    usable, but a failed revalidation must not be silent —
+				    this banner surfaces it with an inline Retry (the
+				    full-page error EmptyState only covers the cold-start
+				    case, where config itself is null). Reuses the same
+				    load-failure copy as that EmptyState. */}
+				{lifecycle.loadError && (
 					<div
-						className="mb-3 flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs"
-						aria-live="polite"
-						aria-atomic="true"
-						data-testid="models-active-model-summary"
+						role="alert"
+						className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2"
 					>
 						<HugeiconsIcon
-							icon={AiBrain03Icon}
+							icon={AlertCircleIcon}
 							strokeWidth={2}
-							className="h-4 w-4 shrink-0 text-accent"
 							aria-hidden="true"
+							className="size-4 shrink-0 text-destructive"
 						/>
-						<span className="text-(--text-muted)">
-							{t("models.activeModelSummaryLabel")}
-						</span>
-						<span className="font-medium text-(--text-primary)">
-							{activeModelSummary.name}
-						</span>
-						<span className="text-(--text-muted)">
-							(
-							{activeModelSummary.kind === "cloud"
-								? t("models.cloudModels")
-								: t("models.localModels")}
-							)
-						</span>
+						<p className="min-w-0 flex-1 text-xs font-medium text-destructive">
+							{t("models.loadFailedTitle")}
+						</p>
+						<Button
+							variant="outline"
+							size="sm"
+							className="gap-2"
+							onClick={() => {
+								void lifecycle.loadConfig();
+							}}
+						>
+							{t("models.retry")}
+						</Button>
 					</div>
 				)}
 
@@ -287,80 +252,85 @@ export default function ModelsPage() {
                                     the active-model summary and the tab switcher, with the
                                     same close control as VocabDuplicateBanner
                                     (Cancel01Icon far right). */}
-				{showNoModelBanner && (
-					<div
-						data-testid="models-no-model-banner"
-						role="status"
-						aria-live="polite"
-						aria-atomic="true"
-						className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) px-3 py-2"
-					>
-						<HugeiconsIcon
-							icon={AiBrain03Icon}
-							strokeWidth={2}
-							aria-hidden="true"
-							className="size-4 shrink-0 text-(--text-muted)"
-						/>
-						<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
-							{t("models.noModelBanner")}
-						</p>
-						<button
-							type="button"
-							onClick={() => {
-								setNoModelBannerDismissed(true);
-								try {
-									sessionStorage.setItem("models:noModelBannerDismissed", "1");
-								} catch {
-									// ignore
-								}
-							}}
-							aria-label={t("common.close")}
-							title={t("common.close")}
-							className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+				<div className="flex flex-col gap-3">
+					{showNoModelBanner && (
+						<div
+							data-testid="models-no-model-banner"
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="flex flex-wrap items-center gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) px-3 py-2"
 						>
 							<HugeiconsIcon
-								icon={Cancel01Icon}
-								strokeWidth={2.25}
+								icon={AiBrain03Icon}
+								strokeWidth={2}
 								aria-hidden="true"
-								className="size-4"
+								className="size-4 shrink-0 text-(--text-muted)"
 							/>
-						</button>
-					</div>
-				)}
+							<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
+								{t("models.noModelBanner")}
+							</p>
+							<button
+								type="button"
+								onClick={() => {
+									setNoModelBannerDismissed(true);
+									try {
+										sessionStorage.setItem(
+											"models:noModelBannerDismissed",
+											"1",
+										);
+									} catch {
+										// ignore
+									}
+								}}
+								aria-label={t("common.close")}
+								title={t("common.close")}
+								className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+							>
+								<HugeiconsIcon
+									icon={Cancel01Icon}
+									strokeWidth={2.25}
+									aria-hidden="true"
+									className="size-4"
+								/>
+							</button>
+						</div>
+					)}
 
-				{/* Tab switcher — in the page flow (not sticky), below the
-                                    page title/description and above the model list. */}
-				<div className="pb-4">
-					<SegmentedControl
-						variant="tabs"
-						options={tabOptions}
-						value={activeTab}
-						onChange={(v) => setActiveTab(v as "local" | "cloud")}
-						ariaLabel={t("models.title")}
-						indicatorClassName={tabPageIndicatorClassName}
-						labelClassName="flex-1 text-center"
-						//(2026-08-21): the outer tab container now carries the
-						// SAME card/surface border treatment as the model
-						// cards below it (`rounded-lg border border-border/5
-						// bg-(--bg-subtle)` — the ModelGroupAccordion token),
-						// so the segmented control reads as one card among
-						// the model cards instead of a borderless strip.
-						// The active segment uses the matching
-						// `border-border/5` treatment via
-						// `tabPageIndicatorClassName`.
-						className="w-full rounded-lg border border-border/5 bg-(--bg-subtle)"
-						getTabId={(v) => `models-tab-${v}`}
-						getPanelId={(v) => `models-panel-${v}`}
-					/>
+					{/* Tab switcher — in the page flow (not sticky), below the
+					    page title/description and above the model list. */}
+					<div className="pb-4">
+						<SegmentedControl
+							variant="tabs"
+							options={tabOptions}
+							value={activeTab}
+							onChange={(v) => setActiveTab(v as "local" | "cloud")}
+							ariaLabel={t("models.title")}
+							indicatorClassName={tabPageIndicatorClassName}
+							labelClassName="flex-1 text-center"
+							//(2026-08-21): the outer tab container now carries the
+							// SAME card/surface border treatment as the model
+							// cards below it (`rounded-xl border border-border/5
+							// bg-(--bg-subtle)` — the app-wide page-card token),
+							// so the segmented control reads as one card among
+							// the model cards instead of a borderless strip.
+							// The active segment uses the matching
+							// `border-border/5` treatment via
+							// `tabPageIndicatorClassName`.
+							className="w-full rounded-xl border border-border/5 bg-(--bg-subtle)"
+							getTabId={(v) => `models-tab-${v}`}
+							getPanelId={(v) => `models-panel-${v}`}
+						/>
+					</div>
 				</div>
 
-				<div className="space-y-6">
+				<div className="flex flex-col gap-6">
 					{activeTab === "local" ? (
 						<div
 							role="tabpanel"
 							id="models-panel-local"
 							aria-labelledby="models-tab-local"
-							className="space-y-6 scroll-mt-32"
+							className="flex flex-col gap-6 scroll-mt-32"
 						>
 							<LocalModelsPanel
 								modelFamilies={modelFamilies}
@@ -388,7 +358,8 @@ export default function ModelsPage() {
 								diskInfo={lifecycle.diskInfo}
 								modelsFolderSupported={lifecycle.modelsFolderSupported}
 								onOpenModelsFolder={lifecycle.handleOpenModelsFolder}
-								initialAccordionValue={initialAccordionValue}
+								accordionValue={effectiveAccordionValue}
+								onAccordionValueChange={setUserAccordionValue}
 							/>
 						</div>
 					) : (
@@ -396,7 +367,7 @@ export default function ModelsPage() {
 							role="tabpanel"
 							id="models-panel-cloud"
 							aria-labelledby="models-tab-cloud"
-							className="space-y-6 scroll-mt-32"
+							className="flex flex-col gap-6 scroll-mt-32"
 						>
 							<CloudProvidersPanel
 								config={lifecycle.config}

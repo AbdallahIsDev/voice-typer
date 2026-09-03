@@ -124,6 +124,13 @@ export interface BubbleEventSubscriptions {
 	onShow: (cb: () => void) => () => void;
 	onHide: (cb: () => void) => () => void;
 	onDraggable: (cb: (draggable: boolean) => void) => () => void;
+	// Locale-change push (main → bubble). The main process forwards the
+	// user's UI locale when it changes (`notifyBubbleLocaleChanged` in
+	// windows/bubble/lifecycle.ts under Electron; the `bubble:config`
+	// push carries `locale` under Tauri). Payload is the bare locale
+	// code ("en" / "ar" / …) so the bubble can flip `dir`/`lang` and
+	// re-render without a reload.
+	onLocaleChanged: (cb: (locale: string) => void) => () => void;
 }
 
 /**

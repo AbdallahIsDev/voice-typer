@@ -36,7 +36,7 @@ function Slider({
 	getThumbAriaValueText,
 	...props
 }: SliderProps) {
-	const thumbValues = (props.value ?? props.defaultValue ?? [0]) as number[];
+	const thumbValues = props.value ?? props.defaultValue ?? [0];
 	const thumbCount = thumbValues.length;
 	// Dev-mode a11y warning: a slider with no accessible name (no
 	// aria-label, no aria-labelledby) and no per-thumb labels is invisible

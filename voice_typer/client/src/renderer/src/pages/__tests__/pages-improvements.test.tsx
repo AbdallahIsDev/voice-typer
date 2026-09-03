@@ -30,9 +30,10 @@
  *   -    Microphone.tsx — 100ms level polling short-circuits when
  *             `document.visibilityState !== "visible"` OR
  *             `!testRunning && !micMonitoring`.
- *   -  Settings.tsx — each of the four tab panels is wrapped
- *             in `<div role="tabpanel" id="panel-<tabId>"
- *             aria-labelledby="tab-<tabId>">`.
+ *   -  Settings.tsx — HUB + section pages model: the `settings`
+ *             landing page renders the hub card of section rows, and
+ *             each section page renders ONLY its own domain's cards
+ *             (no cross-section card stacking).
  *
  * Mock strategy
  * -------------
@@ -834,63 +835,59 @@ describe("CR-57: Microphone.tsx — polling gated on visibility + active state",
 	});
 });
 
-// ── CR-19-F2 ───────────────────────────────────────────────────────────
+// ── Settings hub + section pages render model ─────────────────────────
 
-describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () => {
-	it("source wraps each activeTab === ... block in a div[role=tabpanel]", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/Settings.tsx", "utf8");
-		// CR-19-F2: the tab panels are rendered via a renderTabPanel
-		// helper that wraps children in a div with role="tabpanel",
-		// id={`panel-${tab}`}, and aria-labelledby={`tab-${tab}`}.
-		// The literal per-tab ids (panel-appearance, panel-general,
-		// etc.) are produced at runtime by the template literal, so we
-		// assert on the template pattern + the role attribute instead.
-		expect(src).toContain('role="tabpanel"');
-		expect(src).toMatch(/id=\{`panel-\$\{tab\}`\}/);
-		expect(src).toMatch(/aria-labelledby=\{`tab-\$\{tab\}`\}/);
-		// Sanity: the renderTabPanel helper is called once per tab
-		// value (appearance, general, aiAudio, privacy).
-		for (const tabId of ["appearance", "general", "aiAudio", "privacy"]) {
-			expect(src).toMatch(new RegExp(`renderTabPanel\\(\\s*["']${tabId}["']`));
-		}
-	});
-
-	it("renders exactly one tabpanel for the active tab", async () => {
+describe("Settings.tsx — hub + section pages render model", () => {
+	it("renders only the Audio section's cards on the Audio section page", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MINIMAL_CONFIG);
 			if (type === "set_config") return Promise.resolve({ success: true });
 			return Promise.resolve({});
 		});
 
-		// Default sub-page is settingsGeneral — mounts General's panel.
-		renderWithProviders(<SettingsPage page="settingsGeneral" />);
+		// Section pages render exactly one domain's cards — the old
+		// 4-tab stack (which mounted every section at once) is gone.
+		renderWithProviders(<SettingsPage page="settingsAudio" />);
 
-		// Wait for the General panel to appear.
+		// The Audio section's own heading renders once config loads.
 		await waitFor(() => {
-			const panels = screen.getAllByRole("tabpanel");
-			expect(panels.length).toBe(1);
-			expect(panels[0]?.id).toBe("panel-general");
-			expect(panels[0]?.getAttribute("aria-labelledby")).toBe("tab-general");
+			expect(
+				screen.getByRole("heading", { name: "Audio Enhancement" }),
+			).toBeTruthy();
 		});
+
+		// NO other section's cards render here — e.g. the Advanced
+		// page's Troubleshooting card (with its "Re-run Setup Wizard"
+		// button) is absent.
+		expect(
+			screen.queryByRole("button", { name: "Re-run setup wizard" }),
+		).toBeNull();
+		expect(screen.queryByText("Troubleshooting")).toBeNull();
 	});
 
-	it("mounting on the Appearance sub-page renders the appearance tabpanel", async () => {
+	it("renders the hub card of section rows on the settings landing page", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MINIMAL_CONFIG);
 			if (type === "set_config") return Promise.resolve({ success: true });
 			return Promise.resolve({});
 		});
 
-		// After ADR-0021, the Appearance "tab" is now a sidebar
-		// sub-page — mount directly on settingsAppearance (the
-		// SegmentedControl tab UI has been removed).
-		renderWithProviders(<SettingsPage page="settingsAppearance" />);
+		// The hub (page === "settings") renders the single card whose
+		// rows open the section pages (SettingsHub rows carry
+		// data-testid="settings-hub-row-<sectionPage>").
+		renderWithProviders(<SettingsPage page="settings" />);
 
 		await waitFor(() => {
-			const panels = screen.getAllByRole("tabpanel");
-			expect(panels.length).toBe(1);
-			expect(panels[0]?.id).toBe("panel-appearance");
+			expect(
+				document.querySelector(
+					'[data-testid="settings-hub-row-settingsGeneral"]',
+				),
+			).toBeTruthy();
 		});
+		expect(
+			document.querySelector(
+				'[data-testid="settings-hub-row-settingsAdvanced"]',
+			),
+		).toBeTruthy();
 	});
 });

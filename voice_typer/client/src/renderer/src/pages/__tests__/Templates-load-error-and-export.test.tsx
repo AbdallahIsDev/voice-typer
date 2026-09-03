@@ -43,7 +43,7 @@ vi.mock("next-themes", () => nextThemesMock());
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — BG-60 load-error variant", () => {
+describe("Templates page — load-error variant", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// get_templates throws → loadRows sets loadError AND
@@ -78,7 +78,7 @@ describe("Templates page — BG-60 load-error variant", () => {
 		expect(alertRegion.className).toContain("destructive");
 	});
 
-	it("renders the load-error EmptyState with the localised description (BG-62)", async () => {
+	it("renders the load-error EmptyState with the localised description", async () => {
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 
@@ -97,7 +97,7 @@ describe("Templates page — BG-60 load-error variant", () => {
 	});
 });
 
-describe("Templates page — BG-63 export format forwarding", () => {
+describe("Templates page — export format forwarding", () => {
 	// Captured args from the bridge.exportTemplates mock so the test can
 	// assert that the format arg reaches the IPC layer.
 	const exportTemplatesMock = vi.fn();

@@ -15,9 +15,10 @@
  * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`
  * - MDL-5: cloud provider API key inputs have unique HTML ids
  * - MDL-9: download success does not auto-activate the model in the
- *   renderer; `get_config` is re-fetched to reconcile
- * - MDL-16: Select buttons are disabled while any download is in
- *   progress
+ *   renderer; config/status are re-fetched to reconcile
+ * - Select buttons remain ENABLED while any download is in progress
+ *   (only the Download / Download-Deps buttons are gated on
+ *   `anyDownloading` — the earlier "Select disabled" claim was wrong)
  */
 
 import {
@@ -215,6 +216,52 @@ describe("ModelsPage — Import Model flow", () => {
 		});
 		// Dismiss is session-scoped via sessionStorage.
 		expect(sessionStorage.getItem("models:noModelBannerDismissed")).toBe("1");
+	});
+
+	it("selecting a model removes the no-model banner immediately (optimistic config flip)", async () => {
+		// Regression (user-reported): the banner stayed visible after the
+		// user picked a model — config state only updated when the
+		// backend's `config_changed` echo arrived (or never, if the page
+		// missed it). The select action must mirror the committed
+		// selection into config state synchronously so the banner
+		// disappears as if dismissed, without any transport round-trip.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "set_config") return Promise.resolve({});
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		renderWithProviders(<ModelsPage />);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
+		});
+		expect(
+			document.querySelector('[data-testid="models-no-model-banner"]'),
+		).toBeNull(); // sanity: seeded config has a model selected
+
+		// Re-render with an empty selection: the banner must show.
+		cleanup();
+		mockCall.mockClear();
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config")
+				return Promise.resolve({ ...MOCK_CONFIG, model_size: "" });
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "set_config") return Promise.resolve({});
+			return Promise.resolve({ ...MOCK_CONFIG, model_size: "" });
+		});
+		renderWithProviders(<ModelsPage />);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
+		});
+		expect(
+			document.querySelector('[data-testid="models-no-model-banner"]'),
+		).toBeTruthy();
 	});
 
 	it("opens the Electron folder dialog when clicked", async () => {
@@ -514,13 +561,13 @@ describe("ModelsPage — Import Model flow", () => {
 	});
 });
 
-//MDL-3 / MDL-5 / MDL-9 / MDL-16 ──────────────────────────────
+//MDL-3 / MDL-5 / MDL-9 / select-button gating ────────────────────
 //
 // These tests cover fixes for the Models.tsx bugs identified in the
-// comprehensive review (MDL-3, MDL-5, MDL-9, MDL-16). They focus on
-// user-visible behaviour (snackbar calls, button disabled state, DOM
-// ids) rather than internal state shape, so they survive future
-// refactors of the page internals.
+// comprehensive review (MDL-3, MDL-5, MDL-9, and the download-gating
+// behaviour). They focus on user-visible behaviour (snackbar calls,
+// button disabled state, DOM ids) rather than internal state shape, so
+// they survive future refactors of the page internals.
 
 describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 	afterEach(() => {
@@ -768,7 +815,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		removeDialogMock();
 	});
 
-	it("re-fetches get_config after download success to reconcile active state", async () => {
+	it("re-fetches config/status after download success to reconcile active state", async () => {
 		let getConfigCallCount = 0;
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") {
@@ -797,16 +844,20 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		fireEvent.click(downloadButton);
 
 		// After download success, download_model was called. The
-		// renderer updates the model's downloaded state locally via
-		// setModels (not via a get_config re-fetch). Assert the IPC
-		// was called.
+		// renderer marks the model downloaded locally via setModels
+		// AND re-fetches get_config/get_model_status via
+		// reconcileAfterDownload so the Active badge reflects backend
+		// truth. Assert the download IPC was called.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
 				model: "large-v3-turbo",
 			});
 		});
-		// Give React a tick to flush state updates.
-		await new Promise((r) => setTimeout(r, 0));
+		// The reconcile re-fetch actually happened: get_config was
+		// called at least once more after the download resolved.
+		await waitFor(() => {
+			expect(getConfigCallCount).toBeGreaterThan(initialCount);
+		});
 	});
 
 	it("does NOT mark the downloaded model as active when get_config still reports the previous active model", async () => {
@@ -859,14 +910,14 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 	});
 });
 
-describe("ModelsPage — MDL-16: Select buttons disabled during download", () => {
+describe("ModelsPage — Select buttons stay enabled during a download", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
 		removeDialogMock();
 	});
 
-	it("disables Select buttons for downloaded models while a download is in progress", async () => {
+	it("keeps Select buttons ENABLED during a download (only Download/Deps buttons are gated on anyDownloading)", async () => {
 		// Make tiny "downloaded" via get_model_status so its
 		// Select button is rendered (instead of the Download button).
 		mockCall.mockImplementation((type: string) => {
@@ -950,8 +1001,9 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 
 		// The tablist is the SegmentedControl container; it must carry
 		// the model-card border treatment (`border border-border/5`
-		// `rounded-lg bg-(--bg-subtle)`) so the control reads as one
-		// card among the model cards — NOT a borderless strip. The tabs
+		// `rounded-xl bg-(--bg-subtle)` — the app-wide page-card token)
+		// so the control reads as one card among the model cards — NOT
+		// a borderless strip. The tabs
 		// variant's base `border-none` was REMOVED (2026-08-21) because
 		// tailwind-merge treats `border` (width) and `border-none`
 		// (style) as different groups, so `border-style: none` silently
@@ -959,7 +1011,7 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 		const tablist = screen.getByRole("tablist");
 		const cls = tablist.className;
 		expect(cls).toContain("border-border/5");
-		expect(cls).toContain("rounded-lg");
+		expect(cls).toContain("rounded-xl");
 		expect(cls).toContain("bg-(--bg-subtle)");
 		expect(cls).not.toContain("border-none");
 
@@ -999,6 +1051,52 @@ describe("ModelsPage — initial load failure shows an error state with Retry", 
 			name: t("models.retry"),
 		});
 		expect(retryButton).toBeTruthy();
+	});
+
+	it("surfaces a failed REVISIT revalidation as an inline banner (seeded config keeps the page usable)", async () => {
+		// 1. First visit: load succeeds and seeds the module cache.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		renderWithProviders(<ModelsPage />);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
+		});
+		cleanup();
+		vi.clearAllMocks();
+
+		// 2. Revisit: config seeds non-null from the cache, but the
+		//    revalidation get_config REJECTS. The page must NOT present
+		//    the stale data as silently fresh — an inline role="alert"
+		//    banner with Retry renders while the seeded page stays up.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.reject(new Error("down"));
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		renderWithProviders(<ModelsPage />);
+
+		// The seeded page content still renders (not the error page).
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
+		});
+		// The revalidation failure banner is announced (role="alert")
+		// and carries the Retry action.
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toContain(t("models.loadFailedTitle"));
+		expect(
+			screen
+				.getByRole("button", { name: t("models.retry") })
+				.closest('[role="alert"]'),
+		).toBe(alert);
 	});
 
 	it("recovers into the normal page after a successful Retry click", async () => {

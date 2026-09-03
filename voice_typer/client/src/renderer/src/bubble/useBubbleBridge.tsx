@@ -60,6 +60,7 @@ export interface BubbleBridgeEventMap {
 	config: Record<string, unknown>;
 	level: { rms: number; peak: number };
 	draggable: boolean;
+	localeChanged: string;
 }
 
 type BubbleBridgeEventName = keyof BubbleBridgeEventMap;
@@ -242,6 +243,9 @@ class BubbleBridgeImpl implements BubbleBridge {
 		}
 		if (api.onDraggable) {
 			offs.push(api.onDraggable((d) => this.emit("draggable", d)));
+		}
+		if (api.onLocaleChanged) {
+			offs.push(api.onLocaleChanged((l) => this.emit("localeChanged", l)));
 		}
 		this.apiOffs = offs;
 		// Re-arm the dynamic onLevel subscription if it was active

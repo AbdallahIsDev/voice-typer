@@ -425,6 +425,60 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_dismiss");
 	});
 
+	it("bubble.onLocaleChanged subscribes to the 'bubble:locale-changed' event", async () => {
+		// Locale-change push parity with the Electron preload: the
+		// bubble-window-only `onLocaleChanged` must listen on the same
+		// kebab-case event name the Electron channel uses, and forward
+		// the bare locale string payload to the callback. Bubble-only
+		// (like dismiss), so the stub must report `label: "bubble"`.
+		const stub = makeTauriStub();
+		stub.window.getCurrentWindow = vi.fn(() => ({
+			label: "bubble",
+			minimize: vi.fn(() => Promise.resolve()),
+			toggleMaximize: vi.fn(() => Promise.resolve()),
+			close: vi.fn(() => Promise.resolve()),
+			isMaximized: vi.fn(() => Promise.resolve(false)),
+			onResized: vi.fn(() => Promise.resolve(() => {})),
+		}));
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+
+		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
+
+		const bubble = (
+			window as unknown as {
+				bubble?: {
+					onLocaleChanged?: (cb: (locale: string) => void) => () => void;
+				};
+			}
+		).bubble;
+		expect(bubble?.onLocaleChanged).toBeDefined();
+
+		// `makeListener` subscribes via `event.listen` and (once the
+		// returned promise resolves) forwards the event payload.
+		const received: string[] = [];
+		const dispatchRef: { current: ((e: { payload: string }) => void) | null } =
+			{ current: null };
+		(
+			stub.event.listen as unknown as ReturnType<typeof vi.fn>
+		).mockImplementationOnce(
+			(_name: string, handler: (e: { payload: string }) => void) => {
+				dispatchRef.current = handler;
+				return Promise.resolve(() => {});
+			},
+		);
+		const off = bubble?.onLocaleChanged?.((locale) => received.push(locale));
+		expect(stub.event.listen).toHaveBeenCalledWith(
+			"bubble:locale-changed",
+			expect.any(Function),
+		);
+		// Flush the listen promise inside makeListener, then emit.
+		await Promise.resolve();
+		dispatchRef.current?.({ payload: "ar" });
+		expect(received).toEqual(["ar"]);
+		off?.();
+	});
+
 	//locale push ─────────────────────────────────────
 
 	it("window_.setLocale invokes 'set_host_locale' with { locale } and passes the envelope through", async () => {

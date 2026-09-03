@@ -33,6 +33,13 @@ export type RecordingState =
 	| "cancelling"
 	| "error";
 
+// `settings` is the Settings HUB page (a single card whose rows open the
+// section pages). Each `settings*` section literal renders exactly one
+// settings domain — the canonical list of section pages (order, titles,
+// descriptions, icons) lives in
+// `components/settings/settingsSections.ts` and must stay in lockstep
+// with this union. `settings` itself is NOT a section page — it is the
+// hub that links to them.
 export type Page =
 	| "home"
 	| "history"
@@ -43,9 +50,14 @@ export type Page =
 	| "analytics"
 	| "settings"
 	| "settingsGeneral"
-	| "settingsAiAudio"
+	| "settingsOverlay"
+	| "settingsHotkeys"
+	| "settingsTranscription"
+	| "settingsAI"
+	| "settingsAudio"
 	| "settingsAppearance"
 	| "settingsPrivacy"
+	| "settingsAdvanced"
 	| "onboarding"
 	| "aboutAndPrivacy";
 

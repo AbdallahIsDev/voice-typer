@@ -149,13 +149,16 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 			goForward: captures.current?.goForward,
 		};
 
-		// Navigate to a different page. Note: after ADR-0021,
-		// `navigate("settings")` redirects to "settingsGeneral"
-		// (mirrors the onboarding-completed guard at App.tsx —
-		// `replace` swaps the current history entry, so the
-		// history stack doesn't gain a no-op "settings" entry).
-		// The test verifies the navigation happened by checking
-		// currentPage === "settingsGeneral" (the resolved target).
+		// Navigate to a different page. Settings is now a HUB + section
+		// pages: the old ADR-0021 `navigate("settings")` →
+		// "settingsGeneral" redirect was REMOVED, so "settings" (the
+		// hub) is a real destination. From "home" the hub-model path
+		// is: stage any deep-link opts (none here), then exactly ONE
+		// `apply()` (one store `set()` + one localStorage write) that
+		// pushes "settings" onto the history stack — no redirect means
+		// no second `replace()` apply call. The test verifies the
+		// navigation happened by checking currentPage === "settings"
+		// (the hub literal itself).
 		act(() => {
 			captures.current?.navigate("settings");
 		});
@@ -175,9 +178,10 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		expect(actionsAfter.goBack).toBe(actionsBefore.goBack);
 		expect(actionsAfter.goForward).toBe(actionsBefore.goForward);
 
-		// The page value should have changed. After ADR-0021,
-		// `navigate("settings")` redirects to "settingsGeneral".
-		expect(captures.current?.currentPage).toBe("settingsGeneral");
+		// The page value should have changed. Settings is now a HUB
+		// (no redirect): navigate("settings") lands on the hub literal
+		// itself.
+		expect(captures.current?.currentPage).toBe("settings");
 
 		u.unmount();
 	});
@@ -262,14 +266,13 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 		const u = render(<Probe captures={captures} />);
 
 		// Navigate to settings first (no deep-link), then fire a
-		// consent refusal WHILE already on settings. After
-		// ADR-0021, `navigate("settings")` redirects to
-		// "settingsGeneral" — the test asserts against the
-		// resolved target.
+		// consent refusal WHILE already on settings. Settings is now a
+		// HUB (no redirect): navigate("settings") stays on the hub
+		// literal "settings".
 		act(() => {
 			captures.current?.navigate("settings");
 		});
-		expect(captures.current?.currentPage).toBe("settingsGeneral");
+		expect(captures.current?.currentPage).toBe("settings");
 
 		act(() => {
 			captures.current?.navigate("settings", {
@@ -278,10 +281,11 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 		});
 
 		// The same-page early-return must NOT swallow the deep-link.
-		// Note: `navigate("settings", { consentField })` redirects
-		// to "settingsGeneral" but arms the consent field first —
-		// the same-page early-return fires AFTER the consentField
-		// arming so the deep-link is preserved.
+		// Confirmed against useNavigation.ts: the consentField staging
+		// `set()` runs BEFORE the `page === current` early return, so
+		// a same-page navigate("settings", { consentField }) still
+		// arms the pending field even though the hub model makes this
+		// a pure no-op for page/history (no redirect, no apply).
 		expect(captures.current?.pendingConsentField).toBe("cloud_openai_consent");
 
 		u.unmount();

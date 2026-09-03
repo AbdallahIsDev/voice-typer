@@ -53,13 +53,15 @@
 		"group": {
 			"main": "Main",
 			"system": "System"
-		},
-		"settingsGeneral": "General",
-		"settingsAiAudio": "AI & Audio",
-		"settingsAppearance": "Appearance",
-		"settingsPrivacy": "Privacy"
+		}
 	},
 	"home": {
+		"showMore": "Show more",
+		"showLess": "Show less",
+		"copy": "Copy",
+		"copyAria": "Copy transcription to clipboard",
+		"discard": "Discard",
+		"discardAria": "Discard this transcription from the preview",
 		"ready": "READY",
 		"recording": "RECORDING",
 		"transcribing": "TRANSCRIBING",
@@ -390,7 +392,7 @@
 		"correctionsTooltip": "Vocabulary corrections the engine applied during dictation",
 		"correctionsRate": "{pct}% of dictations",
 		"shareTooltip": "Exports a shareable summary image",
-		"totalDictationsPeriod": "Total Dictations ({range})",
+		"totalDictations": "Total Dictations",
 		"trendDownLabel": "{pct}% less than the previous period",
 		"trendFlatLabel": "Same as the previous period",
 		"trendUpLabel": "{pct}% more than the previous period",
@@ -568,6 +570,8 @@
 		"loadedViaHint": "How the speech model was loaded (bundled, downloaded, or a custom path)."
 	},
 	"settings": {
+		"apiUrlInvalid": "Enter a valid http(s) URL",
+		"otherTabsResults": "Results from other tabs",
 		"title": "Settings",
 		"searchPlaceholder": "Search settings…",
 		"searchNoMatch": "No settings match \"{query}\"",
@@ -579,12 +583,6 @@
 		},
 		"noResultsTitle": "No results found",
 		"noResultsMessage": "Try a different search term or clear the filter to see all settings.",
-		"tabs": {
-			"appearance": "Appearance",
-			"general": "General",
-			"aiAudio": "AI & Audio",
-			"privacy": "Privacy"
-		},
 		"general": "General",
 		"language": "Language",
 		"languageDescription": "Speech recognition language",
@@ -685,7 +683,7 @@
 		"launchAtLogin": "Launch at Login",
 		"launchAtLoginDescription": "Automatically start {appName} when you log into Windows.",
 		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from Settings → Troubleshooting → Cache Status.",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from Settings → Advanced → Cache Status.",
 		"offlinePackConsent": "Download offline engine pack",
 		"offlinePackConsentDescription": "Allow the offline engine (speech recognition models) to be downloaded in the background from GitHub Releases. Only checked when you want offline dictation after a fresh install; the download starts only after you enable this.",
 		"notifications": "Notifications",
@@ -752,7 +750,6 @@
 		"resetToDefaultsToast": "Settings reset to defaults",
 		"fetchDefaultsFailed": "Failed to fetch defaults from backend",
 		"resetFailed": "Failed to reset to defaults",
-		"tabsAria": "Settings tabs",
 		"appearance": {
 			"title": "Appearance",
 			"description": "Customize the look and feel — color scheme, theme presets, and text size.",
@@ -783,6 +780,24 @@
 			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"hotkeySection": {
+			"warnPasswordPasteAria": "Confirm paste into password fields",
+			"warnPasswordPasteInfo": "Show a confirmation before pasting into password inputs.",
+			"warnPasswordPasteInfoSearch": "warning before password paste",
+			"warnPasswordPaste": "Confirm paste into password fields",
+			"warnElevatedPasteAria": "Confirm paste into admin windows",
+			"warnElevatedPasteInfo": "Show a confirmation before pasting into administrator (elevated) windows.",
+			"warnElevatedPasteInfoSearch": "warning before elevated paste",
+			"warnElevatedPaste": "Confirm paste into admin windows",
+			"unsafePasteAria": "Paste into unidentified windows",
+			"unsafePasteInfo": "Paste transcriptions even when the previously focused window cannot be identified — the paste may land in the wrong window.",
+			"unsafePasteInfoSearch": "paste without focus check",
+			"unsafePaste": "Paste into unidentified windows",
+			"testSoundAria": "Play a sample recording sound",
+			"testSound": "Test Sound",
+			"soundVolumeAria": "Sound feedback volume",
+			"soundVolumeInfo": "Sets how loud the recording start and stop cues play, from silent (0) to full (1).",
+			"soundVolumeInfoSearch": "Volume of the start/stop sound cues",
+			"soundVolume": "Sound volume",
 			"hotkeyTitle": "Hotkey",
 			"hotkeyDescription": "Key to start and stop dictation.",
 			"dictationKey": "Dictation Key",
@@ -1002,6 +1017,12 @@
 			"autoApplyConfidenceAria": "Auto-Apply Confidence"
 		},
 		"privacy": {
+			"clipboardSaveRestoreAria": "Save and restore clipboard",
+			"clipboardSaveRestoreInfo": "Remember the clipboard contents before pasting and restore them afterwards.",
+			"clipboardSaveRestoreLabel": "Save and restore clipboard",
+			"logTranscriptionsAria": "Log transcriptions",
+			"logTranscriptionsInfo": "Write each transcription to the app log file for troubleshooting. Text stays on this device.",
+			"logTranscriptionsLabel": "Log transcriptions",
 			"audioRecoveryTitle": "Audio & Recovery",
 			"audioRecoveryDescription": "Monitor recording quality and safeguard your transcriptions against crashes.",
 			"crashRecovery": "Crash Recovery",
@@ -1143,6 +1164,14 @@
 			"systemLayout": "System layout: {side} side — {buttons}",
 			"systemUnavailable": "System button layout unavailable — using the default (right side, all buttons).",
 			"followingSystem": "Following your desktop's layout"
+		},
+		"hub": {
+			"aiDescription": "LLM polishing, grammar enhancement, and vocabulary automation.",
+			"advancedTitle": "Advanced",
+			"advancedDescription": "Troubleshooting, diagnostics, resources, cache, and updates.",
+			"backToSettings": "Back to Settings",
+			"on": "On",
+			"off": "Off"
 		}
 	},
 	"models": {
@@ -1152,12 +1181,9 @@
 		"asrTitle": "Models",
 		"asrSubtitle": "Configure local and cloud speech models.",
 		"title": "Models",
-		"description": "Configure your speech-to-text engines",
 		"active": "Active",
 		"delete": "Delete",
-		"use": "Use",
 		"select": "Select",
-		"downloadModel": "Download",
 		"downloading": "Downloading…",
 		"selecting": "Selecting…",
 		"providers": {
@@ -1177,17 +1203,18 @@
 		"lastResortUnloaded": "The model is not loaded.",
 		"lastResortUnloadedHint": "Open the Models page to download a model.",
 		"snack": {
-			"parakeetDepsRequired": "Dependencies required for Parakeet. Download first.",
 			"depsRequiredName": "Dependencies required for {name}. Download first.",
 			"notDownloaded": "Model \"{name}\" not downloaded yet. Download it first.",
 			"usingModel": "Using model: {name}",
 			"downloaded": "{name} downloaded successfully",
 			"downloadFailedName": "Failed to download {name}",
 			"downloadFailed": "Download failed: {error}",
-			"cannotDeleteActive": "Cannot delete the active model. Switch to another model first.",
 			"deleted": "Deleted: {name}",
 			"deleteFailed": "Delete failed",
 			"deleteFailedError": "Delete failed: {error}",
+			"apiKeyEmpty": "Enter an API key first",
+			"apiKeyUnchanged": "API key unchanged",
+			"downloadAlreadyActive": "Another model download is already in progress (it may be paused). Resume or cancel it first.",
 			"apiKeySaved": "{provider} API key saved",
 			"consentGranted": "Consent granted for {provider} — audio will be sent to this provider.",
 			"consentRevoked": "Consent revoked for {provider} — audio will NOT be sent.",
@@ -1195,7 +1222,6 @@
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
-			"parakeetDepsInstalled": "Parakeet dependencies installed successfully.",
 			"depsInstalled": "Dependencies installed successfully.",
 			"selectFailed": "Failed to select model."
 		},
@@ -1203,25 +1229,11 @@
 			"needApiKey": "Please enter an API key first",
 			"connectionSuccessful": "Connection successful — API key is valid.",
 			"connectionFailed": "Connection failed: {status} {statusText}",
-			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
-			"connectionTestFailed": "Connection test failed: {error}",
-			"connectionNetworkError": "Network error: could not reach the model server."
-		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "Model Benchmark",
-			"description": "Compare model performance on your system",
-			"runAria": "Run model benchmark",
-			"running": "Running...",
-			"run": "Run Benchmark"
+			"connectionTestFailed": "Connection test failed: {error}"
 		},
 		"status": {
-			"active": "Active",
-			"downloaded": "Downloaded",
 			"depsRequired": "Dependencies required",
-			"available": "Available",
-			"insufficientDisk": "Insufficient disk space",
-			"insufficientDiskSpace": "Insufficient disk space"
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "Import Model",
@@ -1230,8 +1242,7 @@
 			"success": "Imported {count} model(s): {models}",
 			"noModelsFound": "No recognized model folders found in that directory. Select the HuggingFace hub cache folder (contains 'models--*' directories).",
 			"failedAll": "Failed to import any models from that directory.",
-			"failed": "Failed to import model: {error}",
-			"importModelAria": "Import model from folder"
+			"failed": "Failed to import model: {error}"
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1258,23 +1269,18 @@
 			"cancelConfirmAction": "Cancel download"
 		},
 		"card": {
-			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"multilingual": "Multilingual",
 			"englishOnly": "English Only",
 			"speedSuffix": "{rating} Speed",
 			"distilled": "Distilled",
 			"activeAria": "Active: {name}",
-			"useAria": "Use {name}",
 			"downloadAria": "Download {name}",
 			"selectAria": "Select {name}",
 			"deleteAria": "Delete {name}",
-			"accuracy": "Accuracy",
 			"vramLabel": "VRAM",
 			"werLabel": "WER"
 		},
 		"cloud": {
-			"title": "Cloud speech recognition providers",
-			"description": "Configure cloud-based transcription services",
 			"apiKey": "API Key",
 			"apiKeyPlaceholder": "Enter your API key",
 			"saveKeyAria": "Save {provider} API key",
@@ -1298,33 +1304,12 @@
 		},
 		"deleteDialog": {
 			"title": "Delete Model",
-			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
-			"messageWithSize": "Delete {name} ({size})? This cannot be undone."
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
 		},
-		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
-		"downloaded": "Downloaded",
-		"dependenciesRequired": "Dependencies required",
-		"available": "Available",
-		"downloadFirst": "Download first",
-		"activeModel": "Active",
-		"noModelSelected": "No model selected",
-		"setAsActive": "Set as Active",
 		"deleteModel": "Delete",
-		"cannotDeleteActive": "Cannot delete the active model. Switch to another model first.",
-		"downloadStarted": "Download started",
-		"downloadComplete": "Download complete",
-		"downloadFailed": "Download failed",
-		"deleteFailed": "Delete failed",
-		"enterApiKey": "Enter your API key",
 		"apiKeyPlaceholder": "Enter your API key",
-		"testConnection": "Test Connection",
-		"testing": "Testing...",
-		"connectionSuccessful": "Connection successful — API key is valid.",
-		"connectionFailed": "Connection failed",
-		"pleaseEnterApiKey": "Please enter an API key first",
-		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": {
 			"fastest": "Fastest",
 			"fast": "Fast",
@@ -1332,33 +1317,18 @@
 			"variable": "Variable",
 			"medium": "Medium"
 		},
-		"size": "Size",
-		"language": "Language",
-		"fastest": "Fastest",
-		"fast": "Fast",
-		"slow": "Slow",
 		"variable": "Variable",
-		"gpuRequired": "GPU required",
-		"cpuOnly": "CPU only",
-		"openaiWhisperApi": "OpenAI Whisper API",
-		"groqWhisperApi": "Groq Whisper API",
-		"deepgramApi": "Deepgram API",
-		"configureEngines": "Configure your speech-to-text engines",
-		"openFolderFailed": "Open folder failed",
 		"openFolder": {
 			"label": "Open Models Folder",
 			"aria": "Reveal models folder in file manager"
 		},
-		"openFolderAria": "Open the models directory in your file manager",
 		"disk": {
 			"lowSpaceTitle": "Low disk space",
 			"lowSpaceBody": "Not enough free space to download models",
 			"freeSpace": "{space} free"
 		},
-		"loading": "Loading models…",
 		"cloudModels": "Cloud Models",
 		"cloudModelsDescription": "Use cloud-based APIs for faster transcription. Requires API key.",
-		"activeModelSummaryLabel": "Active model:",
 		"noModelBanner": "No speech model is selected. Select a model below."
 	},
 	"tooltips": {
@@ -1467,6 +1437,7 @@
 			"textSizeDown": "Decrease text size",
 			"title": "Keyboard Shortcuts",
 			"toggleSidebar": "Toggle sidebar",
+			"toggleDictation": "Toggle dictation",
 			"dismissBubble": "Dismiss bubble"
 		}
 	},
@@ -1534,6 +1505,7 @@
 		"charsSuffix_other": " ({count} chars)"
 	},
 	"onboarding": {
+		"doneHelpHint": "Tip: press ? anywhere to open the keyboard shortcut help.",
 		"applyFailedTitle": "Couldn't finish setup",
 		"applyFailedDescription": "We couldn't apply your settings. Try again, or skip and finish later in Settings.",
 		"welcomeTitle": "Welcome to {appName}",
@@ -1542,7 +1514,7 @@
 		"step2Item": "Grant keyboard-monitoring permission",
 		"step3Item": "Select a hotkey",
 		"consentTitle": "Privacy & Consent",
-		"consentDescription": "Choose what you agree to. Everything is off by default — you can change these anytime in Settings → Privacy.",
+		"consentDescription": "Choose what you agree to. Everything is off by default — you can change these anytime in Settings → Privacy & Consent.",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "{appName} listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1606,7 +1578,7 @@
 		"saveFailedSnack": "Failed to save selection",
 		"skippedSnack": "Setup skipped — using defaults",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can re-run this setup wizard later from Settings → Troubleshooting, or configure individual settings in Settings.",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can re-run this setup wizard later from Settings → Advanced → Troubleshooting, or configure individual settings in Settings.",
 		"skipConfirmLabel": "Skip anyway",
 		"stepProgress": "Step {current} of {total}",
 		"progressAria": "Onboarding step {current} of {total}",
@@ -1741,7 +1713,8 @@
 		"wordsCount": "{count} words",
 		"removeFromFavorites": "Remove from favorites",
 		"addToFavorites": "Add to favorites",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "No recent activity",
+		"loadTextFailed": "Failed to load the full text"
 	},
 	"exportFormat": {
 		"export": "Export",
@@ -1961,6 +1934,10 @@
 		"restartBackendHint": "The backend could not be restarted from this window. It may be managed externally — please relaunch the app."
 	},
 	"dialog": {
+		"discardChangesTitle": "Discard changes?",
+		"discardChangesMessage": "Closing now will discard your unsaved edits.",
+		"discardChangesConfirm": "Discard changes",
+		"discardChangesStay": "Keep editing",
 		"pythonCrash": {
 			"title": "Python backend crashed",
 			"body": "{appName}'s Python backend exited unexpectedly with code {code} and will now exit.",
@@ -1997,13 +1974,18 @@
 			"xrun_warning_body": "Audio buffer overflow detected. Try a higher buffer size.",
 			"cancelled_timeout": "Transcription took too long and was cancelled.\nPress {hotkey} to try again.",
 			"start_failed": "Could not start recording.\nCheck logs/voice-typer.log for traceback.",
+			"start_failed_with_reason": "Could not start recording.\n{reason}",
 			"stop_failed": "Could not stop recording.",
 			"silence_warning": "No audio detected. Check your microphone is connected and working.",
 			"consent_required": "Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",
 			"max_duration_auto_stop": "Recording stopped: maximum recording duration reached.",
 			"mic_disconnected": "Microphone disconnected. Recording stopped. Reconnect the microphone to resume.",
+			"mic_unplugged": "Microphone was unplugged. Recording stopped.",
 			"mic_permission_revoked": "Microphone permission was revoked. Recording stopped. Re-grant microphone access in your OS privacy settings to resume.",
 			"silence_auto_stop": "Recording stopped: no audio detected for an extended period.",
+			"still_running": "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
+			"xrun_title": "{app} — Audio Issues",
+			"xrun_body": "Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load.",
 			"load_failed": "Could not load the speech model.\n{error}\n\nThe app will keep running. Press {hotkey} to retry loading."
 		},
 		"model_manager": {

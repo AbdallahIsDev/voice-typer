@@ -1,12 +1,13 @@
-// GeneralSettingsSection — General + Overlay sections of the Settings page.
+// GeneralSettingsSection — the General section of the Settings surface.
 //
-// Extracted from src/renderer/src/pages/Settings.tsx. Renders two
-// SettingsSection blocks: "General" (Launch at Login, App Language,
-// Notifications, Tray Click) and "Overlay" (Bubble Behavior, Bubble
-// Position, Show on App Startup, Drag to Move). Behaviour is identical
-// to the previous monolithic implementation, including the per-row
-// search-filter visibility via the `isVisible` prop and the section-
-// level "hide if no items match" check for the General section.
+// Extracted from src/renderer/src/pages/Settings.tsx. Renders one
+// SettingsSection block: "General" (Launch at Login, Fast Startup,
+// Offline Engine Pack, App Language, Notifications, Tray Click).
+// The Overlay card that used to be rendered beneath it moved to its own
+// component (OverlaySettingsSection.tsx) and its own section page
+// (settingsOverlay). Behaviour is identical to the previous combined
+// implementation, including the per-row search-filter visibility via the
+// `isVisible` prop and the section-level "hide if no items match" check.
 
 import { memo } from "react";
 import { SettingRow } from "@/components/common/SettingRow";
@@ -38,11 +39,6 @@ const TRAY_CLICK_OPTIONS = [
 	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
 ] as const;
 
-const BUBBLE_BEHAVIOR_OPTIONS = [
-	{ value: "always_visible", labelKey: "settings.bubbleBehaviorAlwaysVisible" },
-	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
-] as const;
-
 // Locale selector options — derived from SUPPORTED_LOCALES so adding a
 // new locale in i18n.ts automatically appears here. The labels are
 // locale-name strings ("English", "العربية", …) which don't go through
@@ -52,7 +48,7 @@ const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	label: getLocaleLabel(locale),
 }));
 
-// B-REVIEW-3 (Finding 3): the 10 *_LABEL / *_INFO constants below USED TO
+// B-REVIEW-3 (Finding 3): the *_LABEL / *_INFO constants below USED TO
 // live at module scope. Because ``t()`` is a plain function that reads a
 // module-level ``_currentLocale`` variable, evaluating them at import time
 // FROZE the strings to whatever locale was active on first import.
@@ -100,7 +96,10 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	const RUNTIME_PACK_CONSENT_LABEL = t("settings.offlinePackConsent");
 	const RUNTIME_PACK_CONSENT_INFO = t("settings.offlinePackConsentDescription");
 
-	//section-level visibility check for the General section.
+	//section-level visibility check for the General section. The title
+	// constant feeds BOTH the `<SettingsSection title>` prop AND the
+	// `isVisible` third parameter, so search matches the heading the
+	// user actually sees.
 	const generalSectionTitle = t("settings.general");
 	const generalItems = [
 		{ label: LAUNCH_AT_LOGIN_LABEL, info: LAUNCH_AT_LOGIN_INFO },
@@ -112,34 +111,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	];
 	const generalVisible = generalItems.some((item) =>
 		isVisible(item.label, item.info, generalSectionTitle),
-	);
-
-	//section-level visibility check for the Overlay section.
-	const overlaySectionTitle = t("settings.overlay");
-	const overlayItems = [
-		{
-			label: t("settings.bubbleBehaviorLabel"),
-			info: t("settings.bubbleBehaviorInfo"),
-		},
-		{
-			label: t("settings.bubblePositionLabel"),
-			info: t("settings.bubblePositionInfo"),
-		},
-		{
-			label: t("settings.showOnAppStartup"),
-			info: t("settings.showOnAppStartupInfo"),
-		},
-		{
-			label: t("settings.dragToMove"),
-			info: t("settings.dragToMoveInfo"),
-		},
-		{
-			label: t("settings.bubbleMicButton"),
-			info: t("settings.bubbleMicButtonDescription"),
-		},
-	];
-	const overlayVisible = overlayItems.some((item) =>
-		isVisible(item.label, item.info, overlaySectionTitle),
 	);
 
 	// ── Inline handler extraction ─────────────────────────────────
@@ -155,261 +126,153 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		updateConfig({
 			tray_left_click_action: v as "open_app" | "toggle_dictation",
 		});
-	const handleBubbleBehaviorChange = (v: string) =>
-		updateConfig({
-			bubble_behavior: v as "show_on_record" | "always_visible",
-		});
-	const handleBubblePositionChange = (v: string) => {
-		updateConfig({ bubble_position: v as "top" | "bottom" });
-		window.bubble?.setPosition?.(v as "top" | "bottom");
-	};
-	const handleBubbleStartupChange = (checked: boolean) =>
-		updateConfig({ bubble_show_on_startup: checked });
-	const handleDragToMoveChange = (checked: boolean) => {
-		updateConfig({ bubble_draggable: checked });
-		window.bubble?.setDraggable?.(checked);
-	};
-	//mic button toggle — only meaningful in always_visible mode.
-	const handleBubbleMicButtonChange = (checked: boolean) =>
-		updateConfig({ bubble_mic_button: checked });
+
+	if (!generalVisible) return null;
 
 	return (
-		<>
-			{/* ── SECTION: General ──────────────────────────────────── */}
-			{generalVisible && (
-				<SettingsSection
-					title={t("settings.general")}
-					description={t("settings.generalDescription")}
-				>
-					{isVisible(
-						LAUNCH_AT_LOGIN_LABEL,
-						LAUNCH_AT_LOGIN_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow
-							label={LAUNCH_AT_LOGIN_LABEL}
-							info={LAUNCH_AT_LOGIN_INFO}
-						>
-							<Switch
-								checked={config.autostart}
-								onCheckedChange={handleAutostartChange}
-								aria-label={LAUNCH_AT_LOGIN_LABEL}
-							/>
-						</SettingRow>
-					)}
-					{/*Fast Startup (prewarm) toggle — defaults ON.
-                                                Disabling saves ~6 GB of disk reads at boot for users who
-                                                don't want the prewarm process (gamers, low-RAM machines).
-                                                : the "Run Prewarm Now" button lives in
-                                                Settings → Privacy → Troubleshooting → Cache Status
-                                                (PrewarmAndUpdates.tsx), NOT on the About page. The
-                                                `fastStartupDescription` i18n string now points users at
-                                                "Settings → Troubleshooting → Cache Status" across all
-                                                8 locale files (en/ar/de/es/fr/hi/ru/zh). */}
-					{isVisible(
-						FAST_STARTUP_LABEL,
-						FAST_STARTUP_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow label={FAST_STARTUP_LABEL} info={FAST_STARTUP_INFO}>
-							<Switch
-								checked={config.fast_startup ?? true}
-								onCheckedChange={handleFastStartupChange}
-								aria-label={FAST_STARTUP_LABEL}
-							/>
-						</SettingRow>
-					)}
-					{/*Offline engine pack download consent (auto-update feature,
-                                                docs/auto-update-feature.md §8.4). Defaults OFF — the pack is
-                                                never downloaded without explicit opt-in. When enabled, the
-                                                network-is-back trigger (useNetworkOnline) can start a
-                                                consent-gated background download of the offline engines. */}
-					{isVisible(
-						RUNTIME_PACK_CONSENT_LABEL,
-						RUNTIME_PACK_CONSENT_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow
-							label={RUNTIME_PACK_CONSENT_LABEL}
-							info={RUNTIME_PACK_CONSENT_INFO}
-						>
-							<Switch
-								checked={config.offline_pack_consent ?? false}
-								onCheckedChange={handleRuntimePackConsentChange}
-								aria-label={RUNTIME_PACK_CONSENT_LABEL}
-							/>
-						</SettingRow>
-					)}
-					{/*App Language selector — distinct from the spoken-language
-                                                selector in Post-Processing. This controls the Electron UI
-                                                language via the i18n framework. The choice is persisted to
-                                                localStorage so it survives restarts, and pushed to the
-                                                Python backend so the tray menu labels also switch language. */}
-					{isVisible(
-						APP_LANGUAGE_LABEL,
-						APP_LANGUAGE_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
-							<Select
-								value={getLocale()}
-								onValueChange={(v) => {
-									setLocale(v as Locale);
-									// Persist to localStorage so the choice survives restarts
-									try {
-										localStorage.setItem("voice-typer-ui-locale", v);
-									} catch (e) {
-										// localStorage may be unavailable in some contexts
-										// (SSR, sandboxed renderer, quota exceeded).
-										console.warn(
-											"[renderer:GeneralSettingsSection] setItem locale failed:",
-											e,
-										);
-									}
-									// Delegate tray-locale dispatch to the i18n module's
-									// `pushLocaleToPythonBackend` helper so this component
-									// does not invoke the Python bridge directly
-									// (the PythonBridge type only exposes `call` and
-									// `onEvent` — direct calls bypass the i18n contract
-									// and re-introduce the delegation-boundary violation).
-									try {
-										pushLocaleToPythonBackend(v as Locale);
-									} catch (e) {
-										// IPC may not be available during startup or the
-										// backend may not yet have registered the route.
-										console.warn(
-											"[renderer:GeneralSettingsSection] set_tray_locale IPC failed:",
-											e,
-										);
-									}
-								}}
-							>
-								<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{LOCALE_OPTIONS.map((opt) => (
-										<SelectItem key={opt.value} value={opt.value}>
-											<span>{opt.label}</span>
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</SettingRow>
-					)}
-					{isVisible(
-						NOTIFICATIONS_LABEL,
-						NOTIFICATIONS_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
-							<Switch
-								checked={config.show_notifications}
-								onCheckedChange={handleNotificationsChange}
-								aria-label={NOTIFICATIONS_LABEL}
-							/>
-						</SettingRow>
-					)}{" "}
-					{isVisible(
-						TRAY_CLICK_LABEL,
-						TRAY_CLICK_INFO,
-						generalSectionTitle,
-					) && (
-						<SettingRow label={TRAY_CLICK_LABEL} info={TRAY_CLICK_INFO}>
-							<SegmentedControl
-								options={TRAY_CLICK_OPTIONS.map((opt) => ({
-									value: opt.value,
-									label: t(opt.labelKey),
-								}))}
-								value={config.tray_left_click_action ?? "open_app"}
-								onChange={handleTrayClickChange}
-								ariaLabel={TRAY_CLICK_LABEL}
-							/>
-						</SettingRow>
-					)}
-				</SettingsSection>
+		<SettingsSection
+			title={generalSectionTitle}
+			description={t("settings.generalDescription")}
+		>
+			{isVisible(
+				LAUNCH_AT_LOGIN_LABEL,
+				LAUNCH_AT_LOGIN_INFO,
+				generalSectionTitle,
+			) && (
+				<SettingRow label={LAUNCH_AT_LOGIN_LABEL} info={LAUNCH_AT_LOGIN_INFO}>
+					<Switch
+						checked={config.autostart}
+						onCheckedChange={handleAutostartChange}
+						aria-label={LAUNCH_AT_LOGIN_LABEL}
+					/>
+				</SettingRow>
 			)}
-
-			{/* ── SECTION: Overlay ──────────────────────────────────── */}
-			{overlayVisible && (
-				<SettingsSection
-					title={overlaySectionTitle}
-					description={t("settings.overlayDescription")}
-				>
-					{/* ── Dropdowns ──────────────────────────────────────── */}
-					<SettingRow
-						label={t("settings.bubbleBehaviorLabel")}
-						info={t("settings.bubbleBehaviorInfo")}
-					>
-						<SegmentedControl
-							options={BUBBLE_BEHAVIOR_OPTIONS.map((opt) => ({
-								value: opt.value,
-								label: t(opt.labelKey),
-							}))}
-							value={config.bubble_behavior ?? "show_on_record"}
-							onChange={handleBubbleBehaviorChange}
-							ariaLabel={t("settings.bubbleBehaviorLabel")}
-						/>
-					</SettingRow>
-
-					<SettingRow
-						label={t("settings.bubblePositionLabel")}
-						info={t("settings.bubblePositionInfo")}
-					>
-						<SegmentedControl
-							options={[
-								{ value: "top", label: t("settings.bubblePositionTop") },
-								{ value: "bottom", label: t("settings.bubblePositionBottom") },
-							]}
-							value={config.bubble_position ?? "bottom"}
-							onChange={handleBubblePositionChange}
-							ariaLabel={t("settings.bubblePositionLabel")}
-						/>
-					</SettingRow>
-
-					{/* ── Switches ───────────────────────────────────────── */}
-					{/* Show on app startup toggle — only visible when Always Visible is selected */}
-					{config.bubble_behavior === "always_visible" && (
-						<SettingRow
-							label={t("settings.showOnAppStartup")}
-							info={t("settings.showOnAppStartupInfo")}
-						>
-							<Switch
-								checked={config.bubble_show_on_startup ?? true}
-								onCheckedChange={handleBubbleStartupChange}
-								aria-label={t("settings.showOnAppStartup")}
-							/>
-						</SettingRow>
-					)}
-
-					{/*mic button toggle — only visible when Always Visible is
-                                            selected. Lets the user disable the clickable mic button
-                                            (reverting the bubble to non-interactive). */}
-					{config.bubble_behavior === "always_visible" && (
-						<SettingRow
-							label={t("settings.bubbleMicButton")}
-							info={t("settings.bubbleMicButtonDescription")}
-						>
-							<Switch
-								checked={config.bubble_mic_button ?? true}
-								onCheckedChange={handleBubbleMicButtonChange}
-								aria-label={t("settings.bubbleMicButton")}
-							/>
-						</SettingRow>
-					)}
-
-					<SettingRow
-						label={t("settings.dragToMove")}
-						info={t("settings.dragToMoveInfo")}
-					>
-						<Switch
-							checked={config.bubble_draggable ?? true}
-							onCheckedChange={handleDragToMoveChange}
-							aria-label={t("settings.dragToMove")}
-						/>
-					</SettingRow>
-				</SettingsSection>
+			{/*Fast Startup (prewarm) toggle — defaults ON.
+                                Disabling saves ~6 GB of disk reads at boot for users who
+                                don't want the prewarm process (gamers, low-RAM machines).
+                                : the "Run Prewarm Now" button lives in
+                                Settings → Advanced → Cache Status
+                                (PrewarmAndUpdates.tsx), NOT on the About page. The
+                                `fastStartupDescription` i18n string now points users at
+                                "Settings → Advanced → Cache Status" across all
+                                8 locale files (en/ar/de/es/fr/hi/ru/zh). */}
+			{isVisible(
+				FAST_STARTUP_LABEL,
+				FAST_STARTUP_INFO,
+				generalSectionTitle,
+			) && (
+				<SettingRow label={FAST_STARTUP_LABEL} info={FAST_STARTUP_INFO}>
+					<Switch
+						checked={config.fast_startup ?? true}
+						onCheckedChange={handleFastStartupChange}
+						aria-label={FAST_STARTUP_LABEL}
+					/>
+				</SettingRow>
 			)}
-		</>
+			{/*Offline engine pack download consent (auto-update feature,
+                                docs/auto-update-feature.md §8.4). Defaults OFF — the pack is
+                                never downloaded without explicit opt-in. When enabled, the
+                                network-is-back trigger (useNetworkOnline) can start a
+                                consent-gated background download of the offline engines. */}
+			{isVisible(
+				RUNTIME_PACK_CONSENT_LABEL,
+				RUNTIME_PACK_CONSENT_INFO,
+				generalSectionTitle,
+			) && (
+				<SettingRow
+					label={RUNTIME_PACK_CONSENT_LABEL}
+					info={RUNTIME_PACK_CONSENT_INFO}
+				>
+					<Switch
+						checked={config.offline_pack_consent ?? false}
+						onCheckedChange={handleRuntimePackConsentChange}
+						aria-label={RUNTIME_PACK_CONSENT_LABEL}
+					/>
+				</SettingRow>
+			)}
+			{/*App Language selector — distinct from the spoken-language
+                                selector in Post-Processing. This controls the Electron UI
+                                language via the i18n framework. The choice is persisted to
+                                localStorage so it survives restarts, and pushed to the
+                                Python backend so the tray menu labels also switch language. */}
+			{isVisible(
+				APP_LANGUAGE_LABEL,
+				APP_LANGUAGE_INFO,
+				generalSectionTitle,
+			) && (
+				<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
+					<Select
+						value={getLocale()}
+						onValueChange={(v) => {
+							setLocale(v as Locale);
+							// Persist to localStorage so the choice survives restarts
+							try {
+								localStorage.setItem("voice-typer-ui-locale", v);
+							} catch (e) {
+								// localStorage may be unavailable in some contexts
+								// (SSR, sandboxed renderer, quota exceeded).
+								console.warn(
+									"[renderer:GeneralSettingsSection] setItem locale failed:",
+									e,
+								);
+							}
+							// Delegate tray-locale dispatch to the i18n module's
+							// `pushLocaleToPythonBackend` helper so this component
+							// does not invoke the Python bridge directly
+							// (the PythonBridge type only exposes `call` and
+							// `onEvent` — direct calls bypass the i18n contract
+							// and re-introduce the delegation-boundary violation).
+							try {
+								pushLocaleToPythonBackend(v as Locale);
+							} catch (e) {
+								// IPC may not be available during startup or the
+								// backend may not yet have registered the route.
+								console.warn(
+									"[renderer:GeneralSettingsSection] set_tray_locale IPC failed:",
+									e,
+								);
+							}
+						}}
+					>
+						<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{LOCALE_OPTIONS.map((opt) => (
+								<SelectItem key={opt.value} value={opt.value}>
+									<span>{opt.label}</span>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+			)}
+			{isVisible(
+				NOTIFICATIONS_LABEL,
+				NOTIFICATIONS_INFO,
+				generalSectionTitle,
+			) && (
+				<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
+					<Switch
+						checked={config.show_notifications}
+						onCheckedChange={handleNotificationsChange}
+						aria-label={NOTIFICATIONS_LABEL}
+					/>
+				</SettingRow>
+			)}
+			{isVisible(TRAY_CLICK_LABEL, TRAY_CLICK_INFO, generalSectionTitle) && (
+				<SettingRow label={TRAY_CLICK_LABEL} info={TRAY_CLICK_INFO}>
+					<SegmentedControl
+						options={TRAY_CLICK_OPTIONS.map((opt) => ({
+							value: opt.value,
+							label: t(opt.labelKey),
+						}))}
+						value={config.tray_left_click_action ?? "open_app"}
+						onChange={handleTrayClickChange}
+						ariaLabel={TRAY_CLICK_LABEL}
+					/>
+				</SettingRow>
+			)}
+		</SettingsSection>
 	);
 });

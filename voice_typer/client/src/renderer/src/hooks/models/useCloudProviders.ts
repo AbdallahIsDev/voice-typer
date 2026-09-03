@@ -89,8 +89,10 @@ export interface UseCloudProvidersResult {
  *  fix #6 helper: translate the cloud-provider key into the
  * matching `cloud_*_consent` config field. Returns the config key
  * (typed as a keyof VoiceTyperConfig so callers can index safely).
+ * Exported so presentational consumers (CloudProvidersPanel) reuse
+ * the SAME mapping instead of re-declaring a drifting duplicate.
  */
-function consentKeyFor(provider: string): keyof VoiceTyperConfig {
+export function consentKeyFor(provider: string): keyof VoiceTyperConfig {
 	if (provider === "openai") return "cloud_openai_consent";
 	if (provider === "groq") return "cloud_groq_consent";
 	return "cloud_deepgram_consent";

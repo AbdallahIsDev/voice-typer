@@ -45,7 +45,7 @@ export function MicrophoneListItem({
 		// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection.
 		<div
 			className={cn(
-				"flex items-center gap-3 px-3.5 py-2.5 transition-colors",
+				"flex items-center gap-3 px-4 py-2 transition-colors",
 				disabled || checked
 					? "cursor-default"
 					: "cursor-pointer hover:bg-foreground/5",

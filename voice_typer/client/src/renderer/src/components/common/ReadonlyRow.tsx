@@ -44,7 +44,7 @@ export function ReadonlyRow({
 	return (
 		<div
 			className={cn(
-				"flex items-center justify-between px-3.5 py-2.5",
+				"flex items-center justify-between px-4 py-2",
 				labelEmphasized ? "gap-6" : "gap-4",
 			)}
 		>

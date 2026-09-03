@@ -511,7 +511,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// and "aria-label" in `pages/Settings.tsx`.  But Settings.tsx itself
 	// doesn't use SelectTrigger at all — the Selects live in the
 	// individual Settings-section components (GeneralSettingsSection,
-	// ModelSettingsSection, AudioSettingsSection,
+	// PostProcessingSettingsSection, LlmPolishingSettingsSection,
 	// RecordingSettingsSection, ThemeSettingsSection).  Since both counts
 	// were zero, the test passed trivially (`0 >= 0`).
 	//
@@ -547,17 +547,34 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			}
 		});
 
-		it("ModelSettingsSection: all comboboxes have accessible names", async () => {
-			const { ModelSettingsSection } = await import(
-				"@/components/settings/ModelSettingsSection"
+		it("PostProcessingSettingsSection: all comboboxes have accessible names", async () => {
+			const { PostProcessingSettingsSection } = await import(
+				"@/components/settings/PostProcessingSettingsSection"
 			);
 			const { container } = renderWithProviders(
-				<ModelSettingsSection {...makeSectionProps()} />,
+				<PostProcessingSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
-			// ModelSettingsSection renders Selects for transcription
-			// language and preset (when active); any rendered
-			// combobox must have an accessible name.
+			// PostProcessingSettingsSection renders the Select for the
+			// transcription language; any rendered combobox must have an
+			// accessible name.
+			if (combos.length === 0) return;
+			for (const combo of combos) {
+				expect(combo).toHaveAccessibleName();
+			}
+		});
+
+		it("LlmPolishingSettingsSection: all comboboxes have accessible names", async () => {
+			const { LlmPolishingSettingsSection } = await import(
+				"@/components/settings/LlmPolishingSettingsSection"
+			);
+			const { container } = renderWithProviders(
+				<LlmPolishingSettingsSection {...makeSectionProps()} />,
+			);
+			const combos = container.querySelectorAll('[role="combobox"]');
+			// LlmPolishingSettingsSection renders the preset Select (when
+			// LLM polish is active); any rendered combobox must have an
+			// accessible name.
 			if (combos.length === 0) return;
 			for (const combo of combos) {
 				expect(combo).toHaveAccessibleName();
@@ -771,12 +788,12 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			}
 		});
 
-		it("ModelSettingsSection: all switches have accessible names", async () => {
-			const { ModelSettingsSection } = await import(
-				"@/components/settings/ModelSettingsSection"
+		it("LlmPolishingSettingsSection: all switches have accessible names", async () => {
+			const { LlmPolishingSettingsSection } = await import(
+				"@/components/settings/LlmPolishingSettingsSection"
 			);
 			const { container } = renderWithProviders(
-				<ModelSettingsSection {...makeSectionProps()} />,
+				<LlmPolishingSettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
 			expect(switches.length).toBeGreaterThan(0);

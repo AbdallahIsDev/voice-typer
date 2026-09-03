@@ -32,6 +32,7 @@
 // Restricted (bubble window only):
 //   - bubble:set-state        (renderer ← main, status pill state)
 //   - bubble:config           (renderer ← main, bubble-relevant config)
+//   - bubble:locale-changed   (renderer ← main, UI locale switched)
 //   - bubble:hidden           (renderer → main, exit-animation done)
 //   - bubble:resize           (renderer → main, resize to pill bounds)
 //   - bubble:toggle-dictation (renderer → main, mic button)
@@ -110,6 +111,7 @@ export interface BubbleApi {
 export interface RestrictedBubbleApi {
 	onSetState: (callback: (state: string) => void) => () => void;
 	onConfig: (callback: (cfg: Record<string, unknown>) => void) => () => void;
+	onLocaleChanged: (callback: (locale: string) => void) => () => void;
 	hideComplete: () => void;
 	resizeTo: (width: number, height: number) => void;
 	toggleDictation: () => void;
@@ -193,6 +195,16 @@ export function makeBubbleApi(
 		hideComplete: () => {
 			ipc.send(BubbleChannels.hidden);
 		},
+		//Locale-change push: the main process forwards the user's UI
+		// locale (sent by `i18n:set-locale` in window-handlers.ts after
+		// `notifyBubbleLocaleChanged`) so the sandboxed bubble can flip
+		// its `dir`/`lang` + re-render in the new language WITHOUT a
+		// full reload. Payload is the bare locale code (e.g. "ar").
+		onLocaleChanged: makeListener<string>(
+			ipc,
+			BubbleChannels.localeChanged,
+			(l) => String(l),
+		),
 		// ── Auto-resize bubble window to match pill size ─────────
 		// The BrowserWindow is 74x27 initially, but the pill content
 		// is smaller.  We resize the window exactly to the pill bounds

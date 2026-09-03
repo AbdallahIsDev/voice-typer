@@ -40,7 +40,7 @@ export function BubbleVisualizer({
 		[dotRefs],
 	);
 	return (
-		<div className="flex h-6 items-center gap-1.5">
+		<div className="flex h-6 items-center gap-2">
 			{/* REC indicator — destructive token, not hardcoded red. */}
 			<span
 				className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"

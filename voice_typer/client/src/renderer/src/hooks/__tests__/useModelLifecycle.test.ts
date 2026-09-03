@@ -16,7 +16,8 @@
  * The 4 internal helpers from `useModelConfig` are destructured OUT of the
  * public return shape (they're not part of the pre-split facade contract).
  * The merged return is `{ ...configRest, ...download, ...selection,
- * ...cloud, ...folder, agoLabel, cloudProviders }`.
+ * ...cloud, ...folder, cloudProviders }` — `agoLabel` was removed when the
+ * "Last updated / refresh" indicator was removed from the Models page.
  *
  * Coverage:
  *   1. Lifecycle ordering: sub-hooks are invoked in the order
@@ -37,7 +38,8 @@
  *   4. The 4 internal helpers (refreshModelStatus, updateConfig,
  *      setConfig, setModels) are NOT in the public return shape.
  *   5. The return shape is the merged set of sub-hook returns + the
- *      static `cloudProviders` array + `agoLabel` from useLastUpdated.
+ *      static `cloudProviders` array (`agoLabel` removed with the
+ *      refresh indicator).
  *   6. `ApiTestResult` type re-export still resolves (back-compat with
  *      CloudProvidersPanel.tsx and its tests).
  */
@@ -92,11 +94,9 @@ const {
 			config: { asr_backend: "whisper" },
 			models: [],
 			modelCatalog: {},
-			refreshing: false,
 			apiKeys: { openai: "" },
 			setApiKeys: vi.fn(),
 			loadConfig: vi.fn().mockResolvedValue(undefined),
-			handleManualRefresh: vi.fn().mockResolvedValue(undefined),
 			// internal fields (facade destructures these out)
 			refreshModelStatus,
 			updateConfig,
@@ -258,16 +258,19 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(dlArgs.showSnack).toBe(mockShowSnack);
 		});
 
-		it("useLastUpdated is called (provides `agoLabel` + `markUpdated`)", () => {
+		it("useLastUpdated is called (provides `markUpdated`)", () => {
 			const { result } = renderHook(() => useModelLifecycle());
 			// markUpdated is forwarded to useModelConfig.
 			const cfgArgs = useModelConfigArgs.value as {
 				markUpdated?: unknown;
 			};
 			expect(cfgArgs.markUpdated).toBe(mockMarkUpdated);
-			// agoLabel is in the public return shape (the shared
-			// lastUpdatedMock returns an empty placeholder label).
-			expect(result.current.agoLabel).toBe("");
+			// agoLabel was REMOVED from the public return shape when the
+			// "Last updated / refresh" indicator was removed from the
+			// Models page — the facade must not re-add dead surface.
+			expect(
+				(result.current as Record<string, unknown>).agoLabel,
+			).toBeUndefined();
 		});
 	});
 
@@ -345,12 +348,13 @@ describe("useModelLifecycle — facade composition ", () => {
 	});
 
 	describe("useModelSelection forwarding", () => {
-		it("receives setModels + refreshModelStatus + updateConfig + call + showSnack", () => {
+		it("receives setModels + refreshModelStatus + updateConfig + setConfig + call + showSnack", () => {
 			renderHook(() => useModelLifecycle());
 			const selArgs = useModelSelectionArgs.value as {
 				setModels?: unknown;
 				refreshModelStatus?: unknown;
 				updateConfig?: unknown;
+				setConfig?: unknown;
 				call?: unknown;
 				showSnack?: unknown;
 			};
@@ -359,6 +363,10 @@ describe("useModelLifecycle — facade composition ", () => {
 				configHookReturn.refreshModelStatus,
 			);
 			expect(selArgs.updateConfig).toBe(configHookReturn.updateConfig);
+			// setConfig forwarding: the selection mirrors the committed
+			// model into config state immediately (no-model banner flips
+			// on the user action, not on the config_changed echo).
+			expect(selArgs.setConfig).toBe(configHookReturn.setConfig);
 			expect(selArgs.call).toBe(mockCall);
 			expect(selArgs.showSnack).toBe(mockShowSnack);
 		});
@@ -403,7 +411,7 @@ describe("useModelLifecycle — facade composition ", () => {
 	});
 
 	describe("return shape", () => {
-		it("merges all sub-hook returns + agoLabel + cloudProviders", () => {
+		it("merges all sub-hook returns + cloudProviders", () => {
 			const { result } = renderHook(() => useModelLifecycle());
 			const r = result.current as Record<string, unknown>;
 
@@ -412,11 +420,14 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(r.config).toBe(configHookReturn.config);
 			expect(r.models).toBe(configHookReturn.models);
 			expect(r.modelCatalog).toBe(configHookReturn.modelCatalog);
-			expect(r.refreshing).toBe(configHookReturn.refreshing);
 			expect(r.apiKeys).toBe(configHookReturn.apiKeys);
 			expect(r.setApiKeys).toBe(configHookReturn.setApiKeys);
 			expect(r.loadConfig).toBe(configHookReturn.loadConfig);
-			expect(r.handleManualRefresh).toBe(configHookReturn.handleManualRefresh);
+			// refreshing / handleManualRefresh are REMOVED dead surface
+			// (the "Last updated / refresh" indicator is gone from the
+			// Models page).
+			expect(r.refreshing).toBeUndefined();
+			expect(r.handleManualRefresh).toBeUndefined();
 
 			// From download:
 			expect(r.downloadingModel).toBe(downloadHookReturn.downloadingModel);
@@ -438,8 +449,9 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(r.diskInfo).toBe(folderHookReturn.diskInfo);
 			expect(r.handleImportModel).toBe(folderHookReturn.handleImportModel);
 
-			// From useLastUpdated (the shared lastUpdatedMock):
-			expect(r.agoLabel).toBe("");
+			// agoLabel is REMOVED (the refresh indicator is gone) — the
+			// facade must not resurrect dead public surface.
+			expect(r.agoLabel).toBeUndefined();
 
 			// Static CLOUD_PROVIDERS re-export:
 			expect(r.cloudProviders).toBe(mockCLOUD_PROVIDERS);

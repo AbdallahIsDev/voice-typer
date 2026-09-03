@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import { InfoTooltip } from "./InfoTooltip";
 
 const meta: Meta<typeof InfoTooltip> = {
@@ -46,6 +47,38 @@ export const InlineUsage: Story = {
 			description: {
 				story:
 					"Shows the typical usage pattern: the tooltip is placed inline immediately after a setting's label so the `(?)` glyph sits naturally next to the text.",
+			},
+		},
+	},
+};
+
+export const DarkBackground: Story = {
+	args: {
+		text: "Higher values detect speech more aggressively but may cut off quiet words.",
+	},
+	decorators: [themeVariantDecorator({ dark: true })],
+	name: "Dark background",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`). Radix portals render at document.body (outside the wrapper), so hover the trigger and verify the popup in the light theme context; the trigger styling itself is what's under dark preview here.",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: {
+		text: "القيم الأعلى تكتشف الكلام بشكل أكثر حساسية ولكن قد تقص الكلمات الهادئة.",
+	},
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper — the `(?)` glyph must sit on the correct side of inline Arabic text and the popup must align with the RTL anchor. Portal content renders at document.body, so its own positioning is governed by the real document direction.',
 			},
 		},
 	},

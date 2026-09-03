@@ -107,7 +107,7 @@ export function AudioPresetSelector({
 	return (
 		<div className="rounded-lg border border-border/5 overflow-hidden">
 			{/* Preset selector — ALWAYS visible (no expand required). */}
-			<div className="px-4 py-3 space-y-2">
+			<div className="flex flex-col gap-2 px-4 py-3">
 				<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 					{t("settings.audioEnhancement.microphoneQuality")}
 				</p>

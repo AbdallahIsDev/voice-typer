@@ -49,7 +49,7 @@ export function HotkeyStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.hotkeyTitle")}
 			</h2>
-			<p className="mb-4 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.hotkeyDescription")}
 			</p>
 			<Select value={selectedHotkey} onValueChange={setSelectedHotkey}>
@@ -72,7 +72,7 @@ export function HotkeyStep({
 				PermissionsStep so the user can verify a newly-picked
 				hotkey without navigating back to the Permissions step. */}
 			{onTestHotkey && (
-				<div className="mt-4 flex flex-col gap-2">
+				<div className="flex flex-col gap-2">
 					<Button
 						type="button"
 						variant="outline"

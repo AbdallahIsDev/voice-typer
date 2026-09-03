@@ -232,7 +232,16 @@ class RecordingOscillator {
 	onended: (() => void) | null = null;
 	connect(node: unknown) {
 		this.connectCalls.push(node);
-		return { connect: (dest: unknown) => this.connectCalls.push(dest) };
+		// Chainable return: every hop pushes its destination onto
+		// connectCalls and returns a callable that keeps the chain alive
+		// (osc → gain → master → destination = 3 hops).
+		const chainable = {
+			connect: (next: unknown) => {
+				this.connectCalls.push(next);
+				return chainable;
+			},
+		};
+		return chainable;
 	}
 }
 
@@ -242,7 +251,16 @@ class RecordingGain {
 	disconnect = vi.fn();
 	connect(node: unknown) {
 		this.connectCalls.push(node);
-		return { connect: () => ({}) };
+		// Return a chainable stub so multi-hop chains
+		// (osc → gain → master → destination) keep working — the empty
+		// object previously broke the third .connect() call.
+		const chainable = {
+			connect: (next: unknown) => {
+				this.connectCalls.push(next);
+				return chainable;
+			},
+		};
+		return chainable;
 	}
 }
 
@@ -408,24 +426,35 @@ describe("SoundManager — Web Audio synthesis matches the cue table", () => {
 			playSoundCue(kind);
 
 			expect(ctx.oscillators).toHaveLength(1);
-			expect(ctx.gains).toHaveLength(1);
+			// TWO gains: the cue's own envelope gain + the master volume
+			// gain node (sound_volume multiplier) inserted between the
+			// envelope and the destination.
+			expect(ctx.gains).toHaveLength(2);
 			const osc = ctx.oscillators[0];
 			const gain = ctx.gains[0];
-			if (!osc || !gain) {
-				throw new Error("cue did not schedule an oscillator + gain pair");
+			const master = ctx.gains[1];
+			if (!osc || !gain || !master) {
+				throw new Error(
+					"cue did not schedule an oscillator + gain + master-gain chain",
+				);
 			}
 			const spec = expected[kind];
 
 			expect(osc.type).toBe(spec.type);
 			expect(osc.frequency.calls).toEqual(spec.frequency);
 			expect(gain.gain.calls).toEqual(spec.gain);
+			// The master node carries NO automation — it's a static
+			// multiplier set once at node creation (volume=1 → gain 1).
+			expect(master.gain.calls).toEqual([]);
 
-			// Shared graph + lifecycle: osc → gain → destination chain
-			// (the second hop arrives through the chained connect on
-			// osc.connect's return value), started at currentTime, stopped
-			// at currentTime + duration.
+			// Shared graph + lifecycle: osc → gain → master → destination
+			// chain (hops 2 and 3 arrive through the chained connect on
+			// osc.connect's return value; the mock records every chained
+			// hop on the oscillator's connectCalls), started at
+			// currentTime, stopped at currentTime + duration.
 			expect(osc.connectCalls[0]).toBe(gain);
-			expect(osc.connectCalls[1]).toBe(ctx.destination);
+			expect(osc.connectCalls[1]).toBe(master);
+			expect(osc.connectCalls[2]).toBe(ctx.destination);
 			expect(osc.start).toHaveBeenCalledWith(T);
 			expect(osc.stop).toHaveBeenCalledWith(T + spec.duration);
 
@@ -433,4 +462,53 @@ describe("SoundManager — Web Audio synthesis matches the cue table", () => {
 			expect(typeof osc.onended).toBe("function");
 		});
 	}
+
+	it("the master volume node scales with sound_volume (setSoundVolume)", async () => {
+		const {
+			playSoundCue,
+			setSoundFeedbackEnabled,
+			setSoundVolume,
+			getSoundVolume,
+			_resetSoundManagerForTests,
+		} = await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+		setSoundFeedbackEnabled(true);
+		setSoundVolume(0.4);
+		expect(getSoundVolume()).toBe(0.4);
+
+		const ctx = new RecordingAudioContext();
+		function VolumeAudioContextCtor() {
+			return ctx;
+		}
+		window.AudioContext =
+			VolumeAudioContextCtor as unknown as typeof AudioContext;
+
+		playSoundCue("start");
+
+		const master = ctx.gains[1];
+		expect(master).toBeTruthy();
+		// The full chain is recorded on the oscillator's connectCalls
+		// (the mock's chained-connect shape): osc → gain → master →
+		// destination. The master node's own gain carries no automation.
+		expect(ctx.oscillators[0]?.connectCalls[1]).toBe(master);
+		expect(ctx.oscillators[0]?.connectCalls[2]).toBe(ctx.destination);
+		expect(master?.gain.calls).toEqual([]);
+	});
+
+	it("setSoundVolume clamps out-of-range and non-finite values", async () => {
+		const { setSoundVolume, getSoundVolume, _resetSoundManagerForTests } =
+			await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+
+		setSoundVolume(2);
+		expect(getSoundVolume()).toBe(1);
+		setSoundVolume(-3);
+		expect(getSoundVolume()).toBe(0);
+		setSoundVolume(Number.NaN);
+		expect(getSoundVolume()).toBe(1);
+		setSoundVolume(Number.POSITIVE_INFINITY);
+		expect(getSoundVolume()).toBe(1);
+		setSoundVolume(0.75);
+		expect(getSoundVolume()).toBe(0.75);
+	});
 });

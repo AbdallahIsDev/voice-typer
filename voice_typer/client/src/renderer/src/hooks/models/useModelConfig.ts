@@ -10,8 +10,6 @@
  *     `get_model_catalog` ( fix #4).
  *   • `refreshModelStatus` — the extracted `get_model_status` + active-
  *     model reconciliation helper ( fix #8).
- *   • `handleManualRefresh` — user-driven `loadConfig` with `refreshing`
- *     flag.
  *   • `updateConfig` — `set_config` wrapper (: re-throws on error
  *     so callers can branch success vs. failure).
  *   • The `config_changed` event subscription (merges partial payload
@@ -32,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { safeApiKey } from "@/hooks/models/useCloudProviders";
 import { usePythonEvent } from "@/hooks/usePython";
+import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import {
 	applyActiveState,
 	INITIAL_MODELS,
@@ -44,6 +43,9 @@ import type { ModelStatusMap } from "@/types/ipc";
 // ── Types ─────────────────────────────────────────────────────────────
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
+
+// Module-cache key for the SWR seed (see lib/ipcCache.ts).
+const MODELS_CONFIG_CACHE_KEY = "models.config";
 
 interface UseModelConfigArgs {
 	call: CallFn;
@@ -60,11 +62,9 @@ export interface UseModelConfigResult {
 	loadError: string | null;
 	models: ModelInfo[];
 	modelCatalog: Record<string, ModelMetadata>;
-	refreshing: boolean;
 	apiKeys: Record<string, string>;
 	setApiKeys: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 	loadConfig: () => Promise<void>;
-	handleManualRefresh: () => Promise<void>;
 	// internal (facade destructures these out — not part of the public
 	// return shape of useModelLifecycle)
 	refreshModelStatus: () => Promise<void>;
@@ -94,13 +94,38 @@ export function useModelConfig({
 		markUpdatedRef.current = markUpdated;
 	}, [markUpdated]);
 
-	const [refreshing, setRefreshing] = useState(false);
-	const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
+	// SWR seed: revisit renders the last visit's config instantly from
+	// the module cache (survives page unmount) so the page skips its
+	// loading branch entirely — `loadConfig` below still revalidates.
+	// Read ONCE at init (lazy useState initializers), not per render.
+	const [config, setConfig] = useState<VoiceTyperConfig | null>(
+		() => peekIpcCache<VoiceTyperConfig>(MODELS_CONFIG_CACHE_KEY) ?? null,
+	);
 	// Failure surface for the gating `get_config` fetch. Without this,
 	// a rejected `get_config` left `config` null forever and the page
 	// spun on its loading branch with no recovery path.
 	const [loadError, setLoadError] = useState<string | null>(null);
-	const [models, setModels] = useState<ModelInfo[]>([]);
+	const [models, setModels] = useState<ModelInfo[]>(() => {
+		const seeded = peekIpcCache<VoiceTyperConfig>(MODELS_CONFIG_CACHE_KEY);
+		return seeded ? applyActiveState(INITIAL_MODELS, seeded) : [];
+	});
+
+	// Request-generation guard for `loadConfig`: overlapping loads are
+	// possible (Retry double-click, import-triggered reload while a
+	// load is in flight). IPC dispatches run concurrently, so an
+	// EARLIER `get_config` can resolve AFTER a newer one and clobber
+	// fresher state. Each run claims a generation; only the newest may
+	// apply its results.
+	const loadGenerationRef = useRef(0);
+
+	// SWR write-through: keep the module cache in sync with EVERY
+	// committed config state change (loadConfig results, `config_changed`
+	// merges, consent flips via setConfig) — not just the loadConfig
+	// path — so the next page visit seeds from current data instead of
+	// flickering back to a stale value until revalidation lands.
+	useEffect(() => {
+		if (config) writeIpcCache(MODELS_CONFIG_CACHE_KEY, config);
+	}, [config]);
 	const [modelCatalog, setModelCatalog] = useState<
 		Record<string, ModelMetadata>
 	>({});
@@ -165,6 +190,11 @@ export function useModelConfig({
 	// `get_config` result is the gating one — `applyActiveState` runs
 	// as soon as it resolves. The other two settle in the background.
 	const loadConfig = useCallback(async (): Promise<void> => {
+		// Claim the load generation — an earlier in-flight load whose
+		// responses resolve after this one started must not clobber the
+		// fresher state this run produces.
+		const generation = ++loadGenerationRef.current;
+		const isCurrent = () => loadGenerationRef.current === generation;
 		try {
 			const results = await Promise.allSettled([
 				callRef.current<VoiceTyperConfig>("get_config"),
@@ -176,11 +206,19 @@ export function useModelConfig({
 			const statusResult = results[1];
 			const catalogResult = results[2];
 
+			if (!isCurrent()) {
+				// A newer loadConfig superseded this run — its results own
+				// the state now; applying this run's (older) responses
+				// would regress config/models/apiKeys.
+				return;
+			}
 			if (cfgResult.status === "fulfilled") {
 				setLoadError(null);
 				const cfg = cfgResult.value;
 				cachedConfigRef.current = cfg;
 				setConfig(cfg);
+				// SWR write-through — the next visit seeds from this snapshot.
+				writeIpcCache(MODELS_CONFIG_CACHE_KEY, cfg);
 
 				// Apply active-state mapping immediately so the cards
 				// render with the right Active badge on first paint.
@@ -282,15 +320,6 @@ export function useModelConfig({
 		),
 	);
 
-	const handleManualRefresh = useCallback(async () => {
-		setRefreshing(true);
-		try {
-			await loadConfig();
-		} finally {
-			setRefreshing(false);
-		}
-	}, [loadConfig]);
-
 	//previously ``updateConfig`` swallowed ``set_config`` errors
 	// (try/catch with only ``console.error``), so callers like
 	// ``selectModel`` / ``saveApiKey`` / ``setCloudConsent``
@@ -299,9 +328,12 @@ export function useModelConfig({
 	// branch on the result.
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>): Promise<void> => {
-			await call("set_config", updates);
+			// callRef mirror (same convention as loadConfig /
+			// refreshModelStatus) so the identity stays stable even under
+			// test mocks that return a fresh `call` per render.
+			await callRef.current("set_config", updates);
 		},
-		[call],
+		[],
 	);
 
 	return {
@@ -309,11 +341,9 @@ export function useModelConfig({
 		loadError,
 		models,
 		modelCatalog,
-		refreshing,
 		apiKeys,
 		setApiKeys,
 		loadConfig,
-		handleManualRefresh,
 		// internal — facade destructures these out
 		refreshModelStatus,
 		updateConfig,

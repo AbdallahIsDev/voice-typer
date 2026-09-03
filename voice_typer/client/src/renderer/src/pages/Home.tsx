@@ -61,6 +61,7 @@ import type {
 } from "@/types/ipc";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
+import { RecordingLevelBar } from "./home/components/RecordingLevelBar";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { RecordingTimer } from "./home/components/RecordingTimer";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
@@ -560,6 +561,20 @@ export default function Home() {
 		}
 	}, [call]);
 
+	// Discard: clears the EPHEMERAL preview card only — the transcription
+	// itself stays in persisted history (and remains on screen in
+	// History). The server's transcription_final payload carries no
+	// history id, so there is no honest backend command to delete "the
+	// last transcription" from here; local clear is the real contract.
+	const handleDiscard = useCallback(() => {
+		setLastText("");
+		setLastQuality(undefined);
+		if (lastTextTimer.current) {
+			clearTimeout(lastTextTimer.current);
+			lastTextTimer.current = null;
+		}
+	}, []);
+
 	const handleForceCancel = useCallback(async () => {
 		try {
 			await call("force_cancel_transcription");
@@ -681,7 +696,7 @@ export default function Home() {
 	const statusLabel = statusLabelFor(key) ?? t("home.ready");
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-5 px-16 py-4">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-4 px-16 py-4">
 			{downloadPct !== null && (
 				<div
 					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
@@ -716,6 +731,7 @@ export default function Home() {
 					isRecording={isRecording}
 				/>
 				<RecordingTimer isRecording={isRecording} />
+				{isRecording && <RecordingLevelBar />}
 			</div>
 
 			<MicToggleButton
@@ -725,6 +741,7 @@ export default function Home() {
 				onClick={handleToggle}
 				label={isRecording ? t("home.stopDictation") : t("home.startDictation")}
 				disabledReason={micDisabledReason ?? undefined}
+				error={recordingState === "error" && !!lastError}
 			/>
 
 			{/* Single dynamic status line under the mic button — see the
@@ -777,6 +794,7 @@ export default function Home() {
 						text={lastText}
 						onUndo={handleUndo}
 						onRepaste={handleRepaste}
+						onDiscard={handleDiscard}
 						quality={lastQuality}
 						onRedictate={
 							isRecording || micDisabled
@@ -790,8 +808,8 @@ export default function Home() {
 			)}
 
 			{stats && (
-				<div className="mt-4 w-full">
-					<div className="mb-3 flex items-center justify-between">
+				<div className="flex w-full flex-col gap-3">
+					<div className="flex items-center justify-between">
 						<span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
 							{t("home.todayStats")}
 						</span>
@@ -821,7 +839,7 @@ export default function Home() {
 
 			{!stats && initialLoading && (
 				<section
-					className="mt-4 w-full flex items-center justify-center py-6"
+					className="w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingTodayStatsAria")}
 				>
 					{/* Decorative — the wrapping <section aria-label>
@@ -851,7 +869,7 @@ export default function Home() {
 
 			{initialLoading && recent.length === 0 ? (
 				<section
-					className="mt-4 w-full flex items-center justify-center py-6"
+					className="w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingRecentAria")}
 				>
 					{/* Decorative — same reasoning as the

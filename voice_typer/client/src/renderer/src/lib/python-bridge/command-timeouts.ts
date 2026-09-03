@@ -12,52 +12,48 @@
 // underlying bridge call in a `Promise.race` against a per-command
 // timeout, so:
 //   - `get_status` / `get_config` surface a hang in 5s instead of 120s.
-//   - `download_model` is allowed a generous budget (but see the Rust
-//     hard-cap note below).
+//   - `download_model` / `import_model` get a 1h download-scale budget
+//     (see the Rust hard-cap note below).
 //   - Unknown commands default to 30s (a reasonable middle ground).
 //
 // The underlying bridge promise may still resolve later (the Electron
 // main / Rust host's timer is still active on their side), but the
 // caller sees the renderer-side timeout rejection first.
 //
-// Rust hard cap on `download_model`:
+// Rust hard cap on the download-scale commands:
 //
-// The Rust `dispatch` command enforces a hard timeout of 120s for the
-// 6 model-lifecycle commands (`download_model`, `import_model`,
-// `delete_model`, `cancel_model_download`, `pause_model_download`,
-// `resume_model_download`) and 15s for everything else — see
-// `src-tauri/src/commands/sidecar_cmds.rs:50-73` and
-// `src-tauri/src/util.rs:53`.  The previous `download_model: 600_000`
-// (10 min) entry in this table was effectively DEAD CODE: the Rust
-// host always rejected first at 120s with the generic
-// `"dispatch timeout (120s)"` error, so the renderer's 10-minute
-// budget was never the binding constraint.
+// The Rust `dispatch` command routes per-command timeouts: 15s for
+// everything outside the model-lifecycle set (`DISPATCH_SHORT_TIMEOUT_SECS`),
+// 120s for delete/cancel/pause/resume (`DISPATCH_TIMEOUT_SECS`), and 1h
+// for the multi-GB transfer commands `download_model` / `import_model`
+// (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`) — see
+// `src-tauri/src/commands/sidecar_cmds/dispatch.rs` (`dispatch_timeout_for`)
+// and `src-tauri/src/util.rs`. The renderer table below keeps its
+// `download_model` / `import_model` entries 5s BELOW the host's 1h cap so
+// the renderer surfaces a command-specific timeout error first (the same
+// "renderer surfaces first" convention as every other entry).
 //
-// The entry is now capped at 115_000ms (5s BELOW the Rust 120s hard
-// cap) so the renderer surfaces a clearer, command-specific timeout
-// error (`IPC command "download_model" timed out after 115000ms`)
-// BEFORE the Rust side rejects with its generic message. This gives
-// the user an actionable, contextual error instead of a host-side
-// reject that doesn't identify which command timed out.
-//
-// Durable fix (out of scope for this module): extend the Rust
-// `DispatchArgs` struct with a `timeout_secs` field so the renderer
-// can request a longer budget for legitimate large downloads. Until
-// then, downloads that exceed 120s will fail — users on slow links
-// should use the `import_model` flow (downloads via browser/curl and
-// imports the local file, bypassing the dispatch timeout entirely).
+// The earlier 115s renderer cap (just under a 120s host cap) was a bug,
+// not a fix: the host cap aborted multi-GB downloads mid-flight while the
+// sidecar kept downloading — the UI showed a false failure + Retry over a
+// download that was still progressing, and Retry started a duplicate
+// backend download.
 const COMMAND_TIMEOUTS: Record<string, number> = {
 	get_status: 5_000,
 	get_config: 5_000,
 	get_history: 10_000,
-	// capped at 115s — 5s below the Rust host's
-	// 120s `DISPATCH_TIMEOUT_SECS` hard cap so the renderer surfaces
-	// the timeout first with a command-specific error message
-	// instead of letting the Rust side reject with the generic
-	// "dispatch timeout (120s)" string. The previous 600_000ms
-	// (10 min) value was dead code: the Rust dispatch always fired
-	// first at 120s.
-	download_model: 115_000,
+	// Download-scale transfers (multi-GB model files) — 5s BELOW the Rust
+	// host's 1h `DISPATCH_DOWNLOAD_TIMEOUT_SECS` hard cap so the renderer
+	// surfaces a command-specific timeout error before the host's generic
+	// reject. The previous 115s cap fired DURING legitimate large
+	// downloads: the backend kept downloading (progress events kept
+	// flowing) while the renderer showed a false failure + Retry, and
+	// clicking Retry started a duplicate backend download.
+	//
+	// A genuinely hung download is recovered by the user via Cancel (a
+	// separate short-timeout command) — not by a timer.
+	download_model: 3_595_000,
+	import_model: 3_595_000,
 	// `transcribe` was previously listed here at 120s but `transcribe`
 	// is NOT a real IPC command (the actual control RPC is
 	// `toggle_dictation`, which is a short control call that returns

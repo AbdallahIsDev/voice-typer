@@ -494,10 +494,13 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 
 	it("calls showSnack via the shared useSnackbar hook when 'Open Log Folder' succeeds (delegates to sonner.toast.success, not inline state)", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Mount the Privacy sub-page directly (sidebar IA — no tab bar to
-		// click) so the Troubleshooting section that contains the
-		// "Open Log Folder" button is mounted.
-		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
+		// Mount the Advanced section page directly (hub IA — the
+		// Troubleshooting section that contains the "Open Log Folder"
+		// button lives on settingsAdvanced). The button's accessible
+		// name is its aria-label
+		// t("settings.troubleshooting.openLogFolderAria") → "Open log
+		// folder" (en.json).
+		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
 		// Find the "Open Log Folder" button by its aria-label and click it.
 		const openLogBtn = await waitFor(() =>
@@ -505,11 +508,13 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 		);
 		fireEvent.click(openLogBtn);
 
-		// The click handler awaits window.window_.openLogs(), then calls
-		// showSnack("Log folder opened", "success").  Because useSnackbar
-		// delegates to sonner, this surfaces as a toast.success call.
-		//If Settings had inline snackbar state (the pre-
-		// pattern), toast.success would never be called.
+		// TroubleshootingSettingsSection's handleOpenLogs awaits
+		// window.window_.openLogs(), then — on success — calls
+		// showSnack(t("settings.logFolderOpened"), "success"). Because
+		// useSnackbar delegates to sonner, this surfaces as a
+		// toast.success call. If the section had inline snackbar state
+		// (the pre-shared-hook pattern), toast.success would never be
+		// called.
 		await waitFor(() => {
 			expect(toastMock.success).toHaveBeenCalled();
 		});

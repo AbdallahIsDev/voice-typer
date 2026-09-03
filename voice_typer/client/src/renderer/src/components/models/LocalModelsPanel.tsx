@@ -86,9 +86,8 @@ export interface LocalModelsPanelProps {
 	// and the `<DownloadProgressBar>` enters its inline error state.
 	// The bar stays mounted because `downloadingModel` is NOT cleared
 	// on failure. Wired through to the bar's `error` + `modelName` props.
-	// Optional so consumers that haven't been updated yet (e.g. Models.tsx)
-	// don't break the build — when absent, the bar's error UI simply
-	//doesn't render (matching the pre- behaviour).
+	// Optional so direct mounts / tests can omit it — the canonical
+	// consumer (Models.tsx) always passes it.
 	failedDownload?: { modelName: string; error: string } | null;
 	//name of the model currently installing deps (drives the
 	// `isInstallingDepsThis` prop on `<ModelCardActions>`). Optional for
@@ -100,9 +99,10 @@ export interface LocalModelsPanelProps {
 	onDeleteModel: (model: ModelInfo) => void;
 	onInstallDeps: (model: ModelInfo) => void;
 	//priority #3: wired to <DownloadProgressBar>'s Retry button.
-	// Optional so consumers that haven't been updated yet don't break
-	// the build — when absent, the bar's Retry button simply doesn't
-	// render (the toast's Retry action button still works as a fallback).
+	// Optional so direct mounts / tests can omit it — the canonical
+	// consumer (Models.tsx) always passes it; when absent, the bar's
+	// Retry button simply doesn't render (the toast's Retry action
+	// button still works as a fallback).
 	onRetryDownload?: (model: ModelInfo) => void;
 	onTogglePause: () => void;
 	onCancelDownload: () => void;
@@ -110,8 +110,17 @@ export interface LocalModelsPanelProps {
 	diskInfo: DiskInfo | null;
 	modelsFolderSupported: boolean;
 	onOpenModelsFolder: () => void;
-	// optional initial open-accordion state (the active family)
+	// 	optional initial open-accordion state (the active family) — seeds
+	// INTERNAL state only (uncontrolled mode).
 	initialAccordionValue?: string[];
+	// Controlled accordion state (page-lifted): keeps the user's
+	// expanded families alive across tab flips — Models.tsx unmounts
+	// this panel when switching to Cloud, which would otherwise reset
+	// the accordion to `initialAccordionValue` on return. When absent
+	// the panel falls back to internal state (uncontrolled, for direct
+	// mounts / tests).
+	accordionValue?: string[];
+	onAccordionValueChange?: (value: string[]) => void;
 }
 
 export function LocalModelsPanel({
@@ -139,32 +148,45 @@ export function LocalModelsPanel({
 	modelsFolderSupported,
 	onOpenModelsFolder,
 	initialAccordionValue,
+	accordionValue: accordionValueProp,
+	onAccordionValueChange,
 }: LocalModelsPanelProps) {
-	const [accordionValue, setAccordionValue] = useState<string[]>(
-		initialAccordionValue ?? [],
-	);
+	const [internalAccordionValue, setInternalAccordionValue] = useState<
+		string[]
+	>(initialAccordionValue ?? []);
+	const accordionValue = accordionValueProp ?? internalAccordionValue;
+	const setAccordionValue = onAccordionValueChange ?? setInternalAccordionValue;
 
 	const showLowDiskWarning = Boolean(
 		diskInfo && diskInfo.free_bytes < LOW_DISK_THRESHOLD_BYTES,
 	);
 
 	return (
-		<div className="space-y-6">
+		<div className="flex flex-col gap-4">
+			{/* Localized descriptive subtitle under the panel heading
+			    (key exists in all 8 locales). */}
+			<p
+				className="text-sm text-(--text-muted)"
+				data-testid="local-models-description"
+			>
+				{t("models.localModelsDescription")}
+			</p>
+
 			{/* low-disk warning banner. Only shown when the backend
                             exposes `get_disk_info` AND free space is below the threshold. */}
 			{showLowDiskWarning && diskInfo && (
-				<div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+				<div className="rounded-xl border border-warning/40 bg-warning/5 p-4">
 					<div className="flex items-start gap-3">
 						<HugeiconsIcon
 							icon={Alert02Icon}
 							strokeWidth={2}
 							className="mt-0.5 h-5 w-5 shrink-0 text-warning"
 						/>
-						<div className="flex-1">
+						<div className="flex flex-1 flex-col gap-1">
 							<h3 className="text-sm font-semibold text-(--text-primary)">
 								{t("models.disk.lowSpaceTitle")}
 							</h3>
-							<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
+							<p className="text-xs leading-relaxed text-(--text-muted)">
 								{t("models.disk.lowSpaceBody")}{" "}
 								{t("models.disk.freeSpace", {
 									space: formatBytes(diskInfo.free_bytes),
@@ -200,7 +222,7 @@ export function LocalModelsPanel({
 				</div>
 			)}
 
-			<div className="space-y-6">
+			<div className="flex flex-col gap-4">
 				{/* Model Cards — grouped by family (shared ModelGroupList
                                     primitives, same as the Cloud Models tab). */}
 				<ModelGroupAccordion
@@ -251,26 +273,13 @@ export function LocalModelsPanel({
 													<>
 														{badge && (
 															<span
-																className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border"
-																style={{
-																	backgroundColor: badge.bg,
-																	color: badge.color,
-																	borderColor: `${badge.color}40`,
-																}}
+																className={`shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}
 															>
 																{badge.label}
 															</span>
 														)}
 														{insufficientSpace && (
-															<span
-																className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border"
-																style={{
-																	backgroundColor:
-																		"color-mix(in srgb, #ef4444 15%, transparent)",
-																	color: "#ef4444",
-																	borderColor: "#ef444440",
-																}}
-															>
+															<span className="shrink-0 inline-flex items-center rounded-md border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive">
 																{t("models.status.insufficientDisk")}
 															</span>
 														)}
@@ -283,6 +292,7 @@ export function LocalModelsPanel({
 														isSelectingThis={isSelectingThis}
 														isDownloadingThis={isDownloadingThis}
 														anyDownloading={anyDownloading}
+														anyInstallingDeps={installingDepsModel != null}
 														isInstallingDepsThis={isInstallingDepsThis}
 														onSelect={() => onSelectModel(model)}
 														onDownload={() => onDownloadModel(model)}
@@ -292,7 +302,7 @@ export function LocalModelsPanel({
 												}
 											/>
 											{isDownloadingThis && (
-												<div className="px-3.5 pb-3">
+												<div className="p-4">
 													<DownloadProgressBar
 														progress={downloadProgress}
 														status={downloadStatus}
@@ -344,7 +354,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 			/>
 			{/* WER — only when the backend catalog supplies a real,
 			    published figure (meta.wer). Never guessed. */}
-			{typeof meta.wer === "number" && meta.wer !== null && (
+			{typeof meta.wer === "number" && (
 				<MetadataPair
 					label={t("models.card.werLabel")}
 					value={formatWer(meta.wer)}
@@ -386,12 +396,14 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 
 function getStatusBadge(
 	model: ModelInfo,
-): { label: string; bg: string; color: string } | null {
+): { label: string; className: string } | null {
 	if (!model.depsOk)
 		return {
 			label: t("models.status.depsRequired"),
-			bg: "color-mix(in srgb, #f59e0b 15%, transparent)",
-			color: "#f59e0b",
+			// warning token pair (same treatment as the low-disk banner
+			// above) — tracks light/dark/custom themes, unlike the
+			// previous hardcoded #f59e0b hex.
+			className: "bg-warning/15 text-warning border-warning/40",
 		};
 	return null;
 }

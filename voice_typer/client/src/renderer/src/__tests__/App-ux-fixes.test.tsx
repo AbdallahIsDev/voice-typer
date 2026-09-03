@@ -167,6 +167,14 @@ vi.mock("@/pages/Settings", () => ({
 	default: () => <div data-testid="settings-page">Settings</div>,
 }));
 
+import { APP_NAME } from "@/branding";
+// Standalone t() via the i18n public facade (NOT a direct
+// @/i18n/translate import — that module has init-order side effects in
+// isolation). Same lookup chain App's useT resolves through (defaults
+// to the "en" locale in these tests), so the expected document.title is
+// built from the SAME i18n key + branding constant App.tsx composes
+// (`${t(...)} — ${APP_NAME}`) instead of a hardcoded guess.
+import { t } from "@/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
@@ -750,9 +758,14 @@ describe("BG-25: document.title updates on route change", () => {
 			expect(screen.getByTestId("settings-page")).toBeTruthy();
 		});
 
-		// title updated to the Settings sub-page's nav label
-		// (`navigate("settings")` replace-redirects to `settingsGeneral`).
-		expect(document.title).toBe("General — Voice Typer");
+		// title updated to the Settings HUB title. Settings is now a
+		// HUB + section pages — `navigate("settings")` keeps the page
+		// on the hub literal (the old redirect to `settingsGeneral`
+		// was removed), so App.tsx's title effect resolves
+		// `t("settings.title")` for the `settings` surface. Expected
+		// string built from the same sources App.tsx uses:
+		// t("settings.title") + " — " + APP_NAME.
+		expect(document.title).toBe(`${t("settings.title")} — ${APP_NAME}`);
 	});
 });
 

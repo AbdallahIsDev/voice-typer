@@ -1,5 +1,5 @@
 /**
- * ModelSettingsSection — LLM-polish enablement consent gate.
+ * LlmPolishingSettingsSection — LLM-polish enablement consent gate.
  *
  * Turning the "LLM Polishing" master toggle ON sends transcribed text
  * to the configured LLM provider, which requires `llm_polish_consent`.
@@ -43,7 +43,7 @@ vi.mock("@/hooks/useSnackbar", () => snackbarMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
+import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import { useConsentGateStore } from "@/lib/consentGate";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -65,12 +65,12 @@ function makeConfig(
 
 const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
 
-describe("ModelSettingsSection — enabling LLM polish asks for llm_polish_consent first", () => {
+describe("LlmPolishingSettingsSection — enabling LLM polish asks for llm_polish_consent first", () => {
 	let updateConfig: SettingsSectionSharedProps["updateConfig"];
 
 	const renderSection = (config: VoiceTyperConfig) =>
 		renderWithProviders(
-			<ModelSettingsSection
+			<LlmPolishingSettingsSection
 				config={config}
 				updateConfig={updateConfig}
 				updateConfigDebounced={() => {}}

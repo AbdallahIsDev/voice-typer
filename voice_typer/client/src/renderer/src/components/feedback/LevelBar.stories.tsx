@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import { LevelBar } from "./LevelBar";
 
 const meta: Meta<typeof LevelBar> = {
@@ -47,6 +48,34 @@ export const Playing: Story = {
 			description: {
 				story:
 					"When audio playback is active, the bar visually freezes (opacity 30%) so the user can distinguish 'listening' from 'hearing playback'.",
+			},
+		},
+	},
+};
+
+export const DarkBackground: Story = {
+	args: { level: 0.45, playing: false },
+	decorators: [themeVariantDecorator({ dark: true })],
+	name: "Dark background (medium level)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — the fill uses the same solid `bg-primary` token; the track (`bg-border`) and clipping ⚠ affordance must read against the dark palette.",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: { level: 0.6, playing: false },
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper — the `scaleX` fill must mirror with the document direction (transform-origin flips with logical direction).',
 			},
 		},
 	},

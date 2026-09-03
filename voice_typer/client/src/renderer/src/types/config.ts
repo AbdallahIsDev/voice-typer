@@ -437,6 +437,14 @@ export interface VoiceTyperConfig {
 	// for users who prefer an auditory signal.
 	sound_feedback_enabled: boolean;
 
+	//volume multiplier applied to the sound-feedback cues
+	// (Settings → Recording slider + Test Sound preview). Range is
+	// clamped by the server to [0.0, 1.0] — 1.0 keeps the cues'
+	// baked-in level, 0.0 mutes them. OPTIONAL on the TS side for
+	// backward compat with older sidecars that predate the field —
+	// absence is treated as 1.0 by the renderer's sound-manager.
+	sound_volume?: number;
+
 	// P4: AI grammar / punctuation / capitalization.
 	// Master toggle (ai_enhancement_enabled) defaults OFF — the user
 	// must explicitly opt in via Settings → AI Enhancement.  The three

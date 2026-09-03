@@ -19,8 +19,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/i18n/i18n", () => ({
-	t: (key: string, params?: Record<string, string>) => {
+vi.mock("@/i18n/i18n", () => {
+	const tFn = (key: string, params?: Record<string, string>) => {
 		// Mimic the real t() interpolation: replace {placeholder} tokens.
 		// Fall back to the raw key when the key isn't in the stub catalog
 		// (the real catalog is loaded by the i18n store, not this mock).
@@ -48,8 +48,9 @@ vi.mock("@/i18n/i18n", () => ({
 			}
 		}
 		return result;
-	},
-}));
+	};
+	return { t: tFn, useT: () => tFn, getLocale: () => "en" };
+});
 
 vi.mock("@/components/common/Modal", () => ({
 	Modal: ({
@@ -142,7 +143,11 @@ vi.mock("@/components/ui/select", () => ({
 vi.mock("@/lib/utils", () => ({
 	cn: (...classes: (string | false | undefined)[]) =>
 		classes.filter(Boolean).join(" "),
+	// InfoTooltip spreads this shared focus-ring class onto its trigger.
+	focusRing: "",
 }));
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { TemplateDialog } from "@/pages/templates/components/TemplateDialog";
 
@@ -160,19 +165,21 @@ function renderDialog(props: StubProps = {}) {
 		onSave: vi.fn(),
 	};
 	const utils = render(
-		<TemplateDialog
-			open={true}
-			editingTemplate={null}
-			trigger={props.trigger ?? ""}
-			expansion={props.expansion ?? ""}
-			matchMode="exact"
-			onTriggerChange={handlers.onTriggerChange}
-			onExpansionChange={handlers.onExpansionChange}
-			onMatchModeChange={handlers.onMatchModeChange}
-			onClose={handlers.onClose}
-			onSave={handlers.onSave}
-			onInsertVariable={vi.fn()}
-		/>,
+		<TooltipProvider delayDuration={200}>
+			<TemplateDialog
+				open={true}
+				editingTemplate={null}
+				trigger={props.trigger ?? ""}
+				expansion={props.expansion ?? ""}
+				matchMode="exact"
+				onTriggerChange={handlers.onTriggerChange}
+				onExpansionChange={handlers.onExpansionChange}
+				onMatchModeChange={handlers.onMatchModeChange}
+				onClose={handlers.onClose}
+				onSave={handlers.onSave}
+				onInsertVariable={vi.fn()}
+			/>
+		</TooltipProvider>,
 	);
 	return { ...utils, handlers };
 }
@@ -185,7 +192,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("ZU-30: TemplateDialog Save button disabled state", () => {
+describe("TemplateDialog Save button disabled state", () => {
 	it("disables Save when both trigger and expansion are empty", () => {
 		renderDialog({ trigger: "", expansion: "" });
 		const saveButton = screen.getByRole("button", { name: "Save" });
@@ -224,7 +231,7 @@ describe("ZU-30: TemplateDialog Save button disabled state", () => {
 	});
 });
 
-describe("ZU-30: TemplateDialog unknown-variable warning", () => {
+describe("TemplateDialog unknown-variable warning", () => {
 	it("does NOT render a warning when the expansion contains only known variables", () => {
 		renderDialog({
 			trigger: "today",
@@ -335,19 +342,21 @@ describe("ZU-30: TemplateDialog unknown-variable warning", () => {
 
 		// Simulate the user typing an unknown variable.
 		rerender(
-			<TemplateDialog
-				open={true}
-				editingTemplate={null}
-				trigger="report"
-				expansion="Hello {date}"
-				matchMode="exact"
-				onTriggerChange={handlers.onTriggerChange}
-				onExpansionChange={handlers.onExpansionChange}
-				onMatchModeChange={handlers.onMatchModeChange}
-				onClose={handlers.onClose}
-				onSave={handlers.onSave}
-				onInsertVariable={vi.fn()}
-			/>,
+			<TooltipProvider delayDuration={200}>
+				<TemplateDialog
+					open={true}
+					editingTemplate={null}
+					trigger="report"
+					expansion="Hello {date}"
+					matchMode="exact"
+					onTriggerChange={handlers.onTriggerChange}
+					onExpansionChange={handlers.onExpansionChange}
+					onMatchModeChange={handlers.onMatchModeChange}
+					onClose={handlers.onClose}
+					onSave={handlers.onSave}
+					onInsertVariable={vi.fn()}
+				/>
+			</TooltipProvider>,
 		);
 		const alert = screen.getByRole("alert");
 		expect(alert).toBeTruthy();
@@ -355,19 +364,21 @@ describe("ZU-30: TemplateDialog unknown-variable warning", () => {
 
 		// Simulate the user removing the unknown variable.
 		rerender(
-			<TemplateDialog
-				open={true}
-				editingTemplate={null}
-				trigger="report"
-				expansion="Hello {today}"
-				matchMode="exact"
-				onTriggerChange={handlers.onTriggerChange}
-				onExpansionChange={handlers.onExpansionChange}
-				onMatchModeChange={handlers.onMatchModeChange}
-				onClose={handlers.onClose}
-				onSave={handlers.onSave}
-				onInsertVariable={vi.fn()}
-			/>,
+			<TooltipProvider delayDuration={200}>
+				<TemplateDialog
+					open={true}
+					editingTemplate={null}
+					trigger="report"
+					expansion="Hello {today}"
+					matchMode="exact"
+					onTriggerChange={handlers.onTriggerChange}
+					onExpansionChange={handlers.onExpansionChange}
+					onMatchModeChange={handlers.onMatchModeChange}
+					onClose={handlers.onClose}
+					onSave={handlers.onSave}
+					onInsertVariable={vi.fn()}
+				/>
+			</TooltipProvider>,
 		);
 		// No alert — {today} is a known variable.
 		expect(screen.queryByRole("alert")).toBeNull();

@@ -72,7 +72,7 @@ const seedTemplates = {
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — NH-28 instant-delete optimisation", () => {
+describe("Templates page — instant-delete optimisation", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();

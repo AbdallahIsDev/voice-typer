@@ -21,6 +21,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 
 import {
 	loadTemplatesFromBackend,
@@ -32,6 +33,9 @@ import { rowsToTemplates, sortTemplateRows, toRows } from "../lib/transform";
 import type { Template, TemplateRow, TemplateSortOrder } from "../lib/types";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
+
+// Module-cache key for the SWR seed (see lib/ipcCache.ts).
+const TEMPLATES_CACHE_KEY = "templates.rows";
 
 interface UseTemplatesArgs {
 	call: CallFn;
@@ -86,8 +90,14 @@ export function useTemplates({
 		markUpdatedRef.current = markUpdated;
 	}, [markUpdated]);
 
-	const [templates, setTemplates] = useState<TemplateRow[]>([]);
-	const [loading, setLoading] = useState(true);
+	// SWR seed: revisit renders the last visit's rows instantly from the
+	// module cache (survives page unmount) — `loadRows` below still
+	// revalidates fresh data in the background.
+	const cachedTemplates = peekIpcCache<TemplateRow[]>(TEMPLATES_CACHE_KEY);
+	const [templates, setTemplates] = useState<TemplateRow[]>(
+		cachedTemplates ?? [],
+	);
+	const [loading, setLoading] = useState(cachedTemplates === undefined);
 	//surface backend-load failures (IPC error or malformed
 	// payload) to the user instead of silently falling back to an
 	// empty list. Distinguishes "no templates exist" (valid empty
@@ -194,7 +204,10 @@ export function useTemplates({
 				}
 			}
 
-			setTemplates(toRows(backendTemplates));
+			const templateRows = toRows(backendTemplates);
+			setTemplates(templateRows);
+			// SWR write-through — the next visit seeds from this snapshot.
+			writeIpcCache(TEMPLATES_CACHE_KEY, templateRows);
 			//if the backend failed AND we couldn't recover
 			// from localStorage (or migration), surface a load error
 			// so the user knows to retry. Otherwise the empty list
@@ -208,7 +221,9 @@ export function useTemplates({
 			}
 		} catch (err) {
 			console.error("[renderer:useTemplates] Failed to load templates", err);
-			setTemplates([]);
+			// SWR: keep the seeded/previous rows on a failed revalidation —
+			// stale content beats wiping the page. The load-failure
+			// EmptyState still renders when there is genuinely nothing.
 			//replace hardcoded English fallback with the
 			// localised i18n key. If the caught error is a real
 			// Error instance we still surface its .message (which

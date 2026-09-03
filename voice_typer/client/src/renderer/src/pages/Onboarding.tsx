@@ -200,12 +200,12 @@ export default function OnboardingPage({
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
-					className="w-full rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-none"
+					className="flex w-full flex-col gap-4 rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-none"
 				>
-					<h2 className="mb-2 text-lg font-semibold text-(--text-primary)">
+					<h2 className="text-lg font-semibold text-(--text-primary)">
 						{t("errorBoundary.title")}
 					</h2>
-					<p className="mb-4 text-sm text-(--text-muted)">{initError}</p>
+					<p className="text-sm text-(--text-muted)">{initError}</p>
 					<div className="flex items-center justify-center gap-3">
 						<Button variant="default" onClick={retryInit}>
 							{t("errorBoundary.tryAgain")}
@@ -296,10 +296,10 @@ export default function OnboardingPage({
 	const isModelStepBlocked = step.step_name === "Model" && !selectedModel;
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center px-6 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center gap-8 px-6 pt-28 pb-6">
 			{/* Fix 13: progressbar role + aria attributes. */}
-			<div className="mb-8 w-full">
-				<div className="mb-2 flex items-center justify-between text-xs text-(--text-muted)">
+			<div className="flex w-full flex-col gap-2">
+				<div className="flex items-center justify-between text-xs text-(--text-muted)">
 					<span>
 						{t("onboarding.stepProgress", {
 							current: String(step.step + 1),
@@ -355,7 +355,7 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</div>
 
-			<div className="w-full rounded-xl border border-border/5 bg-(--bg) p-8">
+			<div className="flex w-full flex-col gap-6 rounded-xl border border-border/5 bg-(--bg) p-8">
 				{step.step_name === "Welcome" && (
 					<WelcomeStep headingRef={headingRef} />
 				)}
@@ -442,7 +442,7 @@ export default function OnboardingPage({
                                         automatically). */}
 				{isDoneStep && (
 					<div
-						className="mt-6 rounded-lg border border-border/5 bg-(--bg-subtle) p-4"
+						className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4"
 						data-testid="onboarding-consent-section"
 					>
 						<label
@@ -458,11 +458,11 @@ export default function OnboardingPage({
 								aria-label={t("settings.voiceBiometricProcessingAria")}
 								data-testid="onboarding-consent-checkbox"
 							/>
-							<span className="flex-1">
-								<span className="block font-medium text-(--text-primary)">
+							<span className="flex flex-1 flex-col gap-1">
+								<span className="font-medium text-(--text-primary)">
 									{t("settings.voiceBiometricProcessing")}
 								</span>
-								<span className="mt-1 block text-xs text-(--text-muted)">
+								<span className="text-xs text-(--text-muted)">
 									{t("settings.voiceBiometricProcessingInfo")}
 								</span>
 							</span>
@@ -482,18 +482,18 @@ export default function OnboardingPage({
 					<div
 						role="alert"
 						data-testid="onboarding-apply-error"
-						className="mt-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
+						className="flex flex-col gap-1 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
 					>
 						<p className="text-sm font-medium text-(--text-primary)">
 							{t("onboarding.applyFailedTitle")}
 						</p>
-						<p className="mt-1 text-xs text-(--text-muted)">
+						<p className="text-xs text-(--text-muted)">
 							{t("onboarding.applyFailedDescription")}
 						</p>
 					</div>
 				)}
 
-				<div className="mt-8 flex items-center justify-between gap-4">
+				<div className="flex items-center justify-between gap-4">
 					<div>
 						{/* Fix 16: Back button shown on Done step too (was hidden). */}
 						<Button

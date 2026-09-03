@@ -6,7 +6,10 @@
 // The Dictation Key was moved here from the now-removed standalone
 // HotkeySettingsSection since it was the only setting in that section.
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { PlayIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { HotkeyPicker } from "@/components/hotkey/HotkeyPicker";
@@ -14,6 +17,7 @@ import {
 	getComboPresets,
 	getSingleKeyPresets,
 } from "@/components/hotkey/hotkey-utils";
+import { Button } from "@/components/ui/button";
 import { NumberInputStepper } from "@/components/ui/number-input-stepper";
 import {
 	SegmentedControl,
@@ -28,7 +32,11 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
-import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
+import {
+	playSoundCue,
+	setSoundFeedbackEnabled,
+	setSoundVolume,
+} from "@/lib/sound-manager";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -167,10 +175,47 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const handleAutoPasteChange = (checked: boolean) =>
 		updateConfig({ paste_on_stop: checked });
 
+	const handleUnsafePasteChange = (checked: boolean) =>
+		updateConfig({ unsafe_paste_on_unknown_focus: checked });
+
+	const handleWarnElevatedPasteChange = (checked: boolean) =>
+		updateConfig({ warn_elevated_paste: checked });
+
+	const handleWarnPasswordPasteChange = (checked: boolean) =>
+		updateConfig({ warn_password_paste: checked });
+
 	const handleSoundFeedbackChange = (checked: boolean) => {
 		updateConfig({ sound_feedback_enabled: checked });
 		setSoundFeedbackEnabled(checked);
 	};
+
+	// Volume slider → debounced config write + immediate manager sync so
+	// a Test Sound click right after a drag previews the new level even
+	// before the debounce timer fires. The config value stays the
+	// canonical 0.0..1.0 float (mirrors the server allowlist); the SLIDER
+	// works in percent units (0-100, step 5) so the readout / thumb
+	// aria-valuetext / endpoints render as "65%" instead of raw decimals.
+	const handleSoundVolumeChange = (v: number) => {
+		const clamped = Math.min(1, Math.max(0, v / 100));
+		setSoundVolume(clamped);
+		updateConfigDebounced("sound_volume", clamped);
+	};
+
+	// Preview one existing cue at the configured volume. The manager
+	// gates on the enabled flag internally, so a disabled toggle means
+	// the preview is a no-op — matching the cues' real behavior.
+	const handleTestSound = () => {
+		playSoundCue("complete");
+	};
+
+	// Keep the manager's volume mirror in sync with config pushes
+	// (config_changed events, reset-to-defaults, initial load) that
+	// didn't flow through the slider handler.
+	useEffect(() => {
+		if (typeof config?.sound_volume === "number") {
+			setSoundVolume(config.sound_volume);
+		}
+	}, [config?.sound_volume]);
 
 	// track invalid reasons for the NumberInputStepper inputs
 	// so we can surface inline error messages and helper text. The state
@@ -208,6 +253,24 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	const soundFeedbackInfoSearch = t(
 		"settings.hotkeySection.soundFeedbackInfoSearch",
 	);
+	// New rows reuse ONE info string for both the search predicate and
+	// the tooltip (no separate InfoSearch keys) — the predicate accepts
+	// the same string.
+	const soundVolumeLabel = t("settings.hotkeySection.soundVolume");
+	const soundVolumeInfoSearch = t("settings.hotkeySection.soundVolumeInfo");
+	const testSoundLabel = t("settings.hotkeySection.testSound");
+	const unsafePasteLabel = t("settings.hotkeySection.unsafePaste");
+	const unsafePasteInfoSearch = t(
+		"settings.hotkeySection.unsafePasteInfoSearch",
+	);
+	const warnElevatedLabel = t("settings.hotkeySection.warnElevatedPaste");
+	const warnElevatedInfoSearch = t(
+		"settings.hotkeySection.warnElevatedPasteInfoSearch",
+	);
+	const warnPasswordLabel = t("settings.hotkeySection.warnPasswordPaste");
+	const warnPasswordInfoSearch = t(
+		"settings.hotkeySection.warnPasswordPasteInfoSearch",
+	);
 	const repasteKeyLabel = t("settings.hotkeySection.repasteKey");
 	const repasteKeyInfoSearch = t("settings.hotkeySection.repasteKeyInfoSearch");
 	const silenceWarningLabel = t("settings.hotkeySection.silenceWarning");
@@ -244,7 +307,12 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		{ label: stopOnSilenceLabel, info: stopOnSilenceInfoSearch },
 		{ label: escToCancelLabel, info: escToCancelInfoSearch },
 		{ label: autoPasteLabel, info: autoPasteInfoSearch },
+		{ label: unsafePasteLabel, info: unsafePasteInfoSearch },
+		{ label: warnElevatedLabel, info: warnElevatedInfoSearch },
+		{ label: warnPasswordLabel, info: warnPasswordInfoSearch },
 		{ label: soundFeedbackLabel, info: soundFeedbackInfoSearch },
+		{ label: soundVolumeLabel, info: soundVolumeInfoSearch },
+		{ label: testSoundLabel, info: soundVolumeInfoSearch },
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
 		{ label: maxRecordingTimeLabel, info: maxRecordingTimeInfoSearch },
 	];
@@ -358,6 +426,47 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						/>
 					</SettingRow>
 
+					{/*Paste-safety rows (previously config.json-only
+                                            fields, now user-tunable). unsafe_paste_on_unknown_focus is
+                                            an escape hatch (paste into unidentified windows); the two
+                                            warn_* toggles gate the confirmation dialogs for elevated
+                                            (admin) windows and password fields. */}
+					<SettingRow
+						label={unsafePasteLabel}
+						info={t("settings.hotkeySection.unsafePasteInfoSearch")}
+					>
+						<Switch
+							checked={config.unsafe_paste_on_unknown_focus ?? false}
+							onCheckedChange={handleUnsafePasteChange}
+							aria-label={t("settings.hotkeySection.unsafePasteAria")}
+							data-testid="unsafe-paste-switch"
+						/>
+					</SettingRow>
+
+					<SettingRow
+						label={warnElevatedLabel}
+						info={t("settings.hotkeySection.warnElevatedPasteInfoSearch")}
+					>
+						<Switch
+							checked={config.warn_elevated_paste ?? true}
+							onCheckedChange={handleWarnElevatedPasteChange}
+							aria-label={t("settings.hotkeySection.warnElevatedPasteAria")}
+							data-testid="warn-elevated-paste-switch"
+						/>
+					</SettingRow>
+
+					<SettingRow
+						label={warnPasswordLabel}
+						info={t("settings.hotkeySection.warnPasswordPasteInfoSearch")}
+					>
+						<Switch
+							checked={config.warn_password_paste ?? true}
+							onCheckedChange={handleWarnPasswordPasteChange}
+							aria-label={t("settings.hotkeySection.warnPasswordPasteAria")}
+							data-testid="warn-password-paste-switch"
+						/>
+					</SettingRow>
+
 					{/*Audio cue on record start/stop for accessibility
                                         and confirmation.  Especially useful for blind users who
                                         can't see the visual indicator change. */}
@@ -370,6 +479,47 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							onCheckedChange={handleSoundFeedbackChange}
 							aria-label={t("settings.hotkeySection.soundFeedbackAria")}
 						/>
+					</SettingRow>
+
+					{/*Volume multiplier for the cues above + a one-click
+                                            preview. Both rows are disabled while sound feedback is off —
+                                            the cues (and the preview) are no-ops then anyway. */}
+					<SettingRow
+						label={soundVolumeLabel}
+						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
+					>
+						<RangeSlider
+							value={Math.round((config.sound_volume ?? 1) * 100)}
+							min={0}
+							max={100}
+							step={5}
+							onChange={handleSoundVolumeChange}
+							ariaLabel={t("settings.hotkeySection.soundVolumeAria")}
+							disabled={!(config.sound_feedback_enabled ?? true)}
+							suffix="%"
+						/>
+					</SettingRow>
+
+					<SettingRow
+						label={testSoundLabel}
+						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
+					>
+						<Button
+							variant="outline"
+							size="sm"
+							className="gap-2"
+							onClick={handleTestSound}
+							disabled={!(config.sound_feedback_enabled ?? true)}
+							aria-label={t("settings.hotkeySection.testSoundAria")}
+							data-testid="test-sound-button"
+						>
+							<HugeiconsIcon
+								icon={PlayIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{testSoundLabel}
+						</Button>
 					</SettingRow>
 
 					<SettingRow

@@ -64,7 +64,7 @@ export function HotkeyTooltip({
 			<TooltipTrigger asChild>{children}</TooltipTrigger>
 			{!disabled && (
 				<TooltipContent side={side} align="center">
-					<span className="flex items-center gap-1.5 whitespace-nowrap">
+					<span className="flex items-center gap-2 whitespace-nowrap">
 						<span>{label}</span>
 						{keys !== undefined && <HotkeyChips keys={keys} />}
 					</span>

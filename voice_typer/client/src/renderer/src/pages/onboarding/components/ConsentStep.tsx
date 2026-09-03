@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { t, useT } from "@/i18n/i18n";
 
-const HEADING_CLASS =
-	"mb-3 text-2xl font-bold text-(--text-primary) outline-none";
+const HEADING_CLASS = "text-2xl font-bold text-(--text-primary) outline-none";
 
 /** The six consent fields surfaced on this step (Settings-row subset —
  *  `offline_pack_consent` has no Settings row and is granted at the
@@ -78,14 +77,14 @@ export default function ConsentStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.consentTitle")}
 			</h2>
-			<p className="mb-6 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.consentDescription")}
 			</p>
 
 			{/* Agree-to-All banner — grants every consent at once. The
 			    wizard defaults stay privacy-first (all off); this is a
 			    convenience, not an implicit grant. */}
-			<div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-3.5 py-3">
+			<div className="flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-3.5 py-3">
 				<p className="text-xs text-(--text-muted)">
 					{t("settings.privacy.privacyDescription")}
 				</p>
@@ -100,9 +99,9 @@ export default function ConsentStep({
 				</Button>
 			</div>
 
-			<div className="space-y-3">
+			<div className="flex flex-col gap-3">
 				{CONSENT_STEP_FIELDS.map(({ field, labelKey, infoKey }) => (
-					<div key={field} className="rounded-lg border border-border/5 p-3.5">
+					<div key={field} className="rounded-lg border border-border/5 p-4">
 						<div className="flex items-start justify-between gap-3">
 							<div className="min-w-0 flex-1">
 								<span className="block text-sm font-medium text-(--text-primary)">

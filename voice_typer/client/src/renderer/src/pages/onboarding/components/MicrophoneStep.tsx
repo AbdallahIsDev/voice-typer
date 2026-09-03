@@ -37,7 +37,7 @@ export function MicrophoneStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.micTitle")}
 			</h2>
-			<p className="mb-4 text-sm text-(--text-muted)">
+			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.micDescription")}
 			</p>
 			{microphones.length > 0 ? (

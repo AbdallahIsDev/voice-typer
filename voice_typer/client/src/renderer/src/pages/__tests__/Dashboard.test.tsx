@@ -537,19 +537,21 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 });
 
 describe("Top stat cards: merged dictation card + range-aware values", () => {
-	it("the single dictation card uses totalDictationsPeriod with the localized range", () => {
+	it("the single dictation card uses the plain totalDictations label", () => {
 		// The old split — Card 1 "Dictations ({range})" (sample-window
 		// count) vs Card 3 "Total Dictations" (range-blind true
 		// count) — is merged into ONE card whose VALUE respects the
-		// selected range. The label keeps the range so the number is
-		// never read as a conflicting all-time total.
-		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictationsPeriod/);
-		expect(DASHBOARD_SRC).toMatch(/range: t\(`analytics\.range\.\$\{range}`\)/);
-		// The old split labels are gone.
-		expect(DASHBOARD_SRC).not.toMatch(/analytics\.dictationsPeriod/);
-		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.totalDictations"\)/);
-		// en.json defines the key with the {range} interpolation slot.
-		expect(EN_JSON.analytics.totalDictationsPeriod).toContain("{range}");
+		// selected range. The LABEL is range-free: the
+		// TimeRangeSelector + the chart subtitle already state the
+		// active window, and the suffixed label was the only one in
+		// the row that truncated ("Total Dictations (7 D…").
+		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictations/);
+		// The suffixed label is gone from both the source and the
+		// locale catalogues.
+		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsPeriod/);
+		expect(EN_JSON.analytics.totalDictations).toBeDefined();
+		expect(EN_JSON.analytics.totalDictations).not.toContain("{range}");
+		expect(EN_JSON.analytics.totalDictationsPeriod).toBeUndefined();
 	});
 
 	it("the dictation value is range-aware and uncapped for All Time", () => {

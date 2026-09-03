@@ -16,7 +16,7 @@ import { useCallback, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
-import { Spinner } from "@/components/feedback/Spinner";
+import { MicrophoneSkeleton } from "@/components/feedback/skeletons";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
@@ -189,11 +189,7 @@ export default function MicrophonePage() {
 	// ``useMicrophoneData`` populate the initial state so we render the
 	// page immediately (the spinner would flash stale-then-real).
 	if (!microphones.length && !config && loading) {
-		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner label={t("microphone.loading")} />
-			</div>
-		);
+		return <MicrophoneSkeleton />;
 	}
 
 	//distinguish "backend failed to load" from "no microphones
@@ -201,7 +197,7 @@ export default function MicrophonePage() {
 	// a microphone when the real issue is the backend is unreachable.
 	if (loadError && microphones.length === 0) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("microphone.microphone")}
 					description={t("microphone.description")}
@@ -223,13 +219,13 @@ export default function MicrophonePage() {
 	}
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 			<PageHeading
 				title={t("microphone.microphone")}
 				description={t("microphone.description")}
 			/>
 
-			<div className="space-y-6">
+			<div className="flex flex-col gap-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
 
 				{/* Runtime-pack readiness banner — §4.8 / §4.9. Visible only

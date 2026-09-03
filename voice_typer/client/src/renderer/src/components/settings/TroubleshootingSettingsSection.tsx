@@ -21,6 +21,7 @@ import {
 	Bug02Icon,
 	Delete02Icon,
 	File02Icon,
+	KeyboardIcon,
 	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -45,6 +46,10 @@ interface TroubleshootingSettingsSectionProps {
 	onNavigate?: (page: Page) => void;
 	/** Opens the parent-owned "Reset to Defaults" ConfirmDialog. */
 	onResetClick: () => void;
+	/** Opens the parent-owned HelpOverlay (keyboard-shortcut +
+	 *  punctuation-cheat-sheet reference). The overlay instance itself
+	 *  lives in Settings.tsx — the section only requests it. */
+	onOpenHelp: () => void;
 }
 
 export const TroubleshootingSettingsSection = memo(
@@ -53,6 +58,7 @@ export const TroubleshootingSettingsSection = memo(
 		updateConfig,
 		onNavigate,
 		onResetClick,
+		onOpenHelp,
 	}: TroubleshootingSettingsSectionProps) {
 		const { call } = usePython();
 		const { showSnack } = useSnackbar();
@@ -76,6 +82,10 @@ export const TroubleshootingSettingsSection = memo(
 		const reportBugLabel = t("settings.troubleshooting.reportBug");
 		const reRunWizardLabel = t("settings.troubleshooting.reRunWizard");
 		const resetToDefaultsLabel = t("settings.troubleshooting.resetToDefaults");
+		// Keyboard Shortcuts button — opens the shared HelpOverlay
+		// (same overlay the title-bar `?` opens). Label reuses the
+		// existing `help.title` key ("Keyboard Shortcuts").
+		const keyboardShortcutsLabel = t("help.title");
 		const resetAccessibilityLabel = t(
 			"settings.troubleshooting.resetAccessibility",
 		);
@@ -136,6 +146,7 @@ export const TroubleshootingSettingsSection = memo(
 			[
 				openLogFolderLabel,
 				helpFaqLabel,
+				keyboardShortcutsLabel,
 				reportBugLabel,
 				reRunWizardLabel,
 				resetToDefaultsLabel,
@@ -332,6 +343,21 @@ export const TroubleshootingSettingsSection = memo(
 					<Button
 						variant="outline"
 						className="gap-2"
+						onClick={onOpenHelp}
+						aria-label={t("help.title")}
+						title={t("help.description")}
+						data-testid="keyboard-shortcuts-button"
+					>
+						<HugeiconsIcon
+							icon={KeyboardIcon}
+							strokeWidth={2}
+							className="h-4 w-4"
+						/>
+						{keyboardShortcutsLabel}
+					</Button>
+					<Button
+						variant="outline"
+						className="gap-2"
 						onClick={handleReRunWizard}
 						aria-label={t("settings.troubleshooting.reRunWizardAria")}
 						title={t("settings.troubleshooting.reRunWizardHint")}
@@ -343,7 +369,7 @@ export const TroubleshootingSettingsSection = memo(
 						/>
 						{reRunWizardLabel}
 					</Button>
-					<p className="mt-1 text-xs text-muted-foreground">
+					<p className="text-xs text-muted-foreground">
 						{t("settings.troubleshooting.reRunWizardHint")}
 					</p>
 					{isMac && (
@@ -393,10 +419,10 @@ export const TroubleshootingSettingsSection = memo(
 					{/*visually separate the destructive Reset to Defaults
                                                 button from the 5 non-destructive buttons above with a
                                                 top border + padding so users don't click it by accident. */}
-					<div className="mt-4 border-t border-border/5 pt-3">
+					<div className="flex w-full flex-col gap-1 border-t border-border/5 pt-3">
 						<Button
 							variant="destructive"
-							className="gap-2"
+							className="gap-2 self-start"
 							onClick={onResetClick}
 							aria-label={t("settings.troubleshooting.resetToDefaultsAria")}
 							title={t("settings.troubleshooting.resetToDefaultsHint")}
@@ -415,7 +441,7 @@ export const TroubleshootingSettingsSection = memo(
 							/>
 							{resetToDefaultsLabel}
 						</Button>
-						<p className="mt-1 text-xs text-muted-foreground">
+						<p className="text-xs text-muted-foreground">
 							{t("settings.troubleshooting.resetToDefaultsHint")}
 						</p>
 					</div>

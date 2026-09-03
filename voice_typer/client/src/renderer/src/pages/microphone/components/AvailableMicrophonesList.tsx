@@ -89,8 +89,8 @@ export function AvailableMicrophonesList({
 	};
 
 	return (
-		<div>
-			<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted) mb-2 px-1">
+		<div className="flex flex-col gap-2">
+			<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted) px-1">
 				{t("microphone.availableMicrophones")}
 			</p>
 			<RadioGroup
@@ -109,7 +109,7 @@ export function AvailableMicrophonesList({
 						{/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection. */}
 						<div
 							className={
-								"flex items-center gap-3 px-3.5 py-2.5 transition-colors" +
+								"flex items-center gap-3 px-4 py-2 transition-colors" +
 								(testRunning || activeMicId === null
 									? ""
 									: " cursor-pointer hover:bg-foreground/5")

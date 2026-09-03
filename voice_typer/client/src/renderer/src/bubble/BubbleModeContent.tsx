@@ -14,6 +14,7 @@
  * `Bubble.test.tsx`'s `.flex.h-6.items-center` empty-container
  * assertion) keep passing.
  */
+
 import { Mic02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { RefObject } from "react";
@@ -112,7 +113,7 @@ export function BubbleModeContent({
 					? truncateTranscript(transcript)
 					: null;
 			return (
-				<div className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)">
+				<div className="flex items-center gap-2 text-xs font-medium text-(--text-secondary)">
 					<span>{t("bubble.transcribingLabel")}</span>
 					{preview && (
 						<output
@@ -154,7 +155,7 @@ export function BubbleModeContent({
 					: null;
 			return (
 				<div
-					className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)"
+					className="flex items-center gap-2 text-xs font-medium text-(--text-secondary)"
 					style={{
 						opacity: 0,
 						transform: "translateY(-4px)",
@@ -187,7 +188,7 @@ export function BubbleModeContent({
                                             passes — querySelector returns the first match in DOM
                                             order, which is the empty div. */}
 					<div className="flex h-6 items-center" />
-					<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
+					<div className="flex h-6 items-center gap-2 px-2" aria-hidden>
 						<HugeiconsIcon
 							icon={Mic02Icon}
 							strokeWidth={2}
@@ -209,7 +210,7 @@ export function BubbleModeContent({
 			// `bubble:set-state` payload, it's surfaced as a
 			// short reason string after the "Error" label.
 			return (
-				<div className="flex h-6 items-center gap-1.5 px-2">
+				<div className="flex h-6 items-center gap-2 px-2">
 					<span
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden
@@ -222,7 +223,7 @@ export function BubbleModeContent({
 			);
 		case "blocked":
 			return (
-				<div className="flex h-6 items-center gap-1.5 px-2">
+				<div className="flex h-6 items-center gap-2 px-2">
 					<span
 						className="text-[0.6875rem] leading-none text-(--text-muted)"
 						aria-hidden
@@ -236,7 +237,7 @@ export function BubbleModeContent({
 			);
 		case "cancelling":
 			return (
-				<div className="flex h-6 items-center gap-1.5 px-2">
+				<div className="flex h-6 items-center gap-2 px-2">
 					<span
 						className="text-[0.6875rem] leading-none text-(--text-muted) animate-pulse"
 						aria-hidden
@@ -250,7 +251,7 @@ export function BubbleModeContent({
 			);
 		case "permission_revoked":
 			return (
-				<div className="flex h-6 items-center gap-1.5 px-2">
+				<div className="flex h-6 items-center gap-2 px-2">
 					<span
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden
@@ -262,7 +263,7 @@ export function BubbleModeContent({
 			);
 		case "paste_failed":
 			return (
-				<div className="flex h-6 items-center gap-1.5 px-2">
+				<div className="flex h-6 items-center gap-2 px-2">
 					<span
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden

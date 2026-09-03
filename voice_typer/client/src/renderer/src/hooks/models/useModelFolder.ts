@@ -97,7 +97,16 @@ export function useModelFolder({
 			showSnack(t("a11y.importNotAvailableOutsideElectron"), "warning");
 			return;
 		}
-		const result = await api.openModelImportDialog();
+		let result: { canceled?: boolean; path?: string };
+		try {
+			result = await api.openModelImportDialog();
+		} catch (err) {
+			// A rejected dialog open previously escaped as an unhandled
+			// promise rejection with zero user feedback.
+			console.error("[renderer:useModelFolder] import dialog failed:", err);
+			showSnack(t("models.import.failedAll"), "error");
+			return;
+		}
 		if (result.canceled || !result.path) return;
 		setIsImporting(true);
 		try {

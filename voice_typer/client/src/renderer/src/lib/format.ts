@@ -180,6 +180,71 @@ function resolveLocale(locale?: Locale): Locale {
 	return locale ?? getLocale();
 }
 
+// ── Date helpers (moved from pages/dashboard/lib/streaks.ts) ─────────
+//
+// ``localDateKey`` / ``parseUtcTimestamp`` / ``dateKey`` are pure,
+// locale-independent date utilities that several features need beyond
+// the dashboard (the History page's date-grouped list buckets rows by
+// the same local calendar day). They live here so every consumer
+// imports them from ONE module (E7 — no duplicate definitions), and
+// ``streaks.ts`` re-exports them so the existing dashboard imports
+// keep resolving.
+
+/**
+ * Format a Date as a YYYY-MM-DD string in LOCAL time (not UTC).
+ *
+ * The previous implementation used
+ * ``new Date(ts).toISOString().slice(0, 10)`` which formats the date in
+ * UTC. For users in negative UTC offsets (the Americas, -05:00 to
+ * -10:00), a transcription logged at 8pm local on Tuesday was bucketed
+ * into Wednesday's UTC date — so the dashboard's "Today" total stayed
+ * at zero until the next local day, and the 7-day activity chart
+ * showed entries on the wrong bars. Switching to local-date keys keeps
+ * the bucket aligned with the user's calendar day.
+ */
+export function localDateKey(d: Date): string {
+	const y = d.getFullYear();
+	const m = String(d.getMonth() + 1).padStart(2, "0");
+	const day = String(d.getDate()).padStart(2, "0");
+	return `${y}-${m}-${day}`;
+}
+
+/**
+ * Parse a DB timestamp string into a Date, treating it as UTC.
+ *
+ * SQLite stores ``timestamp`` as UTC ``"YYYY-MM-DD HH:MM:SS"`` with NO
+ * timezone marker. JS parses unmarked date-time strings as LOCAL time,
+ * which shifts calendar-day bucketing by the user's UTC offset: a
+ * dictation at 00:30 local (stored as yesterday 21:30 UTC) was parsed
+ * as yesterday 21:30 LOCAL and bucketed into the WRONG day. Appending
+ * the Z marker makes the instant correct; `localDateKey` then converts
+ * to the user's calendar day.
+ */
+export function parseUtcTimestamp(ts: string): Date {
+	const s = ts.trim();
+	if (!s) return new Date(NaN);
+	// Already carries a zone marker, or is a bare date (local-midnight
+	// semantics are correct for pure date keys) — parse as-is.
+	if (
+		/[zZ]$/.test(s) ||
+		/[+-]\d{2}:?\d{2}$/.test(s) ||
+		/^\d{4}-\d{2}-\d{2}$/.test(s)
+	) {
+		return new Date(s);
+	}
+	// "YYYY-MM-DD HH:MM:SS" (or ISO with a space) → ISO + Z (UTC).
+	return new Date(`${s.replace(" ", "T")}Z`);
+}
+
+/** Parse a timestamp string to a YYYY-MM-DD date key (in LOCAL time). */
+export function dateKey(ts: string): string {
+	try {
+		return localDateKey(parseUtcTimestamp(ts));
+	} catch {
+		return ts;
+	}
+}
+
 // ── formatVram ───────────────────────────────────────────────────────
 
 /**

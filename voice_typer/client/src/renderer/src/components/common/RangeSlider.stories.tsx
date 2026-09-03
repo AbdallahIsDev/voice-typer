@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { fn } from "storybook/test";
+import { themeVariantDecorator } from "@/lib/storybook/decorators";
 import { RangeSlider } from "./RangeSlider";
 
 const meta: Meta<typeof RangeSlider> = {
@@ -79,6 +80,50 @@ export const Interactive: Story = {
 			description: {
 				story:
 					"Wraps RangeSlider in a `useState` so you can drag the slider and see the value readout update live. Useful for verifying keyboard accessibility (arrow keys, PageUp/PageDown).",
+			},
+		},
+	},
+};
+
+export const DarkBackground: Story = {
+	args: {
+		value: 50,
+		min: 0,
+		max: 100,
+		step: 1,
+		ariaLabel: "Volume",
+		suffix: "%",
+		onChange: fn(),
+	},
+	decorators: [themeVariantDecorator({ dark: true })],
+	name: "Dark background",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — verifies the track/fill/thumb contrast against the dark palette.",
+			},
+		},
+	},
+};
+
+export const RtlLayout: Story = {
+	args: {
+		value: 750,
+		min: 100,
+		max: 2000,
+		step: 50,
+		ariaLabel: "Silence duration",
+		suffix: "ms",
+		onChange: fn(),
+	},
+	decorators: [themeVariantDecorator({ rtl: true })],
+	name: "RTL (Arabic)",
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rendered inside a `dir="rtl"` wrapper — native range inputs flip their fill direction with the document direction, and the label/value row must mirror.',
 			},
 		},
 	},

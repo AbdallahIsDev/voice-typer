@@ -28,7 +28,7 @@ import { modelsConfigMock } from "@/__tests__/helpers/stableMocks";
 
 // The canonical minimal models-page config shape (one source of truth
 // in helpers/stableMocks.tsx — shared with ModelsPage.test.tsx,
-// ModelsPage-nh29 and the data-pages live-region guards).
+// ModelsPage-cancel-download-reset and the data-pages live-region guards).
 const MOCK_CONFIG = modelsConfigMock();
 
 const commands: GuardCommand[] = [

@@ -55,8 +55,8 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 	const ariaCounts = bars.map((b) => `${b.label}: ${b.count}`).join(", ");
 
 	return (
-		<div className="rounded-xl border border-border/5 bg-(--bg-subtle) p-4">
-			<div className="mb-4 flex items-center gap-2.5">
+		<div className="flex flex-col gap-4 rounded-xl border border-border/5 bg-(--bg-subtle) p-4">
+			<div className="flex items-center gap-2.5">
 				{/* Icon grouped directly left of the title (was stranded
 				in the top-right corner). */}
 				<HugeiconsIcon
@@ -72,7 +72,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 					// to a two-line text block).
 					className="h-8 w-8 shrink-0 text-(--text-muted)"
 				/>
-				<div className="space-y-0.5">
+				<div className="flex flex-col gap-0.5">
 					<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
 						{t("analytics.activityTitle")}
 					</h2>
@@ -88,6 +88,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 					range: rangeLabel,
 					counts: ariaCounts,
 				})}
+				className="flex flex-col gap-2"
 			>
 				<div className="flex gap-2">
 					{/* Y axis: unique tick labels (max / mid / 0; mid is
@@ -125,10 +126,10 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 								return (
 									<div
 										key={bar.key}
-										className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+										className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
 									>
 										{/* count label above the bar (only when > 0) */}
-										<span className="mb-1 text-[10px] leading-none tabular-nums text-(--text-muted)">
+										<span className="text-[10px] leading-none tabular-nums text-(--text-muted)">
 											{bar.count > 0 ? bar.count : ""}
 										</span>
 										<div
@@ -155,7 +156,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 				</div>
 
 				{/* X axis labels (aligned under the plot, skipping for crowding) */}
-				<div className="mt-1.5 flex gap-2">
+				<div className="flex gap-2">
 					<div className="w-7 shrink-0" aria-hidden="true" />
 					<div className="flex min-w-0 flex-1 gap-1">
 						{bars.map((bar, i) => (

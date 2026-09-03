@@ -7,6 +7,10 @@ import { configHotkeyLabels } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
+import {
+	isSettingsSurface,
+	SECTION_TITLE_BY_PAGE,
+} from "@/components/settings/settingsSections";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAsrBackendDisabledToast } from "@/hooks/useAsrBackendDisabledToast";
@@ -38,6 +42,7 @@ import { resolveLinuxWindowButtons } from "@/lib/utils/windowButtons";
 // router/PageSwitch.tsx (Home eager, the other 9 pages lazy). App
 // stays pure wiring: hooks, overlays, layout.
 import { PageSwitch } from "@/router/PageSwitch";
+import { prefetchRouteChunks } from "@/router/prefetch";
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
 import type { Page, WindowBridge } from "@/types/ipc";
@@ -149,11 +154,20 @@ export default function App() {
 	// with the active route so screen-reader users (who announce the window
 	// title to orient) and OS taskbar users can tell which page is active
 	// without reading into main content. The title is composed as
-	// `t("nav.<page>") — APP_NAME` so it localises with the rest of the UI.
-	// Runs on mount AND whenever `currentPage` or `t` (i.e. the active
-	// locale) changes — a locale switch re-titles the window.
+	// `t("nav.<page>") — APP_NAME` so it localises with the rest of the
+	// UI. Settings surfaces pull their title from the SECTION REGISTRY
+	// (settingsSections.ts) instead of `nav.*` duplicates — the hub row,
+	// the nested page's card heading, and this window title all read the
+	// SAME key, so they can never drift. Runs on mount AND whenever
+	// `currentPage` or `t` (i.e. the active locale) changes — a locale
+	// switch re-titles the window.
 	useEffect(() => {
-		document.title = `${t(`nav.${currentPage}`)} — ${APP_NAME}`;
+		const pageTitle = isSettingsSurface(currentPage)
+			? currentPage === "settings"
+				? t("settings.title")
+				: t(SECTION_TITLE_BY_PAGE[currentPage])
+			: t(`nav.${currentPage}`);
+		document.title = `${pageTitle} — ${APP_NAME}`;
 	}, [currentPage, t]);
 
 	// One-time startup hook to propagate the restored locale (read
@@ -170,6 +184,15 @@ export default function App() {
 	// fires the IPC pushes on the backend side. Runs ONCE on mount.
 	useEffect(() => {
 		setLocale(getLocale());
+	}, []);
+
+	// Route-chunk prefetch (router/prefetch.ts): warm every lazy page
+	// chunk during idle time so the first navigation to each page
+	// renders from React.lazy's module cache instead of waiting on a
+	// dynamic import. Runs ONCE on mount; hover/focus on sidebar items
+	// (prefetchPage) covers the pre-idle window.
+	useEffect(() => {
+		prefetchRouteChunks();
 	}, []);
 
 	// a11y / focus management on route change: move keyboard focus

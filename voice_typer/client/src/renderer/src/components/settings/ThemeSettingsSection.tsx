@@ -426,9 +426,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			{/* ── Custom Theme color Picker ─────────────────────── */}
 			{/* Only visible when the custom theme toggle is ON */}
 			{effectivePreset === "custom" && customDraft && (
-				<div className="animate-fade-in px-3.5 pb-4">
+				<div className="animate-fade-in flex flex-col gap-3 p-4">
 					{/* Light / Dark mode tabs */}
-					<div className="mb-3 flex gap-1 rounded-lg bg-(--bg-subtle) p-0.5">
+					<div className="flex gap-1 rounded-lg bg-(--bg-subtle) p-0.5">
 						<button
 							type="button"
 							onClick={handleSetLightMode}
@@ -607,7 +607,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						type="button"
 						disabled={customDraftIsDefault}
 						onClick={handleResetCustomColors}
-						className="mt-3 w-full rounded-lg border border-border/5 px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
+						className="w-full rounded-lg border border-border/5 px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
 					>
 						{t("settings.appearance.resetToDefaultColors")}
 					</button>

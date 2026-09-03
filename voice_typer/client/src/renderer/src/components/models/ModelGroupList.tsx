@@ -26,6 +26,7 @@
  * Future style updates to the group/list pattern happen HERE (one
  * place) and propagate to both tabs.
  */
+
 import type { ComponentProps, ReactNode } from "react";
 import {
 	Accordion,
@@ -40,7 +41,7 @@ import { cn } from "@/lib/utils";
 /**
  * The accordion container shared by Local Models + Cloud Models.
  * Matches the pre-overhaul Local Models treatment
- * (rounded-lg border bg-subtle) so both tabs read as the same
+ * (rounded-xl border bg-subtle) so both tabs read as the same
  * surface.
  */
 export function ModelGroupAccordion({
@@ -50,7 +51,7 @@ export function ModelGroupAccordion({
 	return (
 		<Accordion
 			className={cn(
-				"rounded-lg border border-border/5 bg-(--bg-subtle)",
+				"rounded-xl border border-border/5 bg-(--bg-subtle)",
 				className,
 			)}
 			{...props}
@@ -84,7 +85,7 @@ export function ModelGroupTrigger({
 	return (
 		<AccordionTrigger
 			className={cn(
-				"gap-2 px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent",
+				"gap-2 px-4 py-2 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent",
 				className,
 			)}
 			{...props}
@@ -135,16 +136,19 @@ export function ModelVariantRow({
 	actions,
 }: ModelVariantRowProps) {
 	return (
-		<div className="flex items-center gap-3 px-3.5 py-2.5">
-			<div className="min-w-0 flex-1">
+		<div className="flex items-center gap-3 px-4 py-2">
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<div className="flex items-center gap-2">
-					<h4 className="truncate text-sm font-semibold text-(--text-primary)">
+					<h4
+						className="truncate text-sm font-semibold text-(--text-primary)"
+						title={name}
+					>
 						{name}
 					</h4>
 					{headingExtra}
 				</div>
 				{meta && (
-					<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
 						{meta}
 					</div>
 				)}
