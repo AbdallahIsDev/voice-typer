@@ -696,6 +696,13 @@ Rationale: Two parallel `Kbd` components (the app's `common/Kbd` and the shadcn 
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-UI-10
+Rule: Do NOT use margin utilities (`mb-*`, `mt-*`, `my-*`, `mx-*`) or Tailwind `space-y-*` / `space-x-*` sibling-selector utilities to create spacing between the CHILDREN of a flex/grid/stack container. Inter-child spacing MUST be expressed as `gap-*` on the PARENT (e.g. a vertical field/group stack is `flex flex-col gap-6` for groups and `flex flex-col gap-2` inside a group; a horizontal icon+label row is `flex items-center gap-2`). Every layout container that would otherwise pad each child with a margin must instead be a flex/grid container with the equivalent `gap`. Exceptions (margin utilities remain legitimate): (1) spacing an element FROM the container's outer edge where no parent flex/grid gap applies (e.g. a lone `mb-*` on the last visual block against a panel boundary, an inset `mt-*` on a heading that sits under a non-flex boundary) — but even these SHOULD prefer the nearest parent gap when that parent is a stack; (2) `mr-*`/`ml-*` (and logical `me-*`/`ms-*`) used for inline text flow where an element is NOT a flex child; (3) alignment nudges on an element inside an otherwise gap-driven flex row when a real alignment need exists (document it); (4) `mt-*` on a block-level element whose parent is NOT a flex/grid stack. The canonical pattern for a labeled field (label + control + hint) is a `flex flex-col gap-2` wrapper — never a `mb-2` on the label or `mt-2` on the hint. Same rule in the Rust/Electron/any templated UI and in storybook decorators.
+Rationale: Margin-based inter-child spacing (and `space-y-*`, which is implemented via `> * + *` margins) is the old method: it leaks spacing out of an element (margins collapse / interact with surrounding layout), makes reordering fragile, and cannot be expressed as a single parent-level declaration. `gap` on a flex/grid parent is the modern, self-contained, RTL-safe contract. Migrated app-wide 2026-09-03 (TemplateDialog + every Dialog/Modal surface + Models cards + onboarding + all pages/components): field stacks, stat rows, card metadata lines, list rows, and dialog bodies all use `gap-*`. New code MUST ship with `gap-*` from the first commit; existing margin-based stacks are a defect to convert.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Focus Indicators & Keyboard Accessibility

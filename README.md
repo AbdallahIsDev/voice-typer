@@ -15,6 +15,60 @@ Premium offline background voice-to-text utility. Runs in your system tray. Pres
 
 No cloud. No API keys. No rate limits. Fully offline after first model download.
 
+## Screenshots
+
+<!-- PLACEHOLDER SECTION — no screenshot assets exist yet (docs/images/ is
+     not present in the repo). Capture real screenshots on a running install
+     and place them under docs/images/ with the exact filenames below, then
+     replace the placeholder rows with embedded images
+     (e.g. ![Home](docs/images/home.png)). Do not commit fabricated images. -->
+
+| View | Target path (to be captured) |
+|---|---|
+| Home page with the mic button | `docs/images/home.png` |
+| Tray icon + tray menu | `docs/images/tray-menu.png` |
+| Settings — General/Recording | `docs/images/settings.png` |
+| Models page (download/select) | `docs/images/models.png` |
+| Help overlay (`?`) with shortcut cheat sheet | `docs/images/help-overlay.png` |
+| Microphone page with live level meter | `docs/images/microphone.png` |
+
+## Frequently Asked Questions
+
+### Does my voice or text ever leave my machine?
+
+No. Transcription runs locally (faster-whisper, optional Qwen3-ASR/Parakeet) on your own hardware — the only network activity is the one-time model download from HuggingFace when you first install a model. No cloud, no API keys, no telemetry. If you explicitly opt into the experimental cloud backends (`cloud_engines.py`), those requests go only to the provider you configured.
+
+### Where are my recordings, history, and settings stored?
+
+Everything lives under your local data directory: `%APPDATA%\voice-typer\` on Windows (new installs; `%USERPROFILE%\.voice-typer\` for upgraded legacy installs), `~/Library/Application Support/voice-typer/` on macOS, and `$XDG_DATA_HOME/voice-typer/` on Linux. See [docs/home-directory.md](docs/home-directory.md) for the full layout (config.json, history DB, logs). Nothing is uploaded.
+
+### What is the default hotkey and how do I change it?
+
+`Caps Lock` on all platforms — toggles dictation on/off. Change it in the app: tray menu → **Open App** → Settings → Hotkey → **Capture**, then press any key or combination (including a bare modifier like `Alt`). See [Hotkey Architecture](#hotkey-architecture) for how the native listener works per OS.
+
+### Which model should I pick?
+
+`small.en` (Whisper) is the default and the best speed/accuracy balance. `tiny.en` is fastest for weaker machines; `medium.en` for difficult audio; Parakeet (NVIDIA, GPU-optimized) and Qwen3-ASR are optional backends. First use of any model downloads it once from HuggingFace (75 MB – 2.5 GB depending on model); after that, transcription is fully offline.
+
+### Does it work offline?
+
+Yes — after the first model download completes, dictation works with no internet connection. The only remaining online features are opt-in: the experimental cloud transcription backends and the "Check for Updates" check.
+
+### Does the app start with Windows?
+
+Yes, autostart is enabled by default. Disable it in **Settings → General → Launch at Login**, or read [Autostart](#autostart) for what gets registered per platform (Task Scheduler / Run key on Windows, LaunchAgents on macOS, `.desktop` on Linux).
+
+### The hotkey stopped firing. Where do I start?
+
+1. Check the log file for `[HOTKEY]` lines — it names which backend was selected (native binary vs. fallback).
+2. On Windows, the native key listener is a compiled binary; if it's missing, rebuild it (`scripts/build/compile_native.ps1`) or rely on the automatic fallback.
+3. On macOS, re-grant **Accessibility** after OS updates (System Settings → Privacy & Security → Accessibility). On Linux, confirm the `input` group (`groups` should list it).
+4. Full troubleshooting: [Troubleshooting](#troubleshooting).
+
+### Where is the log file for reporting a bug?
+
+One log per process, under the data directory: `%APPDATA%\voice-typer\voice-typer.log` (Python backend) on Windows new installs, `%APPDATA%\voice-typer\logs\voice-typer.log` (Tauri host), with per-OS paths in the [Log File](#log-file) table. Each log is capped at 5 MiB and truncated in place — attach the relevant tail when filing an issue.
+
 ## Runtime Architecture
 
 Voice Typer runs on **two parallel runtime stacks** during the migration from Electron to Tauri v2:

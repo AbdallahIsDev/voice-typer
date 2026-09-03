@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 node_modules/
 .agents/*
+.claude/*
 
 # Electron/Vite build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.
@@ -124,3 +125,20 @@ archive/deleted_files.txt
 
 ruff_base_snap.json
 ruff_now_snap.json
+
+# Temp test output files
+vitest-failures.json
+wip-failures.json
+# Compiled icon (build artifact)
+icon.ico
+# Agent skill metadata
+skills-lock.json
+# Local agent directory
+agent/
+
+# Session metadata (not source)
+BP-SESSION-CONTEXT.md
+worklog.md
+SUMMARY.md
+sub-worklog-*.md
+changes/
