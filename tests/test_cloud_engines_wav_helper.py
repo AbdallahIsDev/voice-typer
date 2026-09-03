@@ -20,8 +20,10 @@ import wave
 import numpy as np
 import pytest
 from voice_typer.server import cloud_engines
+from voice_typer.server.cloud import _engine
 
 CLOUD_ENGINES_PATH = os.path.abspath(cloud_engines.__file__)
+ENGINE_PATH = os.path.abspath(_engine.__file__)
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +75,13 @@ def test_audio_to_wav_bytes_empty_input_48k_byte_identical_to_hand_crafted() -> 
 # 3. ``test_connection`` Deepgram path uses ``_audio_to_wav_bytes``.
 #    (Source inspection — avoids the real network call the method makes.)
 # ---------------------------------------------------------------------------
-def _read_source() -> str:
+def _read_facade_source() -> str:
     with open(CLOUD_ENGINES_PATH, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _read_engine_source() -> str:
+    with open(ENGINE_PATH, encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -82,7 +89,7 @@ def test_test_connection_deepgram_branch_uses_helper() -> None:
     """The Deepgram branch of ``test_connection`` must obtain its empty
     WAV payload from ``_audio_to_wav_bytes`` — NOT from a hand-crafted
     ``b\"RIFF...\"`` literal."""
-    src = _read_source()
+    src = _read_engine_source()
     # The method body must be present.
     assert "def test_connection" in src, "test_connection method not found"
     # Slice the source to the test_connection method body.
@@ -94,9 +101,9 @@ def test_test_connection_deepgram_branch_uses_helper() -> None:
 
 def test_no_hand_crafted_wav_magic_bytes_in_module() -> None:
     """The hand-crafted 44-byte WAV literal must not appear anywhere in
-    ``cloud_engines.py`` anymore — the helper is the single source of
+    the engine module anymore — the helper is the single source of
     truth for WAV encoding."""
-    src = _read_source()
+    src = _read_engine_source()
     hand_crafted = (
         b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
         b"\x01\x00\x01\x00\x80\xbb\x00\x00\x00\x77\x01\x00"
@@ -123,7 +130,7 @@ def test_stdlib_imports_hoisted_to_module_top() -> None:
     assert "from datetime import" in head_text, "module-top `from datetime import` missing"
 
     # The lazy aliases must NOT survive anywhere in the file.
-    full_src = _read_source()
+    full_src = _read_facade_source()
     assert "import time as _time" not in full_src, "lazy `import time as _time` still present"
     # `import wave` may only appear once — at module top. A second
     # occurrence inside a function would be a lazy import regression.

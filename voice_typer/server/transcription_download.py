@@ -206,3 +206,65 @@ def whisper_size_cached(engine, model_size: str) -> bool:
     except Exception:
         # Cache miss (or local probe failure) — never auto-download.
         return False
+
+
+def is_model_snapshot_complete(repo_id: str) -> bool:
+    """Local-only completeness probe: does the HF cache hold the FULL
+    snapshot for ``repo_id``?
+
+    WHY THIS EXISTS: the Models-page status poll and the tray availability
+    check previously treated a bare ``models--<repo>`` directory as
+    "downloaded" — but huggingface_hub creates that directory (plus
+    ``refs/``) at download START. A paused / cancelled / killed download
+    therefore reported a usable model in the UI while the weights were
+    still partial (the user-visible lie: a "Select" button for a model
+    that cannot load). This probe reuses the loader's own gate —
+    ``snapshot_download`` with ``local_files_only=True``, the pinned
+    revision, and the same allow-patterns the download uses — so it only
+    returns ``True`` when EVERY file the download would fetch is fully
+    present. A partial download reports ``False`` and the UI honestly
+    shows the Download button (clicking it resumes/repairs the cache).
+
+    Pattern selection: the Parakeet ONNX repo uses its pinned ONNX
+    allow-set; everything else (whisper / distil-whisper variants) uses
+    ``ALLOW_PATTERNS_WHISPER``. Qwen is a user-managed local path (the
+    download path never writes its cache), so it is not probed here.
+
+    Returns ``False`` when ``huggingface_hub`` is unavailable — the
+    honest UI answer is "not downloaded" (the load path independently
+    refuses via ``require_model_downloaded``).
+    """
+    from voice_typer.server.config import _config_dir
+
+    repo_dir = _config_dir() / "huggingface" / "hub" / (f"models--{repo_id.replace('/', '--')}")
+    if not repo_dir.is_dir():
+        # Never downloaded (or fully deleted) — skip the hf probe.
+        return False
+    try:
+        from huggingface_hub import snapshot_download
+
+        from voice_typer.server._model_integrity import (
+            ALLOW_PATTERNS_PARAKEET_ONNX,
+            ALLOW_PATTERNS_WHISPER,
+        )
+        from voice_typer.server.asr_setup import ensure_hf_env
+        from voice_typer.server.security import MODEL_HASHES
+
+        if "parakeet" in repo_id:
+            allow_patterns: list[str] = sorted(ALLOW_PATTERNS_PARAKEET_ONNX)
+        else:
+            allow_patterns = list(ALLOW_PATTERNS_WHISPER)
+        revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+
+        ensure_hf_env()
+        snapshot_download(
+            repo_id=repo_id,
+            revision=revision,
+            allow_patterns=allow_patterns,
+            local_files_only=True,
+        )
+        return True
+    except Exception:
+        # Incomplete snapshot (missing files), cache-schema mismatch, or
+        # hf unavailable — the honest status answer is "not downloaded".
+        return False

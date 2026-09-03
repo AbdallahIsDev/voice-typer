@@ -313,6 +313,16 @@ class TestConcurrentRestoreSerialization:
         )
 
         # Track which thread is inside the critical section.
+        # OWN_THREADS scopes the call-count assertion to THIS test's
+        # spawned workers: stray ``clipboard-restore`` daemon threads
+        # leaked by earlier tests in the same xdist worker can still be
+        # draining (serialized by the same module-level ``_restore_lock``)
+        # while this test's class-level patch is active, and counting
+        # them breaks the exact-count assertion (observed on CI:
+        # ``Expected 2 restore() calls; got 6`` with 4 stray owners).
+        # Overlap detection stays GLOBAL — the lock must serialize every
+        # restorer, ours or not.
+        own_threads = {"restore-A", "restore-B"}
         in_critical = threading.Event()
         in_critical_owner: list[str] = []
         in_critical_lock = threading.Lock()
@@ -334,7 +344,8 @@ class TestConcurrentRestoreSerialization:
                     # section — overlap detected.
                     overlap_detected.set()
                 in_critical.set()
-                in_critical_owner.append(tid)
+                if tid in own_threads:
+                    in_critical_owner.append(tid)
             try:
                 # Simulate the platform clipboard call taking some time
                 # (real ``xclip`` takes ~5-20ms; we use 30ms to make

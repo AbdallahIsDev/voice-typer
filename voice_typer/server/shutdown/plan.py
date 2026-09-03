@@ -17,7 +17,7 @@ a timed-out ``recorder.stop()`` on WASAPI PortAudio backends).
 The controller keeps thin ``_run_plan`` / ``_build_sequenced_plan`` /
 ``_build_parallel_plan`` delegates so existing call sites
 (``controller._run_plan(plan, prior_timed_out)`` etc.) and tests
-(``tests/test_shutdown_plan_zr17.py``) continue to work unchanged.
+(``tests/test_shutdown_plan.py``) continue to work unchanged.
 """
 
 from __future__ import annotations

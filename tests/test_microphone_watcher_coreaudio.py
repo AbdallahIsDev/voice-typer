@@ -71,20 +71,19 @@ def test_import_error_when_not_macos() -> None:
 
     The platform gate is checked before any pyobjc import is
     attempted, so this test is deterministic on every platform —
-    we patch ``_IS_MACOS`` to ``False`` to simulate non-macOS.
+    we patch the call-time ``is_macos`` gate to ``False`` to simulate
+    non-macOS (the gate deliberately does NOT trust the import-time
+    ``_IS_MACOS`` snapshot: a module first imported inside a
+    ``sys.platform``-patched pytest window would bake a poisoned
+    platform decision for the whole worker process).
     """
-    from voice_typer.server.microphone_watcher_coreaudio import (
-        _try_import_coreaudio,
-    )
+    from voice_typer.server import microphone_watcher_coreaudio as mod
 
     with (
-        patch(
-            "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
-            False,
-        ),
+        patch.object(mod, "is_macos", return_value=False),
         pytest.raises(ImportError, match="only available on macOS"),
     ):
-        _try_import_coreaudio()
+        mod._try_import_coreaudio()
 
 
 def test_import_error_when_pyobjc_missing() -> None:
@@ -96,22 +95,17 @@ def test_import_error_when_pyobjc_missing() -> None:
     statement encounters a ``None`` entry in ``sys.modules`` — this
     is the canonical way to mock a missing dependency.
 
-    The platform gate is bypassed by patching ``_IS_MACOS`` to
-    ``True``, so this test runs on every platform.
+    The platform gate is bypassed by patching the call-time
+    ``is_macos`` gate to ``True``, so this test runs on every platform.
     """
-    from voice_typer.server.microphone_watcher_coreaudio import (
-        _try_import_coreaudio,
-    )
+    from voice_typer.server import microphone_watcher_coreaudio as mod
 
     with (
-        patch(
-            "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
-            True,
-        ),
+        patch.object(mod, "is_macos", return_value=True),
         patch.dict(sys.modules, {"CoreAudio": None, "CoreFoundation": None}),
         pytest.raises(ImportError, match="pyobjc-framework-CoreAudio"),
     ):
-        _try_import_coreaudio()
+        mod._try_import_coreaudio()
 
 
 @pytest.mark.skipif(

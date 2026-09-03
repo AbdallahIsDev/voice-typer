@@ -216,10 +216,15 @@ class TestFacadeReExports:
         assert facade._parse_retry_after is _retry._parse_retry_after
         assert facade._PROVIDER_DEFAULTS is _defaults._PROVIDER_DEFAULTS
 
-    def test_engine_class_is_defined_in_the_facade_module(self):
+    def test_engine_class_is_defined_in_the_owner_leaf_and_facaed(self):
         import voice_typer.server.cloud_engines as facade
+        from voice_typer.server.cloud import _engine
 
-        assert facade.CloudEngine.__module__ == "voice_typer.server.cloud_engines"
+        assert _engine.CloudEngine.__module__ == "voice_typer.server.cloud._engine"
+        # The facade re-export must be the SAME object — legacy
+        # ``from voice_typer.server.cloud_engines import CloudEngine``
+        # keeps resolving to the owner class.
+        assert facade.CloudEngine is _engine.CloudEngine
 
 
 def _fake_response(body: bytes) -> MagicMock:

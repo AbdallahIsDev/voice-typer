@@ -1036,21 +1036,33 @@ class TestSidecarOwnership:
     def test_native_hotkeys_module_defines_macos_backend(self):
         """``native_hotkeys`` defines ``SubprocessHotkeyBackend`` + ``MacNativeHotkey``.
 
-        After the Phase 4.5 split, ``SubprocessHotkeyBackend`` lives in
-        ``native_hotkeys/base.py`` and ``MacNativeHotkey`` lives in
-        ``native_hotkeys/mac_backend.py``.  ``subprocess.Popen`` is
-        invoked from ``base.py``'s ``_spawn_process``.
+        After the Phase 4.5 split and the 2026-08-30 mixin decomposition,
+        ``SubprocessHotkeyBackend`` is DEFINED in
+        ``native_hotkeys/_core.py`` and ``base.py`` is a facade that
+        re-exports it (C-ARCH-2: facade stays a pure re-export surface).
+        ``MacNativeHotkey`` lives in ``native_hotkeys/mac_backend.py``.
+
+        Behavioral assertion (import the package, verify the re-export
+        resolves and the class is the one _core defines) instead of the
+        stale source-grep on base.py — the grep regressed the moment
+        base.py became a facade.
         """
-        base_src = NATIVE_HOTKEYS_BASE_PY.read_text(encoding="utf-8")
+        import voice_typer.server.native_hotkeys.base as base_mod
+        from voice_typer.server.native_hotkeys._core import SubprocessHotkeyBackend as CoreBackend
+
         mac_src = NATIVE_HOTKEYS_MAC_PY.read_text(encoding="utf-8")
-        assert "class SubprocessHotkeyBackend" in base_src, (
-            "native_hotkeys/base.py must define SubprocessHotkeyBackend (the base class "
-            "that spawns the native binary via subprocess.Popen)"
+        # The facade re-export resolves to the REAL class (defined in _core).
+        assert base_mod.SubprocessHotkeyBackend is CoreBackend, (
+            "native_hotkeys/base.py must re-export SubprocessHotkeyBackend "
+            "(resolved from native_hotkeys._core — the base class that "
+            "spawns the native binary via subprocess.Popen)"
         )
         assert "class MacNativeHotkey" in mac_src, (
             "native_hotkeys/mac_backend.py must define MacNativeHotkey (the macOS subclass)"
         )
-        assert "subprocess.Popen" in base_src, "native_hotkeys/base.py must use subprocess.Popen to spawn the binary"
+        assert "subprocess.Popen" in (NATIVE_HOTKEYS_PKG / "_core.py").read_text(encoding="utf-8"), (
+            "native_hotkeys/_core.py must use subprocess.Popen to spawn the binary"
+        )
 
     def test_adr_states_sidecar_owns_hotkey_subsystem(self):
         """ADR-0020 §6.4 explicitly states Tauri does not touch the hotkey subsystem."""

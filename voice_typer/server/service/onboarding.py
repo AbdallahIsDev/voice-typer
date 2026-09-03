@@ -59,7 +59,7 @@ class OnboardingMixin(ServiceMixinBase):
                 self._onboarding = ctrl
             return ctrl.check_permissions()
         except Exception as exc:  # defensive — never block the wizard
-            log.error("[SERVICE] onboarding_check_permissions failed: %s", exc)
+            log.exception("[SERVICE] onboarding_check_permissions failed: %s", exc)
             return {"platform": "unknown", "state": "unknown", "needed": False, "instructions": None}
 
     def onboarding_get_step(self) -> dict:
@@ -286,7 +286,7 @@ class OnboardingMixin(ServiceMixinBase):
             # file paths via the renderer. The handler
             # (onboarding_handlers.py) passes the dict straight to the renderer.
             redacted = redact_secret(redact_url(str(exc)))
-            log.error("[SERVICE] onboarding_apply failed: %s", redacted)
+            log.exception("[SERVICE] onboarding_apply failed: %s", redacted)
             return {"error": redacted}
 
     def onboarding_get_microphones(self) -> dict:

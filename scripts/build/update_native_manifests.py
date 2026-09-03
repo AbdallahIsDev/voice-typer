@@ -280,7 +280,7 @@ def main(argv: list[str]) -> int:
     try:
         updated = update_manifest(native_dir, manifest_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        log.error("failed to update manifest: %s", exc)
+        log.exception("failed to update manifest: %s", exc)
         return 1
 
     if not updated:

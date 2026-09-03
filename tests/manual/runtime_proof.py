@@ -129,8 +129,8 @@ def run_runtime_proof():
             transcriber.loaded_via,
         )
     except Exception as e:
-        log.error("[STEP 2] Model load FAILED: %s", e)
-        log.error("[STEP 2] Cannot continue - transcription requires a loaded model")
+        log.exception("[STEP 2] Model load FAILED: %s", e)
+        log.exception("[STEP 2] Cannot continue - transcription requires a loaded model")
         return False
 
     # ─── Step 3: Simulate the F2 cycle using app.py's actual logic ───────

@@ -53,6 +53,7 @@ import concurrent.futures
 import contextlib
 import functools
 import logging
+import queue
 import re
 import sqlite3
 import threading
@@ -391,9 +392,9 @@ def _wrap_write(failure_value, fail_verb, writer_label):
                 if isinstance(e, HistoryDBError):
                     if raise_on_error:
                         raise
-                    log.error("[HISTORY] Writer unavailable for %s", writer_label)
+                    log.exception("[HISTORY] Writer unavailable for %s", writer_label)
                     return failure_value() if callable(failure_value) else failure_value
-                log.error("[HISTORY] Failed to %s: %s", fail_verb, e)
+                log.exception("[HISTORY] Failed to %s: %s", fail_verb, e)
                 if raise_on_error:
                     raise HistoryDBError(str(e)) from e
                 return failure_value() if callable(failure_value) else failure_value
@@ -424,7 +425,7 @@ def _wrap_read(failure_value, fail_verb):
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:
-                log.error("[HISTORY] Failed to %s: %s", fail_verb, e)
+                log.exception("[HISTORY] Failed to %s: %s", fail_verb, e)
                 if raise_on_error:
                     raise HistoryDBError(str(e)) from e
                 return failure_value() if callable(failure_value) else failure_value
@@ -457,27 +458,50 @@ class HistoryDB:
 
     Method bodies live in ``history_db_internals.*`` (free functions
     taking the instance); this class keeps the public/patch surface —
-    every delegate below reads its implementation through the module
+    every delegate reads its implementation through the module
     attribute at call time, so monkeypatching keeps working.
     """
+
+    # Assigned by history_db_internals.lifecycle.initialize_state (from
+    # __init__); declared here so the class carries the state contract.
+    db_path: Path
+    _read_local: threading.local
+    _all_read_connections: list[tuple[int, sqlite3.Connection]]
+    _connections_lock: threading.Lock
+    _read_conn_generation: int
+    _queue: "queue.Queue[Any]"
+    _writer_ready: threading.Event
+    _shutdown: threading.Event
+    _init_error: BaseException | None
+    _retention_lock: threading.Lock
+    _retention_stop_event: threading.Event | None
+    _retention_thread: threading.Thread | None
+    _history_count_cache: int | None
+    _history_count_cache_ts: float
+    _history_count_cache_lock: threading.Lock
+    _today_stats_cache: dict | None
+    _today_stats_cache_ts: float
+    _today_stats_cache_lock: threading.Lock
+    _fts5_rebuild_failures: int
+    _fts5_rebuild_ran: bool
+    _fts_reindex_watermark: int
+    _encryption_status: str
+    _read_conn_prune_stop_event: threading.Event | None
+    _read_conn_prune_thread: threading.Thread | None
 
     def __init__(self, db_path: Path | None = None):
         if db_path is None:
             from voice_typer.server.config import _config_dir
 
             config_dir = _config_dir()
-            # O2: one-time migration of the legacy root-located DB (and
-            # its -wal / -shm sidecars) into ``db/`` BEFORE the new
-            # location is resolved, so the writer thread opens the moved
-            # file (not a freshly-created empty one).
+            # O2: one-time legacy root-DB migration into db/ BEFORE the
+            # new location is resolved, so the writer opens the moved file.
             _maybe_migrate_legacy_db(config_dir)
             db_path = config_dir / DB_SUBDIR / "history.db"
 
         self.db_path = db_path
-        # Stateful attribute setup lives in
-        # ``history_db_internals.lifecycle.initialize_state`` (it reads
-        # ``_WRITE_QUEUE_MAXSIZE`` through this module's namespace at
-        # call time so facade monkeypatches keep working).
+        # Stateful attribute setup (lifecycle.initialize_state reads
+        # constants through this module's namespace at call time).
         lifecycle.initialize_state(self)
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
@@ -488,8 +512,6 @@ class HistoryDB:
         )
         self._writer_thread.start()
         lifecycle.wait_for_writer_ready(self)
-
-    # Section: Periodic read-conn prune
 
     def _start_read_conn_prune_thread(self) -> None:
         """Start the prune daemon — see internals.reader._start_read_conn_prune_thread."""
@@ -510,8 +532,6 @@ class HistoryDB:
     def _periodic_read_conn_prune_loop(self) -> None:
         """Prune loop body (daemon thread) — see internals.reader._periodic_read_conn_prune_loop."""
         reader._periodic_read_conn_prune_loop(self)
-
-    # Section: Writer thread
 
     def _writer_loop(self) -> None:
         """Drain the write queue serially — see internals.writer._writer_loop."""
@@ -555,19 +575,13 @@ class HistoryDB:
         conn: sqlite3.Connection,
         _is_recovery: bool = False,
     ) -> sqlite3.Connection:
-        """Initialize the schema + migrations, then run the FTS5 startup sweep.
+        """Initialize schema + migrations, then the FTS5 startup sweep.
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.schema.init_schema`
-        (which returns the connection to use — possibly a fresh one after
-        corruption recovery). When init succeeds, the best-effort
-        :meth:`_fts5_startup_rebuild` runs once on the writer connection
-        (bounded re-exposure for failed rebuilds of the previous
-        session; failures are swallowed so the app still starts). The
-        FTS5 gate intentionally stays in the facade method — the
-        corruption-recovery path (``_apply_recovered_inserts``) calls
-        ``init_schema`` directly with ``_is_recovery=True`` and must NOT
-        trigger an extra startup sweep.
+        Delegates to internals.schema.init_schema; on success runs the
+        best-effort :meth:`_fts5_startup_rebuild` once. The FTS5 gate
+        stays in the facade: the corruption-recovery path
+        (``_apply_recovered_inserts``) calls ``init_schema`` directly
+        with ``_is_recovery=True`` and must NOT trigger an extra sweep.
         """
         new_conn = schema.init_schema(self, conn, _is_recovery=_is_recovery)
         if self._init_error is None:
@@ -578,8 +592,6 @@ class HistoryDB:
     def _fts5_startup_rebuild(self, conn: sqlite3.Connection) -> None:
         """Best-effort FTS5 'rebuild' on a persisted failure flag — see internals.writer._fts5_startup_rebuild."""
         writer._fts5_startup_rebuild(self, conn)
-
-    # Section: At-rest encryption (see docs/adr/XZ-R11-04-at-rest-encryption.md)
 
     def _init_encryption(self, conn: sqlite3.Connection) -> None:
         """Resolve the DEK once per process + kick the backfill — see internals.encryption._init_encryption."""
@@ -648,8 +660,6 @@ class HistoryDB:
         """Surface the corruption event to the user — see internals.corruption_recovery._notify_corruption_recovered."""
         corruption_recovery._notify_corruption_recovered(self, corrupt_main, recovered_count)
 
-    # Section: Read connections
-
     def _get_read_conn(self) -> sqlite3.Connection:
         """Get a thread-local READ-ONLY connection — see internals.reader._get_read_conn."""
         return reader._get_read_conn(self)
@@ -661,8 +671,6 @@ class HistoryDB:
     def _get_conn(self) -> sqlite3.Connection:
         """Backwards-compat alias for ``_get_read_conn`` — delegates to internals.reader._get_conn."""
         return reader._get_conn(self)
-
-    # Section: Write submission
 
     def _drop_oldest_for_overflow(self, current_future: concurrent.futures.Future | None) -> None:
         """Drop oldest queued item to make room — see internals.writer._drop_oldest_for_overflow."""
@@ -685,8 +693,6 @@ class HistoryDB:
         """Writer-teardown portion of :meth:`close` — delegates to internals.writer._close_writer."""
         writer._close_writer(self)
 
-    # Section: Lifecycle
-
     def __del__(self):
         """Close read connections on GC to prevent ResourceWarning.
 
@@ -705,37 +711,19 @@ class HistoryDB:
             # writer is a daemon, so even if it never sees this signal
             # it will be killed at process exit.
             self._shutdown.set()
-            # Close the calling thread's read connection (thread-local).
-            if hasattr(self._read_local, "conn") and self._read_local.conn is not None:
-                with contextlib.suppress(Exception):
-                    self._read_local.conn.close()
-                self._read_local.conn = None
-            # Close all other threads' read connections. Take the lock
-            # so we don't race with ``_get_read_conn`` on another thread
-            # — but never block on it (a re-entrant GC during
-            # ``_get_read_conn`` could otherwise deadlock).
-            if not self._connections_lock.acquire(blocking=False):
-                return
-            try:
-                for _ident, conn in self._all_read_connections:
-                    with contextlib.suppress(Exception):
-                        conn.close()
-                self._all_read_connections.clear()
-            finally:
-                self._connections_lock.release()
+            # Sweep _all_read_connections (thread-local first). Never
+            # blocks on the connections lock (re-entrant GC during
+            # _get_read_conn could otherwise deadlock).
+            lifecycle.gc_close_read_connections(self)
 
     def close(self):
-        """Shut down the writer thread and close all connections.
+        """Shut down the writer thread and close all connections (idempotent).
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.lifecycle.close_db`
-        (retention-thread + prune-daemon stop, shutdown sentinel, writer
-        drain + join, read-connection teardown). Idempotent — safe to
-        call multiple times.
+        Delegates to internals.lifecycle.close_db (retention thread +
+        prune daemon stop, shutdown sentinel, writer drain + join,
+        read-connection teardown).
         """
         lifecycle.close_db(self)
-
-    # Section: Public write methods
 
     def add_transcription(
         self,
@@ -747,8 +735,8 @@ class HistoryDB:
     ) -> int:
         """Add a transcription (fire-and-forget): enqueue + placeholder row_id.
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.add_transcription`.
+        Delegates to internals.crud_writes.add_transcription (writer
+        liveness guard included).
         """
         return crud_writes.add_transcription(
             self,
@@ -765,7 +753,8 @@ class HistoryDB:
 
         ``raise_on_error=True`` raises ``HistoryDBError`` instead of
         returning ``False``. Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.submit_delete`.
+        internals.crud_writes.submit_delete (DELETE + FTS5 'optimize'
+        purge, cache invalidation).
         """
         return crud_writes.submit_delete(self, transcription_id)
 
@@ -776,11 +765,10 @@ class HistoryDB:
         *,
         raise_on_error: bool = False,
     ) -> int:
-        """Re-insert a previously-deleted transcription record.
+        """Re-insert a previously-deleted transcription record (Undo toast).
 
-        Supports the Undo-delete toast in the renderer; ``record`` is
-        the dict shape returned by ``get_recent``. Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.submit_restore`.
+        ``record`` is the dict shape returned by ``get_recent``.
+        Delegates to internals.crud_writes.submit_restore.
         """
         return crud_writes.submit_restore(self, record)
 
@@ -788,8 +776,8 @@ class HistoryDB:
     def clear_all(self, *, raise_on_error: bool = False) -> bool:
         """Clear all transcriptions (GDPR Art. 17 irreversible wipe).
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.submit_clear_all`.
+        Delegates to internals.crud_writes.submit_clear_all (chunked
+        DELETE + VACUUM + FTS5 'rebuild', cache invalidation).
         """
         return crud_writes.submit_clear_all(self)
 
@@ -797,8 +785,7 @@ class HistoryDB:
     def toggle_favorite(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
         """Toggle the favorite status of a transcription.
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.submit_toggle_favorite`.
+        Delegates to internals.crud_writes.submit_toggle_favorite.
         """
         return crud_writes.submit_toggle_favorite(self, transcription_id)
 
@@ -811,10 +798,9 @@ class HistoryDB:
         """Apply retention policy: delete old entries.
 
         Returns a :class:`RetentionResult` — an ``int`` subclass whose
-        value is the number of deleted entries and whose
-        ``fts5_rebuild_ok`` attribute reports whether the post-sweep
-        FTS5 ``'rebuild'`` succeeded. Delegates to
-        :func:`voice_typer.server.history_db_internals.retention.apply_retention`.
+        value is the deleted-row count and whose ``fts5_rebuild_ok``
+        attribute reports the post-sweep FTS5 rebuild outcome.
+        Delegates to internals.retention.apply_retention.
         """
         return retention.apply_retention(
             self,
@@ -822,8 +808,6 @@ class HistoryDB:
             max_entries=max_entries,
             retention_count=retention_count,
         )
-
-    # Section: Periodic retention scheduling ()
 
     def schedule_periodic_retention(
         self,
@@ -848,8 +832,6 @@ class HistoryDB:
         """Signal + join the periodic retention thread — see internals.retention.stop_periodic_retention."""
         retention.stop_periodic_retention(self)
 
-    # Section: Public read methods
-
     @_wrap_read([], "get recent transcriptions")
     def get_recent(
         self,
@@ -865,17 +847,16 @@ class HistoryDB:
         ``raise_on_error=True`` raises ``HistoryDBError`` instead of
         returning ``[]``; rows carry a 500-char ``text`` preview plus
         ``text_truncated`` / ``text_full_length``. Delegates to
-        :func:`voice_typer.server.history_db_internals.search.get_recent`.
+        internals.search.get_recent (keyset cursor args).
         """
         return search.get_recent(self, limit, offset, before_timestamp=before_timestamp, before_id=before_id)
 
     def get_latest_text(self) -> str:
-        """Return the most recent transcription text, or ``""`` if DB is empty.
+        """Return the most recent transcription text ("" when empty).
 
         Ordered by the autoincrement PK (DESC); call ``flush()`` after
-        ``add_transcription()`` to guarantee the row is committed.
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.search.get_latest_text`.
+        ``add_transcription()``. Delegates to
+        internals.search.get_latest_text.
         """
         return search.get_latest_text(self)
 
@@ -892,10 +873,9 @@ class HistoryDB:
     ) -> list[dict]:
         """Search transcriptions by text with pagination.
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.search.search`
-        (FTS5 for tokenizable queries, LIKE fallback for separator-only
-        and CJK/fullwidth queries).
+        Delegates to internals.search.search (FTS5 for tokenizable
+        queries, LIKE fallback for separator-only and CJK/fullwidth
+        queries).
         """
         return search.search(self, query, limit, offset, before_timestamp=before_timestamp, before_id=before_id)
 
@@ -921,8 +901,6 @@ class HistoryDB:
         """Drop the cached today-stats dict — see internals.search.invalidate_today_stats_cache."""
         search.invalidate_today_stats_cache(self)
 
-    # Section: on-demand full-text + total-count accessors
-
     def get_transcription_text(
         self,
         transcription_id: int,
@@ -931,9 +909,9 @@ class HistoryDB:
     ) -> dict:
         """Return the FULL ``text`` of a single transcription row.
 
-        Companion to the 500-char ``text`` preview in list responses;
-        returns ``{"id": int, "text": str}``. Delegates to
-        :func:`voice_typer.server.history_db_internals.search.get_transcription_text`.
+        Companion to the 500-char preview in list responses; returns
+        ``{"id": int, "text": str}``. Delegates to
+        internals.search.get_transcription_text.
         """
         return search.get_transcription_text(self, transcription_id, raise_on_error=raise_on_error)
 
@@ -942,7 +920,7 @@ class HistoryDB:
 
         Invalidated on delete/clear_all/restore/apply_retention but NOT
         on fire-and-forget ``add_transcription``. Delegates to
-        :func:`voice_typer.server.history_db_internals.search.get_history_count`.
+        internals.search.get_history_count.
         """
         return search.get_history_count(self, raise_on_error=raise_on_error)
 
@@ -950,15 +928,11 @@ class HistoryDB:
         """drop the cached total-count int — delegates to internals.search.invalidate_history_count_cache."""
         search.invalidate_history_count_cache(self)
 
-    # Section: Maintenance & diagnostics
-
     def checkpoint(self, truncate: bool = True) -> bool:
-        """Run ``PRAGMA wal_checkpoint(TRUNCATE|RESTART)`` on the writer thread.
+        """Run ``PRAGMA wal_checkpoint(TRUNCATE|RESTART)`` (GDPR delete/export).
 
-        Used by GDPR delete/export paths so all WAL content is
-        checkpointed back to the main DB file before file-level
-        operations. Delegates to
-        :func:`voice_typer.server.history_db_internals.crud_writes.submit_checkpoint`.
+        Returns ``True`` when the checkpoint completed without error.
+        Delegates to internals.crud_writes.submit_checkpoint.
         """
         return crud_writes.submit_checkpoint(self, truncate)
 
@@ -966,8 +940,7 @@ class HistoryDB:
         """Return a health status dict for diagnostics.
 
         ``{"ok": bool, "error": str | None}`` — ``ok`` is True only if
-        the writer thread is alive, schema init succeeded, and init has
-        finished. Delegates to
-        :func:`voice_typer.server.history_db_internals.lifecycle.health_check`.
+        the writer is alive, schema init succeeded, and init finished.
+        Delegates to internals.lifecycle.health_check.
         """
         return lifecycle.health_check(self)

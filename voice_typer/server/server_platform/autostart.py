@@ -498,7 +498,7 @@ def enable_autostart_ex() -> dict:
             registered = _autostart_linux_mod._enable_autostart_linux()
         return {"registered": bool(registered), "error": None}
     except Exception as exc:
-        log.error("[CONFIG] Failed to enable autostart: %s", exc)
+        log.exception("[CONFIG] Failed to enable autostart: %s", exc)
         return {"registered": False, "error": str(exc)}
 
 
@@ -534,7 +534,7 @@ def disable_autostart_ex() -> dict:
         # autostart entry currently in the desired state?".
         return {"registered": bool(removed), "error": None}
     except Exception as exc:
-        log.error("[CONFIG] Failed to disable autostart: %s", exc)
+        log.exception("[CONFIG] Failed to disable autostart: %s", exc)
         return {"registered": False, "error": str(exc)}
 
 

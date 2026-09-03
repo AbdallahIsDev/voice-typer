@@ -109,7 +109,7 @@ class DiagnosticsMixin(ServiceMixinBase):
             else:
                 return {"success": False, "message": "Failed to create diagnostic bundle"}
         except Exception as exc:
-            log.error("export_diagnostics failed: %s", exc)
+            log.exception("export_diagnostics failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
 

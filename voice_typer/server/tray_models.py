@@ -165,12 +165,19 @@ def _ensure_hf_env_once() -> None:
 
 
 def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
-    """Return True if the HuggingFace model ``repo_id`` is downloaded.
+    """Return True if the HuggingFace model ``repo_id`` is FULLY downloaded.
 
     cached for 5 seconds so a tray right-click doesn't
-        trigger 5 filesystem ``exists()`` calls (one per candidate model).
+        trigger repeated completeness probes (one per candidate model).
         A download finishing in the Models page is reflected on the next
         right-click within the TTL window.
+
+    PARTIAL-DOWNLOAD HONESTY (mirrors the Models page's
+    ``_compute_model_status``): the old check only tested the
+    ``refs/main`` marker, which huggingface_hub writes at download START
+    — so a paused / cancelled / killed download reported a usable model
+    in the tray. The loader's own local-only snapshot probe decides
+    completeness (every expected file fully present).
     """
     cache_key = (repo_id, str(config_dir))
     now = time.monotonic()
@@ -179,9 +186,14 @@ def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
         downloaded, ts = cached
         if now - ts < _HF_DOWNLOAD_CACHE_TTL_SECONDS:
             return downloaded
-    cache_dir = config_dir / "huggingface" / "hub"
-    ref_file = cache_dir / f"models--{repo_id.replace('/', '--')}" / "refs" / "main"
-    downloaded = ref_file.exists()
+    repo_dir = config_dir / "huggingface" / "hub" / (f"models--{repo_id.replace('/', '--')}")
+    downloaded = False
+    if repo_dir.is_dir():
+        from voice_typer.server.transcription_download import (
+            is_model_snapshot_complete,
+        )
+
+        downloaded = is_model_snapshot_complete(repo_id)
     _hf_download_cache[cache_key] = (downloaded, now)
     return downloaded
 

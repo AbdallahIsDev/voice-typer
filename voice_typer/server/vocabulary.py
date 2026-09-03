@@ -406,7 +406,7 @@ class VocabularyManager:
                     )
                     _time.sleep(backoff)
                 else:
-                    log.error(
+                    log.exception(
                         "[VOCAB] Failed to save user vocabulary after %d attempts: %s",
                         max_retries,
                         exc,

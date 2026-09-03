@@ -657,7 +657,10 @@ class RecordingLifecycle:
             # Raw exception text never reaches the user (paths, device
             # names, hostnames) — the full traceback is logged above.
             if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
-                app.tray.notify(APP_NAME, f"Could not start recording.\n{_start_fail_msg}")
+                app.tray.notify(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.start_failed_with_reason", reason=_start_fail_msg),
+                )
             else:
                 app.tray.notify(
                     APP_NAME,
@@ -807,7 +810,10 @@ class RecordingLifecycle:
             _start_fail_msg = _recording_start_failure_message(e)
             app.tray.set_state(AppState.ERROR, _start_fail_msg)
             if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
-                app.tray.notify(APP_NAME, f"Could not start recording.\n{_start_fail_msg}")
+                app.tray.notify(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.start_failed_with_reason", reason=_start_fail_msg),
+                )
             else:
                 app.tray.notify(
                     APP_NAME,

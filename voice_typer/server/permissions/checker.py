@@ -519,9 +519,9 @@ def show_permission_notification(tray, error_message: str) -> None:
                 command=tccutil_reset_command_str("Accessibility", bundle_id),
             )
         else:
-            body = i18n.t(_p._PERMISSION_NOTIFY_MACOS_BODY_KEY)
+            body = i18n.t(_p._PERMISSION_NOTIFY_MACOS_BODY_KEY, app=_p.APP_NAME)
     elif _p.is_linux():
-        title = i18n.t(_p._PERMISSION_NOTIFY_LINUX_TITLE_KEY)
+        title = i18n.t(_p._PERMISSION_NOTIFY_LINUX_TITLE_KEY, app=_p.APP_NAME)
         body = i18n.t(_p._PERMISSION_NOTIFY_LINUX_BODY_KEY)
     else:
         # Windows shouldn't reach here — no permission needed. No i18n

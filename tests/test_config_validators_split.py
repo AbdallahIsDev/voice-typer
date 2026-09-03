@@ -4,12 +4,14 @@ This file pins the config_validators split contract so a future refactor cannot
 silently regress it:
 
 1. **Allowlist snapshot** — :data:`IPC_CONFIG_ALLOWLIST` must contain
-   the same 124 keys with the same per-field validators. The key set
+   the same 125 keys with the same per-field validators. The key set
    is a frozen snapshot embedded in this test; the validators are
    checked by identity against the imported ``_VALIDATOR_*``
    instances (so a future change that swaps a validator for a fresh
    instance of the same factory call is still detected — the
    ``_VALIDATOR_*`` constants are the canonical references).
+   (Snapshot count updated 124→125 when ``sound_volume`` was added
+   deliberately for the Settings sound-feedback volume slider.)
 2. **Re-export shim** — every public name in ``__all__`` must resolve
    on the package namespace and point at the same object that the
    new submodules expose (so old import paths keep working).
@@ -137,6 +139,7 @@ _PRE_SPLIT_ALLOWLIST_KEYS: frozenset[str] = frozenset(
         "show_notifications",
         "silence_warning_seconds",
         "sound_feedback_enabled",
+        "sound_volume",
         "stop_on_silence_seconds",
         "streaming_chunk_seconds",
         "streaming_left_overlap_seconds",
@@ -178,9 +181,9 @@ class TestAllowlistSnapshot:
     """SEC-002 byte-for-byte parity for ``IPC_CONFIG_ALLOWLIST``."""
 
     def test_allowlist_size_unchanged(self) -> None:
-        """The allowlist must still contain exactly 124 keys."""
-        assert len(IPC_CONFIG_ALLOWLIST) == 124, (
-            f"IPC_CONFIG_ALLOWLIST size drifted: expected 124, got {len(IPC_CONFIG_ALLOWLIST)}. "
+        """The allowlist must still contain exactly 125 keys."""
+        assert len(IPC_CONFIG_ALLOWLIST) == 125, (
+            f"IPC_CONFIG_ALLOWLIST size drifted: expected 125, got {len(IPC_CONFIG_ALLOWLIST)}. "
             "SEC-002 contract (AGENTS.md §6.3) — adding/removing keys is a "
             "security-sensitive change that must be reviewed explicitly."
         )

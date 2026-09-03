@@ -286,14 +286,25 @@ class TestPublishTrayStateThreadSafe:
         # check before any thread writes ``_last_published``).
         import voice_typer.server.tray_menu as tray_menu_mod
 
+        n_threads = 8
+
+        # Stray publishes from OTHER TrayIcon instances in the same xdist
+        # worker (e.g. a module-scoped app fixture whose dictation flow
+        # flips its own tray to RECORDING) resolve this same module-level
+        # function while the patch is active — observed on CI as a
+        # ``{'icon': 'recording', ...}`` entry from a foreign tray inside
+        # this test's publish_calls. Only THIS test's ``pub-*`` workers
+        # assert the dedup invariant; foreign entries are recorded but
+        # excluded from the count.
+        own_thread_names = {f"pub-{i}" for i in range(n_threads)}
+
         def _slow_publish(*, icon=None, tooltip=None):
             time.sleep(0.02)  # widen the race window
-            publish_calls.append({"icon": icon, "tooltip": tooltip})
+            publish_calls.append({"icon": icon, "tooltip": tooltip, "thread": threading.current_thread().name})
             return True
 
         monkeypatch.setattr(tray_menu_mod, "publish_tray_state", _slow_publish)
 
-        n_threads = 8
         barrier = threading.Barrier(n_threads)
         errors: list[Exception] = []
 
@@ -312,14 +323,15 @@ class TestPublishTrayStateThreadSafe:
             assert not t.is_alive(), f"Thread {t.name!r} deadlocked on _publish_lock."
 
         assert not errors, f"concurrent _publish_tray_state raised: {errors}"
-        # With the lock, exactly ONE publish fires (the first thread sets
-        # the cache; subsequent threads see the hit and return early).
-        # Tolerate at most 1 publish (the lock guarantees exactly one).
-        assert len(publish_calls) == 1, (
+        # With the lock, exactly ONE publish fires from the test's own
+        # workers (the first thread sets the cache; subsequent threads
+        # see the hit and return early).
+        own_publishes = [c for c in publish_calls if c.get("thread") in own_thread_names]
+        assert len(own_publishes) == 1, (
             "Concurrent publishes with the same state must emit exactly ONCE "
             " — the first caller sets ``_last_published`` and "
-            f"subsequent callers skip. Got {len(publish_calls)} publishes: "
-            f"{publish_calls}."
+            f"subsequent callers skip. Got {len(own_publishes)} publishes from "
+            f"this test's workers: {own_publishes} (all entries: {publish_calls})."
         )
 
     def test_concurrent_publishes_with_changing_message_no_crash(self, monkeypatch):

@@ -45,12 +45,12 @@ class DictationMixin(ServiceMixinBase):
         """Re-paste the last transcription."""
         self._app.repaste_last()
 
-    # Force cancel transcription ( Finding #3) ─────────────
+    # Force cancel transcription ─────────────────────────────
 
     def force_cancel_transcription(self) -> "ForceCancelResult":  # noqa: F821
         """Force-cancel a stuck transcription.
 
-        Finding #3: invokes ``force_recover`` with ``force=True`` so the
+        Invokes ``force_recover`` with ``force=True`` so the
                 busy flag and tray state are reset even if the
                 transcription thread is still alive.  This gives the
                 user a manual escape hatch when the 3×90s=4.5min auto-
@@ -58,12 +58,12 @@ class DictationMixin(ServiceMixinBase):
 
                 Returns ``{"success": bool, "message": str}``.
 
-        WM-44: the public ``RecordingController.force_recover`` wrapper
-                (added in the same session) replaces the previous
-                private-method access
-                (``self._app.recording._force_recover_from_stuck_transcription``).
-                The service layer now touches only the public surface of
-                the controller (ADR-0008-§3.1).
+        This method calls the PUBLIC
+                ``RecordingController.force_recover`` wrapper (the
+                sanctioned surface per ADR-0008 §3.1 layering — the
+                service layer never reaches into controller-private
+                methods). The wrapper delegates to the watchdog's
+                force-recover exactly as the private delegator does.
         """
         try:
             self._app.recording.force_recover(force=True)

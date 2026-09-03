@@ -97,8 +97,18 @@ class TestIsActiveModelDownloaded:
 
         assert is_active_model_downloaded(cfg) is False
 
-    def test_whisper_downloaded_true(self, tmp_config_dir):
+    def test_whisper_downloaded_true(self, tmp_config_dir, monkeypatch):
+        """The repo dir exists AND the completeness probe passes → the
+        tooltip/pre-check report the model as available. The probe is
+        stubbed here (its cache-layout mechanics are pinned in
+        tests/model_download/test_download_abort_gate.py); a bare
+        refs/main marker alone is NO LONGER sufficient — a partial
+        download must report False."""
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: True,
+        )
         cfg = Config(asr_backend="whisper", model_size="tiny")
         from voice_typer.server.tray_models import is_active_model_downloaded
 

@@ -175,7 +175,7 @@ def _rebuild_fts(
         # privacy guarantee is broken (deleted dictated text
         # remains recoverable from ``transcriptions_fts_data`` via
         # forensic tools), not merely "suboptimal".
-        log.error(
+        log.exception(
             "[HISTORY_DB] FTS5 '%s' after %s FAILED: %s "
             "(FTS5 shadow-table segment data may persist — deleted "
             "dictated text remains recoverable; manual re-index advised)",
@@ -547,7 +547,7 @@ def apply_retention(
                                 # investigate. The next retention tick
                                 # will retry VACUUM.
                                 if secure_delete_toggled:
-                                    log.error(
+                                    log.exception(
                                         "[HISTORY_DB] VACUUM after retention "
                                         "FAILED with secure_delete=OFF: %s — "
                                         "deleted text may be recoverable from "
@@ -683,14 +683,14 @@ def apply_retention(
         # carrying the (possibly False) fts5_rebuild_ok flag.
         return RetentionResult(int(result), fts5_rebuild_ok=fts5_rebuild_ok)
     except HistoryDBError:
-        log.error("[HISTORY] Writer unavailable for apply_retention")
+        log.exception("[HISTORY] Writer unavailable for apply_retention")
         # apply_retention is called from a background
         # retention sweep, not from an IPC handler, so it preserves
         # the legacy "return 0 deleted" sentinel. The retention
         # sweep logs the error and moves on.
         return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
     except Exception as e:
-        log.error("[HISTORY] Failed to apply retention: %s", e)
+        log.exception("[HISTORY] Failed to apply retention: %s", e)
         return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
 
 

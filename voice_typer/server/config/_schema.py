@@ -356,6 +356,14 @@ class _ConfigSchema:
     # who prefer silence can disable it in Settings → Behavior.
     sound_feedback_enabled: bool = True
 
+    # volume multiplier applied to the renderer's sound-feedback cues
+    # (see ``voice_typer/client/src/renderer/src/lib/sound-manager.ts``).
+    # 1.0 = the cues' baked-in level; 0.0 = silent.  Validated at the
+    # IPC boundary to [0.0, 1.0] and surfaced in Settings → Recording
+    # next to the Sound Feedback toggle (volume slider + Test Sound
+    # preview button).
+    sound_volume: float = 1.0
+
     # Crash recovery
     crash_recovery_enabled: bool = True
 

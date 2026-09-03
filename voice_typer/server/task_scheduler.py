@@ -73,7 +73,7 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
         log.warning("[TASK] schtasks.exe not found (not Windows?)")
         return 127, "schtasks not found"
     except subprocess.TimeoutExpired:
-        log.error("[TASK] schtasks timed out: %s", cmd)
+        log.exception("[TASK] schtasks timed out: %s", cmd)
         return 124, "schtasks timed out"
 
 

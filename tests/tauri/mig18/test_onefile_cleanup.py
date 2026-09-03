@@ -14,7 +14,7 @@ ADR-0020 §4 mandates that the onefile extraction dir is:
 Per-platform spec (per the MIG-1.8 task brief):
 
   - Windows: ``{CACHE_DIR}/voice-typer/onefile-tmp`` (Nuitka token =
-             AppData\Local; migrated from ``%LOCALAPPDATA%`` which Nuitka
+             AppData\\Local; migrated from ``%LOCALAPPDATA%`` which Nuitka
              rejects as a spec variable; ``%LOCALAPPDATA%`` remains an
              accepted legacy pattern)
              (or ``$XDG_CACHE_HOME/voice-typer/onefile-tmp``)

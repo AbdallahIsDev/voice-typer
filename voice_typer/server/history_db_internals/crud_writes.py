@@ -127,7 +127,7 @@ def add_transcription(
         # Placeholder row_id — callers that check ``> 0`` see success.
         return 1
     except Exception as e:
-        log.error("[HISTORY] Failed to enqueue add_transcription: %s", e)
+        log.exception("[HISTORY] Failed to enqueue add_transcription: %s", e)
         return -1
 
 
@@ -385,7 +385,7 @@ def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
         # broken (deleted dictated text remains
         # recoverable from ``transcriptions_fts_data``
         # via forensic tools), not merely "suboptimal".
-        log.error(
+        log.exception(
             "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
             "(FTS5 shadow-table segment data may persist — deleted "
             "dictated text remains recoverable; manual re-index advised)",
@@ -614,8 +614,8 @@ def submit_checkpoint(db: HistoryDB, truncate: bool) -> bool:
             return False
         return bool(result)
     except HistoryDBError as e:
-        log.error("[HISTORY] Writer unavailable for checkpoint: %s", e)
+        log.exception("[HISTORY] Writer unavailable for checkpoint: %s", e)
         return False
     except Exception as e:
-        log.error("[HISTORY] Failed to checkpoint: %s", e)
+        log.exception("[HISTORY] Failed to checkpoint: %s", e)
         return False

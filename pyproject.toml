@@ -746,7 +746,12 @@ src = ["voice_typer", "tests"]
 
 [tool.ruff.lint]
 # CQ-018: extended select beyond basic E/F/W/I
-select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
+# TRY400 (AP-47 fix): ``log.error`` inside an ``except`` block must be
+# ``log.exception`` so the traceback rides the log record - the single
+# most important diagnostic field for remote triage. The sweep that
+# enabled this rule converted all flagged sites; new in-except
+# log.error calls now fail lint instead of regressing silently.
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TRY400"]
 # ERR-ERR-006: do not blanket-disable E501. The line-length=120 above governs
 # the limit; lines that exceed 120 are wrapped manually or split with `\`.
 ignore = []

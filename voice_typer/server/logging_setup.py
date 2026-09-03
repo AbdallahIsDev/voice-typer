@@ -167,6 +167,25 @@ def _emit_startup_banner() -> None:
         _session_id,
     )
 
+    # One-time PII heads-up when debug logging is enabled.
+    # DEBUG-level records routinely carry low-level context (absolute
+    # paths, device names, hostnames, IPC frame dumps) that the
+    # PIIRedactionFilter intentionally does NOT blanket-scrub (its
+    # patterns target secrets/PII classes, not free-form debug text).
+    # Warn ONCE per session, in the log file itself, so anyone the user
+    # sends the log to is warned before reading it, and so the user is
+    # reminded at every debug-mode startup that the file is not
+    # share-by-default material. WARNING level so it survives the
+    # handler-level gate in every configuration.
+    if debug:
+        log.warning(
+            "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1) — "
+            "DEBUG records may include sensitive context (file paths, "
+            "device names, hostnames) beyond what PII redaction covers. "
+            "Do not share the log file publicly without review; disable "
+            "VOICE_TYPER_DEBUG for everyday use."
+        )
+
     # ── Windows VEH + Python excepthook: capture silent crashes ─────
     # Install BEFORE any C extensions load so the handler catches
     # crashes inside ctranslate2 / faster-whisper / sounddevice.

@@ -835,7 +835,7 @@ def atomic_swap_offline_pack(
             try:
                 os.replace(current_dir, trash)
             except OSError as exc:
-                log.error("[PACK] Windows swap: rename current -> trash failed: %s", exc)
+                log.exception("[PACK] Windows swap: rename current -> trash failed: %s", exc)
                 if start_worker is not None:
                     start_worker()
                 raise
@@ -843,7 +843,7 @@ def atomic_swap_offline_pack(
         try:
             os.replace(new_dir, current_dir)
         except OSError as exc:
-            log.error("[PACK] Windows swap: rename new -> current failed: %s", exc)
+            log.exception("[PACK] Windows swap: rename new -> current failed: %s", exc)
             # Roll back: restore the trash as the current pack.
             with contextlib.suppress(OSError):
                 os.replace(trash, current_dir)
@@ -999,7 +999,7 @@ def download_offline_pack_with_resume(
                         # closed the file handle) — deleting an open
                         # file fails with PermissionError on Windows,
                         # which would leak the partial.
-                        log.error("[PACK] disk-full mid-download of %s: %s", version, exc)
+                        log.exception("[PACK] disk-full mid-download of %s: %s", version, exc)
                         _publish_event(
                             event_bus,
                             "offline_pack_download_failed",
@@ -1042,7 +1042,7 @@ def download_offline_pack_with_resume(
                 dest.unlink()
             raise
         except OSError as exc:
-            log.error("[PACK] download error: %s", exc)
+            log.exception("[PACK] download error: %s", exc)
             _publish_event(
                 event_bus,
                 "offline_pack_download_failed",

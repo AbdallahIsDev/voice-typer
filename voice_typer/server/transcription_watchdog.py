@@ -227,7 +227,7 @@ class TranscriptionWatchdog:
             if firings >= 2:
                 app.tray.notify(
                     APP_NAME,
-                    "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
+                    i18n.t("notify.recording_controller.still_running"),
                 )
             # RACE-013: no need to create a new Timer. The persistent
             # watchdog thread will time out again on its next

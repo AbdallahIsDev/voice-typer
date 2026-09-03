@@ -21,6 +21,7 @@ The keyring is faked (dict-backed) following the pattern in
 from __future__ import annotations
 
 import base64
+import logging
 import sys
 from unittest.mock import MagicMock
 
@@ -283,6 +284,29 @@ class TestDekPolicy:
         dek = _text_crypto.resolve_dek(encrypted_rows_exist=False)
         assert dek is None
         assert _text_crypto.encryption_status(dek, False) == "disabled"
+
+    def test_missing_cryptography_package_with_encrypted_rows_logs_cause(self, fake_keyring, monkeypatch, caplog):
+        """The 'cryptography' dependency missing from the runtime degrades
+        to key-unavailable mode — but the ERROR must name the ACTUAL cause
+        (missing package, NOT key loss): the DEK is still healthy in the
+        keyring and decryption resumes once the package is installed."""
+        dek = _text_crypto.resolve_dek(encrypted_rows_exist=False)
+        assert dek is not None
+        _text_crypto.reset_dek_cache()
+        monkeypatch.setattr(_text_crypto, "_CRYPTOGRAPHY_AVAILABLE", False)
+        with caplog.at_level(logging.ERROR, logger="voice_typer.server._text_crypto"):
+            assert _text_crypto.resolve_dek(encrypted_rows_exist=True) is None
+        assert any("cryptography" in r.message and "NOT" in r.message for r in caplog.records), (
+            "ERROR must name the missing cryptography package (not key loss), "
+            f"got: {[r.message for r in caplog.records]}"
+        )
+        # The keyring DEK is untouched — no regeneration, no deletion.
+        from voice_typer.server.credential_store._schema import (
+            DATA_ENCRYPTION_KEY_USERNAME,
+            KEYRING_SERVICE_NAME,
+        )
+
+        assert (KEYRING_SERVICE_NAME, DATA_ENCRYPTION_KEY_USERNAME) in fake_keyring
 
     def test_store_failure_means_no_encryption(self, monkeypatch, fake_keyring):
         """A DEK that cannot be persisted must never be used."""

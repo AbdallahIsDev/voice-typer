@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.asr_setup import ModelDownloadAborted
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.service._download_helpers import DownloadOutcome
 
@@ -86,6 +87,12 @@ class DownloadsMixin:
          the legacy single-instance
         ``self._download_cancel_event`` fallback branch has been REMOVED.
         All cancel signals now flow through the per-download dict.
+
+        ALSO signals the transfer gate (:func:`asr_setup.request_download_abort`)
+        so the HuggingFace transfer threads unwind at the next chunk
+        boundary — pre-fix, cancel only stopped the progress REPORTER
+        and the daemon transfer thread kept downloading in the
+        background.
         """
         cancelled_any = False
         #  SERVICE-1: per-download dict path — signal the
@@ -96,6 +103,25 @@ class DownloadsMixin:
         if active_event is not None:
             active_event.set()
             cancelled_any = True
+        # ALSO signal the transfer gate whenever a gateable download is
+        # active — the Parakeet path never registers a per-download
+        # Event (it downloads synchronously inside the IPC call), so the
+        # registry lookup alone could not stop it. The gate raises
+        # ModelDownloadAborted at the next chunk boundary (works from a
+        # PAUSED state too — the parked gate wakes and unwinds).
+        try:
+            from voice_typer.server.asr_setup import (
+                is_download_active,
+                request_download_abort,
+            )
+
+            if is_download_active() and request_download_abort():
+                cancelled_any = True
+        except Exception:
+            log.debug(
+                "[SERVICE] transfer-gate abort signal failed",
+                exc_info=True,
+            )
         if cancelled_any:
             log.info("[SERVICE] Model download cancellation requested")
             return {"cancelled": True}
@@ -104,13 +130,14 @@ class DownloadsMixin:
     def pause_model_download(self) -> dict:
         """Pause an in-progress model download.
 
-        delegates to :func:`asr_setup.set_download_paused`,
-        which sets a module-level flag that the download polling loop
-        checks between iterations.  While paused, the polling loop
-        stops pushing progress updates (and the renderer shows a
-        "paused" indicator).  The underlying HuggingFace transfer
-        continues in the background; if the user wants to stop the
-        network transfer entirely they should use Cancel.
+        delegates to :func:`asr_setup.set_download_paused`.
+        The transfer gate (:func:`asr_setup.get_download_tqdm_class`) parks
+        the HuggingFace transfer thread at the next chunk boundary, so
+        bytes genuinely stop flowing (pre-fix the pause only froze the
+        progress REPORTER while the transfer ran to completion in the
+        background). The polling loop pushes the ``paused: True``
+        transition event, which the renderer renders as its amber
+        "paused" state.
         """
         from voice_typer.server.asr_setup import set_download_paused
 
@@ -123,8 +150,10 @@ class DownloadsMixin:
         """Resume a paused model download.
 
         clears the module-level pause flag set by
-        :meth:`pause_model_download`.  The polling loop picks up where
-        it left off on the next iteration.
+        :meth:`pause_model_download`. The transfer gate unblocks the
+        parked transfer thread at its next chunk boundary and the
+        download continues (huggingface_hub re-requests with a Range
+        header if the idle HTTP connection died during the pause).
         """
         from voice_typer.server.asr_setup import set_download_paused
 
@@ -283,8 +312,29 @@ class DownloadsMixin:
                     "error": f"Unknown model: {model_name}",
                 }
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
+        except ModelDownloadAborted:
+            # An abort unwinding the transfer surfaces here as a
+            # BaseException (NOT Exception) — map it to the same
+            # cancelled outcome the poll-loop path returns so a cancel
+            # never reaches the user as an error toast.
+            log.info(
+                "[SERVICE] Download of '%s' aborted via transfer gate",
+                model_name,
+            )
+            try:
+                from voice_typer.server.asr_setup import clear_download_pause_state
+
+                clear_download_pause_state()
+            except Exception:
+                log.debug("[SERVICE] could not clear pause flag on abort", exc_info=True)
+            return {
+                "success": False,
+                "model": model_name,
+                "cancelled": True,
+                "message": f"Download of {model_name} cancelled. Partial files remain in cache; retry to resume.",
+            }
         except Exception as exc:
-            log.error("download_model failed for %s: %s", model_name, exc)
+            log.exception("download_model failed for %s: %s", model_name, exc)
             # The per-download Event cleanup is handled by the
             # ``finally:`` block in each ``_download_*`` branch method
             # (e.g. ``_download_whisper_family``). The outer
@@ -328,10 +378,29 @@ class DownloadsMixin:
         per-download cancellation plumbing ( / SERVICE-1).
 
         Takes explicit args (``model_name``, ``model_meta``) so it can
-        be unit-tested in isolation.  Returns a :data:`DownloadOutcome`
+        be unit-tested in isolation. Returns a :data:`DownloadOutcome`
         TypedDict with the same runtime shape the original branch
         produced.
         """
+        # SINGLE-FLIGHT GUARD: only one gateable download may run at a
+        # time (the shared pause/abort events are module-level). Without
+        # this, a second download_model IPC — e.g. the renderer's Retry
+        # after its promise timed out during a long PAUSE — would start
+        # a second transfer and recycle the events underneath the live
+        # one (the parked gate would wake and both downloads would run).
+        from voice_typer.server.asr_setup import is_download_active
+
+        if is_download_active():
+            log.info(
+                "[SERVICE] Download of '%s' refused — another download is already in progress (possibly paused)",
+                model_name,
+            )
+            return {
+                "success": False,
+                "model": model_name,
+                "download_already_active": True,
+                "error": "Another model download is already in progress (it may be paused). Resume or cancel it first.",
+            }
         from voice_typer.server import event_bus
         from voice_typer.server.service._download_helpers import (
             notify as _notify,
@@ -358,15 +427,21 @@ class DownloadsMixin:
             model_meta.repo_id if model_meta else "unknown",
             model_meta.backend if model_meta else "unknown",
         )
-        # reset the pause flag at the start of
-        # every fresh download so a stale ``paused=True`` from
-        # a previous download doesn't carry over.
+        # reset the pause + abort flags at the start of
+        # every fresh download so stale state from a previous download
+        # doesn't carry over, and force the gateable HTTP transfer path
+        # (the pause/abort gate lives in the HTTP chunk loop's progress
+        # callbacks — the xet path reports from native threads where a
+        # blocking callback does not stop the transfer).
         from voice_typer.server.asr_setup import (
             clear_download_pause_state,
+            force_http_download_path,
+            get_download_tqdm_class,
             reset_download_pause_state,
         )
 
         reset_download_pause_state()
+        force_http_download_path()
 
         _push_progress(event_bus, model_name, 0, f"Starting download for {model_name}...")
         # pre-download via snapshot_download so we can
@@ -389,20 +464,12 @@ class DownloadsMixin:
             cache_dir = _config_dir() / "huggingface" / "hub"
 
             # SEC-audit-005: Allowlist of file patterns permitted in downloads
-            _service_allow_patterns = [
-                "*.safetensors",
-                "*.bin",
-                "config.json",
-                "tokenizer.json",
-                "tokenizer_config.json",
-                "special_tokens_map.json",
-                "preprocessor_config.json",
-                "feature_extractor_config.json",
-                "generation_config.json",
-                "model.safetensors.index.json",
-                "*.model",
-            ]
-            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
+            # (E7: the SAME pinned list the loader's cache probe uses —
+            # a duplicated inline list drifted risk). SEC-audit-005 also
+            # pins the download revision to the MODEL_HASHES manifest.
+            from voice_typer.server._model_integrity import (
+                ALLOW_PATTERNS_WHISPER as SERVICE_ALLOW_PATTERNS_WHISPER,
+            )
             from voice_typer.server.security import MODEL_HASHES
 
             _service_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
@@ -413,7 +480,7 @@ class DownloadsMixin:
                 snapshot_download(
                     repo_id=repo_id,
                     revision=_service_revision,
-                    allow_patterns=_service_allow_patterns,
+                    allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
                     local_files_only=True,
                 )
                 log.info(
@@ -458,11 +525,21 @@ class DownloadsMixin:
                             snapshot_download,
                             repo_id=repo_id,
                             revision=_service_revision,
-                            allow_patterns=_service_allow_patterns,
+                            allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
                             resume_download=True,
                             cache_dir=str(cache_dir),
+                            # pause/abort gate: intercepts every ~10 MB
+                            # chunk boundary — pause BLOCKS the transfer
+                            # thread, cancel raises ModelDownloadAborted
+                            # (a BaseException, so the retry wrapper
+                            # cannot swallow it and resume downloading).
+                            tqdm_class=get_download_tqdm_class(),
                         )
-                    except Exception as e:
+                    except BaseException as e:
+                        # ModelDownloadAborted is a BaseException — catch
+                        # it here (the thread boundary swallows
+                        # BaseExceptions silently) so download_err
+                        # carries it for the cancelled-outcome mapping.
                         download_err.append(e)
 
                 # daemon=True is acceptable because
@@ -529,6 +606,26 @@ class DownloadsMixin:
                 if download_err:
                     # B904: suppress context from the failed
                     # cache-only snapshot_download attempt above.
+                    first_err = download_err[0]
+                    if isinstance(first_err, ModelDownloadAborted):
+                        # The user cancelled: the transfer gate unwound the
+                        # HuggingFace download. Map to the same cancelled
+                        # outcome the poll-loop path returns (the renderer's
+                        # cancel handler has already cleared local state;
+                        # the pending download_model promise resolves as a
+                        # clean stop).
+                        log.info(
+                            "[SERVICE] Download of '%s' aborted via transfer gate",
+                            model_name,
+                        )
+                        return {
+                            "success": False,
+                            "model": model_name,
+                            "cancelled": True,
+                            "message": f"Download of {model_name} cancelled. "
+                            "Partial files remain in cache; "
+                            "retry to resume.",
+                        }
                     raise download_err[0] from None
                 log.info(
                     "[SERVICE] Download of '%s' complete (%d MB)",
@@ -622,6 +719,21 @@ class DownloadsMixin:
         Returns a :data:`DownloadOutcome` with the same runtime shape
         the original branch produced.
         """
+        # SINGLE-FLIGHT GUARD (same rationale as the whisper branch —
+        # only one gateable download at a time).
+        from voice_typer.server.asr_setup import is_download_active
+
+        if is_download_active():
+            log.info(
+                "[SERVICE] Download of '%s' refused — another download is already in progress (possibly paused)",
+                model_name,
+            )
+            return {
+                "success": False,
+                "model": model_name,
+                "download_already_active": True,
+                "error": "Another model download is already in progress (it may be paused). Resume or cancel it first.",
+            }
         from voice_typer.server import event_bus
         from voice_typer.server.service._download_helpers import (
             notify as _notify,
@@ -645,7 +757,16 @@ class DownloadsMixin:
             model_name,
         )
         _push_progress(event_bus, model_name, 0, "Starting Parakeet download (~2.5 GB)...")
-        from voice_typer.server.asr_setup import download_parakeet_weights
+        from voice_typer.server.asr_setup import (
+            download_parakeet_weights,
+            reset_download_pause_state,
+        )
+
+        # Parakeet's transfer gate reads the same shared pause/abort
+        # events as the whisper branch — arm them for this download and
+        # clean them up on every exit (reset is idempotent; a
+        # download_already_active refusal returns BEFORE this line).
+        reset_download_pause_state()
 
         # surface silent failures. Previously the
         # service called ``download_parakeet_weights()`` with no
@@ -682,10 +803,19 @@ class DownloadsMixin:
             _push_progress(event_bus, model_name, 50, message)
 
         _push_progress(event_bus, model_name, 50, "Downloading Parakeet weights from HuggingFace...")
-        dpw_result = download_parakeet_weights(
-            config=self._app.config,
-            progress_callback=_parakeet_progress,
-        )
+        try:
+            dpw_result = download_parakeet_weights(
+                config=self._app.config,
+                progress_callback=_parakeet_progress,
+            )
+        finally:
+            # Release the gate's pause/abort events on EVERY exit —
+            # success, failure, or an abort unwinding through here (the
+            # download_model dispatcher maps ModelDownloadAborted to the
+            # cancelled outcome; this finally must still run).
+            from voice_typer.server.asr_setup import clear_download_pause_state
+
+            clear_download_pause_state()
         # Defensive unpack: handle both the documented 3-tuple
         # and the legacy/test bare-bool shape.
         if isinstance(dpw_result, tuple):

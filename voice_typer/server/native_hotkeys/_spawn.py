@@ -135,7 +135,7 @@ class _SpawnMixin:
                     f"Native {self.platform_name} binary open failed "
                     f"during TOCTOU re-verify (path={self._binary_path}): {exc}"
                 )
-                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                log.exception("[NATIVE-HOTKEY] %s", self._error_message)
                 return
 
         if not verify_native_binary_or_skip(self._binary_path):
@@ -167,7 +167,7 @@ class _SpawnMixin:
                     f"Native {self.platform_name} binary fstat failed "
                     f"during TOCTOU re-verify (path={self._binary_path}): {exc}"
                 )
-                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                log.exception("[NATIVE-HOTKEY] %s", self._error_message)
                 return
 
         # pre-Popen stat check. If the path's stat differs
@@ -186,7 +186,7 @@ class _SpawnMixin:
                 self._error_message = (
                     f"Native {self.platform_name} binary stat failed pre-Popen (path={self._binary_path}): {exc}"
                 )
-                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                log.exception("[NATIVE-HOTKEY] %s", self._error_message)
                 return
             if path_stat != pinned_stat:
                 if fd is not None:

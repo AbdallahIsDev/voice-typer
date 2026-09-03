@@ -30,7 +30,7 @@ import logging
 import queue
 import sqlite3
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from voice_typer.server.history_db import HistoryDB
@@ -61,7 +61,7 @@ def initialize_state(db: HistoryDB) -> None:
     # this pruning, IPC handler threads, tray thread, dictation
     # pipeline thread, and test threads would each accumulate a
     # 20 MB read connection that's never released until close().
-    db._all_read_connections: list[tuple[int, sqlite3.Connection]] = []
+    db._all_read_connections = []
     db._connections_lock = threading.Lock()
     # generation counter bumped on corruption-recovery
     # read-connection invalidation. Each thread-local read
@@ -71,7 +71,7 @@ def initialize_state(db: HistoryDB) -> None:
     # the stale conn and opens a new one on the fresh file.
     # Without this, POSIX open FDs would keep pointing at the
     # renamed (corrupt) file and readers would return stale data.
-    db._read_conn_generation: int = 0
+    db._read_conn_generation = 0
     # Write queue: items are (callable, future) tuples, OR
     # _BatchableInsert instances, OR the _SHUTDOWN_SENTINEL
     # to ask the writer to exit. ``future`` is None for
@@ -81,7 +81,7 @@ def initialize_state(db: HistoryDB) -> None:
     # the oldest non-sentinel item and log a warning. See
     # ``_WRITE_QUEUE_MAXSIZE`` for the bound's rationale (~5 minutes
     # of fire-and-forget add_transcription writes at 30/s).
-    db._queue: queue.Queue[Any] = queue.Queue(maxsize=_hd._WRITE_QUEUE_MAXSIZE)
+    db._queue = queue.Queue(maxsize=_hd._WRITE_QUEUE_MAXSIZE)
     # Signaled by the writer thread once schema init succeeds (or
     # fails). __init__ waits on this so subsequent reads see the
     # schema.
@@ -90,7 +90,7 @@ def initialize_state(db: HistoryDB) -> None:
     db._shutdown = threading.Event()
     # If the writer thread failed during schema init, the exception
     # is stored here so __init__ can log it.
-    db._init_error: BaseException | None = None
+    db._init_error = None
     # re-entrancy guard for apply_retention. The periodic
     # retention scheduler spawns a daemon thread that calls
     # apply_retention on a fixed interval; if a previous run is
@@ -100,13 +100,13 @@ def initialize_state(db: HistoryDB) -> None:
     db._retention_lock = threading.Lock()
     # stop event for the periodic retention thread. Set by
     # close() (and by re-scheduling) to ask the daemon loop to exit.
-    db._retention_stop_event: threading.Event | None = None
+    db._retention_stop_event = None
     # handle to the periodic retention daemon thread (for
     # join-on-close).
-    db._retention_thread: threading.Thread | None = None
+    db._retention_thread = None
     # TTL cache for ``get_history_count``.
-    db._history_count_cache: int | None = None
-    db._history_count_cache_ts: float = 0.0
+    db._history_count_cache = None
+    db._history_count_cache_ts = 0.0
     db._history_count_cache_lock = threading.Lock()
     # TTL cache for ``get_today_stats``. See
     # ``_TODAY_STATS_CACHE_TTL_S`` for the rationale (15s TTL,
@@ -114,8 +114,8 @@ def initialize_state(db: HistoryDB) -> None:
     # COPY of the stats dict so callers can mutate the returned
     # dict without corrupting the cached value (see
     # ``test_cache_returns_independent_dict_copy``).
-    db._today_stats_cache: dict | None = None
-    db._today_stats_cache_ts: float = 0.0
+    db._today_stats_cache = None
+    db._today_stats_cache_ts = 0.0
     db._today_stats_cache_lock = threading.Lock()
     # per-instance counter of FTS5 'rebuild' failures after
     # ``apply_retention`` / ``clear_all`` bulk deletes. Incremented
@@ -125,7 +125,7 @@ def initialize_state(db: HistoryDB) -> None:
     # Art. 17 violation), so the counter is surfaced in
     # diagnostics and paired with an ``event_bus`` event so the
     # renderer can show a toast.
-    db._fts5_rebuild_failures: int = 0
+    db._fts5_rebuild_failures = 0
     # True when this session's startup FTS5 'rebuild' actually ran
     # (schema_meta flag NULL or '1'). A rebuild re-tokenizes from the
     # content table, so rows that were already encrypted at rest end
@@ -133,18 +133,18 @@ def initialize_state(db: HistoryDB) -> None:
     # responds by queueing a decrypt-aware re-index (see
     # ``_reindex_encrypted_fts_step``) to restore the invariant
     # (FTS shadow tables stay plaintext-tokenized).
-    db._fts5_rebuild_ran: bool = False
+    db._fts5_rebuild_ran = False
     # Ascending-id watermark for ``_reindex_encrypted_fts_step`` —
     # lets the decrypt-aware FTS re-index resume across its bounded
     # batches without re-processing rows or holding their ids.
-    db._fts_reindex_watermark: int = 0
+    db._fts_reindex_watermark = 0
     # At-rest-encryption status — one of "active" / "disabled" /
     # "key-unavailable" (see :meth:`encryption_status`). Set by
     # ``_init_encryption`` on the writer thread after schema init;
     # "disabled" is the pre-resolution default so a HistoryDB whose
     # writer never gets that far (init failure) reports the same
     # state as plaintext mode.
-    db._encryption_status: str = "disabled"
+    db._encryption_status = "disabled"
     # periodic prune daemon for ``_all_read_connections``.
     # Pre-fix, ``_prune_dead_read_connections_locked`` was REACTIVE
     # — only fired when a NEW connection was created on a thread
@@ -157,8 +157,8 @@ def initialize_state(db: HistoryDB) -> None:
     # every 60s and closes connections whose owning thread has
     # exited, bounding the leak window to 60s regardless of new
     # read-conn churn.
-    db._read_conn_prune_stop_event: threading.Event | None = None
-    db._read_conn_prune_thread: threading.Thread | None = None
+    db._read_conn_prune_stop_event = None
+    db._read_conn_prune_thread = None
 
 
 def wait_for_writer_ready(db: HistoryDB) -> None:
@@ -216,6 +216,30 @@ def close_read_connections(db: HistoryDB) -> None:
             with contextlib.suppress(sqlite3.Error):
                 conn.close()
         db._all_read_connections.clear()
+
+
+def gc_close_read_connections(db: HistoryDB) -> None:
+    """Non-blocking read-connection teardown for ``HistoryDB.__del__``.
+
+    Same effect as :func:`close_read_connections` but never blocks: the
+    connections lock is acquired with ``blocking=False`` and the sweep
+    is skipped if another thread holds it (a re-entrant GC during
+    ``_get_read_conn`` could otherwise deadlock). Closes the current
+    thread's thread-local connection first.
+    """
+    if hasattr(db._read_local, "conn") and db._read_local.conn is not None:
+        with contextlib.suppress(Exception):
+            db._read_local.conn.close()
+        db._read_local.conn = None
+    if not db._connections_lock.acquire(blocking=False):
+        return
+    try:
+        for _ident, conn in db._all_read_connections:
+            with contextlib.suppress(Exception):
+                conn.close()
+        db._all_read_connections.clear()
+    finally:
+        db._connections_lock.release()
 
 
 def close_db(db: HistoryDB) -> None:

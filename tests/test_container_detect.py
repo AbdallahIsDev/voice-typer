@@ -271,18 +271,20 @@ class TestGetContainerType:
         _clear_container_env(monkeypatch)
         assert container_detect.get_container_type() == "lxc"
 
-    def test_docker_signature_in_cgroup_returns_unknown(self, monkeypatch):
-        """KNOWN INCONSISTENCY: ``is_in_container`` detects a 'docker'
-        signature in ``/proc/1/cgroup``, but ``get_container_type`` only
-        maps 'kubepods', 'containerd', 'lxc' — not 'docker'. So a
-        container detected solely via cgroup (no ``/.dockerenv``) is
-        reported as 'unknown'. This test pins the current behavior."""
+    def test_docker_signature_in_cgroup_returns_docker(self, monkeypatch):
+        """The old duplicated probe chains disagreed —
+        ``is_in_container`` detected a 'docker' signature in
+        ``/proc/1/cgroup`` but ``get_container_type`` only mapped
+        'kubepods'/'containerd'/'lxc', so a cgroup-detected Docker
+        container was reported as ``True``/``unknown``. The single
+        canonical probe maps every legacy signature; this pins the
+        CONSISTENT behavior (both accessors report the same type)."""
         _force_linux(monkeypatch)
         _set_existing_paths(monkeypatch, set())
         _set_cgroup(monkeypatch, "0::/docker/abc123\n")
         _clear_container_env(monkeypatch)
         assert container_detect.is_in_container() is True
-        assert container_detect.get_container_type() == "unknown"
+        assert container_detect.get_container_type() == "docker"
 
     def test_precedence_docker_wins_over_podman_and_env(self, monkeypatch):
         """When multiple indicators are present, the first checked wins

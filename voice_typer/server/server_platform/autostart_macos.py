@@ -200,11 +200,11 @@ def _enable_autostart_macos() -> bool:
         # surface the timeout to the caller so the renderer can
         # show "Autostart failed: launchctl bootstrap timed out" instead
         # of the misleading success toast.
-        log.error("[CONFIG] Autostart enable FAILED: launchctl bootstrap timed out")
+        log.exception("[CONFIG] Autostart enable FAILED: launchctl bootstrap timed out")
         return False
     except Exception as e:
         log.warning("[CONFIG] launchctl bootstrap failed: %s", e)
-        log.error("[CONFIG] Autostart enable FAILED: %s", e)
+        log.exception("[CONFIG] Autostart enable FAILED: %s", e)
         return False
 
     # inspect returncode + stderr. ``launchctl bootstrap`` exits 0 on
@@ -253,11 +253,11 @@ def _enable_autostart_macos() -> bool:
             )
         except subprocess.TimeoutExpired:
             log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
-            log.error("[CONFIG] Autostart enable FAILED: launchctl load timed out")
+            log.exception("[CONFIG] Autostart enable FAILED: launchctl load timed out")
             return False
         except Exception as e:
             log.warning("[CONFIG] launchctl load failed: %s", e)
-            log.error("[CONFIG] Autostart enable FAILED: %s", e)
+            log.exception("[CONFIG] Autostart enable FAILED: %s", e)
             return False
         # Re-read stderr from the load call so the failure inspection
         # below reflects the legacy call's output (not bootstrap's).

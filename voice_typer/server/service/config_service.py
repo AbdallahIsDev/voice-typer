@@ -301,7 +301,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                     raw = _secure_read_text(config_file)
                     _secure_atomic_write(backup_path, raw)
                 except (OSError, ValueError) as exc:
-                    log.error("[SERVICE] reset_config_to_defaults: backup failed: %s", exc)
+                    log.exception("[SERVICE] reset_config_to_defaults: backup failed: %s", exc)
                     return {
                         "success": False,
                         "message": "failed to back up current config (see log)",
@@ -353,7 +353,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                 # API key could even stay active after the user believed
                 # they reset everything).
                 app.config = old_config
-                log.error("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
+                log.exception("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
                 return {
                     "success": False,
                     "message": "failed to persist reset config to disk (see log)",

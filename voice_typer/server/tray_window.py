@@ -321,7 +321,7 @@ def open_electron_window() -> None:
         set_electron_pid(proc.pid)
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
-        log.error("[TRAY] Failed to launch Electron app: %s", e)
+        log.exception("[TRAY] Failed to launch Electron app: %s", e)
 
 
 def open_page(path: str) -> None:

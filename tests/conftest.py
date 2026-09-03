@@ -396,7 +396,7 @@ def winfunctype_alias(monkeypatch):
 #     as test_shutdown_parallel.py; uses a ``_FakeApp``)
 #   - tests/test_shutdown_race_fixes.py (no-op override — same rationale;
 #     exercises ``_do_fast_cleanup`` against a ``_FakeApp``)
-#   - tests/test_shutdown_plan_zr17.py (no-op override — same rationale;
+#   - tests/test_shutdown_plan.py (no-op override — same rationale;
 #     exercises the ZR-17 shutdown plan against a ``_FakeApp``)
 #   - tests/test_shutdown_deadline_skip.py (no-op override — same
 #     rationale as test_shutdown_deadline.py; uses a ``_FakeApp``)
@@ -495,7 +495,7 @@ def mock_heavy_imports_session():
     ``mock_heavy_imports`` below for the full rationale.
 
     Per-test local overrides of ``mock_heavy_imports`` (in
-    ``tests/test_shutdown_plan_zr17.py``, ``tests/test_volume_lifecycle.py``,
+    ``tests/test_shutdown_plan.py``, ``tests/test_volume_lifecycle.py``,
     etc.) do NOT shadow this session fixture — they shadow only the
     function-scoped ``mock_heavy_imports`` of the same name. So every
     test (including those with local overrides) gets the session mocks
@@ -698,7 +698,7 @@ def mock_heavy_imports(monkeypatch, request):
     # drift is visible in CI output without failing the test.
     #
     # Per-test (NOT session) because: (a) it imports
-    # ``voice_typer.server.app``, which test_shutdown_plan_zr17.py
+    # ``voice_typer.server.app``, which test_shutdown_plan.py
     # explicitly avoids via its local no-op override of
     # ``mock_heavy_imports``; (b) the patch is idempotent so per-test
     # re-installation is cheap; (c) keeping it per-test preserves the

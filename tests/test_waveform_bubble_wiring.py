@@ -525,8 +525,18 @@ class TestWorkerCoalescesStaleLevels:
         # Cleanup: stop the worker.
         wiring.stop()
 
-        # Assert: publish was called exactly 1 time, with the LATEST item.
-        assert len(published_calls) == 1, (
-            f"expected exactly 1 publish call (coalesced), got {len(published_calls)}: {published_calls}"
+        # Assert: the coalesced LATEST item was published exactly once on
+        # the typed channel, plus the ≤8 Hz `recording_level` main-window
+        # mirror of that same latest frame (2 publishes total). The mirror
+        # fires on the worker's first drained frame (last_mirror_ts starts
+        # at 0.0), so both events carry the latest item's payload.
+        assert len(published_calls) == 2, (
+            f"expected exactly 2 publish calls (coalesced bubble_level + recording_level mirror), "
+            f"got {len(published_calls)}: {published_calls}"
         )
         assert published_calls[0] is items[-1], f"expected the latest item (rms=0.4), got {published_calls[0]}"
+        mirror = published_calls[1]
+        assert mirror["type"] == "recording_level", f"expected recording_level mirror, got {mirror['type']}"
+        assert mirror["data"] == items[-1]["data"], (
+            f"mirror payload must match the latest frame: {mirror['data']} vs {items[-1]['data']}"
+        )

@@ -134,7 +134,7 @@ class SequencingMixin:
         The driver body (per-step timeout wrapping, pre-flight barrier
         skip, degraded-step summary) is owned by the extracted
         :mod:`shutdown.plan` module so it can be unit-tested in
-        isolation — see ``tests/test_shutdown_plan_zr17.py``. The
+        isolation — see ``tests/test_shutdown_plan.py``. The
         delegate keeps this method on ``ShutdownController`` so the
         existing ``self._run_plan(plan, prior_timed_out)`` call sites
         in ``_do_cleanup`` (and the source-inspection tests in

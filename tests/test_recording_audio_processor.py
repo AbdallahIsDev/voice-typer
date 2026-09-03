@@ -102,23 +102,45 @@ def _capture_stream(streams):
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
-    """Wait for the audio worker thread to drain the SPSC ring buffer.
+    """Wait for the audio worker thread to drain the SPSC ring buffer
+    AND finish processing the last popped chunk.
 
     RT-SAFE-001: the PortAudio callback now pushes chunks to a ring
     buffer and returns immediately; a daemon worker thread processes
     them asynchronously. Tests that push chunks via ``FakeInputStream``
     must call this helper before asserting on ``rec._audio_pipeline._buffer`` —
     otherwise the worker may not have processed the chunks yet.
+
+    Completion requires BOTH the ring to be empty AND the pipeline
+    buffer length to be STABLE across consecutive polls: the worker
+    pops a chunk BEFORE appending it to ``_buffer`` (the filter chain +
+    VAD bookkeeping run in between), so a single ring-empty observation
+    can land in the pop→append window — the pre-fix "return on first
+    ring-empty" raced the final append and under-counted the buffer on
+    loaded CI machines (observed: ``Expected 5 buffered chunks, got 4``).
+    Requiring quiescence (ring empty + unchanged buffer length for
+    several spaced polls) closes that window; the bounded timeout
+    preserves the fail-with-clear-message contract when the worker is
+    genuinely stuck.
     """
     import time
 
     deadline = time.perf_counter() + timeout_s
+    last_len: int | None = None
+    stable_polls = 0
     while time.perf_counter() < deadline:
-        if len(rec._ring_buffer) == 0:
-            return
-        time.sleep(0.005)
-    # If we get here, the worker didn't drain in time — let the caller's
-    # assertion fail with a clear message rather than timing out here.
+        buf_len = len(rec._audio_pipeline._buffer)
+        if len(rec._ring_buffer) == 0 and buf_len == last_len:
+            stable_polls += 1
+            if stable_polls >= 4:  # ~4×12ms of observed quiescence
+                return
+        else:
+            stable_polls = 0
+            last_len = buf_len
+        time.sleep(0.012)
+    # If we get here, the worker didn't reach quiescence in time — let
+    # the caller's assertion fail with a clear message rather than
+    # timing out here.
 
 
 def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5) -> np.ndarray:

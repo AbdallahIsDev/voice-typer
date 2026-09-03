@@ -312,10 +312,10 @@ def main(argv: list[str]) -> int:
             record_sha256(manifest_path, target_dir, args.triple, binary=args.binary)
             violations = check_manifest(manifest_path, triple=args.triple)
     except (OSError, ValueError, json.JSONDecodeError, KeyError) as exc:
-        log.error("failed: %s", exc)
+        log.exception("failed: %s", exc)
         return 1
     except FileNotFoundError as exc:
-        log.error("failed: %s", exc)
+        log.exception("failed: %s", exc)
         return 1
 
     if violations:

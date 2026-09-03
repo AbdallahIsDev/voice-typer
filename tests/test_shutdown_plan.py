@@ -34,7 +34,7 @@ assert:
 
 Run with::
 
-    python -m pytest tests/test_shutdown_plan_zr17.py -q --timeout=30 --no-cov
+    python -m pytest tests/test_shutdown_plan.py -q --timeout=30 --no-cov
 """
 
 from __future__ import annotations

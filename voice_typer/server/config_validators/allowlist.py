@@ -296,6 +296,11 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "voice_biometric_consent": (bool, _bool_validator),
     # sound feedback toggle.
     "sound_feedback_enabled": (bool, _bool_validator),
+    # Volume multiplier for the renderer's sound-feedback cues
+    # (Settings → Recording slider + Test Sound preview). Range
+    # [0.0, 1.0] — the cues' synthesis gain is baked in, so the field
+    # scales it; negative values are nonsense and >1.0 would clip.
+    "sound_volume": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Crash recovery ────────────────────────────────────────────────
     "crash_recovery_enabled": (bool, _bool_validator),
     # ── Audio quality ─────────────────────────────────────────────────

@@ -431,7 +431,9 @@ class ConfigHandlersMixin(HandlerBase):
             # preference changes — the repush carries the cleared pair to
             # BOTH runtimes (Electron main + Tauri host cache it from this
             # frame) so an in-flight durable position doesn't survive the
-            # toggle.
+            # toggle. ``text_size`` is included so a UI text-size change
+            # re-pushes the bubble config subset (which now carries
+            # ``text_size``) and the bubble's font scale follows live.
             if any(
                 k in validated
                 for k in (
@@ -439,6 +441,7 @@ class ConfigHandlersMixin(HandlerBase):
                     "bubble_click_to_toggle",
                     "bubble_mic_button",
                     "bubble_position",
+                    "text_size",
                 )
             ):
                 try:

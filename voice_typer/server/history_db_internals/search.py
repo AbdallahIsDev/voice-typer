@@ -383,7 +383,7 @@ def get_latest_text(db: HistoryDB) -> str:
             return _decrypt_full_text(row[0] or "")
         return row[0] if row else ""
     except Exception as e:
-        log.error("[HISTORY] Failed to get latest transcription: %s", e)
+        log.exception("[HISTORY] Failed to get latest transcription: %s", e)
         return ""
 
 
@@ -793,7 +793,7 @@ def get_transcription_text(
             text = _decrypt_full_text(text)
         return {"id": transcription_id, "text": text}
     except Exception as e:
-        log.error(
+        log.exception(
             "[HISTORY] Failed to get transcription text for id=%s: %s",
             transcription_id,
             e,
@@ -836,7 +836,7 @@ def get_history_count(
             db._history_count_cache_ts = time.monotonic()
         return count
     except Exception as e:
-        log.error("[HISTORY] Failed to get history count: %s", e)
+        log.exception("[HISTORY] Failed to get history count: %s", e)
         if raise_on_error:
             from voice_typer.server.history_db import HistoryDBError
 

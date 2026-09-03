@@ -12,6 +12,27 @@ log = logging.getLogger(__name__)
 
 
 class DeleteImportMixin:
+    def _invalidate_tray_model_cache(self, context: str) -> None:
+        """Best-effort tray-submenu cache invalidation shared by delete/import.
+
+        On-disk model state changed, so the tray Models submenu must be
+        rebuilt on the next right-click. Invalidation failures are logged
+        at DEBUG with the calling context — never raised (a stale tray
+        cache must not fail the delete/import itself).
+        """
+        try:
+            from voice_typer.server.tray_models import (
+                invalidate_model_availability_cache,
+            )
+
+            invalidate_model_availability_cache()
+        except Exception:
+            log.debug(
+                "[SERVICE] %s: invalidate_model_availability_cache failed",
+                context,
+                exc_info=True,
+            )
+
     def delete_model(self, model_name: str) -> dict[str, object]:
         """Delete a downloaded model from the HuggingFace cache.
 
@@ -101,14 +122,7 @@ class DeleteImportMixin:
             )
             # Invalidate the tray models submenu cache so the next
             # right-click reflects the deletion.
-            try:
-                from voice_typer.server.tray_models import (
-                    invalidate_model_availability_cache,
-                )
-
-                invalidate_model_availability_cache()
-            except Exception:
-                log.debug("[SERVICE] invalidate_model_availability_cache failed", exc_info=True)
+            self._invalidate_tray_model_cache("delete_model")
             # PERF-10 / SVC-9: on-disk model state changed — force the next
             # get_model_status() poll to recompute instead of serving stale
             # (still-present) cache.
@@ -368,20 +382,7 @@ class DeleteImportMixin:
         # Invalidate the tray models cache so the next right-click
         # reflects the newly-imported models.
         if imported_models:
-            try:
-                from voice_typer.server.tray_models import (
-                    invalidate_model_availability_cache,
-                )
-
-                invalidate_model_availability_cache()
-            except Exception:
-                # sister calls log cache-invalidation failures at
-                # DEBUG. Previous pass silently swallowed with no log entry,
-                # making stale tray-cache bugs invisible.
-                log.debug(
-                    "[SERVICE] import_model: invalidate_model_availability_cache failed",
-                    exc_info=True,
-                )
+            self._invalidate_tray_model_cache("import_model")
 
         if imported_models:
             log.info(

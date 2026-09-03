@@ -782,8 +782,11 @@ class TestEnJson:
         assert "models" in en_data, "en.json must have a 'models' namespace"
         models = en_data["models"]
         assert isinstance(models, dict)
-        # Verify the key sub-namespaces exist
-        for sub in ("title", "active", "delete", "use", "status", "snack", "cloud", "download"):
+        # Verify the key sub-namespaces exist. ("use" / "useAria" were
+        # removed app-wide when the Models page dropped the direct
+        # per-model Use button — the selection flow is the only
+        # activation path now.)
+        for sub in ("title", "active", "delete", "status", "snack", "cloud", "download"):
             assert sub in models, f"en.json models.{sub} must exist"
 
     def test_en_json_has_history_namespace(self, en_data: dict) -> None:

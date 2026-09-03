@@ -12,24 +12,25 @@ call sites referenced it.  The historical implementation can be
 recovered from git history if needed for the future  on-demand
 dependency install feature.
 
-pause/resume flag for in-progress model downloads.
-``set_download_paused(True)`` causes the polling loop in
-:meth:`voice_typer.server.service.VoiceTyperService.download_model`
-to freeze its progress reporting (and effectively stop user-visible
-progress) until ``set_download_paused(False)`` is called.  The flag
-is checked "between chunks" — i.e. once per 1-second poll iteration
-in the service's polling loop.  The flag is module-level so the IPC
-handler can set it from any thread.
+pause/resume/abort flags for in-progress model downloads.
+``set_download_paused(True)`` BLOCKS the actual HuggingFace transfer at
+the next chunk boundary (see :func:`get_download_tqdm_class`) — bytes
+stop flowing, not just the progress reporting. ``request_download_abort()``
+makes the transfer unwind with :class:`ModelDownloadAborted` so a cancel
+stops the network transfer instead of letting it finish in the
+background. The flags are module-level so the IPC handler can set them
+from any thread.
 
 Lifecycle:
   - :func:`reset_download_pause_state` — call at start of download
-    (creates a fresh ``threading.Event``).
+    (creates fresh ``threading.Event``s).
   - :func:`set_download_paused` — set/clear the pause flag.
-  - :func:`is_download_paused` — check the flag (called by polling loop).
-  - :func:`wait_while_paused` — block while paused (called by polling loop).
+  - :func:`is_download_paused` — check the flag.
+  - :func:`wait_while_paused` — block while paused (polling loop).
+  - :func:`request_download_abort` — signal a cancel (gate raises).
   - :func:`clear_download_pause_state` — call at end of download
-    (sets the Event back to ``None`` so subsequent pause calls return
-    ``False``).
+    (sets the Events back to ``None``; a straggler transfer thread then
+    aborts at its next chunk boundary instead of finishing silently).
 """
 
 import logging
@@ -59,35 +60,45 @@ log = logging.getLogger(__name__)
 # - ``is_download_paused()``       -> ``_download_pause_event.is_set()``
 # - When no download is in progress, ``_download_pause_event`` is
 #   ``None`` and ``is_download_paused()`` returns ``False``.
+# - ``_download_abort_event`` mirrors the same lifecycle for CANCEL:
+#   ``request_download_abort()`` sets it, the transfer gate raises
+#   :class:`ModelDownloadAborted` at the next chunk boundary, and
+#   reset/clear recycle it per download.
 _download_pause_event: threading.Event | None = None
+_download_abort_event: threading.Event | None = None
 _download_pause_lock = threading.Lock()
 
 
 def reset_download_pause_state() -> None:
-    """Initialize the pause flag at the start of a download.
+    """Initialize the pause + abort flags at the start of a download.
 
     Called by :meth:`VoiceTyperService.download_model` when a new
-    download begins (so a stale ``paused=True`` from a previous
-    download doesn't carry over).  Creates a fresh ``threading.Event``
-    in the cleared (not-paused) state.  Safe to call from any thread.
+    download begins (so a stale ``paused=True`` / abort from a previous
+    download doesn't carry over). Creates fresh ``threading.Event``s in
+    the cleared (not-paused / not-aborted) state. Safe to call from any
+    thread.
     """
-    global _download_pause_event
+    global _download_pause_event, _download_abort_event
     with _download_pause_lock:
         _download_pause_event = threading.Event()
-        # Starts cleared (not paused).
+        _download_abort_event = threading.Event()
+        # Both start cleared (not paused / not aborted).
 
 
 def clear_download_pause_state() -> None:
-    """Clear the pause flag at the end of a download.
+    """Clear the pause + abort flags at the end of a download.
 
-    Sets ``_download_pause_event`` back to ``None`` so subsequent
-    calls to :func:`set_download_paused` return ``False`` (no active
-    download to pause).  Called from every cleanup path in
-    :meth:`VoiceTyperService.download_model` (success, failure, cancel).
+    Sets both Events back to ``None`` so subsequent pause calls return
+    ``False`` (no active download to pause) and any straggler transfer
+    thread aborts at its next chunk boundary (the gate treats a None
+    abort event as "no active download — stop"). Called from every
+    cleanup path in :meth:`VoiceTyperService.download_model` (success,
+    failure, cancel).
     """
-    global _download_pause_event
+    global _download_pause_event, _download_abort_event
     with _download_pause_lock:
         _download_pause_event = None
+        _download_abort_event = None
 
 
 def set_download_paused(paused: bool) -> bool:
@@ -126,6 +137,21 @@ def is_download_paused() -> bool:
         return _download_pause_event.is_set()
 
 
+def is_download_active() -> bool:
+    """Return ``True`` while a gateable model download is in flight.
+
+    ``True`` from :func:`reset_download_pause_state` (start of a
+    download) until :func:`clear_download_pause_state` (every exit
+    path) — regardless of whether it is running or paused. Used as the
+    single-flight guard so a second ``download_model`` IPC (e.g. the
+    renderer's Retry after its promise timed out during a long PAUSE)
+    cannot start a second concurrent transfer and recycle the shared
+    pause/abort events underneath the live one.
+    """
+    with _download_pause_lock:
+        return _download_pause_event is not None
+
+
 def wait_while_paused(timeout_s: float = 1.0) -> bool:
     """Block while the download is paused.
 
@@ -145,6 +171,130 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
         return True
     # Wait for the pause to be cleared (or timeout).
     return ev.wait(timeout=timeout_s)
+
+
+# ── Cancel (abort) flag ───────────────────────────────────────────────
+
+
+def request_download_abort() -> bool:
+    """Signal the in-flight transfer threads to abort (cancel).
+
+    The transfer gate (``_DownloadGateTqdm.update`` — see
+    :func:`get_download_tqdm_class`) raises :class:`ModelDownloadAborted`
+    at the next chunk boundary (≤10 MB), so the HuggingFace transfer
+    actually STOPS. Pre-fix, cancel only stopped the progress REPORTER:
+    the daemon transfer thread kept downloading to completion in the
+    background, silently burning the user's bandwidth.
+
+    Returns ``True`` if the abort signal was delivered, ``False`` when
+    no download is active (nothing to abort).
+    """
+    global _download_abort_event
+    with _download_pause_lock:
+        if _download_abort_event is None:
+            log.debug("[PAUSE] request_download_abort called with no active download")
+            return False
+        _download_abort_event.set()
+    log.info("[PAUSE] Model download abort (cancel) requested")
+    return True
+
+
+def _abort_requested() -> bool:
+    """Return ``True`` if the transfer must stop.
+
+    ``True`` when the abort event is set (cancel requested) OR when the
+    event is ``None`` (the download already cleaned up — a straggler
+    transfer thread must not keep downloading).
+    """
+    with _download_pause_lock:
+        ev = _download_abort_event
+    return ev is None or ev.is_set()
+
+
+class ModelDownloadAborted(BaseException):
+    """Raised inside the transfer thread when a download is aborted.
+
+    Inherits from ``BaseException`` (NOT ``Exception``) deliberately:
+    the retry wrappers around the transfer (`_download_with_retry`,
+    ``download_parakeet_weights``) retry on ``Exception`` — an ABORT must
+    unwind immediately, never be retried (retrying a cancel would resume
+    downloading). Callers that must handle it (map it to the
+    ``{"success": False, "cancelled": True}`` IPC outcome) catch this
+    class explicitly.
+    """
+
+
+def get_download_tqdm_class() -> type:
+    """Return the download progress-bar class that enforces pause/abort.
+
+    WHY: huggingface_hub invokes ``bar.update(n)`` from the transfer
+    thread at every ~10 MB chunk boundary (``DOWNLOAD_CHUNK_SIZE``) on
+    the HTTP path. Subclassing the HF tqdm intercepts exactly those
+    boundaries:
+
+    - **Pause** — ``update()`` BLOCKS while the pause event is set, so
+      the transfer thread parks mid-download and bytes genuinely stop
+      flowing (the pre-fix pause only froze the progress REPORTER while
+      the transfer continued to completion). On resume the chunk loop
+      continues; if the idle HTTP connection died during a long pause,
+      huggingface_hub's connect-error retry re-requests with a Range
+      header and resumes from the partial blob.
+    - **Cancel** — ``update()`` raises :class:`ModelDownloadAborted`,
+      unwinding the transfer instead of letting it finish in the
+      background.
+
+    Subclasses ``huggingface_hub.utils.tqdm.tqdm`` (not vanilla tqdm) so
+    the ``name=`` kwarg ``_create_progress_bar`` passes is accepted.
+    The class is built lazily per call so importing ``asr_setup`` never
+    imports ``huggingface_hub``.
+    """
+    import time as _time
+
+    from huggingface_hub.utils.tqdm import tqdm as _hf_tqdm
+
+    class _DownloadGateTqdm(_hf_tqdm):
+        def update(self, n: int | float | None = 1) -> None:
+            self._gate_check()
+            super().update(n)
+
+        def _gate_check(self) -> None:
+            """Raise on abort; block while paused. See class docstring."""
+            if _abort_requested():
+                raise ModelDownloadAborted("model download aborted (cancel)")
+            while is_download_paused():
+                if _abort_requested():
+                    raise ModelDownloadAborted("model download aborted while paused")
+                _time.sleep(0.2)
+
+    return _DownloadGateTqdm
+
+
+def force_http_download_path() -> None:
+    """Force huggingface_hub onto the HTTP chunk path (disable xet).
+
+    The pause/abort gate lives in the HTTP chunk loop's progress-bar
+    updates. The xet path reports progress from native Rust reporter
+    threads, where a blocking/raising callback does NOT reliably stop
+    the native transfer — so gate correctness requires the HTTP path.
+
+    ``ensure_hf_env`` already prefers this (setdefault, "xet can be
+    extremely slow on some connections"), but it only helps when it runs
+    BEFORE ``huggingface_hub`` is first imported (the flag is read into
+    ``constants`` at import time). This helper closes both gaps: it sets
+    the env var unconditionally AND overrides the already-imported
+    ``constants`` attribute, so the download path is on the gateable
+    HTTP path regardless of import order.
+    """
+    os.environ["HF_HUB_DISABLE_XET"] = "true"
+    try:
+        from huggingface_hub import constants as _hf_constants
+
+        _hf_constants.HF_HUB_DISABLE_XET = True
+    except Exception:  # pragma: no cover - hf not installed yet
+        log.debug(
+            "[PAUSE] huggingface_hub not imported yet; env var alone applies",
+            exc_info=True,
+        )
 
 
 # SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
@@ -390,7 +540,7 @@ def download_parakeet_weights(
     except ImportError:
         # Append the install command so the user
         # can recover without filing a bug or grepping pyproject.toml.
-        log.error(
+        log.exception(
             "[ASR_SETUP] huggingface_hub not available for Parakeet download "
             "(install with: pip install huggingface_hub)"
         )
@@ -491,7 +641,7 @@ def download_parakeet_weights(
         _check_disk_space_for_download(repo_id, "parakeet")  # raises on insufficient space
     except RuntimeError as e:
         msg = str(e)
-        log.error("[ASR_SETUP] %s", msg)
+        log.exception("[ASR_SETUP] %s", msg)
         if progress_callback:
             progress_callback(msg)
         return (False, "disk_space_insufficient", sys.exc_info())
@@ -510,6 +660,11 @@ def download_parakeet_weights(
     if progress_callback:
         progress_callback(msg)
 
+    # Force the gateable HTTP transfer path (see force_http_download_path):
+    # the pause/abort gate lives in the HTTP chunk loop's progress-bar
+    # updates; the xet path reports from native threads where a callback
+    # cannot stop the transfer.
+    force_http_download_path()
     # (revised): Use the canonical _download_with_retry from
     # transcription.py instead of the inline retry loop. The two
     # implementations had different delay tables ([5,15,45] vs 2**attempt)
@@ -527,6 +682,8 @@ def download_parakeet_weights(
             revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS_PARAKEET_ONNX,
             resume_download=True,
+            # pause/abort gate — see get_download_tqdm_class.
+            tqdm_class=get_download_tqdm_class(),
         )
     except Exception as e:
         # Capture the full ``sys.exc_info()`` triple into the
@@ -537,6 +694,9 @@ def download_parakeet_weights(
         # with ``exc_info=True`` writes the full traceback to the log
         # file so the on-disk log is no longer blind to the underlying
         # failure mode (429 rate-limit vs DNS vs CRC vs TLS).
+        # NOTE: an abort (ModelDownloadAborted) is a BaseException and
+        # never enters this handler — it unwinds to ``download_model``,
+        # which maps it to the cancelled outcome.
         captured_exc_info = sys.exc_info()
         log.error(
             "[ASR_SETUP] All %d download attempts failed. Last error: %s",

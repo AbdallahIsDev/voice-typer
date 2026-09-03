@@ -181,37 +181,45 @@ class TestLlmPolishFailureLogRedactsException:
 
 class TestCloudEnginesRedactionConsistency:
     """XZ-PII-06: source-level regression guard. The four exception
-    branches in ``cloud_engines.py`` (two OpenAI-compatible, two
-    Deepgram) must all use ``redact_secret(redact_url(str(exc)))``.
+    branches in the cloud engine retry skeleton (two OpenAI-compatible,
+    two Deepgram) must all use ``redact_secret(redact_url(str(exc)))``.
     Pre-fix, the two generic ``Exception`` branches used only
     ``redact_secret(str(exc))`` — a URL-embedded credential in a
     500-response body would leak into the log.
+
+    The engine body lives in ``voice_typer.server.cloud._engine`` (the
+    ``cloud_engines`` facade re-exports it), so the source inspection
+    targets the owning module.
     """
 
     def test_no_redact_secret_only_branches_in_cloud_engines(self) -> None:
         import inspect
 
         from voice_typer.server import cloud_engines
+        from voice_typer.server.cloud import _engine
 
-        src = inspect.getsource(cloud_engines)
+        src = inspect.getsource(_engine)
         # The  fix removed every ``redact_secret(str(exc))``
         # occurrence in favour of ``redact_secret(redact_url(str(exc)))``.
         # The pre-fix pattern was ``safe_msg = redact_secret(str(exc))``
         # — a single ``redact_secret`` call wrapping ``str(exc)``
         # without the inner ``redact_url``.
         assert "redact_secret(str(exc))" not in src, (
-            "XZ-PII-06: every redaction site in cloud_engines.py must "
+            "XZ-PII-06: every redaction site in cloud._engine must "
             "use ``redact_secret(redact_url(str(exc)))`` — found a "
             "stale ``redact_secret(str(exc))`` site that skips URL-"
             "credential redaction."
         )
+        # The facade must still re-export the engine so legacy import
+        # sites keep resolving.
+        assert cloud_engines.CloudEngine is _engine.CloudEngine
 
     def test_all_four_branches_use_chained_redaction(self) -> None:
         import inspect
 
-        from voice_typer.server import cloud_engines
+        from voice_typer.server.cloud import _engine
 
-        src = inspect.getsource(cloud_engines)
+        src = inspect.getsource(_engine)
         # The canonical chain appears in ``_transcribe_with_retry``,
         # which is the shared retry/redact skeleton called by both
         # ``_send_openai_compatible`` and ``_send_deepgram``. Each of
@@ -230,7 +238,7 @@ class TestCloudEnginesRedactionConsistency:
         chain_count = src.count("redact_secret(redact_url(str(exc)))")
         assert chain_count >= 4, (
             "XZ-PII-06: expected at least 4 occurrences of "
-            "``redact_secret(redact_url(str(exc)))`` in cloud_engines.py "
+            "``redact_secret(redact_url(str(exc)))`` in cloud._engine.py "
             "(3 in the shared ``_transcribe_with_retry`` except branches "
             "+ 1 inlined in the URLError retry warning), found "
             f"{chain_count}. Every redaction site must use the chain "

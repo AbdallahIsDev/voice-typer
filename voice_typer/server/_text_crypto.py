@@ -312,6 +312,21 @@ def resolve_dek(encrypted_rows_exist: bool) -> bytes | None:
         if not _CRYPTOGRAPHY_AVAILABLE:
             _dek_resolved = True
             _dek_cache = None
+            if encrypted_rows_exist:
+                # The DEK may be perfectly healthy in the keyring — the
+                # runtime just lacks the AES-GCM implementation. Name the
+                # ACTUAL cause: the generic key-loss ERROR would send the
+                # user hunting for a key that was never lost.
+                _rate_limited_log(
+                    logging.ERROR,
+                    "history:crypto-missing",
+                    "[HISTORY] the 'cryptography' package is not installed in this "
+                    "runtime — encrypted history rows cannot be decrypted and new "
+                    "rows are written in plaintext. The data-encryption key is NOT "
+                    "lost: reinstalling the application (or installing the "
+                    "'cryptography' package into the runtime environment) restores "
+                    "decryption on the next start.",
+                )
             return None
         dek = _dek.load_dek()
         if dek is None and not encrypted_rows_exist and _cs.is_keyring_available():

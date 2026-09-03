@@ -45,6 +45,14 @@ Events emitted via ``event_bus.publish`` (the modern path):
   Payload: ``{rms:float, peak:float}``.
 * ``bubble_set_state`` — set the bubble's state machine.
   Payload: ``{state:str}``.
+* ``recording_level`` — main-window mirror of the recording level,
+  published at ≤8 Hz by the bubble-level worker while recording.
+  Exists because the typed ``bubble_level`` channel is consumed
+  exclusively by the bubble window (Electron routes it to the bubble
+  renderer only; the Tauri host emits it typed-only by design), so
+  the main renderer's live recording indicator needs its own
+  low-rate event on the generic path. Payload: ``{rms:float,
+  peak:float}``.
 * ``transcription_final`` — final transcription text (UI preview).
   Payload: ``{text:str (≤200 chr), quality?:{mean_logprob:float,
   min_logprob:float, no_speech_prob_max:float, segments:float}}``.
@@ -205,7 +213,7 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 38 events — the live count is ``len(EVENT_TYPES)`` and this
+Total: 39 events — the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -273,6 +281,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "bubble_hide",
         "bubble_level",
         "bubble_set_state",
+        "recording_level",
         "bubble_config",
         "transcription_final",
         "transcription_partial",

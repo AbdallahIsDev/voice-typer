@@ -457,6 +457,29 @@ def init_schema(
                 e,
             )
 
+    # ── Pre-write phase (read-only probe + pre-migration backup) ─────
+    # The pre-migration backup MUST be taken BEFORE any write to the DB
+    # (CREATE TABLE included) so it is a byte-for-byte snapshot of the
+    # PRE-init state (pin: PRE-MIGRATION-BACKUP-ORDERING). Previously the
+    # CREATE TABLE statements ran first; they are no-ops on an existing
+    # DB, but any future pre-migration write added above the backup call
+    # would have silently landed inside the "old-version" backup. Read
+    # the version FIRST (read-only), back up, then write.
+    fresh_db = False
+    try:
+        cursor.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+        row = cursor.fetchone()
+        current_version = int(row[0]) if row else 1
+    except sqlite3.Error:
+        # No schema_meta yet — brand-new DB (the CREATEs below make it).
+        # Nothing meaningful to back up; the migration loop is what
+        # builds the initial schema.
+        fresh_db = True
+        current_version = 1
+
+    if not fresh_db and current_version < _CURRENT_SCHEMA_VERSION:
+        db._backup_before_migration(current_version)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transcriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -482,11 +505,13 @@ def init_schema(
         )
     """)
 
-    # Get current schema version
-    cursor.execute("SELECT value FROM schema_meta WHERE key = 'version'")
-    row = cursor.fetchone()
-    current_version = int(row[0]) if row else 1
-
+    if fresh_db:
+        # The fresh-DB branch could not read the version above (no
+        # schema_meta table yet); re-read now that it exists. For a brand
+        # new DB this yields no row -> 1, identical to the probe default.
+        cursor.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+        row = cursor.fetchone()
+        current_version = int(row[0]) if row else 1
     # run each migration in an explicit
     # ``BEGIN; … COMMIT;`` transaction via ``executescript``.
     # ``executescript`` is used for BOTH migration shapes:
@@ -511,19 +536,15 @@ def init_schema(
     # version. The per-statement try/except that previously
     # swallowed errors () is removed because it allowed
     # partial migrations to silently corrupt the schema.
-    # Best-effort pre-migration backup. If a future migration
-    # (v4+) has a logic bug that silently corrupts rows rather than
-    # failing loudly, the corrupt-file rename () would NOT
-    # trigger (PRAGMA quick_check passes on a structurally-valid but
-    # semantically-wrong DB). The pre-migration backup gives the user
-    # a recovery path: ``history.db.pre-migration-v<from>.bak`` is a
-    # byte-for-byte copy of the DB at the OLD schema version, taken
-    # BEFORE any migration statement runs. Single-slot naming means
-    # re-running migrations on an already-migrated DB (where
-    # ``current_version == _CURRENT_SCHEMA_VERSION``) is a no-op —
-    # the backup step is skipped (no migration to back up).
-    if current_version < _CURRENT_SCHEMA_VERSION:
-        db._backup_before_migration(current_version)
+    # NOTE: the pre-migration backup was MOVED above the CREATE TABLE
+    # statements (PRE-MIGRATION-BACKUP-ORDERING) — it must snapshot the
+    # DB before ANY write, not merely before the migration loop. The
+    # rationale lives with the backup call at the top of this function:
+    # a v4+ migration with a silent corruption bug would pass
+    # PRAGMA quick_check (so the corrupt-file rename would NOT trigger)
+    # and the single-slot ``history.db.pre-migration-v<from>.bak`` is
+    # the user's only recovery path. Re-running migrations on an
+    # already-migrated DB skips the backup (nothing to back up).
 
     for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
         migration_sql = _MIGRATIONS.get(version)
@@ -617,7 +638,7 @@ def init_schema(
             # retrying on the next launch is the correct response.
             with contextlib.suppress(sqlite3.Error):
                 conn.rollback()
-            log.error(
+            log.exception(
                 "[HISTORY_DB] Migration v%d failed: %s (version NOT bumped; transaction rolled back; _init_error set)",
                 version,
                 e,

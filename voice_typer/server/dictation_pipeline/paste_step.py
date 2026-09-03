@@ -82,7 +82,7 @@ class _PasteStepMixin:
                 snapshot = self._app.clipboard.copy(text)
                 paste_seq = self._app.clipboard._clipboard_seq
             except ClipboardCopyError:
-                log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
+                log.exception("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
                 recovery_path: str | None = None
                 try:
                     if self._app.config.crash_recovery_enabled:

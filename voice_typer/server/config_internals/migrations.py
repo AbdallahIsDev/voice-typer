@@ -224,7 +224,7 @@ def _run_migrations(
                     migrations_ran = True
                     last_successful_version = version
                 except Exception as migrator_exc:
-                    log.error(
+                    log.exception(
                         "[CONFIG] migrator v%d raised %s: %s -- "
                         "aborting migration loop; schema_version will "
                         "remain at v%d so this migration re-runs on next launch",

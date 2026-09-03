@@ -187,7 +187,7 @@ Previously, every tray right-click triggered:
 
 This caused noticeable menu-open lag.  The fix caches:
 - The qwen_asr import availability (session-lifetime).
-- The HuggingFace hub ``refs/main`` existence check (5-second TTL).
+- The HuggingFace hub snapshot-completeness probe (5-second TTL).
 
 The cache is invalidated explicitly when a model download completes
 (via ``invalidate_model_availability_cache()``).
@@ -224,28 +224,29 @@ class TestHfDownloadCache:
         invalidate_model_availability_cache()
 
     def test_exists_called_once_within_ttl(self, tmp_path):
-        """Within the TTL window, the filesystem ``exists()`` check
+        """Within the TTL window, the filesystem ``is_dir()`` check
         must run at most once — subsequent calls hit the cache.
         """
         repo_id = "test/repo"
         config_dir = tmp_path
 
-        # Patch Path.exists to count calls.
-        original_exists = Path.exists
+        # Patch Path.is_dir to count calls (the availability probe's
+        # first gate is the repo-dir existence check).
+        original_is_dir = Path.is_dir
         call_count = [0]
 
-        def counting_exists(self):
+        def counting_is_dir(self):
             call_count[0] += 1
-            return original_exists(self)
+            return original_is_dir(self)
 
-        with patch.object(Path, "exists", counting_exists):
+        with patch.object(Path, "is_dir", counting_is_dir):
             result1 = _check_hf_model_downloaded(repo_id, config_dir)
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
             result3 = _check_hf_model_downloaded(repo_id, config_dir)
 
         # Only the first call should have hit the filesystem.
         assert call_count[0] == 1, (
-            f"exists() called {call_count[0]} times; expected 1 (TTL cache should serve subsequent calls)"
+            f"is_dir() called {call_count[0]} times; expected 1 (TTL cache should serve subsequent calls)"
         )
         # All three results must agree.
         assert result1 == result2 == result3
@@ -268,18 +269,18 @@ class TestHfDownloadCache:
                     _time.monotonic() - _HF_DOWNLOAD_CACHE_TTL_SECONDS - 1,
                 )
 
-        # Patch exists to verify it's called again.
-        original_exists = Path.exists
+        # Patch is_dir to verify it's called again.
+        original_is_dir = Path.is_dir
         call_count = [0]
 
-        def counting_exists(self):
+        def counting_is_dir(self):
             call_count[0] += 1
-            return original_exists(self)
+            return original_is_dir(self)
 
-        with patch.object(Path, "exists", counting_exists):
+        with patch.object(Path, "is_dir", counting_is_dir):
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
 
-        assert call_count[0] == 1, "exists() should be called once after TTL expired"
+        assert call_count[0] == 1, "is_dir() should be called once after TTL expired"
         assert result2 == result1
 
     def test_different_repos_cached_separately(self, tmp_path):
@@ -418,12 +419,19 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=str(model_dir)))
         assert downloaded is True
 
-    def test_visible_when_hf_cache_holds_repo(self, tmp_path):
+    def test_visible_when_hf_cache_holds_repo(self, tmp_path, monkeypatch):
         """HF cache holding the Qwen ONNX repo dir → Qwen listed
-        (matches ``_compute_model_status``'s ``qwen_in_cache``)."""
-        ref_file = tmp_path / "huggingface" / "hub" / "models--andrewleech--qwen3-asr-1.7b-onnx" / "refs" / "main"
-        ref_file.parent.mkdir(parents=True)
-        ref_file.write_text("main", encoding="utf-8")
+        (matches ``_compute_model_status``'s ``qwen_in_cache``). The
+        availability check delegates completeness to
+        ``is_model_snapshot_complete`` — stub it True here (the
+        cache-layout mechanics are pinned in
+        tests/model_download/test_download_abort_gate.py)."""
+        repo_dir = tmp_path / "huggingface" / "hub" / "models--andrewleech--qwen3-asr-1.7b-onnx"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: True,
+        )
         downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=None))
         assert downloaded is True
 

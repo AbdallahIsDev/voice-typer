@@ -413,7 +413,7 @@ def _execute_write_item(
                 future.set_exception(e)
         else:
             # Fire-and-forget write failed — log so it's visible.
-            log.error("[HISTORY_DB] Fire-and-forget write failed: %s", e)
+            log.exception("[HISTORY_DB] Fire-and-forget write failed: %s", e)
     else:
         # WAL-CHECKPOINT-FIX: After a SUCCESSFUL write, ensure
         # no lingering transaction remains on the connection.
@@ -667,7 +667,7 @@ def _drain_remaining(db: HistoryDB, conn: sqlite3.Connection) -> None:
             except BaseException as e:  # noqa: BLE001
                 with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
-                log.error(
+                log.exception(
                     "[HISTORY_DB] Fire-and-forget batched insert failed during shutdown drain: %s",
                     e,
                 )

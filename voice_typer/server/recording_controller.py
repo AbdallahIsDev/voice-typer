@@ -449,7 +449,7 @@ class RecordingController:
     def force_recover(self, *, force: bool = False) -> None:
         """Public force-cancel of a stuck transcription.
 
-        WM-44: public wrapper for the service layer. The service must not
+        Public wrapper for the service layer. The service must not
         reach into the private ``_force_recover_from_stuck_transcription``
         (ADR-0008 §3.1 layering); this method is the sanctioned public
         surface. Delegates to the watchdog's ``force_recover`` exactly as
@@ -568,8 +568,8 @@ class RecordingController:
         if self._app.config.show_notifications:
             with contextlib.suppress(Exception):
                 self._app.tray.notify(
-                    f"{APP_NAME} — Audio Issues",
-                    f"Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load.",
+                    i18n.t("notify.recording_controller.xrun_title", app=APP_NAME),
+                    i18n.t("notify.recording_controller.xrun_body", count=count),
                 )
 
     # ── level_monitor / Recorder InputStream coordination ──────────────

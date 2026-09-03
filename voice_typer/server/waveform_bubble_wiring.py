@@ -130,7 +130,7 @@ class WaveformBubbleWiring:
             event_bus.publish({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
-            # PERF- / PERF-: this callback fires from the
+            # PERF-: this callback fires from the
             # PortAudio thread at the device's native chunk rate
             # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
             # Calling _push_event_now directly was holding the IPC
@@ -143,7 +143,7 @@ class WaveformBubbleWiring:
             # exactly at the 32 ms chunk interval for 16 kHz devices, so
             # PortAudio timing jitter caused irregular accept/drop
             # patterns and the visualizer froze.  Lowered to 16 ms
-            # (~60 Hz) so every chunk is delivered; the bounded queue
+            # (~60 Hz) for every chunk; the bounded queue
             # (maxsize=64) and worker thread handle backpressure.  Each
             # message is ~40 bytes JSON, so 60 msg/s is trivial for TCP.
             #
@@ -193,9 +193,22 @@ class WaveformBubbleWiring:
             latest. Older frames are dropped silently (they've been
             superseded by the newer level). This converts a slow-renderer
             ~128s freeze into a single publish of the most recent level.
+
+            The same latest-wins frame is ALSO mirrored at ≤8 Hz as a
+            ``recording_level`` event on the GENERIC event path: the
+            typed ``bubble_level`` channel is consumed by the bubble
+            window only (Electron routes it exclusively to the bubble
+            renderer; the Tauri host emits it typed-only by design), so
+            the main renderer's live recording indicator cannot ride it.
+            The mirror is throttled independently of the 60-125 Hz
+            bubble push (a level indicator has no use for more than a
+            few updates per second) and reuses the worker's PERF-3
+            latest-wins drain, so the extra publish is at most one
+            small frame per 120 ms while recording.
             """
             q = self._bubble_level_queue
             stop = self._bubble_level_worker_stop
+            last_mirror_ts = 0.0
             while not stop.is_set():
                 try:
                     item = q.get(timeout=0.5)
@@ -223,6 +236,18 @@ class WaveformBubbleWiring:
                     item = newer
                 event_bus.publish(item)
                 q.task_done()
+                mirror_now = time.monotonic()
+                if mirror_now - last_mirror_ts >= 0.12:  # ≤8 Hz main-window mirror
+                    last_mirror_ts = mirror_now
+                    event_bus.publish(
+                        {
+                            "type": "recording_level",
+                            "data": {
+                                "rms": item["data"]["rms"],
+                                "peak": item["data"]["peak"],
+                            },
+                        }
+                    )
 
         # __init__ pre-declares _bubble_level_worker (as None),
         # so the ``hasattr`` guard is a dead branch. Direct ``is None``
@@ -308,6 +333,13 @@ class WaveformBubbleWiring:
                         # the ``or default`` fallback so we don't paper over
                         # a legitimately-cleared custom_theme.
                         "custom_theme": getattr(cfg, "custom_theme", None),
+                        # UI text size: the bubble's ``useThemeSync`` hook
+                        # mirrors the main window's ``--font-scale`` =
+                        # ``text_size / 14`` root-font-size scaling from
+                        # this field so the pill's text grows/shrinks with
+                        # the user's text-size setting. ``or`` fallback to
+                        # the config default (14) for missing/null values.
+                        "text_size": getattr(cfg, "text_size", None) or 14,
                         # Persisted drag position: ``bubble_x`` / ``bubble_y``
                         # are forwarded VERBATIM (plain ``getattr`` without an
                         # ``or`` fallback) so hosts can restore the user's

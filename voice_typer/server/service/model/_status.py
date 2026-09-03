@@ -55,11 +55,19 @@ class StatusMixin:
         # SVC-9 / PERF-10: stat the cache_dir ROOT once (hoisted above the
         # loop) instead of re-statting it on every model iteration.
         cache_dir_exists = os.path.isdir(cache_dir)
+        # PARTIAL-DOWNLOAD HONESTY: the completeness answer comes from the
+        # loader's own local-only snapshot probe — a bare ``models--<repo>``
+        # directory is created at download START, so a paused / cancelled /
+        # killed download must NOT report ``downloaded: True`` (the user
+        # would see a "Select" button for a model that cannot load).
+        from voice_typer.server.transcription_download import (
+            is_model_snapshot_complete,
+        )
+
         for meta in MODEL_REGISTRY.values():
             if meta.backend not in ("whisper", "distil-whisper"):
                 continue
-            repo_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
-            downloaded = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, repo_dir_name))
+            downloaded = cache_dir_exists and is_model_snapshot_complete(meta.repo_id)
             status[meta.name] = {
                 "downloaded": downloaded,
                 "deps_ok": True,  # faster-whisper is always available
@@ -67,11 +75,13 @@ class StatusMixin:
 
         # Qwen model — check both the configured path AND the HF cache dir.
         qwen_path = getattr(config, "qwen_model_path", None)
-        qwen_in_cache = False
         qwen_meta = get_model_metadata("qwen")
         if qwen_meta is not None:
-            qwen_repo_dir = f"models--{qwen_meta.repo_id.replace('/', '--')}"
-            qwen_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, qwen_repo_dir))
+            # The loader's own local-only snapshot probe (honest answer
+            # for paused / cancelled / killed downloads).
+            qwen_in_cache = cache_dir_exists and is_model_snapshot_complete(qwen_meta.repo_id)
+        else:
+            qwen_in_cache = False
         status["qwen"] = {
             "downloaded": bool(qwen_path and os.path.isdir(qwen_path)) or qwen_in_cache,
             # The Qwen backend is ONNX-only (qwen_onnx_model.py);
@@ -83,11 +93,11 @@ class StatusMixin:
 
         # Parakeet model
         parakeet_path = getattr(config, "parakeet_model_path", None)
-        parakeet_in_cache = False
         parakeet_meta = get_model_metadata("parakeet")
         if parakeet_meta is not None:
-            parakeet_repo_dir = f"models--{parakeet_meta.repo_id.replace('/', '--')}"
-            parakeet_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, parakeet_repo_dir))
+            parakeet_in_cache = cache_dir_exists and is_model_snapshot_complete(parakeet_meta.repo_id)
+        else:
+            parakeet_in_cache = False
         status["parakeet"] = {
             "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)) or parakeet_in_cache,
             # The Parakeet backend is ONNX-only (parakeet_engine.py via

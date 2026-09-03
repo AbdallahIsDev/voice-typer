@@ -1462,7 +1462,7 @@ def run(server: IPCServer) -> int:
         import websockets  # noqa: F401 — imported for availability probe
         from websockets.asyncio.server import serve
     except ImportError as exc:
-        log.error(
+        log.exception(
             "[SIDECAR-WS] the `websockets` package is required for the "
             "Tauri sidecar path. Install with: uv pip install websockets. "
             "Original error: %s",

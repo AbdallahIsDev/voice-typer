@@ -371,7 +371,7 @@ class TestDeleteStaleActiveModel:
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
 
-    def test_active_missing_clears_config_to_downloaded_fallback(self, tmp_config_dir):
+    def test_active_missing_clears_config_to_downloaded_fallback(self, tmp_config_dir, monkeypatch):
         """tiny is active but its files are gone; large-v3-turbo IS on
         disk. delete_model('tiny') succeeds AND switches the active model
         to large-v3-turbo so no phantom 'Active' state remains."""
@@ -383,6 +383,16 @@ class TestDeleteStaleActiveModel:
         assert fallback_meta is not None
         fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
         fallback_dir.mkdir(parents=True)
+        # The fallback-pick consumes _compute_model_status, whose
+        # ``downloaded`` answer now comes from the snapshot-completeness
+        # probe (partial downloads report False). Stub it to mirror
+        # reality — repo dir present → True — so this test pins the
+        # STALE-ACTIVE fallback SELECTION, not the probe mechanics
+        # (pinned in tests/model_download/).
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
+        )
 
         app = self._make_app(model_size="tiny")
         service = VoiceTyperService(app)
@@ -402,7 +412,7 @@ class TestDeleteStaleActiveModel:
         # Status cache invalidated so the next poll reflects the truth.
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache"
 
-    def test_active_missing_apply_config_failure_does_not_claim_switch(self, tmp_config_dir):
+    def test_active_missing_apply_config_failure_does_not_claim_switch(self, tmp_config_dir, monkeypatch):
         """If the config-clear (``apply_config``) fails and rolls back, the
         delete still succeeds but the message must NOT claim the active
         model was switched — the phantom config value is still live."""
@@ -415,6 +425,13 @@ class TestDeleteStaleActiveModel:
         fallback_meta = get_model_metadata("large-v3-turbo")
         assert fallback_meta is not None
         (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(parents=True)
+        # Probe stub so the fallback IS found (this test pins the
+        # apply_config ROLLBACK, not the completeness probe). Mirror
+        # reality: repo dir present → True.
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
+        )
 
         app = self._make_app(model_size="tiny")
         # save_strict raises -> apply_config rolls the in-memory config back

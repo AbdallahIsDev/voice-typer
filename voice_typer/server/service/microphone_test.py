@@ -88,7 +88,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
                 self._app.tray.set_microphones(mics)
             return mics
         except Exception as e:
-            log.error("[SERVICE] refresh_microphones failed: %s", e)
+            log.exception("[SERVICE] refresh_microphones failed: %s", e)
             return getattr(self._app, "_microphones")  # noqa: B009 — attr not on AppProtocol; getattr returns Any (see providers.py)
 
     # AUDIO-RMS: IPC endpoint for real-time RMS level.

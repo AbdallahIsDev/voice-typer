@@ -219,7 +219,7 @@ def _maybe_recover_from_corruption(
     try:
         rows = conn.execute("PRAGMA quick_check").fetchall()
     except sqlite3.Error as e:
-        log.error(
+        log.exception(
             "[HISTORY_DB] PRAGMA quick_check raised: %s (treating as corruption and attempting recovery)",
             e,
         )

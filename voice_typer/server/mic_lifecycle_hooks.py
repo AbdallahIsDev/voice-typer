@@ -186,7 +186,7 @@ class MicLifecycleHooks:
         with contextlib.suppress(Exception):
             controller._app.tray.notify_safety(
                 APP_NAME,
-                "Microphone was unplugged. Recording stopped.",
+                i18n.t("notify.recording_controller.mic_unplugged"),
             )
         # Mirror the slow-path (``on_device_lost``): emit the dedicated
         # IPC event so the renderer can show a banner.

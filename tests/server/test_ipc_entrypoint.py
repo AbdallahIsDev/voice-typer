@@ -210,6 +210,85 @@ class TestSetProcessMetadata:
         )
 
 
+class TestDetachProcessGroup:
+    """``_detach_process_group`` moves the sidecar into its own POSIX
+    process group (``os.setpgid(0, 0)``) at startup.
+
+    The Tauri host cannot apply pre_exec(setpgid) to release-mode
+    externalBin children, so the sidecar performs the detach ITSELF.
+    Contract: POSIX-only (Windows is a hard no-op), best-effort (a
+    refusal is logged and swallowed — never blocks startup), and wired
+    into ``main()`` before any subsystem init.
+    """
+
+    def test_calls_setpgid_once_on_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On POSIX, exactly ONE ``os.setpgid(0, 0)`` call is made and
+        the helper reports success."""
+        calls: list[tuple[int, int]] = []
+
+        def _fake_setpgid(pid: int, pgid: int) -> None:
+            calls.append((pid, pgid))
+
+        monkeypatch.setattr(entrypoint.os, "name", "posix")
+        # Windows CPython's os module has no setpgid attribute at all —
+        # the production code guard (os.name check) is what keeps it
+        # unreachable there. Inject the attribute the POSIX runtime
+        # would have so the call path can be observed on this host.
+        monkeypatch.setattr(entrypoint.os, "setpgid", _fake_setpgid, raising=False)
+        monkeypatch.setattr(entrypoint.os, "getpgrp", lambda: 4242, raising=False)
+
+        assert entrypoint._detach_process_group() is True
+        assert calls == [(0, 0)], f"the sidecar must detach ITSELF via os.setpgid(0, 0) exactly once; got {calls!r}"
+
+    def test_no_call_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On Windows (os.name == 'nt') the helper returns False WITHOUT
+        touching ``os.setpgid`` — process groups are a POSIX concept and
+        a crash here would break every Windows sidecar start."""
+        calls: list[tuple[int, int]] = []
+
+        def _spy_setpgid(pid: int, pgid: int) -> None:
+            calls.append((pid, pgid))
+
+        monkeypatch.setattr(entrypoint.os, "name", "nt")
+        monkeypatch.setattr(entrypoint.os, "setpgid", _spy_setpgid, raising=False)
+
+        assert entrypoint._detach_process_group() is False
+        assert calls == [], "os.setpgid must never be called on Windows (hard no-op)"
+
+    def test_setpgid_failure_is_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A best-effort detach: ``os.setpgid`` raising OSError (EACCES /
+        EPERM in a sandboxed frozen environment) must be logged and
+        swallowed — the helper returns False and startup continues."""
+
+        def _raising_setpgid(pid: int, pgid: int) -> None:
+            raise PermissionError(1, "operation not permitted")
+
+        monkeypatch.setattr(entrypoint.os, "name", "posix")
+        monkeypatch.setattr(entrypoint.os, "setpgid", _raising_setpgid, raising=False)
+
+        assert entrypoint._detach_process_group() is False, (
+            "a setpgid refusal must never raise out of the helper — the sidecar stays in the host's group instead"
+        )
+
+    def test_main_wires_detach_before_subsystem_init(self) -> None:
+        """``main()`` must call ``_detach_process_group()`` early — before
+        the app construction path — so the detach (and the process group
+        its children inherit) is in place before anything is spawned."""
+        import inspect
+
+        src = inspect.getsource(entrypoint.main)
+        assert "_detach_process_group()" in src, (
+            "main() must invoke the process-group self-detach — the "
+            "release-mode Tauri host cannot pre_exec(setpgid) externalBin "
+            "children, so the sidecar must detach ITSELF at startup."
+        )
+        detach_idx = src.index("_detach_process_group()")
+        app_idx = src.index("VoiceTyperApp(")
+        assert detach_idx < app_idx, (
+            "the detach must run BEFORE app construction (children spawned by the sidecar inherit its process group)"
+        )
+
+
 # ── main() ────────────────────────────────────────────────────────────
 
 

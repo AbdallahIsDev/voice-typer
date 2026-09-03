@@ -119,7 +119,7 @@ def run() -> int:
     try:
         import websockets  # noqa: F401 — imported for availability probe
     except ImportError as exc:
-        log.error(
+        log.exception(
             "[WORKER] the `websockets` package is required for the worker. "
             "Install with: uv pip install websockets. Original error: %s",
             exc,

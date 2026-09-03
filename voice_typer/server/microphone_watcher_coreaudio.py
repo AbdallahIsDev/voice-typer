@@ -56,9 +56,13 @@ from voice_typer.server.platform_utils import is_macos
 
 log = logging.getLogger(__name__)
 
-# Platform flag captured at import time so the lazy-import helper can
-# short-circuit on non-macOS without inspecting sys.platform every
-# call. Stored as a module-level attribute so tests can patch it.
+# Platform flag captured at import time. INFORMATIONAL ONLY — the
+# platform gate in :func:`_try_import_coreaudio` re-checks the platform
+# at call time (``is_macos()``) because a snapshot taken at first
+# import can be poisoned when the importing pytest worker is inside a
+# ``sys.platform``-patched window (module import order dependency).
+# Kept as a module attribute for backward compatibility (tests and
+# callers may still read/patch it, but the gate no longer trusts it).
 # Uses the centralized ``is_macos()`` helper rather than an inline
 # ``sys.platform == "darwin"`` check, so the platform-detection logic
 # has a single source of truth in ``platform_utils``.
@@ -81,8 +85,14 @@ def _try_import_coreaudio() -> SimpleNamespace:
 
     The caller (``CoreAudioMicrophoneWatcher.start``) is expected to
     catch ``ImportError`` and fall back to the polling watcher.
+
+    Platform gate re-checks the platform at CALL time (not the
+    ``_IS_MACOS`` import-time snapshot): a module first imported while
+    a pytest worker was inside a ``sys.platform``-patched window would
+    otherwise bake a poisoned ``_IS_MACOS`` value for the whole
+    process, misclassifying every later platform decision.
     """
-    if not _IS_MACOS:
+    if not is_macos():
         raise ImportError(
             "CoreAudioMicrophoneWatcher is only available on macOS "
             f"(current platform: {sys.platform}). Use the polling "
@@ -106,7 +116,8 @@ def _try_import_coreaudio() -> SimpleNamespace:
     except ImportError as exc:
         raise ImportError(
             "pyobjc-framework-CoreAudio and pyobjc-framework-CoreFoundation "
-            "are required for CoreAudioMicrophoneWatcher. Install with: "
+            "are required for CoreAudioMicrophoneWatcher "
+            "(the watcher is only available on macOS). Install with: "
             "pip install pyobjc-framework-CoreAudio "
             "pyobjc-framework-CoreFoundation"
         ) from exc
@@ -391,15 +402,20 @@ class CoreAudioMicrophoneWatcher:
         except Exception:
             # pyobjc raises (rather than returning an OSStatus) for
             # some failure modes — treat them all as "registration
-            # failed" and fall back to TTL polling.
-            log.warning(
+            # failed" and fall back to TTL polling. The fallback is a
+            # DESIGNED degradation (the 30 s TTL cache in recording.py
+            # is the documented backstop; see module docstring), so it
+            # logs at DEBUG — a WARNING here would pollute the
+            # happy-path log on hosts where the listener cannot install
+            # (headless CI, restricted audio sessions).
+            log.debug(
                 "[MIC-WATCHER-CA] AudioObjectAddPropertyListener raised, falling back to TTL polling",
                 exc_info=True,
             )
             return
 
         if status != _NO_ERR:
-            log.warning(
+            log.debug(
                 "[MIC-WATCHER-CA] AudioObjectAddPropertyListener failed (status=%d), falling back to TTL polling",
                 status,
             )
@@ -431,14 +447,14 @@ class CoreAudioMicrophoneWatcher:
                     None,
                 )
             except Exception:
-                log.warning(
+                log.debug(
                     "[MIC-WATCHER-CA] AudioObjectAddPropertyListener(default-input) raised "
                     "(continuing with device-list listener only)",
                     exc_info=True,
                 )
                 di_status = None
             if di_status is not None and di_status != _NO_ERR:
-                log.warning(
+                log.debug(
                     "[MIC-WATCHER-CA] AudioObjectAddPropertyListener(default-input) failed "
                     "(status=%s, continuing with device-list listener only)",
                     di_status,

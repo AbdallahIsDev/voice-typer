@@ -166,13 +166,13 @@ _INITIAL_LABELS: dict[str, str] = {
     # ── permissions.py notifications ────────────────────────────────────
     "notify.permissions.macos_title": "{app} needs permission",
     "notify.permissions.macos_body": (
-        "Click to open System Settings \u2192 Accessibility. Add Voice Typer (and its key-listener helper) to the list."
+        "Click to open System Settings \u2192 Accessibility. Add {app} (and its key-listener helper) to the list."
     ),
     "notify.permissions.macos_body_with_command": (
         "Click to open System Settings \u2192 Accessibility. Add {app} (and its key-listener helper) to the list. "
         "Then run: {command}"
     ),
-    "notify.permissions.linux_title": "Voice Typer needs keyboard permission",
+    "notify.permissions.linux_title": "{app} needs keyboard permission",
     "notify.permissions.linux_body": (
         "Click to grant access. Your system will ask for your password "
         "to install the keyboard permission (udev rule + input group). "
@@ -247,7 +247,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Microphone permission was revoked. Recording stopped. "
         "Re-grant microphone access in your OS privacy settings to resume."
     ),
-    # (session NH): the start_failed notification no longer
+    # The start_failed notification no longer
     # interpolates {error} into the user-facing message — exception text
     # can leak absolute paths, device names, and hostnames. The full
     # exception is still logged via log.exception() above; the tray
@@ -256,6 +256,11 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.recording_controller.start_failed": (
         "Could not start recording.\nCheck logs/voice-typer.log for traceback."
     ),
+    # start_failed_with_reason: the typed-failure branch of the start
+    # error path — ``{reason}`` is the ALREADY-LOCALIZED
+    # ``state.recording_controller.recording_failed_*`` message (never
+    # raw exception text; see ``_recording_start_failure_message``).
+    "notify.recording_controller.start_failed_with_reason": "Could not start recording.\n{reason}",
     "notify.recording_controller.stop_failed": "Could not stop recording.",
     "notify.recording_controller.silence_warning": (
         "No audio detected. Check your microphone is connected and working."

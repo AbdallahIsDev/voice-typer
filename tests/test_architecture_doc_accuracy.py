@@ -40,17 +40,17 @@ def _read(path: Path) -> str:
 
 
 def test_gp91_event_bus_count_is_37_in_doc_and_code():
-    """Doc must say "37-event bus" and ``EVENT_TYPES`` must have 37 entries."""
+    """Doc must say "39-event bus" and ``EVENT_TYPES`` must have 39 entries."""
     doc = _read(ARCH_DOC)
-    assert "37-event bus" in doc, "ARCHITECTURE.md must describe the bus as '37-event bus' ."
+    assert "39-event bus" in doc, "ARCHITECTURE.md must describe the bus as '39-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
-    # And the IPC-contract section's frozen-surface count must also say 37.
-    assert "69 commands / 38 events" in doc, "IPC contract section must say '69 commands / 38 events'."
+    # And the IPC-contract section's frozen-surface count must also say 39.
+    assert "69 commands / 39 events" in doc, "IPC contract section must say '69 commands / 39 events'."
 
     from voice_typer.server.event_bus import EVENT_TYPES
 
-    assert len(EVENT_TYPES) == 38, (
-        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 37 "
+    assert len(EVENT_TYPES) == 39, (
+        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 39 "
         f"entries (actual: {len(EVENT_TYPES)}). Update doc + test together."
     )
 
@@ -293,12 +293,18 @@ def test_gp94_main_rs_line_count_is_385():
     repo-wide rustfmt pass (line-wrapping normalization) re-wrapped
     long lines; no new logic, still wiring-only. Doc + test pin
     updated in lockstep.
+
+    Updated 2026-09-02: main.rs grew from 407 → 413 lines — the
+    Windows toast AUMID registration (``notify_aumid`` module:
+    ``mod`` declaration + one ``register()`` wiring call in setup;
+    body lives in ``notify_aumid.rs``). Still wiring-only. Doc +
+    test pin updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "407 lines" in doc, "Doc must claim '407 lines' for main.rs."
+    assert "413 lines" in doc, "Doc must claim '413 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 407, (
-        f"src-tauri/src/main.rs must be 407 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 413, (
+        f"src-tauri/src/main.rs must be 413 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."

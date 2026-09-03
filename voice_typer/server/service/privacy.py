@@ -1131,7 +1131,7 @@ class PrivacyMixin(ServiceMixinBase):
             # already unlinked it).  Log + return structured failure.
             with contextlib.suppress(FileNotFoundError):
                 tmp_path.unlink()
-            log.error("export_gdpr_bundle failed: %s", exc)
+            log.exception("export_gdpr_bundle failed: %s", exc)
             return {
                 "success": False,
                 "message": redact_secret(redact_url(str(exc))),

@@ -534,7 +534,7 @@ def resample_audio(
         # AttributeError / MemoryError / etc. propagate.
         last_error = exc
         if log_resample:
-            log.error("[RECORDING] scipy resample_poly failed: %s", exc)
+            log.exception("[RECORDING] scipy resample_poly failed: %s", exc)
 
     if not resampled:
         try:
@@ -601,7 +601,7 @@ def resample_audio(
             # narrow here too.
             last_error = exc
             if log_resample:
-                log.error(
+                log.exception(
                     "[RECORDING] All resampling failed: %s. Audio at %d Hz cannot be used by Whisper.",
                     exc,
                     effective_sr,

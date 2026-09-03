@@ -212,7 +212,7 @@ def _save_impl(cfg: "Config") -> bool:
         log.warning("[CONFIG] %s", e)
         return False
     except (OSError, PermissionError) as e:
-        log.error("[CONFIG] Failed to save config: %s", e)
+        log.exception("[CONFIG] Failed to save config: %s", e)
         return False
     except (TypeError, ValueError) as e:
         # ``json.dumps`` (called inside
@@ -232,7 +232,7 @@ def _save_impl(cfg: "Config") -> bool:
         # failure modes and return ``False`` (the underlying
         # ``OSError``/``TypeError`` is logged at ERROR so the
         # operator can diagnose which field is non-serializable).
-        log.error("[CONFIG] Failed to serialize config for save: %s", e)
+        log.exception("[CONFIG] Failed to serialize config for save: %s", e)
         return False
 
 

@@ -29,6 +29,19 @@ _log = __import__("logging").getLogger(__name__)
 _LEGACY_CGROUP_SIGNATURES = ("docker", "lxc", "kubepods", "containerd")
 
 
+# cgroup signature → human-readable container type. Shared by the single
+# probe so ``is_in_container`` and ``get_container_type`` can never
+# disagree (the old duplicated chains reported a cgroup-detected Docker
+# container as ``True``/``unknown`` — a deliberate-looking but unintended
+# mismatch; both accessors now agree on the mapped name).
+_CGROUP_TYPE_NAMES = {
+    "docker": "docker",
+    "lxc": "lxc",
+    "kubepods": "kubernetes",
+    "containerd": "containerd",
+}
+
+
 def _read_proc_file(path: str) -> str | None:
     """Read a ``/proc`` file as text, returning ``None`` on any I/O error.
 
@@ -158,23 +171,41 @@ def _should_bypass_cache() -> bool:
     return os.environ.get("PYTEST_CURRENT_TEST") is not None
 
 
-@functools.lru_cache(maxsize=1)
-def _is_in_container_cached() -> bool:
-    """Memoized body of :func:`is_in_container` ()."""
+def _probe_container() -> str | None:
+    """Single canonical container probe.
+
+    Returns a human-readable container type, or ``None`` when not in a
+    container / not on Linux. Both public accessors
+    (:func:`is_in_container` via :func:`_is_in_container_cached` and
+    :func:`get_container_type` via :func:`_get_container_type_cached`)
+    read this ONE memoized probe, so the boolean and the type can never
+    disagree (previously they duplicated overlapping probe chains that
+    could drift apart).
+
+    Detection order (first hit wins):
+    1. ``/.dockerenv`` (Docker)
+    2. ``/run/.containerenv`` (Podman)
+    3. ``CONTAINER`` env var (systemd-nspawn)
+    4. ``/proc/1/cgroup`` runtime signatures (cgroup v1, legacy hosts)
+    5. ``container=`` on PID 1's environ (cgroup v2 / modern runtimes)
+    6. overlayfs rooted at ``/`` in ``/proc/self/mountinfo``
+       (rootless Podman / OCI runtimes with no v1 signature)
+    """
     if not is_linux():
-        return False
+        return None
 
     # 1. Docker creates /.dockerenv in containers
     if Path("/.dockerenv").exists():
-        return True
+        return "docker"
 
     # 2. Podman creates /run/.containerenv
     if Path("/run/.containerenv").exists():
-        return True
+        return "podman"
 
     # 3. systemd-nspawn sets the `container` env var
-    if os.environ.get("CONTAINER"):
-        return True
+    env_container = os.environ.get("CONTAINER")
+    if env_container:
+        return f"systemd-nspawn ({env_container})"
 
     # 4. Check /proc/1/cgroup for container runtime signatures (cgroup v1
     #    path-based detection — still relevant for legacy hosts).
@@ -182,16 +213,25 @@ def _is_in_container_cached() -> bool:
     if cgroup:
         for sig in _LEGACY_CGROUP_SIGNATURES:
             if sig in cgroup:
-                return True
+                return _CGROUP_TYPE_NAMES.get(sig, sig)
 
-    # 5. : cgroup v2-aware — check /proc/1/environ for ``container=``.
-    if _detect_via_proc1_environ():
-        return True
+    # 5. cgroup v2-aware — ``container=`` on PID 1's environ carries the
+    #    runtime name (``container=oci``, ``container=podman``, ...).
+    environ_text = _read_proc_file("/proc/1/environ")
+    if environ_text:
+        for entry in environ_text.split("\x00"):
+            if not entry or "=" not in entry:
+                continue
+            key, value = entry.split("=", 1)
+            if key == "container" and value:
+                return value
 
-    # 6. : cgroup v2-aware — check /proc/self/mountinfo for overlayfs
-    #    rooted at ``/`` (catches rootless Podman and other OCI runtimes
-    #    that don't write a recognizable cgroup signature on v2).
-    return bool(_detect_via_mountinfo_overlay())
+    # 6. cgroup v2-aware — overlayfs rooted at ``/`` catches rootless
+    #    Podman and other OCI runtimes that write no cgroup signature.
+    if _detect_via_mountinfo_overlay():
+        return "container (overlayfs root)"
+
+    return None
 
 
 def _reset_container_cache() -> None:
@@ -223,48 +263,26 @@ def get_container_type() -> str | None:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_container_type_cached() -> str | None:
-    """Memoized body of :func:`get_container_type` ().
+def _is_in_container_cached() -> bool:
+    """Memoized boolean body of :func:`is_in_container`.
 
-    Assumes :func:`is_in_container` has already returned True — callers
-    must gate on that before invoking this helper.
+    Wraps the single canonical probe (``_probe_container``) — both
+    accessors share one memoized result so the boolean and the
+    human-readable type can never disagree.
     """
-    if Path("/.dockerenv").exists():
-        return "docker"
-    if Path("/run/.containerenv").exists():
-        return "podman"
-    if os.environ.get("CONTAINER"):
-        return f"systemd-nspawn ({os.environ['CONTAINER']})"
+    return _probe_container() is not None
 
-    # check /proc/1/environ for the ``container=`` value (e.g.
-    # ``container=oci``, ``container=podman``, ``container=lxc``).
-    # When present, the value is a useful human-readable runtime name.
-    environ_text = _read_proc_file("/proc/1/environ")
-    if environ_text:
-        for entry in environ_text.split("\x00"):
-            if not entry or "=" not in entry:
-                continue
-            key, value = entry.split("=", 1)
-            if key == "container" and value:
-                return value
 
-    try:
-        cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8", errors="ignore")
-        if "kubepods" in cgroup:
-            return "kubernetes"
-        if "containerd" in cgroup:
-            return "containerd"
-        if "lxc" in cgroup:
-            return "lxc"
-    except (OSError, PermissionError):
-        pass
+@functools.lru_cache(maxsize=1)
+def _get_container_type_cached() -> str | None:
+    """Memoized type body of :func:`get_container_type`.
 
-    # overlayfs-at-root indicator catches rootless Podman and
-    # other OCI runtimes; report a recognizable name instead of "unknown".
-    if _detect_via_mountinfo_overlay():
-        return "container (overlayfs root)"
-
-    return "unknown"
+    Wraps the single canonical probe (``_probe_container``). Assumes
+    :func:`is_in_container` has already returned True — callers gate on
+    that before invoking this helper.
+    """
+    probe = _probe_container()
+    return probe if probe is not None else "unknown"
 
 
 def warn_if_in_container() -> None:

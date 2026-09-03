@@ -306,8 +306,24 @@ class TestSha256ByArchSync:
     checksum tests pin."""
 
     @staticmethod
-    def _seed_manifest_with_by_arch(path: Path) -> None:
-        """Manifest whose legacy entries carry a ``sha256_by_arch`` dict."""
+    def _seed_manifest_with_by_arch(path: Path) -> dict[str, str]:
+        """Manifest whose legacy entries carry a ``sha256_by_arch`` dict.
+
+        The seed is HOST-AGNOSTIC: the host arch starts STALE (``old``)
+        so the lockstep test can prove it MOVES to the new hash, while
+        the non-built arch starts EMPTY (the dev-tree state) so the
+        not-fabricated assertion (``== ""``) holds on every CI runner —
+        x86_64 AND aarch64. Seeding ``old`` unconditionally for x86_64
+        broke the test on aarch64 hosts (the stale ``old`` landed on the
+        NON-built arch and the ``== ""`` assertion failed).
+
+        Returns the seeded ``sha256_by_arch`` dict so callers can assert
+        against the exact pre-update state.
+        """
+        host_arch = unm._host_arch_key()
+        assert host_arch in ("x86_64", "aarch64"), f"test expects a recognized host arch; got {host_arch!r}"
+        other_arch = "aarch64" if host_arch == "x86_64" else "x86_64"
+        by_arch = {host_arch: "old", other_arch: ""}
         manifest = {
             "_comment": "test manifest",
             "version": 1,
@@ -319,13 +335,14 @@ class TestSha256ByArchSync:
                 },
                 "linux-key-listener": {
                     "sha256": "old",
-                    "sha256_by_arch": {"x86_64": "old", "aarch64": ""},
+                    "sha256_by_arch": by_arch,
                     "version": "1.0.0",
                     "min_proto_version": 1,
                 },
             },
         }
         path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        return by_arch
 
     def test_host_arch_entry_updated_in_lockstep_with_flat(self, tmp_path: Path) -> None:
         """A rebuilt legacy binary updates flat sha256 AND the host-arch
@@ -360,7 +377,7 @@ class TestSha256ByArchSync:
         ``sha256_by_arch`` dict — only the flat field moves on."""
         nd = tmp_path / "native"
         nd.mkdir()
-        self._seed_manifest_with_by_arch(nd / "binaries.json")
+        seeded_by_arch = self._seed_manifest_with_by_arch(nd / "binaries.json")
         _write_binary(nd, "linux-key-listener", b"odd-host-payload")
         expected = hashlib.sha256(b"odd-host-payload").hexdigest()
 
@@ -372,9 +389,7 @@ class TestSha256ByArchSync:
         manifest = json.loads((nd / "binaries.json").read_text())
         entry = manifest["binaries"]["linux-key-listener"]
         assert entry["sha256"] == expected
-        assert entry["sha256_by_arch"] == {"x86_64": "old", "aarch64": ""}, (
-            "unrecognized host arch must leave sha256_by_arch untouched"
-        )
+        assert entry["sha256_by_arch"] == seeded_by_arch, "unrecognized host arch must leave sha256_by_arch untouched"
 
     def test_host_arch_key_normalization(self, monkeypatch) -> None:
         """machine() strings normalize to the manifest's arch keys."""

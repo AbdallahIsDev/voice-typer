@@ -873,6 +873,61 @@ class TestPreMigrationBackup:
         finally:
             bak_conn.close()
 
+    def test_pre_migration_backup_taken_before_any_schema_write(self, tmp_path):
+        """PRE-MIGRATION-BACKUP-ORDERING: the backup must be taken before
+        ANY write to the DB in ``init_schema`` — not merely before the
+        migration loop. Previously the ``CREATE TABLE IF NOT EXISTS``
+        statements ran first; they are no-ops on an existing DB, but the
+        ordering was one future pre-migration write away from silently
+        folding new-schema writes into the "old-version" backup.
+
+        Strategy: build a v1 DB that is MISSING the ``transcriptions``
+        table (simulating a partially-initialized old DB). Under the
+        fixed ordering the backup is taken before the CREATE TABLE
+        writes, so the .bak must NOT contain a ``transcriptions`` table.
+        Under the old ordering the CREATE would have created the table
+        and the backup would contain it.
+        """
+        import sqlite3
+
+        from voice_typer.server.history_db import HistoryDB
+
+        db_path = tmp_path / "test_history_partial.db"
+
+        # A v1 DB with ONLY schema_meta (no transcriptions table).
+        setup_conn = sqlite3.connect(str(db_path))
+        setup_conn.execute("""
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        setup_conn.execute("INSERT INTO schema_meta (key, value) VALUES ('version', '1')")
+        setup_conn.commit()
+        setup_conn.close()
+
+        db = HistoryDB(db_path=db_path)
+        try:
+            assert db._init_error is None, f"Expected init to succeed; got _init_error={db._init_error}"
+        finally:
+            db.close()
+
+        bak_path = db_path.with_name(f"{db_path.name}.pre-migration-v1.bak")
+        assert bak_path.exists(), (
+            "PRE-MIGRATION-BACKUP-ORDERING regression: pre-migration backup "
+            f"should exist. Files in dir: {[p.name for p in db_path.parent.iterdir()]}"
+        )
+        bak_conn = sqlite3.connect(str(bak_path))
+        try:
+            cursor = bak_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transcriptions'")
+            assert cursor.fetchone() is None, (
+                "PRE-MIGRATION-BACKUP-ORDERING regression: the backup must be "
+                "taken BEFORE any CREATE TABLE write — it captured a "
+                "'transcriptions' table that only exists post-write."
+            )
+        finally:
+            bak_conn.close()
+
     def test_no_pre_migration_backup_when_already_at_current_version(self, tmp_path):
         """PI-10: opening a DB that's already at the current schema
         version must NOT create a pre-migration backup (the migration

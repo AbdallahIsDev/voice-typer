@@ -2,15 +2,21 @@
 
 Stateless plumbing split out of the former single-module
 ``cloud_engines.py`` monolith by concern. ``cloud_engines.py`` remains
-the compatibility facade AND the home of the ``CloudEngine``
-orchestration (engine class, shared retry loop, provider send
-orchestration, connection probing), because tests and production
-importers patch engine-adjacent singletons through that module's
+the compatibility facade AND re-exports the ``CloudEngine``
+orchestration, whose class body now lives in :mod:`._engine`
+(engine class, shared retry loop, provider send orchestration,
+connection probing), because tests and production patch
+engine-adjacent singletons through the facade module's
 namespace (``_opener`` rebinding, ``assert_url_allowed`` patching) —
 see the facade docstring for the full contract.
 
 Leaf modules:
 
+- :mod:`._engine` — the ``CloudEngine`` orchestration class (lifecycle,
+  consent gate, shared retry skeleton, provider send paths,
+  connection probe). Resolves the facade-owned singletons
+  (``_opener``, ``assert_url_allowed``) at call time so facade-namespace
+  patches keep steering the engine.
 - :mod:`._transport` — shared HTTP transport: the pooled secure
   ``_opener`` (no-redirect), response-body cap (``_read_capped``),
   float32→WAV encoding (``_audio_to_wav_bytes``), and the streaming
@@ -34,6 +40,9 @@ from __future__ import annotations
 
 from ._defaults import (  # noqa: F401  # package re-export
     _PROVIDER_DEFAULTS,
+)
+from ._engine import (  # noqa: F401  # package re-export
+    CloudEngine,
 )
 from ._providers.deepgram import (  # noqa: F401  # package re-export
     build_listen_url,
