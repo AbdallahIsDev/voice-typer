@@ -291,3 +291,37 @@
 - `voice_typer/server/model_manager.py:1748-1758`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
+
+---
+
+## BP Session additions (2026-09-03 — investigation-only session, Groups 1 & 2)
+
+> Eight new findings from the BP investigation concluded to be not worth solving (per C-REVIEW-2, documented here rather than review.md). These are NEW conclusions by the investigating/reviewing agents; the user may reverse any of them — see the recommendation line in each entry.
+
+### BP-WF-2 — restart-backend returns reason "relaunching" on spawn failure
+**Status:** 🚫 Won't Fix (Electron-only path; cosmetic; no consumer switches on the value — verified)
+**Description:** `voice_typer/client/src/main/python/restart-backend.ts:128-135` returns `{ok: false, reason: "relaunching"}` when a spawn fails (no relaunch in flight) — misleading reason enum reuse on a path slated for removal.
+**Fix (if reversed):** Distinct reason string "spawn_failed". Found by: W1-A1.
+**Severity:** 🟢 Low
+
+### BP-WF-3 — IPC command registry maps command names to method-name strings
+**Status:** 🚫 Won't Fix (works, init-time-validated, parity-pinned; a decorator registry would churn ~10 test files for zero user impact)
+**Description:** `_COMMAND_REGISTRY` (74 entries) maps commands to method-name strings resolved via getattr; construction-time validation closes the failure mode; the parity test depends on command names, not the indirection.
+**Fix (if reversed):** `@command("...")` decorator registration. Found by: W1-A2; recommended Won't Fix by A2 + W4-R4.
+**Severity:** 🟢 Low
+
+### BP-WF-5 — Three parallel toast-cooldown stores (50/65/73 lines)
+**Status:** 🚫 Won't Fix (small, working, domain-scoped; consolidation is churn — a factory saves ~60 lines while each store keeps its module-level HMR isolation by design)
+**Description:** deviceLostStore (50L), degradationToastStore (65L), lastResortToastStore (73L) share the same shape (timestamps + setters + resetForTest) with the same documented HMR rationale. Found by: W1-A3; line count corrected by W2-R2/W4-R4.
+**Fix (if reversed):** `createCooldownStore()` factory. Found by: W1-A3.
+**Severity:** 🟢 Low
+
+### BP-WF-6 — Per-chunk module import inside the level-monitor lock
+**Status:** 🚫 Won't Fix (µs-scale, below the W1 value bar; hoisting would add a circular-import workaround for zero measurable gain)
+**Description:** `voice_typer/server/level_monitor/worker.py:611,391,594` execute `from .monitoring import ...` inside the lock-held write block, per chunk (~16-31Hz). Found by: W1-A5.
+**Severity:** 🟢 Low
+
+### BP-WF-8 — Sentence-casing pass is a per-character Python loop
+**Status:** 🚫 Won't Fix (µs-scale at typical dictation lengths; sub-threshold)
+**Description:** `voice_typer/server/text_cleanup/_casing.py:11-21` does list(text) + per-char loop + join where a precompiled regex would run in C. Semantics preservation is the only risk of changing it. Found by: W3-A6.
+**Severity:** 🟢 Low
