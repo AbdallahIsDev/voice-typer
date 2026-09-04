@@ -1,10 +1,12 @@
 """Drift guards for the Tauri tray state icons (``src-tauri/icons/tray/``).
 
-The tray icons are REAL committed PNGs rendered from the microphone bar
-shape + shared state palette by
+The tray icons are REAL committed PNGs rendered from the app logo
+glyph (the logo WITHOUT its background chip and WITHOUT the indicator
+dot — the tray shows the bare icon, per user decision) + shared state
+palette by
 ``voice_typer/client/scripts/generate-icons.mjs`` (tray-only mode:
 ``node generate-icons.mjs --tray``, wrapped for repeatability by
-``scripts/build/generate_tray_icons.py`` — edit the mjs's ``traySvg`` /
+``scripts/build/generate_tray_icons.py`` — edit the mjs's tray glyph /
 ``trayStateColors`` to change them).
 
 They are NOT ``bundle.icon`` app icons — they are ``bundle.resources``
@@ -352,9 +354,12 @@ def _dominant_tray_color(path: Path) -> tuple[int, int, int]:
 def test_committed_tray_png_colors_match_mjs_palette() -> None:
     """Each state icon's dominant color equals its ``trayStateColors`` value.
 
-    The mjs injects the state color into the SVG fill before rendering
-    (``traySvg.replace(fill="white", fill="rgb(...)")``), so the rendered
-    icon's dominant opaque pixel MUST be exactly that RGB. A palette edit
+    The mjs injects the state color into the SVG glyph fill before
+    rendering
+    (``setGlyphFill(traySvg, "rgb(...)")`` — a count-guarded re-fill of
+    the single glyph <path>, so a glyph whose fill no longer matches
+    throws instead of shipping identical states), so the rendered icon's
+    dominant opaque pixel MUST be exactly that RGB. A palette edit
     in ``generate-icons.mjs`` (or a generator that stops injecting the
     color — the previous sharp-``tint`` bug shipped identical white icons
     for every state) fails here instead of silently shipping a tray whose

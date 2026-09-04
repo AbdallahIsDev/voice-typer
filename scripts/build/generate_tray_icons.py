@@ -2,11 +2,13 @@
 
 ``src-tauri/icons/tray/{idle,recording,transcribing,error}.png`` (+ the
 macOS template source ``tray-mic-template.png``) are REAL committed
-files, rendered from the microphone bar shape + the shared state
-palette by ``voice_typer/client/scripts/generate-icons.mjs`` (the
-canonical icon generator — edit the ``trayStateColors`` / ``traySvg``
-there to change the icons). This script makes the tray-only
-regeneration repeatable and self-validating in one command:
+files, rendered from the app logo glyph (the logo WITHOUT its
+background chip — per user decision the tray shows the icon itself) +
+the shared state palette by
+``voice_typer/client/scripts/generate-icons.mjs`` (the canonical icon
+generator — edit the tray glyph / ``trayStateColors`` there to change
+the icons). This script makes the tray-only regeneration repeatable
+and self-validating in one command:
 
 1. **Regenerate** — runs ``node generate-icons.mjs --tray`` (the mjs's
    tray-only mode), which writes exactly the 5 tray files into
@@ -136,8 +138,18 @@ def validate_tray_files(tray_dir: Path = TRAY_DIR) -> None:
 
 
 def config_paths(root: Path = PROJECT_ROOT) -> list[Path]:
-    """The base config + every per-arch config (sorted, deterministic)."""
-    return sorted(SRC_TAURI.glob("tauri.conf.json")) + sorted(SRC_TAURI.glob("tauri.*.conf.json"))
+    """The base config + every per-arch config (sorted, deterministic).
+
+    ``tauri.dev.conf.json`` (the dev-mode override, C-TDEV-1) is
+    intentionally excluded: it is a minimal ``tauri dev`` overlay with
+    no ``bundle`` section — dev builds reuse the base config's bundle —
+    and is never merged by a CI ``--config`` per-arch build. This
+    mirrors the same exclusion in ``tests/tauri/test_tray_icons.py``
+    (``_all_tauri_configs``) so the script's wiring check and the
+    drift-guard test agree.
+    """
+    per_arch = sorted(p for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.dev.conf.json")
+    return [SRC_TAURI / "tauri.conf.json", *per_arch]
 
 
 def validate_resource_wiring(root: Path = PROJECT_ROOT) -> None:

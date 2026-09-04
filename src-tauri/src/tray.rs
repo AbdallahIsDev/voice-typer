@@ -89,13 +89,14 @@ use tauri::{AppHandle, Listener, Manager};
 /// visibility surfaces unintended cross-module couplings at compile
 /// time rather than letting them slip through as silent API growth.
 pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    // Initial icon: the `idle` state icon (gray bars) so the tray
-    // starts in the same visual state the Python sidecar starts in
-    // (AppState.IDLE). Falls back to the default window icon when the
-    // tray resources aren't available (e.g. a checkout that predates
-    // the tray PNGs) — never a bare `None`, so the tray always shows a
-    // real icon from the first frame. On macOS `icon_as_template(true)`
-    // (set below) renders either as the menubar-colored bar shape.
+    // Initial icon: the `idle` state icon (gray logo glyph) so the
+    // tray starts in the same visual state the Python sidecar starts
+    // in (AppState.IDLE). Falls back to the default window icon when
+    // the tray resources aren't available (e.g. a checkout that
+    // predates the tray PNGs) — never a bare `None`, so the tray
+    // always shows a real icon from the first frame. On macOS
+    // `icon_as_template(true)` (set below) renders either as the
+    // menubar-colored glyph shape.
     let icon = load_tray_icon(app, "idle").or_else(|| app.default_window_icon().cloned());
     let menu = empty_menu(app)?;
 
@@ -213,8 +214,8 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     // per-state colors (idle=gray, recording=green, transcribing=blue,
     // error=red) emitted by `generate-icons.mjs` are only visible on
     // Windows/Linux; on macOS the state is communicated via the tooltip
-    // ("Voice Typer — Recording") and the bar SHAPE (which is identical
-    // across states — only the alpha mask matters).
+    // ("Voice Typer — Recording") and the glyph SHAPE (which is
+    // identical across states — only the alpha mask matters).
     //
     // `TrayIconBuilder::icon_as_template` is a no-op on Windows/Linux
     // (the underlying `set_icon_as_template` call is `#[cfg(target_os =

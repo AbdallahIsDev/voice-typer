@@ -325,3 +325,33 @@
 **Status:** 🚫 Won't Fix (µs-scale at typical dictation lengths; sub-threshold)
 **Description:** `voice_typer/server/text_cleanup/_casing.py:11-21` does list(text) + per-char loop + join where a precompiled regex would run in C. Semantics preservation is the only risk of changing it. Found by: W3-A6.
 **Severity:** 🟢 Low
+
+### BP-WF-9 — theme_icon re-decodes the embedded PNG on every theme flip
+**Status:** 🚫 Won't Fix (theme flips are rare manual OS toggles — a cache would be over-engineering for a twice-a-year event; no cache exists unlike TRAY_ICON_CACHE)
+**Description:** `src-tauri/src/theme_icon.rs:50-67` — `image_for_theme` re-decodes the embedded PNG (`Image::from_bytes`) on every `apply_to_window`/`apply_startup` call. Frequency is ~once per session; cost is one µs-ms decode.
+**Fix (if reversed):** mirror the TRAY_ICON_CACHE pattern for window icons. Found by: W1-A1 (2026-09-04 BP session, Wave 1).
+**Severity:** 🟢 Low
+
+### BP-WF-10 — frame-reader subarray keeps parent ArrayBuffer alive
+**Status:** 🚫 Won't Fix (bounded by the 1 MiB SEC-023 frame cap; adjacent to WONT_FIX'd GQ-L36; zero practical retention)
+**Description:** `voice_typer/client/src/main/python/tcp/frame-reader.ts` slices incoming buffers with subarray, retaining the parent backing store. Retention is capped at the 1 MiB frame limit.
+**Fix (if reversed):** copy on slice in the overflow path. Found by: W3-A6 (2026-09-04 BP session, Wave 3).
+**Severity:** 🟢 Low
+
+### BP-WF-11 — retry-scheduler retries every 2 s forever while the backend process is alive
+**Status:** 🚫 Won't Fix (deliberate design — the renderer-side restart escalation is the user exit; bounded by process lifetime)
+**Description:** `voice_typer/client/src/main/python/tcp/retry-scheduler.ts` retries the TCP connection indefinitely at 2 s intervals while pythonProcess is alive. Documented; the renderer "restart backend" escalation is the exit path.
+**Fix (if reversed):** exponential backoff with a cap. Found by: W3-A6 (2026-09-04 BP session, Wave 3).
+**Severity:** 🟢 Low
+
+### BP-WF-12 — dropdown-menu per-slot class-string duplication
+**Status:** 🚫 Won't Fix (matches upstream shadcn convention — per-slot class strings are the library's idiom; consolidating forks from upstream)
+**Description:** `components/ui/dropdown-menu.tsx` Item/CheckboxItem/RadioItem/SubTrigger share ~90% of one class stack. This is the shadcn primitive convention.
+**Fix (if reversed):** extract a shared base class const. Found by: W3-A8 (2026-09-04 BP session, Wave 3).
+**Severity:** 🟢 Low
+
+### BP-WF-13 — volume restore() holds its lock through the fade (~150-200 ms ESC serialization)
+**Status:** 🚫 Won't Fix (acknowledged in-code trade-off; ESC path serialization is bounded and rare)
+**Description:** `voice_typer/server/volume_ducker.py` — restore() runs the fade subprocess while holding self._lock, serializing concurrent volume operations for the fade duration. Partially documented in-code.
+**Fix (if reversed):** release before fade, re-acquire to publish state. Found by: W3-A5 (2026-09-04 BP session, Wave 3).
+**Severity:** 🟢 Low

@@ -249,16 +249,19 @@ def _draw_shape_indicator(img, shape: str, color: tuple):
 
 
 def _make_icon(state: AppState, size: int = 0):
-    """Generate a colored microphone icon based on state.
+    """Generate a colored tray icon based on state.
 
-        Uses pre-rendered white microphone PNG (from logo.svg, rendered by
-        ``client/scripts/generate-icons.mjs``) and colorizes it per state.
+        Uses a pre-rendered WHITE app-logo-glyph PNG (the logo WITHOUT its
+        background chip and WITHOUT the indicator dot — per the user
+        decision the tray shows the bare icon; derived from
+        ``client/scripts/logo.svg`` by ``client/scripts/generate-icons.mjs``)
+        and colorizes it per state.
     If size is 0, auto-detect DPI.
     the old ``vt_logo.svg`` reference was stale — that file
         was removed; the source SVG now lives at ``client/scripts/logo.svg``.
 
     Icons use both color AND shape to differentiate
-        states. When a PNG microphone icon is available, a small shape
+        states. When a logo-glyph PNG icon is available, a small shape
         indicator is overlaid in the bottom-right corner. When no PNG is
         found, a shape-only icon is drawn as fallback (fully accessible
         to color-blind users who can identify states by shape alone).
