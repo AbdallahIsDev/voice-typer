@@ -324,3 +324,53 @@ class TestCacheProbeLogLinesUseFormatDuration:
             f"A revert to ad-hoc `%.2fs` formatting would strip the space "
             f"separator and break this assertion."
         )
+
+
+class TestWarmModelWeights:
+    """Weight-file warming: the warm phase must cover the multi-GB model
+    payload (not only runtime-pack libraries) and SKIP files that the
+    latency probe already reports as hot (no byte-for-byte re-read).
+    """
+
+    def test_warm_model_weights_reads_cold_files(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "hub" / "models--test--model"
+        snap = cache_dir / "snapshots" / "abc"
+        snap.mkdir(parents=True)
+        (snap / "model.bin").write_bytes(b"\x00" * (2 * 1024 * 1024))
+
+        read_paths: list = []
+        monkeypatch.setattr(cache_probe, "_warm_file", lambda p: read_paths.append(p) or 2 * 1024 * 1024)
+        monkeypatch.setattr(cache_probe, "_cache_ratio", lambda p, samples=20: 0.0)
+
+        total = cache_probe._warm_model_weights([cache_dir])
+
+        assert total == 2 * 1024 * 1024
+        assert read_paths == [snap / "model.bin"]
+
+    def test_warm_model_weights_skips_hot_files(self, tmp_path, monkeypatch):
+        """A file at/above the hot threshold is NOT re-read."""
+        cache_dir = tmp_path / "hub" / "models--test--model"
+        snap = cache_dir / "snapshots" / "abc"
+        snap.mkdir(parents=True)
+        (snap / "model.bin").write_bytes(b"\x00" * (2 * 1024 * 1024))
+
+        monkeypatch.setattr(cache_probe, "_warm_file", lambda p: pytest.fail("hot file must not be re-read"))
+        monkeypatch.setattr(cache_probe, "_cache_ratio", lambda p, samples=20: 1.0)
+
+        assert cache_probe._warm_model_weights([cache_dir]) == 0
+
+    def test_warm_model_weights_empty_dirs(self, tmp_path):
+        assert cache_probe._warm_model_weights([]) == 0
+
+    def test_warm_imports_includes_model_weights(self, monkeypatch):
+        """_warm_imports must call the weight-warm pass (the warm list
+        alone covers only libraries)."""
+        calls: list[str] = []
+        monkeypatch.setattr(cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",))
+        monkeypatch.setattr(cache_probe, "_warm_package_files", lambda pkg: 1024)
+        monkeypatch.setattr(cache_probe, "_active_model_cache_dirs", lambda: [])
+        monkeypatch.setattr(cache_probe, "_warm_model_weights", lambda dirs: calls.append("weights") or 0)
+
+        cache_probe._warm_imports()
+
+        assert calls == ["weights"]

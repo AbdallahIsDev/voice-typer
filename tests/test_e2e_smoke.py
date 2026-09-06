@@ -162,16 +162,15 @@ class TestEndToEndSmoke:
         assert app.models.registry is not None
 
     def test_issue13_tray_menu_module_exists(self):
-        """#13: tray_menu module extracted with build_menu, display_hotkey, wrap_callback."""
+        """#13: tray_menu module extracted with build_menu_for_tray, display_hotkey, wrap_callback."""
         from voice_typer.server import tray_menu
 
-        assert hasattr(tray_menu, "build_menu")
+        assert hasattr(tray_menu, "build_menu_for_tray")
         assert hasattr(tray_menu, "display_hotkey")
         assert hasattr(tray_menu, "wrap_callback")
         # tray.py should delegate to tray_menu
         from voice_typer.server import tray
 
-        assert tray.build_menu is tray_menu.build_menu
         assert tray.display_hotkey is tray_menu.display_hotkey
         assert tray.wrap_callback is tray_menu.wrap_callback
 

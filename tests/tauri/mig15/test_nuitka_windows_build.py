@@ -201,9 +201,7 @@ def test_script_onefile_tempdir_uses_supported_cache_dir_token(script_text: str)
     )
     # The legacy spec VALUE must be gone (ban the spec line, not prose —
     # comments explaining the migration may mention the old token).
-    assert not re.search(
-        r"--onefile-tempdir-spec=\"?%LOCALAPPDATA%", script_text
-    ), (
+    assert not re.search(r"--onefile-tempdir-spec=\"?%LOCALAPPDATA%", script_text), (
         "%LOCALAPPDATA% is not a supported --onefile-tempdir-spec variable "
         "(Nuitka FATAL 'Found unknown variable name'); use {CACHE_DIR}."
     )

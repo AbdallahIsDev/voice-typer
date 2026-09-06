@@ -491,9 +491,10 @@ class TestBufferSnapshotUnderLock:
     def test_buffer_maxlen_preserved_from_old_buffer(self, monkeypatch):
         import collections
 
-        import voice_typer.server.recording as rec_pkg
-
-        monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", lambda _old: None)
+        # Patch the OWNING module: stop_recording calls
+        # ``buffer._secure_clear_array_background`` via the buffer module
+        # object, so a package-attribute patch is a silent no-op.
+        monkeypatch.setattr("voice_typer.server.recording.buffer._secure_clear_array_background", lambda _old: None)
 
         # Build a recorder with a custom maxlen.
         recorder = _build_mock_recorder(buffer_chunks=[np.ones(50, dtype=np.float32)])
@@ -508,11 +509,14 @@ class TestBufferSnapshotUnderLock:
         """G4-H-06: the old storage is securely zeroed in a background
         daemon thread (so stop() returns immediately and the secure
         clear happens off the hot path)."""
-        import voice_typer.server.recording as rec_pkg
         from voice_typer.server.recording._recorder_split import GrowableRecordingBuffer
 
         bg_clear = MagicMock()
-        monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", bg_clear)
+        # Patch the OWNING module: stop_recording calls
+        # ``buffer._secure_clear_array_background`` via the buffer module
+        # object, so a package-attribute patch is a silent no-op (the
+        # real background clear would run instead of the mock).
+        monkeypatch.setattr("voice_typer.server.recording.buffer._secure_clear_array_background", bg_clear)
 
         recorder = _build_mock_recorder(buffer_chunks=[])
         buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
@@ -794,13 +798,17 @@ class TestSourceStringContracts:
         )
 
     def test_lazy_import_in_function_body(self):
-        """The function body contains a lazy import of the package
-        namespace — pin this so a future refactor doesn't move it
-        to module top (which would create a circular import)."""
+        """The function body contains the lazy ``from … recorder import``
+        — pin this so a future refactor doesn't move it to module top
+        (which would re-introduce the circular import created by
+        recorder.py's top-level import of this module). The historical
+        package-namespace lazy import was removed by the owning-module
+        migration; the constants import below is the lazy seam that
+        remains and must stay function-local."""
         src = inspect.getsource(stop_recording)
         body = self._body_after_docstring(src)
-        assert "from voice_typer.server import recording as _recording_pkg" in body, (
-            "stop_recording must do the lazy package import inside its "
+        assert "from voice_typer.server.recording.recorder import (" in body, (
+            "stop_recording must do the lazy constants import inside its "
             "body — moving it to module top would re-introduce the "
             "circular import that recorder.py's top-level import of this "
             "module creates."

@@ -470,5 +470,54 @@ class TestLaunchPreservesElectronPath:
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
 
+# ---------------------------------------------------------------------------
+# launch() — already-running focus path (no fixed pre-exit sleep)
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchAlreadyRunningFocus:
+    """When the backend is already running, ``launch()`` focuses the
+    existing instance and returns WITHOUT a fixed pre-exit sleep.
+
+    The 0.5s ``time.sleep(0.5)`` previously ran on every autostart login
+    with a prewarmed backend — the OS waits for the launcher to exit
+    before considering login complete, so the sleep delayed every login
+    for no functional reason (the focus child is spawned detached and
+    never waited on).
+    """
+
+    def test_focus_path_returns_without_sleep(self, monkeypatch):
+        pid_file = (
+            Path("/tmp/vt-test-nonexistent-pid-file") if os.name != "nt" else Path("C:/nonexistent/vt-test-pid-file")
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.app._backend_pid_file",
+            lambda: pid_file,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._is_port_open",
+            lambda h, p: True,  # backend "already running"
+        )
+        focused = []
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._focus_running_app",
+            lambda: focused.append(1) or True,
+        )
+        monkeypatch.setattr("voice_typer.server.autostart_launcher._setup_logging", lambda: None)
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+
+        monkeypatch.setattr(sys, "argv", ["autostart_launcher.py"])
+        ret = launch()
+
+        assert ret == 0
+        assert focused, "focus probe must be spawned when the backend is already running"
+        assert sleeps == [], (
+            "the already-running focus path must NOT sleep before exiting "
+            f"(removed 0.5s login delay); got time.sleep calls: {sleeps!r}"
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

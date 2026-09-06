@@ -247,7 +247,7 @@ class TestGetExpectedSha256:
         CLOSED  rather than silently trusting the binary.
 
          (2026-10): the Windows x86_64 sha256 is now PRE-POPULATED
-        (``f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9``,
+        (``a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1``,
         computed from the committed ``windows-key-listener.exe``), so it
         is no longer in the "empty sha256" set below.
         """
@@ -261,8 +261,10 @@ class TestGetExpectedSha256:
 
     def test_windows_x86_64_sha256_is_pre_populated(self):
         """(Critical): the Windows x86_64 sha256 MUST be pre-populated
-        in the manifest with ``f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9``
-        (computed from the committed ``windows-key-listener.exe``).
+        in the manifest with ``a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1``
+        (computed from the committed ``windows-key-listener.exe`` —
+        refreshed when the binary is recompiled, e.g. for the stdin-EOF
+        fatality fix; ``update_native_manifests.py`` recomputes it).
 
         Pre- the Windows x86_64 sha256 was empty (the Windows binary
         was assumed to not be built on the Linux dev host).  noticed
@@ -272,7 +274,7 @@ class TestGetExpectedSha256:
         running the supplied binary hit  fail-closed and the native
         hotkey backend is disabled.
         """
-        expected = "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9"
+        expected = "a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1"
         # Direct (arch-suffixed) entry.
         arch_sha = get_expected_sha256("windows-key-listener-x86_64.exe")
         assert arch_sha == expected, (

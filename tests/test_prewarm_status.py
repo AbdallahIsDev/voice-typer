@@ -153,3 +153,71 @@ class TestWritePrewarmStatusFile:
         monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "no_such_dir" / "x.json")
 
         write_prewarm_status_file(last_run=None, elapsed_s=0.0)  # must not raise
+
+
+class TestWeightFileProbe:
+    """The Cache Status card must probe the files the backend ACTUALLY
+    ships (Whisper ``model.bin``, Parakeet ``*.onnx`` shards, legacy
+    ``model.safetensors``) — not just ``model.safetensors``, which the
+    ONNX engine never downloads (the card always showed 'cold / 0 bytes').
+    """
+
+    @staticmethod
+    def _make_cache(tmp_path, payloads: dict[str, bytes]):
+        cache = tmp_path / "huggingface" / "hub"
+        snap = cache / "models--test--model" / "snapshots" / "abc"
+        snap.mkdir(parents=True)
+        for name, data in payloads.items():
+            (snap / name).write_bytes(data)
+        return cache / "models--test--model"
+
+    def test_probe_counts_onnx_and_bin_payloads(self, monkeypatch, tmp_path):
+        cache_dir = self._make_cache(
+            tmp_path,
+            {
+                "model.bin": b"\x00" * (8 * 1024 * 1024),
+                "encoder-model.fp16.onnx": b"\x00" * (4 * 1024 * 1024),
+            },
+        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
+        monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [cache_dir])
+        monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
+        monkeypatch.setattr(prewarm_status, "_cache_ratio", lambda path, samples=20: 1.0)
+        _invalidate_cache_probe_cache()
+
+        status = get_prewarm_status()
+
+        assert status["total_bytes"] == 12 * 1024 * 1024
+        assert status["cache_label"] == "hot"
+
+    def test_probe_still_counts_legacy_safetensors(self, monkeypatch, tmp_path):
+        cache_dir = self._make_cache(tmp_path, {"model.safetensors": b"\x00" * (6 * 1024 * 1024)})
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
+        monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [cache_dir])
+        monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
+        monkeypatch.setattr(prewarm_status, "_cache_ratio", lambda path, samples=20: 1.0)
+        _invalidate_cache_probe_cache()
+
+        status = get_prewarm_status()
+
+        assert status["total_bytes"] == 6 * 1024 * 1024
+        assert status["cache_label"] == "hot"
+
+    def test_probe_ignores_non_weight_files(self, monkeypatch, tmp_path):
+        """config/tokenizer JSONs are not weights and must not be probed."""
+        cache_dir = self._make_cache(
+            tmp_path,
+            {
+                "config.json": b"{}",
+                "tokenizer.json": b"{}",
+            },
+        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
+        monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [cache_dir])
+        monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
+        monkeypatch.setattr(prewarm_status, "_cache_ratio", lambda path, samples=20: 1.0)
+        _invalidate_cache_probe_cache()
+
+        status = get_prewarm_status()
+
+        assert status["total_bytes"] == 0

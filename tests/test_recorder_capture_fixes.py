@@ -490,10 +490,10 @@ class TestWarmUpResamplerNoneGuard:
         """When ``_get_resample_poly()`` returns None, the method logs
         the "scipy not available" warning and returns without raising."""
         r = _make_recorder()
-        # Patch _get_resample_poly to return None.
-        import voice_typer.server.recording as recording_pkg
-
-        monkeypatch.setattr(recording_pkg, "_get_resample_poly", lambda: None)
+        # Patch the OWNING module: ``warm_up_resampler`` resolves
+        # ``_get_resample_poly`` from ``recording.resampling`` at call
+        # time (the package-attribute indirection was removed).
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: None)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             # Must NOT raise TypeError.
@@ -514,9 +514,8 @@ class TestWarmUpResamplerNoneGuard:
         misleading "Resampler warm-up failed: 'NoneType' object is not
         callable" message."""
         r = _make_recorder()
-        import voice_typer.server.recording as recording_pkg
-
-        monkeypatch.setattr(recording_pkg, "_get_resample_poly", lambda: None)
+        # Patch the OWNING module (see the sibling test above).
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: None)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             r.warm_up_resampler()

@@ -26,7 +26,7 @@ The tests use a ``MagicMock`` recorder stub (no real PortAudio / Silero
   this module attribute at call time, so patching the source attribute
   is sufficient.
 * ``scipy.signal.upfirdn`` — same inline-import pattern.
-* ``voice_typer.server.recording._get_resample_poly`` — the
+* ``voice_typer.server.recording.resampling._get_resample_poly`` — the
   ``_recording_pkg._get_resample_poly()`` indirection used by the
   fallback path resolves through this attribute.
 * ``voice_typer.server.recording.audio_pipeline.compute_vad_prob`` —
@@ -147,7 +147,7 @@ class TestVadResampleUsesCachedFirTaps:
                 return_value=_KNOWN_TAPS,
             ) as mock_get_taps,
             patch("scipy.signal.upfirdn", return_value=mocked_upfirdn_out) as mock_upfirdn,
-            patch("voice_typer.server.recording._get_resample_poly") as mock_get_poly,
+            patch("voice_typer.server.recording.resampling._get_resample_poly") as mock_get_poly,
             patch(
                 "voice_typer.server.recording.audio_pipeline.compute_vad_prob",
                 return_value=0.42,
@@ -188,7 +188,7 @@ class TestVadResampleUsesCachedFirTaps:
                 return_value=_KNOWN_TAPS,
             ),
             patch("scipy.signal.upfirdn", return_value=mocked_upfirdn_out),
-            patch("voice_typer.server.recording._get_resample_poly"),
+            patch("voice_typer.server.recording.resampling._get_resample_poly"),
             patch(
                 "voice_typer.server.recording.audio_pipeline.compute_vad_prob",
                 return_value=0.42,
@@ -231,7 +231,7 @@ class TestVadResampleFallbackUsesResamplePoly:
             ) as mock_get_taps,
             patch("scipy.signal.upfirdn") as mock_upfirdn,
             patch(
-                "voice_typer.server.recording._get_resample_poly",
+                "voice_typer.server.recording.resampling._get_resample_poly",
                 return_value=fake_resample_poly,
             ) as mock_get_poly,
             patch(
@@ -284,7 +284,7 @@ class TestVadResampleFallbackUsesResamplePoly:
                 side_effect=ValueError("simulated upfirdn failure"),
             ) as mock_upfirdn,
             patch(
-                "voice_typer.server.recording._get_resample_poly",
+                "voice_typer.server.recording.resampling._get_resample_poly",
                 return_value=fake_resample_poly,
             ) as mock_get_poly,
             patch(
@@ -328,7 +328,7 @@ class TestVadResampleSkippedAt16kHz:
         with (
             patch("voice_typer.server.recording.resampling._get_resample_fir_taps") as mock_get_taps,
             patch("scipy.signal.upfirdn") as mock_upfirdn,
-            patch("voice_typer.server.recording._get_resample_poly") as mock_get_poly,
+            patch("voice_typer.server.recording.resampling._get_resample_poly") as mock_get_poly,
             patch(
                 "voice_typer.server.recording.audio_pipeline.compute_vad_prob",
                 return_value=0.5,

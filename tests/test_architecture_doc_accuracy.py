@@ -299,12 +299,19 @@ def test_gp94_main_rs_line_count_is_385():
     ``mod`` declaration + one ``register()`` wiring call in setup;
     body lives in ``notify_aumid.rs``). Still wiring-only. Doc +
     test pin updated in lockstep.
+
+    Updated 2026-09-06: main.rs grew from 413 → 434 lines — the
+    OS-theme-reactive window icon (``theme_icon`` module: ``mod`` +
+    ``theme_icon_tests`` declarations, one ``apply_startup()`` wiring
+    call, and a ``WindowEvent::ThemeChanged`` branch that forwards to
+    ``apply_to_window()``; bodies live in ``theme_icon.rs``). Still
+    wiring-only. Doc + test pin updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "413 lines" in doc, "Doc must claim '413 lines' for main.rs."
+    assert "434 lines" in doc, "Doc must claim '434 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 413, (
-        f"src-tauri/src/main.rs must be 413 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 434, (
+        f"src-tauri/src/main.rs must be 434 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
@@ -316,6 +323,7 @@ def test_gp94_main_rs_line_count_is_385():
     assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
     assert "385 lines" not in doc, "Stale '385 lines' must be removed from doc."
+    assert "413 lines" not in doc, "Stale '413 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────

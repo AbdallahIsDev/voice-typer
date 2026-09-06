@@ -451,7 +451,8 @@ class TestMigrationAndBackfill:
 
         db = HistoryDB(db_path=db_path)
         try:
-            # Migration: column exists, version bumped to 4.
+            # Migration: column exists, version bumped past the
+            # encryption migration (now _CURRENT_SCHEMA_VERSION).
             conn = sqlite3.connect(str(db_path))
             try:
                 cols = {r[1] for r in conn.execute("PRAGMA table_info(transcriptions)")}
@@ -460,7 +461,7 @@ class TestMigrationAndBackfill:
             finally:
                 conn.close()
             assert "text_is_encrypted" in cols
-            assert version == "4"
+            assert version == "5"
             # The guarded triggers replaced the unguarded v3 set.
             assert {
                 "transcriptions_ai_fts",

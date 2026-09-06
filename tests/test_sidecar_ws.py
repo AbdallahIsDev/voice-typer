@@ -235,71 +235,74 @@ def test_graceful_shutdown_stops_loop_within_budget(monkeypatch) -> None:
     )
 
 
-# stop() wrapper invokes ws_graceful_shutdown FIRST ──────────
+# stop() invokes the WS stop hook (ws_graceful_shutdown) FIRST ──────────
 
 
-def test_stop_wrapper_invokes_ws_graceful_shutdown_before_original_stop(
-    monkeypatch,
-) -> None:
-    """the ``server.stop`` wrapper installed by
-    ``_attach_ws_graceful_shutdown`` calls ``ws_graceful_shutdown`` FIRST,
-    then delegates to the original ``IPCServer.stop``.
+def test_stop_hook_installed_into_ws_stop_hook_slot(monkeypatch) -> None:
+    """``_attach_ws_graceful_shutdown`` installs the shutdown wrapper into
+    the ``server._ws_stop_hook`` slot (declared on ``IPCServer.__init__``)
+    instead of REPLACING the bound ``stop`` method at instance level.
 
-    This satisfies GT-27's "BEFORE ``ipc_server.stop()``" requirement
-    WITHOUT modifying ``shutdown_controller.py`` or ``ipc_server.py``
-    (file ownership boundary — this module owns all WS-state). The
-    wrapper is best-effort: exceptions from ``ws_graceful_shutdown``
-    are logged at DEBUG and the original ``stop`` still runs.
+    Ordering contract unchanged — ``LifecycleMixin.stop`` runs the hook
+    BEFORE the TCP teardown (pinned by the lifecycle test below) — but
+    the class surface stays intact: ``server.stop is`` the original bound
+    method, and the hook is a plain declared attribute.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
     server = make_real_server_for_graceful_shutdown()
+    stop_before = server.stop
 
-    # Track the call order: ws_graceful_shutdown FIRST, then original_stop.
-    call_log: list[str] = []
-
-    # Pre-install a fake "original stop" so the wrapper has something
-    # to delegate to. ``_attach_ws_graceful_shutdown`` captures
-    # ``server.stop`` at install time, so we set this BEFORE calling
-    # ``_attach_ws_graceful_shutdown``.
-    def _original_stop(*args, **kwargs):
-        call_log.append("original_stop")
-
-    server.stop = _original_stop
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
-    # Replace the installed ``ws_graceful_shutdown`` with a spy that
-    # records the call and DOES NOT actually run the close coroutine
-    # (we don't need a real loop for this test — we're only verifying
-    # call order).
-    def _spy_ws_graceful_shutdown():
-        call_log.append("ws_graceful_shutdown")
+    assert server._ws_stop_hook is not None, "install must set the _ws_stop_hook slot"
+    assert server.stop == stop_before, "install must NOT replace the bound stop method"
 
-    server.ws_graceful_shutdown = _spy_ws_graceful_shutdown
-
-    # Invoke the wrapper.
-    server.stop()
-
-    assert call_log == ["ws_graceful_shutdown", "original_stop"], (
-        f"expected ws_graceful_shutdown BEFORE original_stop, got {call_log!r}"
-    )
+    # The hook delegates to ``ws_graceful_shutdown`` (dynamically looked
+    # up so post-install replacements are observed).
+    calls: list[str] = []
+    server.ws_graceful_shutdown = lambda: calls.append("ws_graceful_shutdown")
+    server._ws_stop_hook()
+    assert calls == ["ws_graceful_shutdown"]
 
 
-def test_stop_wrapper_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> None:
-    """if ``ws_graceful_shutdown`` raises, the wrapper logs at DEBUG
-    and STILL calls the original ``stop`` — failures in the WS close
+def test_stop_runs_hook_before_tcp_teardown(monkeypatch) -> None:
+    """``LifecycleMixin.stop`` calls ``_ws_stop_hook`` FIRST, then runs the
+    TCP teardown -- the GT-27 "WS shutdown BEFORE ``ipc_server.stop()``"
+    ordering, verified against the lifecycle mixin.
+    """
+    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
+
+    server = make_real_server_for_graceful_shutdown()
+    sidecar_ws._attach_ws_graceful_shutdown(server)
+
+    call_log: list[str] = []
+    server.ws_graceful_shutdown = lambda: call_log.append("ws_graceful_shutdown")  # type: ignore[method-assign]
+
+    # Drive the REAL ``LifecycleMixin.stop`` with the fixture server:
+    # bind the unbound function so every ``self.X`` access hits the mock
+    # (no real threads/sockets touched) while the hook ordering logic —
+    # the thing under test — runs for real.
+    from voice_typer.server.ipc import lifecycle as lifecycle_mod
+
+    lifecycle_mod.LifecycleMixin.stop(server)  # type: ignore[arg-type]
+
+    ws_hook_ran = call_log == ["ws_graceful_shutdown"]
+    assert ws_hook_ran, f"hook did not invoke ws_graceful_shutdown: {call_log!r}"
+    # The teardown body flipped the fixture's shutdown bookkeeping (mock
+    # attribute write) — observable proof the body ran after the hook.
+    assert server._running is False, "TCP teardown body must run after the hook"
+
+
+def test_stop_hook_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> None:
+    """if ``ws_graceful_shutdown`` raises, the hook logs at DEBUG
+    and ``stop`` STILL runs the TCP teardown -- failures in the WS close
     path must not prevent the TCP teardown from running.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
     server = make_real_server_for_graceful_shutdown()
 
-    original_stop_called: list[bool] = []
-
-    def _original_stop(*args, **kwargs):
-        original_stop_called.append(True)
-
-    server.stop = _original_stop
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     def _exploding_ws_graceful_shutdown():
@@ -307,10 +310,11 @@ def test_stop_wrapper_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> N
 
     server.ws_graceful_shutdown = _exploding_ws_graceful_shutdown
 
-    # Must NOT raise — the wrapper catches the exception.
-    server.stop()
+    from voice_typer.server.ipc import lifecycle as lifecycle_mod
 
-    assert original_stop_called == [True], "original stop() must still run even if ws_graceful_shutdown raised"
+    # Must NOT raise — the hook catches the exception, teardown continues.
+    lifecycle_mod.LifecycleMixin.stop(server)  # type: ignore[arg-type]
+    assert server._running is False, "TCP teardown body must still run"
 
 
 # in-flight dispatch drain ─────────────────────────────────

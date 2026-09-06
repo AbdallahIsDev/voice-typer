@@ -40,7 +40,7 @@ class TestResampleError:
         recorder = Recorder.__new__(Recorder)
         with (
             patch(
-                "voice_typer.server.recording._get_resample_poly",
+                "voice_typer.server.recording.resampling._get_resample_poly",
                 side_effect=ResampleUnavailable("scipy is missing"),
             ),
             patch(
@@ -428,7 +428,7 @@ class TestPrepareAudioNarrowExcept:
         recorder.config.sample_rate = 16000
         with (
             patch(
-                "voice_typer.server.recording._get_resample_poly",
+                "voice_typer.server.recording.resampling._get_resample_poly",
                 side_effect=MemoryError("out of RAM"),
             ),
             patch(

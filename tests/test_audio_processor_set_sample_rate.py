@@ -134,20 +134,31 @@ class TestSetSampleRateRebuildsFilters:
             f"new coefficients (16kHz b={initial_b}, 48kHz b={new_b})"
         )
 
-    def test_highpass_a_coefficients_change(self, processor):
-        """Same as above but for the ``a`` (denominator) coefficients —
-        another independent witness that the filter was actually rebuilt."""
-        initial_hp = _find_highpass(processor)
-        initial_a = initial_hp._state[1].copy()
+    def test_highpass_sos_state_layout_after_rebuild(self, processor):
+        """SOS-form witness that the chain was rebuilt at the new rate.
 
+        The high-pass state is ``(sos, zi)``: the section matrix folds
+        BOTH the numerator and the old denominator into one N×6 array
+        (columns 3:6 are the per-section denominators), and the IIR
+        memory is a per-section 2-tap vector. Pinning the layout after
+        ``set_sample_rate`` proves the filter was reconstructed with the
+        SOS design (the old separate ``b``/``a`` state no longer exists
+        — ``state[1]`` is the zi memory, not the denominator); the
+        rate-sensitivity of the coefficients themselves is pinned by
+        ``test_highpass_b_coefficients_change``.
+        """
         processor.set_sample_rate(48000)
 
-        new_hp = _find_highpass(processor)
-        new_a = new_hp._state[1]
-
-        assert not np.allclose(initial_a, new_a), (
-            "XV-31: set_sample_rate must rebuild the HighPass filter with "
-            f"new denominator coefficients (16kHz a={initial_a}, 48kHz a={new_a})"
+        hp = _find_highpass(processor)
+        assert isinstance(hp._state, tuple) and len(hp._state) == 2, "high-pass state must be the (sos, zi) pair"
+        sos, zi = hp._state
+        assert sos.ndim == 2 and sos.shape[1] == 6, f"SOS section matrix must be Nx6 (got shape {sos.shape})"
+        assert zi.shape == (sos.shape[0], 2), (
+            f"zi must be a per-section 2-tap (got {zi.shape} for {sos.shape[0]} sections)"
+        )
+        assert not np.allclose(sos[:, 3:6], np.zeros_like(sos[:, 3:6])), (
+            "SOS denominator columns must be non-zero — the section matrix "
+            "carries the denominator that the old ``a`` array held"
         )
 
     def test_highpass_internal_sample_rate_matches_new_rate(self, processor):

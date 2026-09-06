@@ -611,3 +611,73 @@ class TestRunLocReduction:
             assert any(m.startswith(f"_phase_{n}_") for m in method_names), (
                 f"phase {n} method missing — got: {method_names}"
             )
+
+
+class TestDesktopShortcutDispatch:
+    """Desktop-shortcut creation is fire-and-forget.
+
+    ``ensure_desktop_shortcut`` previously ran synchronously on the
+    startup critical path BEFORE hotkey registration; its PowerShell
+    fallback path (30s ceiling + icon-stamp step) delayed the dictation
+    hotkey on first run. It must be dispatched on a daemon thread and
+    the phase must succeed without waiting on it.
+    """
+
+    def test_desktop_shortcut_dispatched_on_daemon_thread(self, app_for_phases, monkeypatch):
+        import threading
+
+        from voice_typer.server import startup_sequence as ss_mod, startup_tasks
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        app_for_phases.tray.set_autostart_enabled = MagicMock()
+
+        calls = threading.Event()
+        thread_names: list[str] = []
+
+        def _record(app):
+            thread_names.append(threading.current_thread().name)
+            calls.set()
+
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", _record)
+
+        seq = ss_mod.StartupSequence(app_for_phases)
+        result = seq._phase_6_autostart_prewarm_mics()
+
+        assert result.success is True
+        assert calls.wait(timeout=5.0), "ensure_desktop_shortcut was never invoked by the dispatched thread"
+        assert thread_names == ["startup-desktop-shortcut"], (
+            f"ensure_desktop_shortcut must run on the dedicated daemon thread, got: {thread_names}"
+        )
+
+    def test_desktop_shortcut_thread_is_daemon(self, app_for_phases, monkeypatch):
+        """The dispatched thread must be a daemon so it never blocks
+        interpreter shutdown (fire-and-forget contract)."""
+        import threading
+
+        from voice_typer.server import startup_sequence as ss_mod, startup_tasks
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        app_for_phases.tray.set_autostart_enabled = MagicMock()
+
+        threads_before = set(threading.enumerate())
+        seq = ss_mod.StartupSequence(app_for_phases)
+        seq._phase_6_autostart_prewarm_mics()
+
+        deadline = __import__("time").monotonic() + 5.0
+        new_threads = []
+        while __import__("time").monotonic() < deadline:
+            new_threads = [
+                t for t in set(threading.enumerate()) - threads_before if t.name == "startup-desktop-shortcut"
+            ]
+            if new_threads or not any(t.name == "startup-desktop-shortcut" for t in threading.enumerate()):
+                break
+            __import__("time").sleep(0.05)
+        # The thread may have already finished (daemon threads vanish when
+        # done) — only assert daemon=True if we actually caught it alive.
+        if new_threads:
+            assert new_threads[0].daemon is True

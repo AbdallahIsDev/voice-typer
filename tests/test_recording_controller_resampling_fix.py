@@ -63,7 +63,7 @@ def _force_linear_interp_fallback(monkeypatch):
     # ``_recording_pkg._get_resample_poly()`` lookup picks up the patch
     # (same pattern as tests/test_recording.py::TestResampleFallback).
     monkeypatch.setattr(
-        "voice_typer.server.recording._get_resample_poly",
+        "voice_typer.server.recording.resampling._get_resample_poly",
         raising_get_resample,
     )
     return res_mod

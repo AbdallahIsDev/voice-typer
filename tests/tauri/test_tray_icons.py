@@ -216,6 +216,35 @@ def test_mjs_emits_exactly_the_whitelisted_states() -> None:
     )
 
 
+def test_python_icon_map_matches_rust_whitelist() -> None:
+    """The 8th cross-language parity pair: Python's AppState→icon map ⊆ whitelist.
+
+    ``tray_publish._APP_STATE_TO_ICON_NAME`` values are the logical icon
+    names the Python host sends to the Tauri Rust sidecar-state listener,
+    which validates them against ``ALLOWED_ICON_NAMES`` (icon_cache.rs).
+    A state renamed/added on the Python side without a matching Rust
+    whitelist entry would silently fall back — freezing the tray icon at
+    its last state. This pair joins the existing 7 drift-guard pairs in
+    this module.
+    """
+    import sys
+    from pathlib import Path as _PathLib
+
+    tests_root = str(_PathLib(__file__).resolve().parents[2])
+    if tests_root not in sys.path:
+        sys.path.insert(0, tests_root)
+    from voice_typer.server.tray_publish import _APP_STATE_TO_ICON_NAME
+
+    whitelist = _rust_whitelist()
+    unknown = set(_APP_STATE_TO_ICON_NAME.values()) - whitelist
+    assert not unknown, (
+        f"tray_publish._APP_STATE_TO_ICON_NAME sends icon name(s) {sorted(unknown)} "
+        f"that the Rust host whitelist ({sorted(whitelist)}) does not accept — "
+        "the tray icon would freeze at its last state. Add the name to "
+        "ALLOWED_ICON_NAMES (tray_tests.rs / icon_cache.rs) + commit a tray PNG."
+    )
+
+
 def test_palette_matches_python_host() -> None:
     """Both hosts (Tauri mjs + Python pystray) show identical state colors.
 

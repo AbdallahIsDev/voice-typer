@@ -4,14 +4,16 @@ This file pins the config_validators split contract so a future refactor cannot
 silently regress it:
 
 1. **Allowlist snapshot** — :data:`IPC_CONFIG_ALLOWLIST` must contain
-   the same 125 keys with the same per-field validators. The key set
+   the same 126 keys with the same per-field validators. The key set
    is a frozen snapshot embedded in this test; the validators are
    checked by identity against the imported ``_VALIDATOR_*``
    instances (so a future change that swaps a validator for a fresh
    instance of the same factory call is still detected — the
    ``_VALIDATOR_*`` constants are the canonical references).
    (Snapshot count updated 124→125 when ``sound_volume`` was added
-   deliberately for the Settings sound-feedback volume slider.)
+   deliberately for the Settings sound-feedback volume slider;
+   125→126 when ``vad_filter_enabled`` was added deliberately for
+   the duration-aware VAD filter policy, commit ee181780.)
 2. **Re-export shim** — every public name in ``__all__`` must resolve
    on the package namespace and point at the same object that the
    new submodules expose (so old import paths keep working).
@@ -159,6 +161,7 @@ _PRE_SPLIT_ALLOWLIST_KEYS: frozenset[str] = frozenset(
         "unsafe_paste_on_unknown_focus",
         "use_silero_vad",
         "vad_auto_calibrate",
+        "vad_filter_enabled",
         "vad_silence_threshold",
         "vad_speech_threshold",
         "vocabulary_auto_apply_threshold",
@@ -181,9 +184,9 @@ class TestAllowlistSnapshot:
     """SEC-002 byte-for-byte parity for ``IPC_CONFIG_ALLOWLIST``."""
 
     def test_allowlist_size_unchanged(self) -> None:
-        """The allowlist must still contain exactly 125 keys."""
-        assert len(IPC_CONFIG_ALLOWLIST) == 125, (
-            f"IPC_CONFIG_ALLOWLIST size drifted: expected 125, got {len(IPC_CONFIG_ALLOWLIST)}. "
+        """The allowlist must still contain exactly 126 keys."""
+        assert len(IPC_CONFIG_ALLOWLIST) == 126, (
+            f"IPC_CONFIG_ALLOWLIST size drifted: expected 126, got {len(IPC_CONFIG_ALLOWLIST)}. "
             "SEC-002 contract (AGENTS.md §6.3) — adding/removing keys is a "
             "security-sensitive change that must be reviewed explicitly."
         )

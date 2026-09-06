@@ -79,7 +79,7 @@ class TestStopAudioPrep:
             calls.append((up, down))
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -98,7 +98,7 @@ class TestStopAudioPrep:
         from voice_typer.server.recording import Recorder
 
         get_resampler = MagicMock()
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", get_resampler)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", get_resampler)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -352,7 +352,7 @@ class TestStopAudioPrep:
             calls.append((audio.copy(), up, down))
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -375,7 +375,7 @@ class TestStopAudioPrep:
         def fake_resample_poly(audio, up, down):
             return np.array([0.25, 0.5], dtype=np.float32)
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -578,7 +578,7 @@ class TestCachedResampling:
             # Simple decimation for testing
             return audio[::down][: len(audio) * up // down]
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake_resample_poly)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -724,7 +724,7 @@ class TestResampleFallback:
         def failing_get_resample():
             raise ResampleError("scipy.signal.resample_poly not available")
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", failing_get_resample)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", failing_get_resample)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -764,7 +764,7 @@ class TestResampleFallback:
             return lambda audio, up, down: audio[::down]
 
         # Clear the error so the retry succeeds
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", succeeding_get_resample)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", succeeding_get_resample)
 
         # After the timeout, the error should be cleared and retry allowed
         assert resampling_mod._resample_poly_error is not None  # Error was set
@@ -793,7 +793,7 @@ class TestResampleFallback:
         def raising_get_resample():
             raise ResampleUnavailable("scipy not available for test")
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", raising_get_resample)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", raising_get_resample)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -818,7 +818,7 @@ class TestResampleFallback:
         def raising_get_resample():
             raise ResampleUnavailable("scipy not available for test")
 
-        monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", raising_get_resample)
+        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", raising_get_resample)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)

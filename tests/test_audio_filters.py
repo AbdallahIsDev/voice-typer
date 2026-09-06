@@ -130,6 +130,49 @@ class TestHighPassFilter:
         assert result is not None
         assert result.size == 0
 
+    @pytest.mark.parametrize("sample_rate", [16000, 22050, 44100, 48000, 88200, 96000])
+    def test_finite_output_at_native_sample_rates(self, sample_rate):
+        """The SOS-form high-pass must stay finite at every native rate.
+
+        The old float32 ``b``/``a`` transfer-function form rounded the
+        order-4 high-pass's tightly clustered poles outside the unit
+        circle at 44.1/48/96 kHz, so the recursion diverged to inf/NaN
+        within ~150 ms of audio (first non-finite chunk observed at
+        chunk 14 of 512-sample chunks at 48 kHz). SOS sections keep
+        every section's poles far enough from the unit circle that the
+        same float32 rounding stays stable.
+        """
+        f = HighPassFilter(cutoff_hz=80.0, sample_rate=sample_rate)
+        chunk = np.zeros(512, dtype=np.float32)
+        chunk[0] = 0.5  # impulse excites the IIR recursion
+        for i in range(60):  # ~0.7 s of audio at 48 kHz
+            out = f.process(chunk.copy(), sample_rate)
+            assert out is not None
+            assert np.all(np.isfinite(out)), f"non-finite output at chunk {i} (sample_rate={sample_rate})"
+
+    def test_sos_form_stable_after_reset(self):
+        """reset() must restore finite, click-free filtering."""
+        f = HighPassFilter(cutoff_hz=80.0, sample_rate=48000)
+        chunk = np.random.randn(512).astype(np.float32) * 0.3
+        f.process(chunk, 48000)
+        f.reset()
+        out = f.process(chunk, 48000)
+        assert out is not None
+        assert np.all(np.isfinite(out))
+
+    def test_attenuates_low_frequency_at_48k(self):
+        """The low-frequency attenuation contract holds at native 48 kHz."""
+        f = HighPassFilter(cutoff_hz=80.0, sample_rate=48000)
+        t = np.linspace(0, 0.5, 24000, endpoint=False)
+        low = (0.3 * np.sin(2 * np.pi * 30 * t)).astype(np.float32)
+        high = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        low_result = f.process(low.copy(), 48000)
+        f.reset()
+        high_result = f.process(high.copy(), 48000)
+        low_rms = float(np.sqrt(np.mean(low_result**2)))
+        high_rms = float(np.sqrt(np.mean(high_result**2)))
+        assert low_rms < high_rms * 0.5
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # NoiseGate tests

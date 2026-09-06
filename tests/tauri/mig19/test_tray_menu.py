@@ -49,11 +49,12 @@ that computes them, AND the Rust host correctly renders the
 
 Scope (ADR-0020 §6.5 + MIG-1.9 task brief):
 
-1. **Menu structure preserved 1:1** — the six menu items mandated by
-   ``tray_menu.py::build_menu`` (Open App, Start Dictation, Cancel
-   Transcription [conditional], Models ▸, Restart, Quit) appear in
-   the same order with the same separators. Source-inspected on the
-   Python sidecar (the renderer of record).
+1. **Menu structure preserved 1:1** — the menu items mandated by
+   ``tray_menu.py::build_menu_for_tray`` (Open App, Start Dictation,
+   Force Cancel [conditional], Models ▸, Microphones ▸, Restart,
+   Quit + quick shortcuts) appear in the same order with the same
+   separators. Source-inspected on the Python sidecar (the renderer
+   of record).
 
 2. **Locale support preserved** — the ``set_tray_locale`` IPC command
    + the ``_TRAY_LABELS_LOCALES`` dict in ``tray.py`` ship English
@@ -296,38 +297,40 @@ def system_handlers_source() -> str:
 
 
 def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None:
-    """ADR-0020 §6.5: the 6 menu labels appear in the mandated order.
+    """ADR-0020 §6.5: the core menu labels appear in the mandated order.
 
-    The Python sidecar's ``tray_menu.build_menu`` is the renderer of
-    record for the tray menu (the Rust host has no tray code — see
-    GAP-1). The menu structure MUST be preserved 1:1 across the
-    migration, so the ``localize`` keys for the 6 items must appear
-    in the file in this exact order:
+    The Python sidecar's ``tray_menu.build_menu_for_tray`` is the
+    renderer of record for the pystray tray menu (the Rust host has no
+    tray code — see GAP-1). The core menu structure MUST be preserved
+    1:1 across the migration, so the i18n keys for the 6 core items
+    must appear in the file in this exact order:
 
         1. open_app
         2. toggle_dictation
-        3. force_cancel_transcription   (conditional — only when the
-                                         caller passes a callback)
+        3. force_cancel_transcription   (conditional — only when
+                                         state == TRANSCRIBING)
         4. models
         5. restart
         6. quit
     """
-    # Locate each localize() call's key argument in source order.
-    # Scope the scan to the build_menu() function body so the Tauri-side
-    # build_tray_menu_model() (which legitimately reuses the same
-    # localize() keys) does not pollute the pystray renderer's ordering
-    # check (ADR-0020 §6.5: build_menu is the renderer of record).
+    # Locate each label-key call's argument in source order.
+    # Scope the scan to the build_menu_for_tray() function body so the
+    # Tauri-side build_tray_menu_model() (which legitimately reuses the
+    # same keys) does not pollute the pystray renderer's ordering check
+    # (ADR-0020 §6.5: build_menu_for_tray is the renderer of record).
     _src = tray_menu_py_source
-    _start = _src.find("def build_menu(")
+    _start = _src.find("def build_menu_for_tray(")
     _end = _src.find("\ndef ", _start + 1)
     if _end == -1:
         _end = len(_src)
     build_menu_source = _src[_start:_end]
-    key_occurrences = [m.group(1) for m in re.finditer(r'localize\(\s*["\']([a-z_]+)["\']', build_menu_source)]
-    # The 6 mandated keys must ALL be present.
+    key_occurrences = [m.group(1) for m in re.finditer(r'_\(\s*["\']([a-z_]+)["\']', build_menu_source)]
+    # The 6 mandated keys must ALL be present. (The dictation label is
+    # dynamic — "stop_dictation" while recording, "toggle_dictation"
+    # otherwise — via the dictation_key branch, so it never appears as a
+    # bare literal; the branch below pins its presence instead.)
     required_keys = [
         "open_app",
-        "toggle_dictation",
         "force_cancel_transcription",
         "models",
         "restart",
@@ -335,10 +338,17 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
     ]
     for key in required_keys:
         assert key in key_occurrences, (
-            f"tray_menu.py must call localize({key!r}) — missing from "
-            f"build_menu output (ADR-0020 §6.5: menu structure must be "
+            f"tray_menu.py must emit the {key!r} label — missing from "
+            f"build_menu_for_tray output (ADR-0020 §6.5: menu structure must be "
             f"preserved 1:1)"
         )
+    dictation_present = any(k in ("toggle_dictation", "stop_dictation") for k in key_occurrences) or (
+        "dictation_key" in build_menu_source
+    )
+    assert dictation_present, (
+        "tray_menu.py must emit the toggle_dictation/stop_dictation label — "
+        "missing from build_menu_for_tray output (ADR-0020 §6.5)."
+    )
     # The keys must appear in the mandated order. We compare the
     # subsequence of key_occurrences filtered to required_keys.
     seen_order = [k for k in key_occurrences if k in required_keys]
@@ -364,13 +374,13 @@ def test_tray_menu_open_app_is_default_action(tray_menu_py_source) -> None:
     """
     assert "default=open_app_default" in tray_menu_py_source, (
         "Open App must be the default (bold) menu item — left-click "
-        "behavior. The build_menu function must pass "
+        "behavior. build_menu_for_tray must pass "
         "default=open_app_default to pystray.MenuItem for Open App."
     )
-    assert 'left_click_action: str = "open_app"' in tray_menu_py_source, (
-        "build_menu's left_click_action parameter must default to "
-        "'open_app' so the tray opens the app window on left-click "
-        "unless the user explicitly reconfigures it."
+    assert 'getattr(tray._config, "tray_left_click_action", "open_app")' in tray_menu_py_source, (
+        "build_menu_for_tray must read tray_left_click_action from the "
+        "config (defaulting to 'open_app') so the tray opens the app "
+        "window on left-click unless the user explicitly reconfigures it."
     )
 
 
@@ -385,12 +395,12 @@ def test_tray_menu_toggle_dictation_includes_hotkey_label(
     by formatting ``f"{localize('toggle_dictation')} ({hotkey_label})"``.
     """
     assert re.search(
-        r"localize\(['\"]toggle_dictation['\"]\)\s*\}\s*\(\{hotkey_label\}\)",
+        r"_\(dictation_key\)\s*\}\s*\(\{hotkey_label\}\)",
         tray_menu_py_source,
     ), (
         "Start Dictation label must include the hotkey hint in parens — "
         "expected an f-string like "
-        "f\"{localize('toggle_dictation')} ({hotkey_label})\" so the "
+        'f"{_(dictation_key)} ({hotkey_label})" so the '
         "user sees e.g. 'Start Dictation (F2)' in the tray menu."
     )
 
@@ -405,15 +415,14 @@ def test_tray_menu_cancel_item_conditional(tray_menu_py_source) -> None:
     transcribing.
     """
     assert "force_cancel_transcription" in tray_menu_py_source, (
-        "build_menu must accept a force_cancel_transcription callback "
-        "parameter — the Cancel Transcription menu item is a manual "
-        "escape hatch for stuck transcriptions (PR-2 Finding #3)."
+        "build_menu_for_tray must render a Force Cancel item — the menu "
+        "entry is a manual escape hatch for stuck transcriptions "
+        "(PR-2 Finding #3)."
     )
-    assert "if force_cancel_transcription is not None:" in tray_menu_py_source, (
-        "The Cancel Transcription menu item must be added conditionally "
-        "only when force_cancel_transcription is provided — adding it "
-        "unconditionally would clutter the menu when nothing is "
-        "transcribing."
+    assert "if tray._state == AppState.TRANSCRIBING:" in tray_menu_py_source, (
+        "The Force Cancel menu item must be added conditionally — only "
+        "while a transcription is running — adding it unconditionally "
+        "would clutter the menu when nothing is transcribing."
     )
 
 
@@ -425,14 +434,13 @@ def test_tray_menu_models_submenu_delegated(tray_menu_py_source) -> None:
     a TrayIcon instance). The submenu's items are dynamic — they
     reflect the currently-downloaded models.
     """
-    assert "build_models_submenu: Callable[[], list]" in tray_menu_py_source, (
-        "build_menu must accept a build_models_submenu callable "
-        "parameter that returns the list of pystray.MenuItem for the "
-        "Models submenu — the items are dynamic (reflect downloaded "
-        "models) and are built by the caller."
+    assert "models_sub = tray._build_models_submenu()" in tray_menu_py_source, (
+        "build_menu_for_tray must delegate the Models submenu items to "
+        "tray._build_models_submenu() — the items are dynamic (reflect "
+        "downloaded models) and are built by the TrayIcon."
     )
     assert "pystray.Menu(*models_sub)" in tray_menu_py_source, (
-        "build_menu must wrap the models submenu items in "
+        "build_menu_for_tray must wrap the models submenu items in "
         "pystray.Menu(*models_sub) so they render as a nested submenu "
         "off the 'Models ▸' parent item."
     )
@@ -447,9 +455,10 @@ def test_tray_menu_separators_present(tray_menu_py_source) -> None:
     """
     sep_count = tray_menu_py_source.count("pystray.Menu.SEPARATOR")
     assert sep_count >= 2, (
-        f"build_menu must insert at least 2 pystray.Menu.SEPARATORs to "
-        f"structure the menu into 3 groups (Open/Toggle/Cancel | Models "
-        f"| Restart/Quit). Found only {sep_count}."
+        f"build_menu_for_tray must insert at least 2 "
+        f"pystray.Menu.SEPARATORs to structure the menu into 3 groups "
+        f"(Open/Toggle/Cancel | Models/Microphones | Restart/Quit). "
+        f"Found only {sep_count}."
     )
 
 
@@ -600,12 +609,12 @@ def test_tray_locale_lookup_function_present(tray_i18n_py_source) -> None:
 
     The ``_()`` function (mirroring gettext's convention) takes a
     label key and returns the localized string, falling back to
-    English then to the key itself. ``build_menu`` calls
-    ``localize(_)`` which is this function.
+    English then to the key itself. ``build_menu_for_tray`` calls
+    it to translate keys to localized labels.
     """
     assert "def _(key: str) -> str:" in tray_i18n_py_source, (
-        "tray_i18n.py must define the _(key) lookup function — build_menu "
-        "calls localize(_) where _ translates keys to localized labels."
+        "tray_i18n.py must define the _(key) lookup function — "
+        "build_menu_for_tray calls it to translate keys to localized labels."
     )
     # The lookup must consult the current locale first, then fall back.
     assert "_TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)" in tray_i18n_py_source, (
@@ -732,14 +741,14 @@ def test_dynamic_model_submenu_builder_present(
     """ADR-0020 §6.5: the Models ▸ submenu is built dynamically.
 
     The Models submenu is the canonical "dynamic item" of the tray
-    menu — it reflects which models the user has downloaded. The
-    build_models_submenu callable passed to build_menu returns the
-    list of pystray.MenuItem for the submenu.
+    menu — it reflects which models the user has downloaded.
+    ``build_menu_for_tray`` delegates to ``tray._build_models_submenu()``
+    which returns the list of pystray.MenuItem for the submenu.
     """
-    assert "models_sub = build_models_submenu()" in tray_menu_py_source, (
-        "build_menu must invoke build_models_submenu() to materialize "
-        "the dynamic Models submenu items — this is the canonical "
-        "dynamic item of the tray menu (ADR-0020 §6.5)."
+    assert "models_sub = tray._build_models_submenu()" in tray_menu_py_source, (
+        "build_menu_for_tray must invoke tray._build_models_submenu() to "
+        "materialize the dynamic Models submenu items — this is the "
+        "canonical dynamic item of the tray menu (ADR-0020 §6.5)."
     )
 
 

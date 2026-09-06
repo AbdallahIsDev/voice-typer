@@ -2,10 +2,10 @@
 
 Covers three fixes from the Group 2 performance/resource review:
 
-* **ER-37** — ``VocabularyManager.apply_to_text`` caches compiled regex
-  patterns so ``re.compile`` is called once per phrase per session
-  (not per call). Cache is invalidated by every mutation of
-  ``self._data``.
+* **ER-37** — ``VocabularyManager.apply_to_text`` caches the compiled
+  phrase-correction regex so ``re.compile`` is called once per phrase
+  category per session (not per call). Cache is invalidated by every
+  mutation of ``self._data``.
 
 * **ER-72** — ``ClipboardManager.paste`` wraps ``Thread().start()`` in
   try/except. On start failure the orphaned ``_pending_restores`` entry
@@ -83,7 +83,7 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
     vm.add_phrase("phrase_corrections", "hello", "world")
     vm.add_phrase("phrase_corrections", "alpha", "beta")
     # add_phrase invalidates the cache.
-    assert vm._compiled_patterns is None
+    assert vm._combined_phrase_cache is None
 
     real_compile = re.compile
     call_count = {"n": 0}
@@ -100,8 +100,9 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
     with patch("re.compile", side_effect=counting_compile):
         vm.apply_to_text("foo hello alpha")
         first_batch = call_count["n"]
-        assert first_batch == 3, (
-            f"first apply_to_text should compile 3 phrase patterns (one per entry), got {first_batch}"
+        assert first_batch == 1, (
+            f"first apply_to_text should compile ONE combined-alternation phrase pattern "
+            f"per category (not one per entry), got {first_batch}"
         )
         vm.apply_to_text("foo hello alpha")
         assert call_count["n"] == first_batch, (
@@ -112,7 +113,8 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
 def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
     """ER-37: after the cache is invalidated (e.g. by ``add_phrase``),
     the next ``apply_to_text`` rebuilds it — ``re.compile`` is called
-    again for every phrase entry."""
+    again for every phrase category (one combined-alternation
+    pattern)."""
     import re
 
     vm = _make_vocab(tmp_path)
@@ -128,16 +130,16 @@ def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
 
     with patch("re.compile", side_effect=counting_compile):
         vm.apply_to_text("foo hello")
-        assert call_count["n"] == 2
+        assert call_count["n"] == 1
         vm.apply_to_text("foo hello")
-        assert call_count["n"] == 2  # cache hit
+        assert call_count["n"] == 1  # cache hit
         # Mutate → invalidate.
         vm.add_phrase("phrase_corrections", "new", "phrase")
         before = call_count["n"]
         vm.apply_to_text("foo hello new")
-        assert call_count["n"] == before + 3, (
-            f"after invalidation, apply_to_text should recompile all 3 phrase patterns, "
-            f"got {call_count['n'] - before} new compiles"
+        assert call_count["n"] == before + 1, (
+            f"after invalidation, apply_to_text should recompile the combined "
+            f"phrase pattern, got {call_count['n'] - before} new compiles"
         )
 
 
@@ -148,11 +150,11 @@ def test_cache_invalidated_on_add_entry(tmp_path) -> None:
     data mutation busts the cache."""
     vm = _make_vocab(tmp_path)
     vm.apply_to_text("hello")  # build cache
-    assert vm._compiled_patterns is not None, "cache should be built after first apply_to_text"
+    assert vm._combined_phrase_cache is not None, "cache should be built after first apply_to_text"
     vm.add_entry("misspellings", "foo", "bar")
-    assert vm._compiled_patterns is None, "cache should be invalidated after add_entry"
+    assert vm._combined_phrase_cache is None, "cache should be invalidated after add_entry"
     vm.apply_to_text("hello")  # rebuild
-    assert vm._compiled_patterns is not None, "cache should be rebuilt on next apply_to_text"
+    assert vm._combined_phrase_cache is not None, "cache should be rebuilt on next apply_to_text"
 
 
 def test_cache_invalidated_on_remove_entry(tmp_path) -> None:
@@ -160,19 +162,19 @@ def test_cache_invalidated_on_remove_entry(tmp_path) -> None:
     vm = _make_vocab(tmp_path)
     vm.add_entry("misspellings", "foo", "bar")
     vm.apply_to_text("hello")
-    assert vm._compiled_patterns is not None
+    assert vm._combined_phrase_cache is not None
     vm.remove_entry("misspellings", "foo")
-    assert vm._compiled_patterns is None
+    assert vm._combined_phrase_cache is None
 
 
 def test_cache_invalidated_on_import_json(tmp_path) -> None:
     """ER-37: ``import_json`` invalidates the cache."""
     vm = _make_vocab(tmp_path)
     vm.apply_to_text("hello")
-    assert vm._compiled_patterns is not None
+    assert vm._combined_phrase_cache is not None
     payload = _json.dumps({"phrase_corrections": [["a", "b"]]})
     vm.import_json(payload, merge=True)
-    assert vm._compiled_patterns is None
+    assert vm._combined_phrase_cache is None
 
 
 def test_apply_to_text_correctness_preserved(tmp_path) -> None:

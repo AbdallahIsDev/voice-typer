@@ -33,7 +33,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording import session_state as session_state_mod
+from voice_typer.server.recording.buffer import _secure_clear_array as _real_secure_clear_array
 from voice_typer.server.recording.session_state import SessionState
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -574,18 +574,18 @@ def test_secure_clear_caches_handles_already_empty_caches():
 
 
 def test_secure_clear_caches_routes_through_recording_pkg_indirection(monkeypatch):
-    """regression: the secure-clear call goes via ``_recording_pkg._secure_clear_array``.
+    """regression: the secure-clear call uses the owning-module function.
 
-    Tests use ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
-    to inject a fake; the extracted body must honour that patch (the
-    ``_recording_pkg.`` indirection re-reads the binding at call time).
+    The extracted body calls ``_secure_clear_array`` imported from the
+    ``recording.buffer`` submodule (C-ARCH-2); tests stub it by patching
+    the ``session_state`` module binding (the single patch path).
     """
     rec = _make_recorder()
     rec._cached_resampled = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     rec._cached_no_resample_arr = np.array([0.4, 0.5], dtype=np.float32)
 
     calls = []
-    real_fn = session_state_mod._recording_pkg._secure_clear_array
+    real_fn = _real_secure_clear_array
 
     def _spy(arr):
         calls.append(arr)
@@ -593,7 +593,7 @@ def test_secure_clear_caches_routes_through_recording_pkg_indirection(monkeypatc
 
     # Patch the package-level binding (the path tests use in production).
     monkeypatch.setattr(
-        "voice_typer.server.recording._secure_clear_array",
+        "voice_typer.server.recording.session_state._secure_clear_array",
         _spy,
     )
 
@@ -626,7 +626,7 @@ def test_secure_clear_caches_does_not_swallow_unexpected_exceptions(monkeypatch)
         raise RuntimeError("simulated unexpected error")
 
     monkeypatch.setattr(
-        "voice_typer.server.recording._secure_clear_array",
+        "voice_typer.server.recording.session_state._secure_clear_array",
         _raise_runtime_error,
     )
 
@@ -644,7 +644,7 @@ def test_secure_clear_caches_swallows_oserror_and_value_error(monkeypatch):
         raise OSError("simulated mmap failure")
 
     monkeypatch.setattr(
-        "voice_typer.server.recording._secure_clear_array",
+        "voice_typer.server.recording.session_state._secure_clear_array",
         _raise_os_error,
     )
 

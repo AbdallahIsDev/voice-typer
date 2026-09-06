@@ -18,6 +18,11 @@ _OWNED_FILES = [
     "voice_typer/server/recording/device_manager.py",
     "voice_typer/server/recording/recorder.py",
     "voice_typer/server/recording/_recorder_split.py",
+    "voice_typer/server/recording/stream_lifecycle.py",
+    "voice_typer/server/recording/buffer.py",
+    "voice_typer/server/segmented_download.py",
+    "voice_typer/server/native_hotkeys/_reader.py",
+    "voice_typer/server/native_hotkeys/_core.py",
     "voice_typer/server/hotkeys/wayland.py",
     "voice_typer/server/hotkeys/native_adapter.py",
     "voice_typer/server/hotkeys/win32_vk.py",
@@ -33,6 +38,7 @@ _OWNED_FILES = [
     "voice_typer/server/clipboard_target_safety/validation.py",
     "voice_typer/server/dictation_pipeline.py",
     "voice_typer/server/service.py",
+    "voice_typer/server/startup_tasks.py",
 ]
 
 

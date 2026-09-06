@@ -207,17 +207,21 @@ def test_queue_full_fallback_clears_synchronously(monkeypatch):
     fallback by making ``put_nowait`` always raise ``queue.Full``.
     """
     from voice_typer.server import recording
+    from voice_typer.server.recording import buffer as buffer_mod
 
     # Replace the queue's put_nowait with one that always raises Full,
     # so the synchronous fallback path is exercised deterministically.
-    real_queue = recording._buffer_clear_queue
+    real_queue = buffer_mod._buffer_clear_queue
 
     def always_full(_item):
         raise queue.Full
 
     monkeypatch.setattr(real_queue, "put_nowait", always_full)
-    # Bypass lazy-start so we don't depend on worker state.
-    monkeypatch.setattr(recording, "_ensure_buffer_clear_worker", lambda: None)
+    # Bypass lazy-start so we don't depend on worker state. The consumer
+    # reads its OWN module global (C-ARCH-2 owning-module shape), so the
+    # patch must target recording.buffer — patching the package re-export
+    # would be a silent no-op.
+    monkeypatch.setattr(buffer_mod, "_ensure_buffer_clear_worker", lambda: None)
 
     overflow = _make_buffer(n_chunks=2)
     assert np.any(overflow[0]), "test setup: overflow buffer should start non-zero"

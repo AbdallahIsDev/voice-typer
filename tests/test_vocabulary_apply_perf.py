@@ -13,7 +13,7 @@
   on every invocation, allocating 6 new containers with up to 5000
   reference-copies each per dictation. Only the 4 dict-based
   categories are actually read; the 2 list-based categories are
-  handled by ``_get_compiled_patterns`` (which locks separately).
+  handled by ``_get_combined_phrase_pattern`` (which locks separately).
   Fix: snapshot only the 4 dict references (not contents) under the
   lock; per-token ``dict.get(key)`` lookups are GIL-atomic and safe
   on the live ``self._data`` dicts.
@@ -198,3 +198,76 @@ class TestSequentialSemanticsPreserved:
         # Leading + trailing punctuation must survive the correction.
         result = vm.apply_to_text("I said, 'teh' wrong way.")
         assert result == "I said, 'the' wrong way.", f"punctuation wrapping broken; got {result!r}"
+
+
+class TestCombinedAlternationPhrasePass:
+    """Phrase-level categories apply in ONE combined-alternation
+    ``subn`` pass per category (the text_cleanup design), replacing the
+    per-entry ``pattern.subn`` full-text loop (M entries = M full-text
+    scans).
+
+    Pinned contracts:
+    * one ``subn`` call site in ``apply_to_text`` (no per-entry loop);
+    * no intra-category cascade (a replacement that introduces a
+      sibling entry's original is NOT re-substituted — single pass
+      scans the original text);
+    * cross-category order preserved (phrase_corrections before
+      extra_word_patterns, then the word-level dict pass);
+    * usage tracking still records per-phrase counts.
+    """
+
+    def test_single_subn_call_site_in_source(self) -> None:
+        src = _apply_to_text_source()
+        assert src.count("subn(") == 1, (
+            "apply_to_text must run exactly ONE combined subn pass (per phrase category invocation), not one per entry"
+        )
+        assert "for pattern, good, original in compiled" not in src, "the per-entry full-text scan loop must not return"
+
+    def test_no_intra_category_cascade(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "a b", "b c")
+        vm.add_phrase("phrase_corrections", "b c", "x")
+        # Old per-entry loop: "a b" → "b c" → (rescan) → "x". Single
+        # pass: the second entry never sees the first entry's output.
+        result = vm.apply_to_text("a b")
+        assert result == "b c", f"intra-category cascade reintroduced; got {result!r}, expected 'b c'"
+
+    def test_cross_category_chaining_still_applies(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "color qupx", "special thing")
+        vm.add_phrase("extra_word_patterns", "special thing", "ultimate special thing")
+        result = vm.apply_to_text("color qupx")
+        assert result == "ultimate special thing", f"cross-category chaining broken; got {result!r}"
+
+    def test_usage_tracking_counts_each_phrase(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "to 2", "to")
+        vm.add_phrase("phrase_corrections", "for free", "free")
+        out = vm.apply_to_text("to 2, twice, to 2 again and for free")
+        assert out == "to, twice, to again and free"
+        snap = vm.usage_tracker.get_snapshot()
+        assert snap["entries"]["phrase_corrections"]["to 2"]["count"] == 2
+        assert snap["entries"]["phrase_corrections"]["for free"]["count"] == 1
+
+    def test_longer_phrase_wins_on_overlap(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "new york", "NYC")
+        vm.add_phrase("phrase_corrections", "new york city", "New York City")
+        result = vm.apply_to_text("I love new york city")
+        assert result == "I love New York City", f"longer-first alternation broken; got {result!r}"
+
+    def test_duplicate_original_case_insensitive_does_not_crash(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "Bad Phrase", "fix one")
+        vm.add_phrase("phrase_corrections", "bad phrase", "fix two")
+        # Longest-first sort makes the two length-equal entries
+        # order-stable; the dedup keeps the first. Either way the apply
+        # pass must not raise and must produce a consistent result.
+        result = vm.apply_to_text("A Bad Phrase here")
+        assert result == "A fix one here"
+
+    def test_case_insensitive_match_preserves_replacement_casing(self, tmp_path) -> None:
+        vm = _make_vocab(tmp_path)
+        vm.add_phrase("phrase_corrections", "hello world", "goodbye world")
+        result = vm.apply_to_text("say HELLO WORLD loudly")
+        assert result == "say goodbye world loudly"

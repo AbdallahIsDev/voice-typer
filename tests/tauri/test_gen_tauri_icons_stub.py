@@ -235,22 +235,35 @@ _ICNS_SIZES = _script_module().EXPECTED_ICNS_CHUNK_SIZES
 #      never leave corruption behind, and one test's transient failure can
 #      never poison the next.
 # ``git show`` reads the object store, NOT the working tree, so the
-# snapshot is authoritative even when the tree is dirty.
+# snapshot is authoritative even when the tree is dirty. The source is
+# the INDEX (``:path``, stage 0), not ``HEAD:path``: the drift guard
+# exists to validate the icon state a maintainer is about to commit
+# (the documented regen flow is generate → stage → commit), and on a
+# clean checkout the index is byte-identical to HEAD, so CI behavior
+# is unchanged. Sourcing HEAD instead would pin the guard to the last
+# commit and make staged-but-uncommitted icon fixes impossible to
+# validate (the generator's ``main()`` even re-applies fresh bytes
+# after the guard for exactly this reason).
 _COMMITTED_ICON_RELS: tuple[str, ...] = tuple(sorted(_DIM_TABLE)) + ("icons/icon.ico", "icons/icon.icns")
 
 
 def _git_show_bytes(rel: str) -> bytes:
-    """The git-committed bytes for a src-tauri-relative icon path."""
-    res = subprocess.run(
-        ["git", "show", f"HEAD:src-tauri/{rel}"],
-        capture_output=True,
-        cwd=str(PROJECT_ROOT),
-    )
-    if res.returncode != 0:
-        raise RuntimeError(
-            f"cannot read committed icon {rel} via git show: {res.stderr.decode(errors='replace').strip()}"
+    """The git-object-store bytes for a src-tauri-relative icon path.
+
+    Reads the INDEX (``:src-tauri/<rel>``) so the guard validates the
+    staged icon state — on a clean checkout the index equals HEAD, so
+    this is byte-identical to the old ``HEAD:`` source. Falls back to
+    ``HEAD:`` if the path is somehow absent from the index.
+    """
+    for spec in (f":src-tauri/{rel}", f"HEAD:src-tauri/{rel}"):
+        res = subprocess.run(
+            ["git", "show", spec],
+            capture_output=True,
+            cwd=str(PROJECT_ROOT),
         )
-    return res.stdout
+        if res.returncode == 0:
+            return res.stdout
+    raise RuntimeError(f"cannot read committed icon {rel} via git show: {res.stderr.decode(errors='replace').strip()}")
 
 
 _COMMITTED_ICON_BYTES: dict[str, bytes] = {rel: _git_show_bytes(rel) for rel in _COMMITTED_ICON_RELS}
@@ -326,11 +339,28 @@ def _synthetic_ico() -> bytes:
 _ICNS_LEGACY_PAYLOAD_SIZES = ((b"is32", 12), (b"s8mk", 256), (b"il32", 48), (b"l8mk", 1024))
 
 
+def _committed_icns_legacy_sizes() -> dict[bytes, int]:
+    """Legacy-chunk payload sizes from the committed ICNS.
+
+    The is32/s8mk/il32/l8mk chunks are RLE-compressed, so their payload
+    lengths legitimately change with the logo's content (the hardcoded
+    pre-rebrand sizes broke this mirror the moment a new logo was
+    committed). Deriving them keeps the synthetic fixture structurally
+    faithful to production regardless of logo rebrands.
+    """
+    fingerprint = dict(_icns_fingerprint(_COMMITTED_ICON_BYTES["icons/icon.icns"]))
+    return {ostype: v[1] for ostype, v in fingerprint.items() if v[0] == "raw"}
+
+
 def _synthetic_icns() -> bytes:
     """An ICNS with the full canonical chunk set (8 PNG + 4 legacy raw).
 
-    The legacy payload lengths mirror the committed real file (the raw
-    is32/s8mk/il32/l8mk chunks are fixed-size ARGB + mask data).
+    The legacy payload lengths MIRROR the committed real file (the raw
+    is32/s8mk/il32/l8mk chunks are RLE-compressed content-dependent
+    data — see :func:`_committed_icns_legacy_sizes`); the hardcoded
+    ``_ICNS_LEGACY_PAYLOAD_SIZES`` table is only the fallback when a
+    legacy chunk is absent from the committed file (the committed-ICNS
+    contract test flags that drift directly).
     """
     png_chunks = [
         (b"ic07", 128),
@@ -346,8 +376,12 @@ def _synthetic_icns() -> bytes:
     for ostype, size in png_chunks:
         payload = _synthetic_png(size, size)
         chunks.append(ostype + struct.pack(">I", 8 + len(payload)) + payload)
+    committed_sizes = _committed_icns_legacy_sizes()
     for ostype, n in _ICNS_LEGACY_PAYLOAD_SIZES:
-        chunks.append(ostype + struct.pack(">I", 8 + n) + b"\x00" * n)
+        payload_len = committed_sizes.get(ostype, n)
+        # Chunk length must match the payload actually written — a
+        # declared-length/payload mismatch desynchronizes every walker.
+        chunks.append(ostype + struct.pack(">I", 8 + payload_len) + b"\x00" * payload_len)
     body = b"".join(chunks)
     return b"icns" + struct.pack(">I", 8 + len(body)) + body
 

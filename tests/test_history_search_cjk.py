@@ -7,10 +7,14 @@ entire run equals the query, and searching "你好" never matched
 "今天你好吗".
 
 The contract pinned here: any query containing a character from the
-CJK / fullwidth codepoint ranges is routed to the bounded LIKE path,
-which gives true substring semantics for every query length (1-char
-included) across Chinese, Japanese kana/kanji, Hangul, and fullwidth
-forms. Latin-only queries keep taking the FTS5 path, unchanged.
+CJK / fullwidth codepoint ranges is NOT served by the unicode61 index.
+Since schema V5, queries of length >= 3 take the trigram index
+(``transcriptions_fts_cjk``, indexed substring matching — see
+``tests/test_history_db_trigram_cjk.py``); shorter queries keep the
+bounded LIKE path, which gives true substring semantics for every
+length (1-char included) across Chinese, Japanese kana/kanji, Hangul,
+and fullwidth forms. Latin-only queries keep taking the unicode61 FTS5
+path, unchanged.
 """
 
 import pytest

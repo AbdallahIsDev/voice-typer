@@ -3,12 +3,71 @@
 Verifies that:
 - display_hotkey formats pynput hotkey strings correctly
 - wrap_callback suppresses SystemExit (ERR-QUIT-002)
-- build_menu produces the expected menu structure
+- build_menu_for_tray (the shipped renderer) produces the expected menu structure
 """
 
 from unittest.mock import MagicMock
 
 import pytest
+
+
+def _make_fake_tray(hotkey="<f2>", state="idle", left_click="open_app"):
+    """A minimal fake TrayIcon satisfying build_menu_for_tray's reads.
+
+    Covers only the attributes the shipped renderer consults; tests
+    driving it assert on the pystray MenuItem calls the renderer makes.
+    """
+    from voice_typer.server.tray_types import AppState
+
+    states = {
+        "idle": AppState.IDLE,
+        "recording": AppState.RECORDING,
+        "transcribing": AppState.TRANSCRIBING,
+    }
+    tray = MagicMock()
+    tray._hotkey = hotkey
+    tray._config = MagicMock(hotkey=hotkey, tray_left_click_action=left_click)
+    tray._state = states[state]
+    tray._cached_menu = None
+    tray._menu_cache_valid = False
+    tray._menu_lock = MagicMock()
+    tray._menu_lock.__enter__ = MagicMock(return_value=None)
+    tray._menu_lock.__exit__ = MagicMock(return_value=False)
+    tray._build_models_submenu = MagicMock(return_value=[])
+    tray._build_microphones_submenu = MagicMock(return_value=[])
+    tray._open_page = MagicMock()
+    tray.open_electron_window = MagicMock()
+    tray._confirm_quit_while_recording = MagicMock()
+    return tray
+
+
+def _install_fake_pystray(monkeypatch):
+    """Replace tray_menu.pystray with a recording fake.
+
+    Returns ``(items_created, restore)`` where ``items_created`` collects
+    every MenuItem the renderer builds (label/default captured).
+    """
+    import voice_typer.server.tray_menu as tray_menu_mod
+
+    items_created = []
+
+    def fake_menu_item(label, callback=None, **kw):
+        item = MagicMock()
+        item.label = label
+        item.callback = callback
+        item.default = kw.get("default", False)
+        items_created.append(item)
+        return item
+
+    fake = MagicMock()
+    fake.SEPARATOR = "SEP"
+    fake.MenuItem = fake_menu_item
+    fake.Menu = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr(tray_menu_mod, "pystray", fake)
+    # Identity-localize so assertions can pin the exact i18n keys the
+    # shipped renderer emits (the real `_` translates keys to labels).
+    monkeypatch.setattr(tray_menu_mod, "_", lambda k: k)
+    return items_created
 
 
 class TestDisplayHotkey:
@@ -73,106 +132,65 @@ class TestWrapCallback:
             wrapped("icon", "item")
 
 
-class TestBuildMenu:
-    """build_menu returns the expected menu structure."""
+class TestBuildMenuForTray:
+    """build_menu_for_tray (the shipped renderer) returns the expected menu structure."""
 
-    def test_menu_has_toggle_open_models_restart_quit(self):
-        # We need to mock pystray.MenuItem etc. since this test doesn't
-        # have pystray installed.
-        import voice_typer.server.tray_menu as tray_menu_mod
-        from voice_typer.server.tray_menu import build_menu
+    def test_menu_has_toggle_open_models_restart_quit(self, monkeypatch):
+        items_created = _install_fake_pystray(monkeypatch)
+        from voice_typer.server.tray_menu import build_menu_for_tray
 
-        mock_pystray = MagicMock()
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        items_created = []
-
-        def fake_menu_item(label, callback, **kw):
-            item = MagicMock()
-            item.label = label
-            item.callback = callback
-            item.default = kw.get("default", False)
-            items_created.append(item)
-            return item
-
-        mock_pystray.MenuItem = fake_menu_item
-        tray_menu_mod.pystray = mock_pystray
-
-        result = build_menu(
-            hotkey="<f2>",
-            toggle_dictation=lambda: None,
-            open_app=lambda: None,
-            restart_app=lambda: None,
-            quit_app=lambda: None,
-            build_models_submenu=lambda: [],
-        )
-        labels = [it.label for it in result if hasattr(it, "label")]
+        result = build_menu_for_tray(_make_fake_tray())
+        labels = [it.label for it in items_created]
         # labels now use localization keys by default
         assert any("toggle_dictation" in lbl for lbl in labels)
         assert "open_app" in labels
         assert "models" in labels
+        assert "microphones" in labels
         assert "restart" in labels
         assert "quit" in labels
+        # The renderer returns the cached tuple of items.
+        assert result is not None
 
-    def test_menu_uses_display_hotkey_for_toggle_label(self):
+    def test_menu_uses_display_hotkey_for_toggle_label(self, monkeypatch):
         """The 'Start Dictation' label must include the formatted hotkey."""
-        import voice_typer.server.tray_menu as tray_menu_mod
-        from voice_typer.server.tray_menu import build_menu
+        items_created = _install_fake_pystray(monkeypatch)
+        from voice_typer.server.tray_menu import build_menu_for_tray
 
-        mock_pystray = MagicMock()
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        items_created = []
-
-        def fake_menu_item(label, callback, **kw):
-            item = MagicMock()
-            item.label = label
-            items_created.append(item)
-            return item
-
-        mock_pystray.MenuItem = fake_menu_item
-        tray_menu_mod.pystray = mock_pystray
-
-        build_menu(
-            hotkey="<f5>",
-            toggle_dictation=lambda: None,
-            open_app=lambda: None,
-            restart_app=lambda: None,
-            quit_app=lambda: None,
-            build_models_submenu=lambda: [],
-        )
+        build_menu_for_tray(_make_fake_tray(hotkey="<f5>"))
         toggle_label = next(it.label for it in items_created if "toggle_dictation" in it.label)
         assert "F5" in toggle_label, f"Start Dictation label should include formatted hotkey 'F5', got: {toggle_label}"
 
-    def test_toggle_dictation_is_default_action(self):
-        """The 'Start Dictation' menu item must be the default action."""
-        import voice_typer.server.tray_menu as tray_menu_mod
-        from voice_typer.server.tray_menu import build_menu
+    def test_toggle_dictation_is_default_action_when_configured(self, monkeypatch):
+        """The default menu item follows the configured left-click action."""
+        items_created = _install_fake_pystray(monkeypatch)
+        from voice_typer.server.tray_menu import build_menu_for_tray
 
-        mock_pystray = MagicMock()
-        mock_pystray.Menu.SEPARATOR = "SEP"
-        items_created = []
-
-        def fake_menu_item(label, callback, **kw):
-            item = MagicMock()
-            item.label = label
-            item.default = kw.get("default", False)
-            items_created.append(item)
-            return item
-
-        mock_pystray.MenuItem = fake_menu_item
-        tray_menu_mod.pystray = mock_pystray
-
-        build_menu(
-            hotkey="<f2>",
-            toggle_dictation=lambda: None,
-            open_app=lambda: None,
-            restart_app=lambda: None,
-            quit_app=lambda: None,
-            build_models_submenu=lambda: [],
-        )
+        build_menu_for_tray(_make_fake_tray(hotkey="<f2>", left_click="toggle_dictation"))
         default_items = [it for it in items_created if it.default]
         assert len(default_items) == 1
-        # Default action is "open_app" not "toggle_dictation" (BUGFIX)
-        assert "open_app" in default_items[0].label or "toggle_dictation" in default_items[0].label
+        # With left_click == toggle_dictation the dictation item is bold.
+        assert "toggle_dictation" in default_items[0].label
+
+    def test_open_app_is_default_action_when_configured(self, monkeypatch):
+        """With the default left-click action, Open App is the bold item."""
+        items_created = _install_fake_pystray(monkeypatch)
+        from voice_typer.server.tray_menu import build_menu_for_tray
+
+        build_menu_for_tray(_make_fake_tray(left_click="open_app"))
+        default_items = [it for it in items_created if it.default]
+        assert len(default_items) == 1
+        assert "open_app" in default_items[0].label
+
+    def test_menu_result_is_cached(self, monkeypatch):
+        """A second render with a valid cache returns the cached tuple."""
+        _install_fake_pystray(monkeypatch)
+        from voice_typer.server.tray_menu import build_menu_for_tray
+
+        tray = _make_fake_tray()
+        first = build_menu_for_tray(tray)
+        tray._menu_cache_valid = True
+        second = build_menu_for_tray(tray)
+        assert second is first
 
 
 # =============================================================================
