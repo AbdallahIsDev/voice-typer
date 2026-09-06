@@ -498,3 +498,54 @@ class TestTemplatesMatchHandlesMissingOutput:
             assert all(trigger != "no-output-trigger" for trigger, _ in tm._contains_list), (
                 "FR-37 regression: _rebuild_indexes indexed a template without 'output'"
             )
+
+
+class TestMatchIteratesContainsListDirectly:
+    """``match`` must iterate ``_contains_list`` WITHOUT a per-call copy.
+
+    Every writer rebuilds the index via ``_rebuild_indexes`` UNDER
+    ``self._lock`` and reassigns the attribute to a fresh (already
+    sorted) list, so the referenced object is never mutated in place and
+    direct iteration under the lock is race-free. The previous
+    ``list(self._contains_list)`` snapshot copied up to MAX_TEMPLATES
+    tuples on every dictation for no concurrency benefit.
+    """
+
+    def test_no_snapshot_copy_in_source(self):
+        import inspect
+
+        from voice_typer.server.templates import TemplateManager
+
+        src = inspect.getsource(TemplateManager.match)
+        assert "list(self._contains_list)" not in src, (
+            "match must not copy the contains-list per dictation — index rebuilds "
+            "reassign the attribute under the same lock, so direct iteration is safe"
+        )
+        assert "for trigger_norm, t in self._contains_list:" in src, "match must iterate the contains-list directly"
+
+    def test_match_survives_concurrent_rebuilds(self, tm):
+        """Behavioral guard: concurrent CRUD mutations (each rebuilding
+        the indexes under the lock) must never crash or corrupt an
+        in-flight ``match`` — the exact race the removed copy was
+        believed to guard against."""
+        import threading
+
+        tm.add("code review", "did a code review", match_mode="contains")
+        mutator_errors: list[Exception] = []
+
+        def mutator() -> None:
+            try:
+                for i in range(30):
+                    tm.add(f"filler trigger {i}", "ok", match_mode="contains")
+            except Exception as exc:  # pragma: no cover — surfaced via the assert below
+                mutator_errors.append(exc)
+
+        thread = threading.Thread(target=mutator)
+        thread.start()
+        try:
+            for _ in range(100):
+                assert tm.match("let's do a code review now") == "did a code review"
+        finally:
+            thread.join()
+
+        assert not mutator_errors, f"concurrent rebuild broke match: {mutator_errors}"

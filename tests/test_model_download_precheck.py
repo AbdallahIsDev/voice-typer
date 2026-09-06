@@ -80,6 +80,23 @@ def _make_whisper_repo_dir(config_dir: Path, model_size: str) -> Path:
     return repo_dir
 
 
+def _simulate_complete_snapshot(monkeypatch, config_dir) -> None:
+    """Patch the partial-download honesty probe at its owning module so the
+    fixture's ``models--<repo>`` directory counts as a FULLY downloaded
+    snapshot. The real probe needs a real ``huggingface_hub`` install plus a
+    complete snapshot layout; these are unit tests of the precheck / tooltip
+    layers, so a faithful "complete iff the repo dir exists" simulation keeps
+    the contracts deterministic on any machine."""
+
+    def _probe_complete(repo_id):
+        return (config_dir / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}").is_dir()
+
+    monkeypatch.setattr(
+        "voice_typer.server.transcription_download.is_model_snapshot_complete",
+        _probe_complete,
+    )
+
+
 class TestIsActiveModelDownloaded:
     """``tray_models.is_active_model_downloaded`` — the fast probe."""
 
@@ -169,8 +186,9 @@ class TestComputeTooltipModelSuffix:
         # The generic message survives.
         assert "Open Models to choose one" in tooltip
 
-    def test_downloaded_model_shows_suffix(self, tmp_config_dir):
+    def test_downloaded_model_shows_suffix(self, tmp_config_dir, monkeypatch):
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
+        _simulate_complete_snapshot(monkeypatch, tmp_config_dir)
         tray = TrayIcon(
             controller=_MockController(),
             config=Config(asr_backend="whisper", model_size="tiny"),
@@ -251,8 +269,9 @@ class TestLoadBackgroundPrecheck:
         assert any("No model selected" in (m or "") for m in notified), notified
         assert all("No models are available" not in (m or "") for m in notified), notified
 
-    def test_downloaded_model_proceeds_to_load(self, tmp_config_dir):
+    def test_downloaded_model_proceeds_to_load(self, tmp_config_dir, monkeypatch):
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
+        _simulate_complete_snapshot(monkeypatch, tmp_config_dir)
         mm, app = _make_mm(Config(asr_backend="whisper", model_size="tiny"))
 
         mm.load_background()

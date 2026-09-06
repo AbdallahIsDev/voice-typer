@@ -125,6 +125,20 @@ class TestModelStatusCache:
 
         service = VoiceTyperService(app)
 
+        # The status layer decides "downloaded" via the partial-download
+        # honesty probe (``is_model_snapshot_complete`` — every snapshot
+        # file present), which needs a real ``huggingface_hub`` install.
+        # This is a unit test of the TTL-cache layer, so simulate the
+        # probe faithfully: complete iff the repo directory exists (the
+        # delete below removes it, flipping the simulated verdict).
+        def _probe_complete(repo_id):
+            return (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir()
+
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            _probe_complete,
+        )
+
         # First call: populates the cache.  tiny should be reported
         # as downloaded because we created the cache subdir above.
         first_status = service.get_model_status()

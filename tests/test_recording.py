@@ -46,6 +46,21 @@ class TestResolveDevice:
         assert r._devices._resolve_device() == "Blue Yeti"
 
 
+def _force_resample_fallback(monkeypatch) -> None:
+    """Force ``resample_audio``'s cached-taps fast path to fail so tests that
+    pin the documented ``_get_resample_poly`` patch seam execute the fallback
+    exactly as they did before the cached-taps path was wired (the fast path
+    has its own dedicated numeric-equivalence tests)."""
+
+    def _raise(up: int, down: int):
+        raise ValueError("forced fallback: test pins the poly seam")
+
+    monkeypatch.setattr(
+        "voice_typer.server.recording.resampling._get_resample_fir_taps",
+        _raise,
+    )
+
+
 class TestStopAudioPrep:
     def test_stop_concatenates_chunks_to_1d_and_clears_buffer(self, monkeypatch):
         from voice_typer.server.recording import Recorder
@@ -80,6 +95,7 @@ class TestStopAudioPrep:
             return np.array([0.25, 0.5], dtype=np.float32)
 
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
+        _force_resample_fallback(monkeypatch)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -97,8 +113,16 @@ class TestStopAudioPrep:
     def test_stop_skips_resample_when_rate_matches_target(self, monkeypatch):
         from voice_typer.server.recording import Recorder
 
-        get_resampler = MagicMock()
-        monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", get_resampler)
+        # Patch the resample ENTRY POINT (not the resolver): Recorder's
+        # background scipy preloader legitimately resolves the resolver
+        # asynchronously, so a resolver mock is a racy seam here. The
+        # contract under test is that stop() performs NO resampling when
+        # the effective rate already matches the target.
+        resample_audio_mock = MagicMock(return_value=None)
+        monkeypatch.setattr(
+            "voice_typer.server.recording.format.resample_audio",
+            resample_audio_mock,
+        )
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -110,7 +134,7 @@ class TestStopAudioPrep:
 
         r.stop()
 
-        get_resampler.assert_not_called()
+        resample_audio_mock.assert_not_called()
 
     def test_start_failure_resets_recording_state(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -353,6 +377,7 @@ class TestStopAudioPrep:
             return np.array([0.25, 0.5], dtype=np.float32)
 
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
+        _force_resample_fallback(monkeypatch)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -376,6 +401,7 @@ class TestStopAudioPrep:
             return np.array([0.25, 0.5], dtype=np.float32)
 
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
+        _force_resample_fallback(monkeypatch)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -579,6 +605,7 @@ class TestCachedResampling:
             return audio[::down][: len(audio) * up // down]
 
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake_resample_poly)
+        _force_resample_fallback(monkeypatch)
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
@@ -1843,3 +1870,85 @@ class TestRec2StartFailurePathCoverage:
         assert not r._recording_event.is_set()
         assert r._stop_generation == gen_before + 1
         assert r._stream_lifecycle._stream is None
+
+
+# ── Rate-scaled pre-roll duration (regression) ─────────────────────────
+
+
+class TestPrerollDurationAtNativeRates:
+    """Rate-scaled pre-roll regression: the pre-roll deque must hold the
+    CONFIGURED ``pre_roll_buffer_seconds`` as a DURATION (≈ seconds of
+    audio), not a chunk count computed for a fixed 512-sample block.
+
+    The stream delivers ~32 ms chunks at every native rate
+    (``scaled_audio_blocksize`` — 512 @ 16 kHz, 1536 @ 48 kHz). With the
+    stream scaled but the pre-roll math still fixed-512, a 1.0 s
+    pre-roll over-captured ~3.04 s of pre-speech audio at 48 kHz
+    (~6.1 s at 96 kHz).
+    """
+
+    @pytest.mark.parametrize("native_rate", [16000, 48000], ids=["16kHz-native", "48kHz-native"])
+    def test_preroll_holds_configured_duration_at_native_rate(self, monkeypatch, native_rate):
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server._audio_constants import scaled_audio_blocksize
+
+        from tests.fixtures.ipc_test_helpers import make_fake_recorder
+        from tests.test_recorder_buffer_math import _patch_sd
+
+        _patch_sd(monkeypatch, recording_mod, native_rate=native_rate)
+        r = make_fake_recorder(max_recording_time_seconds=900, pre_roll_buffer_seconds=1.0, recording_channels=1)
+        try:
+            r.start()
+            assert r._effective_sr == native_rate, (
+                f"expected _effective_sr={native_rate} (device native), got {r._effective_sr}"
+            )
+
+            blocksize = scaled_audio_blocksize(native_rate)
+            actual_maxlen = r._preroll_buffer.maxlen or 0
+            duration_s = actual_maxlen * blocksize / native_rate
+            # DURATION contract: ≈ the configured 1.0 s (+ the 2-chunk
+            # sizing slack) at every native rate.
+            assert 0.95 <= duration_s <= 1.15, (
+                f"At {native_rate}Hz the pre-roll deque holds {actual_maxlen} "
+                f"chunks × {blocksize} samples = {duration_s:.3f}s — must be "
+                f"≈ the configured 1.0s (a fixed-512 chunk count would "
+                f"over-capture ~3× once the stream scales its blocks)."
+            )
+            # Chunk count follows from the duration contract.
+            assert actual_maxlen == int(1.0 * native_rate / blocksize) + 2
+        finally:
+            r.stop()
+
+    def test_preroll_duration_parity_16khz_vs_48khz(self, monkeypatch):
+        """DURATION parity: 16 kHz and 48 kHz devices must capture the
+        same ≈1.0 s of pre-speech audio (chunk counts equal too —
+        rate-invariant ~32 ms chunks)."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server._audio_constants import scaled_audio_blocksize
+
+        from tests.fixtures.ipc_test_helpers import make_fake_recorder
+        from tests.test_recorder_buffer_math import _patch_sd
+
+        durations: dict[int, float] = {}
+        maxlens: dict[int, int] = {}
+        for native_rate in (16000, 48000):
+            _patch_sd(monkeypatch, recording_mod, native_rate=native_rate)
+            r = make_fake_recorder(max_recording_time_seconds=900, pre_roll_buffer_seconds=1.0, recording_channels=1)
+            try:
+                r.start()
+                maxlens[native_rate] = r._preroll_buffer.maxlen or 0
+                durations[native_rate] = maxlens[native_rate] * scaled_audio_blocksize(native_rate) / native_rate
+            finally:
+                r.stop()
+
+        assert maxlens[48000] == maxlens[16000], (
+            f"rate-scaled ~32 ms chunks make the pre-roll chunk count "
+            f"rate-invariant: 48kHz {maxlens[48000]} vs 16kHz {maxlens[16000]}."
+        )
+        assert abs(durations[48000] - durations[16000]) <= 0.05, (
+            f"pre-roll DURATION must match across rates: "
+            f"48kHz {durations[48000]:.3f}s vs 16kHz {durations[16000]:.3f}s."
+        )
+        assert 0.95 <= durations[48000] <= 1.15, (
+            f"48kHz pre-roll must hold ≈ the configured 1.0s, got {durations[48000]:.3f}s."
+        )

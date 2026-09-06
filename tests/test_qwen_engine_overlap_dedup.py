@@ -1,9 +1,9 @@
-"""PVT-019: QwenEngine chunk-overlap dedup tests.
+"""QwenEngine chunk-seam dedup tests.
 
 Verifies that ``QwenEngine._transcribe_chunked`` removes duplicate
-words at chunk boundaries caused by the 3 s audio overlap. Before
-this fix, the overlap region was transcribed by both the previous
-and the current chunk and the duplicate text was silently
+words at chunk boundaries caused by the 3 s audio overlap. Before the
+shared-helper routing, the overlap region was transcribed by both the
+previous and the current chunk and the duplicate text was silently
 concatenated, producing output like:
 
     "the quick brown fox brown fox jumps over the lazy dog"
@@ -12,9 +12,14 @@ instead of the correct:
 
     "the quick brown fox jumps over the lazy dog"
 
-These tests exercise both the pure ``_dedup_overlap`` helper and the
-end-to-end ``_transcribe_chunked`` integration path. The model and
-the ONNX sessions are mocked — no real weights required.
+The seam merge is delegated to the canonical
+:func:`voice_typer.server.asr_utils.merge_chunks` (the same
+normalized, window-bounded dedup ParakeetEngine uses), so these tests
+pin the delegated contract: punctuation-stripped, case-insensitive
+matching with a skip cap of ``asr_utils.MAX_BOUNDARY_SKIP_WORDS``.
+Cross-engine parity is pinned in ``tests/test_chunk_seam_parity.py``.
+
+The model and the ONNX sessions are mocked — no real weights required.
 """
 
 from unittest.mock import MagicMock
@@ -52,305 +57,220 @@ def _make_audio(seconds: float = 65.0, sample_rate: int = 16000) -> np.ndarray:
     return (0.1 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)
 
 
-class TestDedupOverlapUnit:
-    """PVT-019: ``QwenEngine._dedup_overlap`` pure-function unit tests."""
+def _transcribe_chunks(chunk_texts: list[str], seconds: float | None = None):
+    """Drive the engine's chunked path with per-chunk mocked transcriptions.
+
+    Returns the final merged text, exactly as ``transcribe()`` would
+    produce for a recording whose chunks decode to ``chunk_texts``.
+    """
+    if seconds is None:
+        seconds = 40.0 if len(chunk_texts) == 2 else 65.0
+    engine = _make_engine()
+    mock_model = MagicMock(name="qwen_model")
+    mock_model.transcribe.side_effect = [[_mock_asr_result(text)] for text in chunk_texts]
+    engine._model = mock_model
+    return engine.transcribe(_make_audio(seconds=seconds))
+
+
+class TestQwenSeamMergeDelegation:
+    """Seam-dedup behaviour after routing through the shared helper.
+
+    Each case drives the engine's real chunked path with mocked chunk
+    transcriptions. Expected values match
+    ``asr_utils.merge_chunks`` — the canonical implementation shared
+    with ParakeetEngine.
+    """
 
     def test_no_overlap_returns_unchanged(self):
-        engine = _make_engine()
-        result = engine._dedup_overlap("hello world", "foo bar baz")
-        assert result == "foo bar baz"
+        assert _transcribe_chunks(["hello world", "foo bar baz"]) == ("hello world foo bar baz")
 
-    def test_exactly_3word_match_removed(self):
-        """Default N=3: a 3-word tail/head match is removed."""
-        engine = _make_engine()
-        prev = "one two three four"
-        curr = "two three four five"
-        # prev[-3:] = ["two", "three", "four"], curr[:3] = ["two", "three", "four"] → match.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "five"
-
-    def test_2word_overlap_removed_via_fallback(self):
-        """N=3 doesn't match, k=2 does — fallback catches the 2-word overlap."""
-        engine = _make_engine()
+    def test_2word_overlap_removed(self):
         prev = "I went to the store"
         curr = "the store is closed"
-        # prev[-3:] = ["to", "the", "store"], curr[:3] = ["the", "store", "is"] → no match.
-        # prev[-2:] = ["the", "store"], curr[:2] = ["the", "store"] → match.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "is closed"
+        assert _transcribe_chunks([prev, curr]) == "I went to the store is closed"
 
-    def test_1word_overlap_removed_via_fallback(self):
-        """N=3 and k=2 don't match, k=1 does — fallback catches the 1-word overlap."""
-        engine = _make_engine()
+    def test_1word_overlap_removed(self):
         prev = "end of the"
         curr = "the sentence continues"
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "sentence continues"
+        assert _transcribe_chunks([prev, curr]) == "end of the sentence continues"
 
-    def test_largest_k_wins_over_smaller_k(self):
-        """When multiple k values match, the largest is preferred (more reliable)."""
-        engine = _make_engine()
-        prev = "a b c d e"
-        curr = "c d e f g"
-        # k=3: prev[-3:] = ["c", "d", "e"], curr[:3] = ["c", "d", "e"] → match.
-        # (k=1 and k=2 also match, but k=3 should win.)
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "f g"
+    def test_full_duplicate_chunk_dropped(self):
+        """A chunk fully duplicating the predecessor's tail adds nothing."""
+        assert _transcribe_chunks(["the end of the story", "the story"]) == ("the end of the story")
 
-    def test_empty_prev_returns_curr_unchanged(self):
-        engine = _make_engine()
-        assert engine._dedup_overlap("", "hello world") == "hello world"
+    def test_mixed_case_and_punctuation_overlap_removed(self):
+        """Case/punctuation differences no longer defeat the dedup.
 
-    def test_empty_curr_returns_empty(self):
-        engine = _make_engine()
-        assert engine._dedup_overlap("hello world", "") == ""
-
-    def test_short_chunks_clamp_k_to_available_words(self):
-        """Chunks shorter than N words still dedup correctly via min() clamp."""
-        engine = _make_engine()
-        # prev has 2 words, curr has 3 words, N=3 → max_k = min(3, 2, 3) = 2.
-        prev = "the end"
-        curr = "the end of"
-        # k=2: prev[-2:] = ["the", "end"], curr[:2] = ["the", "end"] → match.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "of"
-
-    def test_full_duplicate_returns_empty_string(self):
-        """If entire curr matches prev tail, return empty (caller skips chunk)."""
-        engine = _make_engine()
-        prev = "hello world foo bar"
-        curr = "foo bar"
-        # k=2: prev[-2:] = ["foo", "bar"], curr[:2] = ["foo", "bar"] → match.
-        # Returns " ".join(curr_words[2:]) = " ".join([]) = "".
-        result = engine._dedup_overlap(prev, curr)
-        assert result == ""
-
-    def test_custom_n_parameter_catches_longer_overlaps(self):
-        """N is tunable — N=5 catches a 5-word overlap that default N=3 would miss."""
-        engine = _make_engine()
-        prev = "one two three four five six"
-        curr = "two three four five six seven"
-        # With default N=3: k=3 matches ("four five six" vs "two three four"? No).
-        # Actually: prev[-3:] = ["four", "five", "six"], curr[:3] = ["two", "three", "four"]. No match.
-        # k=2: prev[-2:] = ["five", "six"], curr[:2] = ["two", "three"]. No.
-        # k=1: prev[-1:] = ["six"], curr[:1] = ["two"]. No. → unchanged.
-        default_result = engine._dedup_overlap(prev, curr)
-        assert default_result == "two three four five six seven"
-
-        # With N=5: prev[-5:] = ["two", "three", "four", "five", "six"],
-        # curr[:5] = ["two", "three", "four", "five", "six"] → match.
-        result = engine._dedup_overlap(prev, curr, n=5)
-        assert result == "seven"
-
-    def test_no_false_positive_when_context_differs(self):
-        """A single common word at the boundary with different context is NOT a false positive.
-
-        This is actually a TRUE positive in the overlap-dedup context —
-        the overlap region is the SAME audio, so a matching boundary
-        word is very likely the same word. We document this behaviour
-        explicitly so future readers understand the trade-off.
+        The pre-shared-helper implementation compared raw whitespace
+        tokens, so "The End." vs "the end" never matched and the
+        overlap was duplicated. The canonical helper normalizes
+        (punctuation-stripped, lowercased) before comparing.
         """
-        engine = _make_engine()
-        prev = "I went to the store"
-        curr = "the store is closed"
-        # k=2 match on "the store" → remove → "is closed". Correct.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "is closed"
+        prev = "so this is The End."
+        curr = "the end of the recording"
+        assert _transcribe_chunks([prev, curr]) == ("so this is The End. of the recording")
 
-    def test_no_match_when_nothing_overlaps(self):
-        """Completely disjoint vocabularies at the boundary — no dedup."""
-        engine = _make_engine()
-        prev = "alpha beta gamma"
-        curr = "delta epsilon zeta"
-        # k=3, k=2, k=1 all fail to match.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "delta epsilon zeta"
-
-    def test_punctuation_attached_to_words_preserved(self):
-        """Dedup is whitespace-split — punctuation stays attached to its word.
-
-        Note: this means "end." and "end" are different tokens. This is
-        acceptable for the simple heuristic; callers wanting punctuation-
-        insensitive dedup should normalise the text before passing it in.
-        """
-        engine = _make_engine()
+    def test_punctuation_only_difference_still_matches(self):
+        """Identical words with different trailing punctuation dedup."""
         prev = "the end."
         curr = "end. of the sentence"
-        # k=1: prev[-1:] = ["end."], curr[:1] = ["end."] → match.
-        result = engine._dedup_overlap(prev, curr)
-        assert result == "of the sentence"
+        assert _transcribe_chunks([prev, curr]) == "the end. of the sentence"
+
+    def test_no_match_when_nothing_overlaps(self):
+        assert _transcribe_chunks(["alpha beta gamma", "delta epsilon zeta"]) == ("alpha beta gamma delta epsilon zeta")
+
+    def test_skip_cap_matches_shared_constant(self):
+        """The dedup cap is the shared constant, not the old Qwen-local N=3.
+
+        A 3-word exact overlap drops at most
+        ``asr_utils.MAX_BOUNDARY_SKIP_WORDS`` (2) leading words — the
+        same residual-duplicate trade-off ParakeetEngine already makes
+        (the cap prevents a long spurious match from dropping
+        legitimate words).
+        """
+        from voice_typer.server.asr_utils import MAX_BOUNDARY_SKIP_WORDS
+
+        assert MAX_BOUNDARY_SKIP_WORDS == 2
+        assert _transcribe_chunks(["one two three four", "two three four five"]) == ("one two three four four five")
 
 
 class TestTranscribeChunkedDedup:
-    """PVT-019: ``_transcribe_chunked`` end-to-end dedup behaviour."""
+    """``_transcribe_chunked`` end-to-end dedup behaviour (3-chunk audio)."""
 
     def test_duplicate_at_boundary_is_removed(self):
-        """Two boundaries with overlapping text — duplicates removed at both."""
-        engine = _make_engine()
-        mock_model = MagicMock(name="qwen_model")
-        # 65 s audio → 3 chunks (30s + 30s + 5s, with 3 s overlap).
-        mock_model.transcribe.side_effect = [
-            [_mock_asr_result("the quick brown fox")],
-            [_mock_asr_result("brown fox jumps over the lazy dog")],
-            [_mock_asr_result("the lazy dog barked loudly")],
-        ]
-        engine._model = mock_model
+        """Two boundaries with overlapping text — duplicates removed at both.
 
-        audio = _make_audio(seconds=65.0)
-        result = engine.transcribe(audio)
-
-        # Without dedup:
-        #   "the quick brown fox brown fox jumps over the lazy dog the lazy dog barked loudly"
-        # With dedup:
-        #   chunk 0: "the quick brown fox" (verbatim, no predecessor)
-        #   chunk 1: dedup → k=2 match ("brown fox") → "jumps over the lazy dog"
-        #   chunk 2: dedup → k=3 match ("the lazy dog") → "barked loudly"
-        assert result == "the quick brown fox jumps over the lazy dog barked loudly"
+        The second boundary re-transcribes 3 overlap words ("the lazy
+        dog"); the shared cap drops the first
+        ``MAX_BOUNDARY_SKIP_WORDS`` (2) — the identical residual word
+        ParakeetEngine produces on the same input (see
+        ``test_skip_cap_matches_shared_constant``).
+        """
+        result = _transcribe_chunks(
+            [
+                "the quick brown fox",
+                "brown fox jumps over the lazy dog",
+                "the lazy dog barked loudly",
+            ]
+        )
+        assert result == ("the quick brown fox jumps over the lazy dog dog barked loudly")
 
     def test_no_duplicate_passes_through_unchanged(self):
         """When chunks have no overlapping text, dedup is a no-op."""
-        engine = _make_engine()
-        mock_model = MagicMock(name="qwen_model")
-        mock_model.transcribe.side_effect = [
-            [_mock_asr_result("hello world")],
-            [_mock_asr_result("foo bar baz")],
-            [_mock_asr_result("qux quux corge")],
-        ]
-        engine._model = mock_model
-
-        audio = _make_audio(seconds=65.0)
-        result = engine.transcribe(audio)
-
+        result = _transcribe_chunks(["hello world", "foo bar baz", "qux quux corge"])
         assert result == "hello world foo bar baz qux quux corge"
 
     def test_full_duplicate_chunk_skipped_without_advancing_prev(self):
         """A chunk whose entire transcription duplicates prev tail is skipped.
 
-        Critically, ``prev_text`` is NOT advanced by the skipped chunk —
-        the next chunk's dedup still compares against the last
-        successfully-appended chunk's tail.
+        Critically, the skipped chunk must not participate in the next
+        boundary comparison — the next chunk dedups against the last
+        chunk that actually contributed text.
         """
-        engine = _make_engine()
-        mock_model = MagicMock(name="qwen_model")
-        mock_model.transcribe.side_effect = [
-            [_mock_asr_result("the end of the story")],
-            [_mock_asr_result("the story")],  # fully duplicates "the story" tail → skipped
-            [_mock_asr_result("the story continues here")],
-        ]
-        engine._model = mock_model
-
-        audio = _make_audio(seconds=65.0)
-        result = engine.transcribe(audio)
-
-        # chunk 0: "the end of the story" (appended, prev_text = "the end of the story")
-        # chunk 1: dedup("the end of the story", "the story") → k=2 match → "" → skipped
-        #          prev_text UNCHANGED (still "the end of the story")
-        # chunk 2: dedup("the end of the story", "the story continues here")
-        #          k=2 match on ("the", "story") → "continues here"
+        result = _transcribe_chunks(
+            [
+                "the end of the story",
+                "the story",  # fully duplicates "the story" tail → skipped
+                "the story continues here",
+            ]
+        )
+        # chunk 0: "the end of the story" (appended)
+        # chunk 1: dedup → fully duplicated → contributes nothing
+        # chunk 2: dedup against "...the story" → "continues here"
         assert result == "the end of the story continues here"
 
     def test_first_chunk_never_deduped(self):
         """The first chunk has no predecessor — appended verbatim."""
-        engine = _make_engine()
-        mock_model = MagicMock(name="qwen_model")
-        # 40 s audio → 2 chunks (30s + 10s, with 3 s overlap).
-        mock_model.transcribe.side_effect = [
-            [_mock_asr_result("alpha beta gamma")],
-            [_mock_asr_result("gamma delta epsilon")],
-        ]
-        engine._model = mock_model
-
-        audio = _make_audio(seconds=40.0)
-        result = engine.transcribe(audio)
-
-        # chunk 0: "alpha beta gamma" (verbatim — prev_text was empty)
-        # chunk 1: dedup → k=1 match on "gamma" → "delta epsilon"
+        result = _transcribe_chunks(["alpha beta gamma", "gamma delta epsilon"], seconds=40.0)
         assert result == "alpha beta gamma delta epsilon"
 
     def test_hallucination_rejected_chunk_does_not_advance_prev(self):
-        """A hallucination-rejected chunk must not update prev_text.
+        """A hallucination-rejected chunk must not update the comparison base.
 
         If a chunk is rejected by the hallucination filter, its text is
-        never appended, so prev_text must remain pointing at the last
-        valid chunk. The next chunk's dedup then compares against the
-        last valid chunk's tail — not the rejected chunk's text.
+        never merged, so the next chunk's dedup must compare against
+        the last valid chunk's tail — not the rejected chunk's text.
         """
         engine = _make_engine()
         mock_model = MagicMock(name="qwen_model")
         mock_model.transcribe.side_effect = [
             [_mock_asr_result("the quick brown fox")],
-            [_mock_asr_result("thanks for watching")],  # hallucination, RMS will be low
+            [_mock_asr_result("thanks for watching")],  # hallucination
             [_mock_asr_result("brown fox jumps away")],
         ]
         engine._model = mock_model
 
-        # Use a very-low-amplitude audio so the hallucination filter's
-        # rms < 0.001 branch fires for the "thanks for watching" chunk.
-        # The first and third chunks have known non-hallucination text
-        # so they pass the filter regardless of RMS.
-        audio = np.zeros(int(65.0 * 16000), dtype=np.float32)  # all-zero → RMS = 0
+        # All-zero audio → RMS = 0, so the hallucination filter's
+        # low-RMS branch fires for the "thanks for watching" chunk.
+        # The other chunks carry non-hallucination text and pass.
+        audio = np.zeros(int(65.0 * 16000), dtype=np.float32)
 
         result = engine.transcribe(audio)
 
-        # chunk 0: "the quick brown fox" — not a known hallucination, passes.
-        # chunk 1: "thanks for watching" — IS a known hallucination, RMS=0 → rejected.
-        #          prev_text stays at "the quick brown fox".
-        # chunk 2: "brown fox jumps away" — dedup("the quick brown fox", "brown fox jumps away")
-        #          k=2 match on ("brown", "fox") → "jumps away".
+        # chunk 1 ("thanks for watching") is a known hallucination →
+        # rejected → contributes nothing. chunk 2 dedups against
+        # "the quick brown fox" → 2-word match → "jumps away".
         assert result == "the quick brown fox jumps away"
 
     def test_three_chunks_with_cascading_overlap(self):
-        """Stress test: 3 chunks where each pair overlaps by a different word count."""
+        """Stress test: 3 chunks where each pair overlaps.
+
+        The second boundary matches 3 words ("f g h") but the shared
+        cap drops only the first ``MAX_BOUNDARY_SKIP_WORDS`` (2) —
+        identical to ParakeetEngine's behaviour on the same input.
+        """
+        result = _transcribe_chunks(
+            [
+                "a b c d e",
+                "d e f g h",  # 2-word overlap ("d e")
+                "f g h i j",  # 3-word overlap → capped at 2 → "h" remains
+            ]
+        )
+        assert result == "a b c d e f g h h i j"
+
+
+class TestSharedHelperRouting:
+    """Pin that Qwen has no private dedup fork left behind.
+
+    The engine must delegate seam merging to
+    ``voice_typer.server.asr_utils.merge_chunks`` — the canonical
+    implementation ParakeetEngine also uses — so the two local engines
+    cannot drift apart again.
+    """
+
+    def test_dedup_overlap_fork_is_gone(self):
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        assert not hasattr(QwenEngine, "_dedup_overlap")
+
+    def test_transcribe_chunked_calls_shared_merge_chunks(self, monkeypatch):
+        import voice_typer.server.qwen_engine as qwen_module
+
+        calls: list[list[str]] = []
+
+        def _spy_merge_chunks(texts):
+            calls.append(list(texts))
+            return "merged"
+
+        monkeypatch.setattr(qwen_module, "merge_chunks", _spy_merge_chunks)
+
         engine = _make_engine()
         mock_model = MagicMock(name="qwen_model")
         mock_model.transcribe.side_effect = [
-            [_mock_asr_result("a b c d e")],
-            [_mock_asr_result("d e f g h")],  # 2-word overlap ("d e")
-            [_mock_asr_result("f g h i j")],  # 3-word overlap ("f g h")
+            [_mock_asr_result("first chunk")],
+            [_mock_asr_result("second chunk")],
         ]
         engine._model = mock_model
+        result = engine.transcribe(_make_audio(seconds=40.0))
 
-        audio = _make_audio(seconds=65.0)
-        result = engine.transcribe(audio)
+        assert result == "merged"
+        assert calls == [["first chunk", "second chunk"]]
 
-        # chunk 0: "a b c d e" (verbatim)
-        # chunk 1: dedup("a b c d e", "d e f g h") → k=2 match ("d e") → "f g h"
-        #          prev_text = "f g h"
-        # chunk 2: dedup("f g h", "f g h i j") → k=3 match ("f g h") → "i j"
-        assert result == "a b c d e f g h i j"
+    def test_qwen_local_dedup_constant_is_gone(self):
+        """The engine-local N=3 knob was removed with its fork."""
+        import voice_typer.server.qwen_engine as qwen_module
 
-
-class TestModuleConstants:
-    """PVT-019: verify the dedup constants are exported and tuned as documented."""
-
-    def test_qwen_overlap_dedup_words_default_is_3(self):
-        """The task spec says 'Start with N=3 as a heuristic' — verify the default."""
-        from voice_typer.server.qwen_engine import _QWEN_OVERLAP_DEDUP_WORDS
-
-        assert _QWEN_OVERLAP_DEDUP_WORDS == 3
-
-    def test_qwen_chunk_overlap_seconds_is_3(self):
-        """The audio overlap is 3 s — this is what the dedup is mitigating."""
-        from voice_typer.server.qwen_engine import _QWEN_CHUNK_OVERLAP_SECONDS
-
-        assert _QWEN_CHUNK_OVERLAP_SECONDS == 3
-
-    def test_dedup_overlap_default_n_uses_module_constant(self):
-        """The ``_dedup_overlap`` default ``n`` binds to the module constant.
-
-        This means tuning the constant automatically updates the
-        default — operators can lower N for stricter matching or
-        raise it for more aggressive dedup without touching the method.
-        """
-        import inspect
-
-        from voice_typer.server.qwen_engine import (
-            _QWEN_OVERLAP_DEDUP_WORDS,
-            QwenEngine,
-        )
-
-        sig = inspect.signature(QwenEngine._dedup_overlap)
-        assert sig.parameters["n"].default == _QWEN_OVERLAP_DEDUP_WORDS
+        assert not hasattr(qwen_module, "_QWEN_OVERLAP_DEDUP_WORDS")
 
 
 if __name__ == "__main__":

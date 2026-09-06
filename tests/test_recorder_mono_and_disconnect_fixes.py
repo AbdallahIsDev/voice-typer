@@ -521,3 +521,62 @@ class TestRestartStreamRuntimeBehavior:
         handler = DisconnectHandler(r)
         with pytest.raises(TypeError, match="wrong type"):
             handler.restart_stream(_captured_generation=0)
+
+    def test_start_failure_closes_created_stream(self, monkeypatch):
+        """If ``stream.start()`` raises AFTER ``sd.InputStream(...)``
+        succeeded, the created-but-unstarted stream must be closed (no
+        leak) and the transient failure must still clear
+        ``_device_disconnected`` so the health checker re-probes."""
+        # The Recorder constructor spawns the device-cache prewarm daemon,
+        # whose nested probe thread ALSO opens ``sd.InputStream(...)`` and
+        # calls ``start()`` on it — that would race the call-count asserts
+        # below with a second (prewarm) stream. Disable the prewarm spawn
+        # BEFORE construction (the documented class-level patch seam) so
+        # this test observes only the restart path.
+        monkeypatch.setattr(Recorder, "_prewarm_device_cache", lambda self: None)
+        r = _make_recorder()
+        _setup_recorder_for_restart(monkeypatch, r)
+        r._devices._device_disconnected = True
+
+        import voice_typer.server.recording.disconnect_handler as dh_mod
+
+        created = MagicMock()
+        created.start.side_effect = OSError("device died between open and start")
+        monkeypatch.setattr(dh_mod.sd, "InputStream", lambda **kw: created)
+
+        handler = DisconnectHandler(r)
+        # Transient failure: caught by the outer arm, no propagation.
+        handler.restart_stream(_captured_generation=0)
+
+        created.start.assert_called_once()
+        # A stream whose start() raised must be closed (no leak).
+        created.close.assert_called_once()
+        # The unstarted stream must NOT have been handed to the lifecycle.
+        assert getattr(r._stream_lifecycle, "_stream", None) is not created
+        assert r._devices._device_disconnected is False, (
+            "transient start failure must clear _device_disconnected for re-probe"
+        )
+
+    def test_successful_restart_leaves_handed_off_stream_open(self, monkeypatch):
+        """The close-on-raise guard must NOT close a stream that was
+        successfully handed to the lifecycle — from the STATE-OWNERSHIP
+        handoff onward the live stream is owned by StreamLifecycle."""
+        # Disable the construction-time prewarm daemon (same isolation
+        # rationale as in the start-failure test above).
+        monkeypatch.setattr(Recorder, "_prewarm_device_cache", lambda self: None)
+        r = _make_recorder()
+        _setup_recorder_for_restart(monkeypatch, r)
+
+        import voice_typer.server.recording.disconnect_handler as dh_mod
+
+        created = MagicMock()
+        monkeypatch.setattr(dh_mod.sd, "InputStream", lambda **kw: created)
+
+        handler = DisconnectHandler(r)
+        handler.restart_stream(_captured_generation=0)
+
+        created.start.assert_called_once()
+        # A successfully handed-off live stream must never be closed by
+        # the restart path.
+        created.close.assert_not_called()
+        assert r._stream_lifecycle._stream is created

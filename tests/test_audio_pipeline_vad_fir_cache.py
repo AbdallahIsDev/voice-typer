@@ -47,11 +47,13 @@ from voice_typer.server.vad_processor import VadState
 _BUFFER_SR = 48000
 _UP = 1
 _DOWN = 3
-# A "known" taps array the test can identify. The real
+# A "known" taps context the test can identify. The real
 # ``_get_resample_fir_taps`` returns a 3-tuple
-# ``(h_padded, n_pre_remove, n_pre_pad)``; the test mirrors that shape
-# so the assertion that ``upfirdn`` receives exactly what the cache
-# returned is meaningful.
+# ``(h_padded, n_pre_remove, n_pre_pad)``; production UNPACKS it and
+# passes ``h_padded`` (element 0) to ``upfirdn`` — the identity
+# assertion below pins that unpacking (regression guard: passing the
+# whole tuple raised ``ValueError`` on every call and silently fell
+# back to ``resample_poly``).
 _KNOWN_TAPS = (
     np.array([0.0, 0.1, 0.2, 0.3, 0.2, 0.1, 0.0], dtype=np.float64),
     2,
@@ -60,6 +62,11 @@ _KNOWN_TAPS = (
 _INPUT_LEN = 4800
 # Expected output length: input_len * up // down.
 _EXPECTED_OUTPUT_LEN = _INPUT_LEN * _UP // _DOWN
+# The production path slices ``raw[n_pre_remove : n_pre_remove + n_out]``
+# off the ``upfirdn`` result, so the mocked RAW output must be long
+# enough (``n_pre_remove + n_out``) for the trim to yield exactly
+# ``_EXPECTED_OUTPUT_LEN`` samples.
+_MOCKED_RAW_LEN = _EXPECTED_OUTPUT_LEN + _KNOWN_TAPS[1]
 
 
 def _make_recorder_stub() -> MagicMock:
@@ -136,10 +143,10 @@ class TestVadResampleUsesCachedFirTaps:
         pipeline = AudioPipeline(recorder)
 
         filtered = np.arange(_INPUT_LEN, dtype=np.float32) / _INPUT_LEN
-        # Mocked upfirdn output: an array of the expected output length.
-        # ``run_vad_state_machine`` calls ``.astype(np.float32)`` on it
-        # before passing to ``compute_vad_prob``.
-        mocked_upfirdn_out = np.zeros(_EXPECTED_OUTPUT_LEN, dtype=np.float64)
+        # Mocked upfirdn output: an array of the RAW (untrimmed) output
+        # length. Production trims ``raw[n_pre_remove : n_pre_remove + n_out]``
+        # before passing it to ``compute_vad_prob``.
+        mocked_upfirdn_out = np.zeros(_MOCKED_RAW_LEN, dtype=np.float64)
 
         with (
             patch(
@@ -157,11 +164,13 @@ class TestVadResampleUsesCachedFirTaps:
 
         # ``_get_resample_fir_taps`` was called with the cached (up, down).
         mock_get_taps.assert_called_once_with(_UP, _DOWN)
-        # ``upfirdn`` was called positionally with (taps, filtered.ravel())
-        # and keyword args up=_UP, down=_DOWN.
+        # ``upfirdn`` was called positionally with the UNPACKED taps
+        # (``_KNOWN_TAPS[0]`` — identity holds because this taps shape
+        # needs no trailing post-pad) and ``filtered.ravel()``, plus
+        # keyword args up=_UP, down=_DOWN.
         mock_upfirdn.assert_called_once()
         call_args, call_kwargs = mock_upfirdn.call_args
-        assert call_args[0] is _KNOWN_TAPS
+        assert call_args[0] is _KNOWN_TAPS[0]
         # Second positional arg is filtered.ravel() — same data.
         np.testing.assert_array_equal(call_args[1], filtered.ravel())
         assert call_kwargs == {"up": _UP, "down": _DOWN}
@@ -177,10 +186,11 @@ class TestVadResampleUsesCachedFirTaps:
         pipeline = AudioPipeline(recorder)
 
         filtered = np.arange(_INPUT_LEN, dtype=np.float32) / _INPUT_LEN
-        # Mocked upfirdn output is float64 — the production code calls
-        # ``.astype(np.float32)`` so the value reaching
-        # ``compute_vad_prob`` MUST be float32 regardless.
-        mocked_upfirdn_out = np.zeros(_EXPECTED_OUTPUT_LEN, dtype=np.float64)
+        # Mocked upfirdn output is float64 and RAW-length — the
+        # production code trims it to ``n_out`` samples and casts, so
+        # the value reaching ``compute_vad_prob`` MUST be float32 with
+        # exactly the trimmed length.
+        mocked_upfirdn_out = np.zeros(_MOCKED_RAW_LEN, dtype=np.float64)
 
         with (
             patch(

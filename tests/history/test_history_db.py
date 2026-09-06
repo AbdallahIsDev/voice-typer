@@ -191,7 +191,8 @@ class TestTimestampIdCoveringIndex:
 
 
 class TestOffsetGuard:
-    """``get_recent`` and ``search`` must reject deep OFFSET pagination."""
+    """``get_recent``, ``search`` and ``get_favorites`` must reject deep
+    OFFSET pagination (shared ``_assert_bounded_offset`` guard)."""
 
     @staticmethod
     def _seed_rows(db, n):
@@ -259,6 +260,58 @@ class TestOffsetGuard:
             before_id=last_row["id"],
         )
         assert len(second_page) == 5
+
+    def test_get_favorites_offset_1000_raises_assertion(self, db):
+        """``get_favorites`` OFFSET path must reject deep OFFSET too —
+        it is the third list path and previously ran ``LIMIT ? OFFSET ?``
+        with NO guard (a silent O(offset) skip scan where its siblings
+        failed loudly)."""
+        row_id = db.add_transcription("fav entry")
+        db.flush()
+        db.toggle_favorite(row_id)
+        db.flush()
+        with pytest.raises(Exception, match="offset < 1000"):
+            db.get_favorites(limit=1, offset=1000, raise_on_error=True)
+        with pytest.raises(Exception, match="offset < 1000"):
+            db.get_favorites(limit=1, offset=10_000_000, raise_on_error=True)
+
+    def test_get_favorites_shallow_offset_still_works(self, db):
+        """The new guard must not change shallow-offset behavior."""
+        for i in range(5):
+            db.add_transcription(f"fav {i}")
+        db.flush()
+        for rec in db.get_recent(limit=50):
+            db.toggle_favorite(rec["id"])
+        db.flush()
+        rows = db.get_favorites(limit=1, offset=4)
+        assert len(rows) == 1
+        assert rows[0]["text"] == "fav 0"  # oldest, last in DESC order
+
+    def test_get_favorites_cursor_path_bypasses_offset_guard(self, db):
+        """``get_favorites`` cursor path must NOT be subject to the
+        OFFSET guard (the O(log N) migration target)."""
+        for i in range(10):
+            db.add_transcription(f"fav {i}")
+        db.flush()
+        for rec in db.get_recent(limit=50):
+            db.toggle_favorite(rec["id"])
+        db.flush()
+        first_page = db.get_favorites(limit=5)
+        last_row = first_page[-1]
+        second_page = db.get_favorites(
+            limit=5,
+            before_timestamp=last_row["timestamp"],
+            before_id=last_row["id"],
+        )
+        assert len(second_page) == 5
+
+    def test_get_recent_like_path_offset_guard_via_search(self, db):
+        """``search``'s LIKE-fallback OFFSET branch is guarded by the
+        same shared helper (a separator-only query keeps the LIKE path)."""
+        db.add_transcription("plain text entry")
+        db.flush()
+        with pytest.raises(Exception, match="offset < 1000"):
+            db.search("%", limit=1, offset=1000, raise_on_error=True)
 
 
 # ──────────────────────────────────────────────────────────────

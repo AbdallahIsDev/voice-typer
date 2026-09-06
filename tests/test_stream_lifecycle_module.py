@@ -32,6 +32,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server.recording import stream_lifecycle as sl_module
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
@@ -179,7 +180,7 @@ class TestBuildAudioCallback:
         assert not recorder._is_in_audio_callback.is_set()
 
 
-# ── Tests: open_stream_for_candidates ─────────────────────────────────
+# ── Tests: open_stream_for_candidates ──────────────────────────────────
 
 
 class TestOpenStreamForCandidates:
@@ -212,8 +213,12 @@ class TestOpenStreamForCandidates:
         # Exactly one InputStream attempt.
         assert len(attempts) == 1
         kwargs, stream = attempts[0]
-        # VAD-001: request 512-sample blocks.
-        assert kwargs["blocksize"] == 512
+        # VAD-001 (rate-scaled): ~32 ms blocks at the native rate —
+        # 1536 @ 48 kHz resamples to exactly 512 @ 16 kHz (the Silero
+        # window). (Fixed 512 at 48 kHz was ~3× the designed callback/VAD
+        # cadence.)
+        assert kwargs["blocksize"] == scaled_audio_blocksize(48000)
+        assert kwargs["blocksize"] == 1536
         assert kwargs["dtype"] == sl_module.np.float32 if hasattr(sl_module, "np") else 1
         assert kwargs["device"] == 7
         assert kwargs["callback"] is callback
@@ -622,3 +627,146 @@ class TestStreamLifecycleInit:
         recorder = _make_recorder_stub()
         lifecycle = StreamLifecycle(recorder)
         assert lifecycle._recorder is recorder
+
+
+# ── Tests: rate-scaled recorder blocksize ─────────────────────────────
+
+
+class TestScaledAudioBlocksize:
+    """``scaled_audio_blocksize`` must size recorder stream blocks by the
+    device's native rate so every chunk is ~32 ms of audio and resamples
+    to EXACTLY 512 samples at 16 kHz (the Silero VAD window). The fixed
+    512 block at native 48 kHz produced ~93.75 callbacks/sec (~3× the
+    designed cadence) and made VAD hysteresis frame counts run ~3×
+    faster than documented."""
+
+    @pytest.mark.parametrize(
+        ("native_rate", "expected_blocksize"),
+        [
+            (8000, 512),  # floor (256 would be too small)
+            (16000, 512),  # 16000 * 0.032 == 512 exactly
+            (22050, 705),  # int(22050 * 0.032)
+            (44100, 1411),  # int(44100 * 0.032) → ceil(1411 * 160 / 441) == 512 @16k
+            (48000, 1536),  # int(48000 * 0.032) → exactly 512 @16k
+            (96000, 3072),  # int(96000 * 0.032) → exactly 512 @16k
+        ],
+    )
+    def test_blocksize_scales_with_native_rate(self, native_rate, expected_blocksize):
+        assert scaled_audio_blocksize(native_rate) == expected_blocksize
+
+    def test_scaled_blocks_resample_to_silero_window(self):
+        """Post-resample chunk length must be exactly 512 @ 16 kHz for
+        the mainstream native rates (the whole point of the scaling)."""
+        import math
+
+        for native_rate in (44100, 48000, 96000):
+            blocksize = scaled_audio_blocksize(native_rate)
+            g = math.gcd(16000, native_rate)
+            up, down = 16000 // g, native_rate // g
+            resampled_len = -(-blocksize * up // down)  # ceil, same as resample_poly
+            assert resampled_len == 512, (
+                f"blocksize {blocksize} @ {native_rate} Hz resamples to {resampled_len}, expected 512"
+            )
+
+    @pytest.mark.parametrize("bad_rate", [0, -48000])
+    def test_non_positive_rate_falls_back_to_512(self, bad_rate):
+        """An unresolved (<= 0) rate must fall back to the fixed 512
+        contract instead of computing a nonsense block."""
+        assert scaled_audio_blocksize(bad_rate) == 512
+
+    def test_open_stream_uses_scaled_blocksize_per_rate(self, monkeypatch):
+        """The InputStream blocksize must follow the CANDIDATE's rate:
+        a 44.1 kHz candidate gets 1411, a 16 kHz candidate keeps 512."""
+        recorder = _make_recorder_stub()
+        attempts = _make_fake_stream_factory(monkeypatch)
+        recorder._devices._resolve_effective_sample_rate.side_effect = [
+            (44100, None),
+            (16000, None),
+        ]
+        candidates = [5, 6]
+        callback = MagicMock(name="callback")
+        lifecycle = StreamLifecycle(recorder)
+
+        selected, eff_sr, _last_err = lifecycle.open_stream_for_candidates(
+            recorder, candidates, callback, effective_sr=16000, last_error=None
+        )
+
+        assert selected == 5
+        assert eff_sr == 44100
+        assert len(attempts) == 1
+        kwargs, _stream = attempts[0]
+        assert kwargs["blocksize"] == scaled_audio_blocksize(44100)
+        assert kwargs["blocksize"] == 1411
+
+
+# ── Tests: restart_stream (mid-session device reconnect) ───────────────
+
+
+class TestRestartStreamScaledBlocksize:
+    """The mid-session device-reconnect restart must open its
+    replacement stream with the SAME rate-scaled blocksize the primary
+    open paths use (``scaled_audio_blocksize(candidate_sr)``).
+
+    ``DisconnectHandler.restart_stream`` re-opens with
+    ``recorder._current_callback`` directly — a fixed 512 there would
+    restore the ~94 callbacks/s cadence on 48 kHz devices after every
+    hot-swap recovery, and the buffers sized by
+    ``SessionState.resize_buffers_for_sample_rate`` (scaled chunk math)
+    would no longer match the chunks this stream delivers.
+    """
+
+    def test_restart_stream_uses_scaled_blocksize_for_candidate_rate(self, monkeypatch):
+        """A reconnect candidate resolved at 48 kHz must be reopened
+        with blocksize=1536 (not the fixed 512)."""
+        from voice_typer.server.recording import disconnect_handler as dh_module
+        from voice_typer.server.recording.disconnect_handler import DisconnectHandler
+        from voice_typer.server.recording.recorder import Recorder
+
+        from tests.test_recording_lifecycle_fixes import _install_fake_input_stream
+
+        config = MagicMock(sample_rate=16000, microphone=None, recording_channels=1)
+        recorder = Recorder(config)
+        # ``restart_stream`` re-opens with the callback captured from
+        # the pre-disconnect stream.
+        recorder._current_callback = MagicMock(name="_current_callback")
+        # Resolve the reconnect candidate at 48 kHz.
+        monkeypatch.setattr(recorder._devices, "_resolve_effective_sample_rate", lambda _d: (48000, None))
+        attempts = _install_fake_input_stream(dh_module, monkeypatch)
+
+        # Production caller holds ``_stream_lifecycle_lock``.
+        with recorder._stream_lifecycle_lock:
+            DisconnectHandler(recorder).restart_stream(_captured_generation=0)
+
+        assert len(attempts) == 1, "exactly one restart InputStream attempt expected"
+        kwargs = attempts[0]
+        assert kwargs["samplerate"] == 48000
+        assert kwargs["blocksize"] == scaled_audio_blocksize(48000)
+        assert kwargs["blocksize"] == 1536, (
+            f"restart_stream must scale the blocksize to the candidate's "
+            f"native rate (1536 @ 48 kHz), got {kwargs['blocksize']}. A fixed "
+            f"512 here restores ~94 callbacks/s after every hot-swap recovery."
+        )
+
+    def test_restart_stream_keeps_512_at_16khz_candidate(self, monkeypatch):
+        """At a 16 kHz reconnect candidate the scaled blocksize is
+        exactly 512 (the Silero window) — the floor, not a special case."""
+        from voice_typer.server.recording import disconnect_handler as dh_module
+        from voice_typer.server.recording.disconnect_handler import DisconnectHandler
+        from voice_typer.server.recording.recorder import Recorder
+
+        from tests.test_recording_lifecycle_fixes import _install_fake_input_stream
+
+        config = MagicMock(sample_rate=16000, microphone=None, recording_channels=1)
+        recorder = Recorder(config)
+        recorder._current_callback = MagicMock(name="_current_callback")
+        monkeypatch.setattr(recorder._devices, "_resolve_effective_sample_rate", lambda _d: (16000, None))
+        attempts = _install_fake_input_stream(dh_module, monkeypatch)
+
+        with recorder._stream_lifecycle_lock:
+            DisconnectHandler(recorder).restart_stream(_captured_generation=0)
+
+        assert len(attempts) == 1
+        kwargs = attempts[0]
+        assert kwargs["samplerate"] == 16000
+        assert kwargs["blocksize"] == scaled_audio_blocksize(16000)
+        assert kwargs["blocksize"] == 512

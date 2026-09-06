@@ -1311,3 +1311,27 @@ def test_busy_check_exception_treated_as_not_busy():
     )
     final_text = session.finalize(audio_seconds(1.0))
     assert isinstance(final_text, str)
+
+
+class TestTokenKeySharedWithTextCleanup:
+    """The streaming token normalizer must BE the memoized helper from
+    text_cleanup (single authoritative definition — the module
+    previously carried its own uncached ``_word_key`` duplicate of the
+    same ``^\\W+|\\W+$`` normalization)."""
+
+    def test_uses_text_cleanup_token_key(self):
+        from voice_typer.server import streaming
+        from voice_typer.server.text_cleanup import _token_key
+
+        # Same object, not a re-definition (E7: one authoritative source).
+        assert streaming._token_key is _token_key
+
+    def test_normalization_contract_matches_removed_duplicate(self):
+        from voice_typer.server.streaming import _token_key
+
+        # Pins the exact behavior of the deleted streaming-local
+        # ``_word_key`` so the shared helper is a drop-in replacement.
+        assert _token_key("Hello, ") == "hello"
+        assert _token_key("...world!") == "world"
+        assert _token_key("   ") == ""
+        assert _token_key("") == ""

@@ -74,22 +74,24 @@ class TestSingleTokenizationPass:
     def test_no_inline_re_sub_or_re_match(self, tmp_path) -> None:
         """The word-level path must NOT call ``re.sub`` or
         ``re.match`` directly — it must use the precompiled
-        ``_RE_TOKEN_KEY`` / ``_RE_MISSPELL_WRAP`` patterns imported
-        from text_cleanup. Inline ``re.sub``/``re.match`` incur a
-        per-call re-cache lookup (200 lookups/dictation for 50 words ×
-        4 categories).
-
-        Static source check + dynamic behavioral check (patch re.sub /
-        re.match; ensure neither is called).
+        ``_RE_MISSPELL_WRAP`` pattern imported from text_cleanup and the
+        MEMOIZED ``_token_key`` normalizer (text_cleanup's lru_cache'd
+        wrapper over the precompiled ``_RE_TOKEN_KEY`` regex — the
+        single authoritative definition, shared with streaming).
+        Inline ``re.sub``/``re.match`` incur a per-call re-cache lookup
+        (200 lookups/dictation for 50 words × 4 categories); the
+        memoized helper additionally amortizes the per-token key
+        computation down to unique-token-count calls.
         """
         src = _apply_to_text_source()
-        assert "_RE_TOKEN_KEY" in src, "apply_to_text must import _RE_TOKEN_KEY"
+        assert "_token_key(" in src, "apply_to_text must use text_cleanup's memoized _token_key normalizer"
         assert "_RE_MISSPELL_WRAP" in src, "apply_to_text must import _RE_MISSPELL_WRAP"
         # No bare re.sub / re.match calls in the source — the
         # precompiled patterns' .sub() / .match() methods are used
         # instead (no re-cache lookup).
         assert "re.sub(" not in src, (
-            "apply_to_text must use _RE_TOKEN_KEY.sub(), not re.sub() — re.sub incurs a per-call re-cache lookup"
+            "apply_to_text must use the precompiled/memoized text_cleanup helpers, "
+            "not re.sub() — re.sub incurs a per-call re-cache lookup"
         )
         assert "re.match(" not in src, "apply_to_text must use _RE_MISSPELL_WRAP.match(), not re.match()"
 

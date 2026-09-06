@@ -159,6 +159,45 @@ class TestFixGrammarBasics:
         """Empty input should return empty output."""
         assert fix_grammar_basics("") == ""
 
+    def test_fix_grammar_basics_does_not_invert_were(self):
+        """The question form "Were you..." must survive untouched.
+
+        "were" -> "we're" was removed from the contraction map because
+        the whole-word rewrite silently inverts the meaning of the
+        (far more common) question/past-tense form.
+        """
+        result = fix_grammar_basics("were you at the store")
+        assert result == "were you at the store"  # meaning preserved verbatim
+        assert "We're" not in result
+        assert "we're" not in result
+
+    def test_fix_grammar_basics_does_not_invert_were_past_tense(self):
+        result = fix_grammar_basics("we were going home")
+        assert result == "we were going home"
+        assert "we're" not in result
+
+    def test_fix_grammar_basics_does_not_invert_possessive_its(self):
+        """The possessive "its" must survive untouched.
+
+        "its" -> "it's" was removed: the possessive is ubiquitous and
+        the rewrite corrupted it ("the dog bit its tail" -> "it's tail").
+        """
+        result = fix_grammar_basics("the dog bit its tail")
+        assert "its tail" in result
+        assert "it's" not in result
+
+    def test_fix_grammar_basics_does_not_rewrite_ill(self):
+        """Legitimate "ill" must not become "I'll" ("she felt ill")."""
+        result = fix_grammar_basics("she felt ill today")
+        assert "ill" in result
+        assert "I'll" not in result
+
+    def test_fix_grammar_basics_does_not_rewrite_id(self):
+        """Legitimate "id" must not become "I'd" ("enter your id")."""
+        result = fix_grammar_basics("enter your id to continue")
+        assert " id " in f" {result} "
+        assert "I'd" not in result
+
     def test_fix_grammar_basics_no_apostrophe_i(self):
         """`i` after an apostrophe (e.g. in a contraction we just fixed) should not be re-capitalized."""
         # "don't" contains `t` after `'` — the regex's negative

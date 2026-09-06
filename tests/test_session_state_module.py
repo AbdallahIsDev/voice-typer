@@ -33,6 +33,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server.recording.buffer import _secure_clear_array as _real_secure_clear_array
 from voice_typer.server.recording.session_state import SessionState
 
@@ -659,9 +660,10 @@ def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
     """A 48 kHz device + 900s max_rec must size the buffer for the full duration.
 
     Reproduces the AUDIO-HOT fix: the old 1024/16kHz sizing
-    under-allocated by ~3x at 48kHz, silently evicting the first ~25min
-    of a 30-min dictation. The new sizing uses the actual chunk_seconds
-    (512/48000 ≈ 0.0107s) + a +1K safety margin.
+    under-allocated at 48kHz, silently evicting the first ~25min of a
+    30-min dictation. The sizing uses the actual chunk duration of the
+    rate-scaled ~32 ms block (1536/48000 at 48 kHz) + a +1K safety
+    margin.
     """
     rec = _make_recorder(config=_make_config(sample_rate=48000))
     initial_maxlen = rec._audio_pipeline._buffer.maxlen
@@ -673,10 +675,11 @@ def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
     )
 
     new_maxlen = rec._audio_pipeline._buffer.maxlen
-    # ~900s / 0.0107s ≈ 84112 chunks + 1000 safety ≈ 85112 — well above the
+    # ~900s / 0.032s ≈ 28125 chunks + 1000 safety ≈ 29125 — well above the
     # placeholder initial maxlen of 1000.
     assert new_maxlen > initial_maxlen
-    expected_min = int(900 / (512 / 48000))  # without safety
+    blocksize = scaled_audio_blocksize(48000)
+    expected_min = int(900 / (blocksize / 48000))  # without safety
     assert new_maxlen >= expected_min
 
 
@@ -746,8 +749,16 @@ def test_resize_buffers_resizes_ring_buffer_proportional_to_sample_rate():
         max_rec=900,
     )
 
-    # 48000 / 512 * 2.0 = 187.5 → int(187.5) = 187 chunks for ~2 seconds at 48 kHz.
-    assert rec._ring_buffer.maxlen == 187
+    # Rate-scaled ~32 ms blocks: int(48000 / 1536 * 2.0) = 62 chunks,
+    # which the 64-chunk floor bumps to 64 chunks ≈ 2.048 s at 48 kHz.
+    # The ~2 s DURATION contract is what matters — the chunk count is
+    # rate-invariant by design of the scaled blocksize (a fixed-512
+    # capacity computation would over-allocate the chunk count ~3×
+    # while the callback delivers 3×-sized chunks).
+    expected_capacity = max(64, int(48000 / scaled_audio_blocksize(48000) * 2.0))
+    assert expected_capacity == 64
+    assert rec._ring_buffer.maxlen == expected_capacity
+    assert rec._ring_buffer.maxlen * scaled_audio_blocksize(48000) / 48000 >= 2.0
 
 
 def test_resize_buffers_ring_buffer_floor_at_64_chunks():
@@ -782,12 +793,23 @@ def test_resize_buffers_ring_buffer_honors_env_var_override(monkeypatch):
         max_rec=900,
     )
 
-    # 48000 / 512 * 4.0 = 375 chunks for ~4 seconds at 48 kHz.
-    assert rec._ring_buffer.maxlen == 375
+    # 48000 / 1536 * 4.0 = 125 chunks for ~4 seconds at 48 kHz
+    # (rate-scaled ~32 ms blocks keep the duration contract).
+    expected = int(48000 / scaled_audio_blocksize(48000) * 4.0)
+    assert expected == 125
+    assert rec._ring_buffer.maxlen == expected
 
 
 def test_resize_buffers_preroll_resized_for_effective_sample_rate():
-    """The preroll deque is resized to capture the configured preroll seconds at the native rate."""
+    """The preroll deque is resized so it holds the CONFIGURED preroll
+    seconds as a DURATION at the native rate.
+
+    Regression (rate-scaled blocks): sizing the deque from a fixed 512
+    chunk assumption while the callback delivers scaled ~32 ms chunks
+    made a 1.0 s pre-roll over-capture ~3.04 s of pre-speech audio at
+    48 kHz. The chunk count must be computed from the same
+    ``scaled_audio_blocksize`` the stream was opened with.
+    """
     rec = _make_recorder(config=_make_config(sample_rate=48000), preroll_seconds=1.0)
     rec._preroll_buffer = collections.deque(maxlen=32)  # placeholder __init__ maxlen
 
@@ -797,9 +819,16 @@ def test_resize_buffers_preroll_resized_for_effective_sample_rate():
         max_rec=900,
     )
 
-    # 1.0s * 48000 / 512 + 2 = 95.75 → 95 chunks (int truncation).
-    expected = int(1.0 * 48000 / 512) + 2
+    # 1.0s * 48000 / 1536 + 2 = 33.25 → 33 chunks (int truncation).
+    blocksize = scaled_audio_blocksize(48000)
+    expected = int(1.0 * 48000 / blocksize) + 2
+    assert expected == 33
     assert rec._preroll_buffer.maxlen == expected
+    # DURATION contract: ≈ the configured 1.0 s (the +2-chunk slack is
+    # the only headroom) — NOT the ~3.04 s a fixed-512 chunk count
+    # (95 chunks) would capture with scaled chunks.
+    duration_s = rec._preroll_buffer.maxlen * blocksize / 48000
+    assert 0.95 <= duration_s <= 1.15, f"pre-roll duration {duration_s:.3f}s must ≈ 1.0s"
 
 
 def test_resize_buffers_skips_preroll_resize_when_inactive():

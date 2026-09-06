@@ -51,6 +51,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server.recording import disconnect_handler as dh_module, stream_lifecycle as sl_module
 from voice_typer.server.recording.disconnect_handler import DisconnectHandler
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
@@ -152,7 +153,10 @@ class TestLatencyLow:
         )
         # Sanity: the other essential kwargs are still wired up.
         assert kwargs["samplerate"] == 48000
-        assert kwargs["blocksize"] == 512
+        # VAD-001 (rate-scaled): ~32 ms blocks at the native rate —
+        # 1536 @ 48 kHz, not the legacy fixed 512.
+        assert kwargs["blocksize"] == scaled_audio_blocksize(48000)
+        assert kwargs["blocksize"] == 1536
         assert kwargs["callback"] is callback
 
     def test_fallback_open_stream_fallback_passes_latency_low(self, monkeypatch):
@@ -233,8 +237,6 @@ class TestRingBufferScaling:
         """
         import collections
 
-        from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
-
         recorder = MagicMock(name="recorder")
         recorder.config = MagicMock(name="config")
         recorder.config.sample_rate = 16000
@@ -247,8 +249,13 @@ class TestRingBufferScaling:
         # Stream opens successfully on the first candidate.
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
         recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
-        # Real ring buffer so we can assert on maxlen.
-        recorder._ring_buffer = collections.deque(maxlen=max(64, int(effective_sr / _AUDIO_BLOCKSIZE * 2.0)))
+        # Real ring buffer so we can assert on maxlen (pre-state sized
+        # with the rate-scaled chunk math the production resize uses).
+        from voice_typer.server._audio_constants import scaled_audio_blocksize
+
+        recorder._ring_buffer = collections.deque(
+            maxlen=max(64, int(effective_sr / scaled_audio_blocksize(effective_sr) * 2.0))
+        )
         # Real scalars: ``start_recording`` calls the module-level
         # ``refresh_vad_caches(recorder)`` (vad_helpers) which compares
         # these against SILERO_VAD_SAMPLE_RATES.
@@ -261,29 +268,32 @@ class TestRingBufferScaling:
         return recorder
 
     def test_48khz_ring_buffer_capacity_is_2s_with_floor_64(self):
-        """At 48 kHz / 512-sample blocks, the ring buffer must hold
-        ~2 s of audio. ``int(48000 / 512 * 2.0) = 187`` chunks
-        (≈ 2.0 s). The floor of 64 does NOT fire at 48 kHz.
-
-        Pre-fix: ``_resize_buffers_for_sample_rate`` (in
-        ``session_state.py``) sized the ring to 1.0 s = 93 chunks. The
-        override in ``start_recording`` supersedes that.
+        """At 48 kHz the stream delivers rate-scaled ~32 ms chunks
+        (1536 samples each), so ``int(48000 / 1536 * 2.0) = 62`` chunks
+        — below the floor of 64 — and the floor kicks in: 64 chunks ×
+        1536 / 48000 ≈ 2.048 s. The ~2 s DURATION contract holds at
+        every native rate; the chunk count is rate-invariant by design
+        of the scaled blocksize (a fixed-512 capacity computation would
+        over-allocate the chunk count ~3× at 48 kHz).
         """
         from voice_typer.server.recording._recorder_split import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=48000)
         start_recording(recorder)
 
-        expected_capacity = max(64, int(48000 / 512 * 2.0))
-        assert expected_capacity == 187, (
-            f"sanity: 48000/512*2.0 = {int(48000 / 512 * 2.0)}; expected 187, got {expected_capacity}"
+        expected_capacity = max(64, int(48000 / scaled_audio_blocksize(48000) * 2.0))
+        assert expected_capacity == 64, (
+            f"sanity: 48000/{scaled_audio_blocksize(48000)}*2.0 = "
+            f"{int(48000 / scaled_audio_blocksize(48000) * 2.0)}; expected the 64-chunk floor, got {expected_capacity}"
         )
         actual_maxlen = recorder._ring_buffer.maxlen
         assert actual_maxlen == expected_capacity, (
             f"at 48 kHz, ring buffer maxlen must be "
-            f"{expected_capacity} (~2 s headroom, floor 64 not hit); "
+            f"{expected_capacity} (~2 s headroom via the 64-chunk floor); "
             f"got {actual_maxlen}."
         )
+        # DURATION contract: the floored capacity still holds ~2 s of audio.
+        assert actual_maxlen * scaled_audio_blocksize(48000) / 48000 >= 2.0
 
     def test_16khz_ring_buffer_capacity_floors_at_64(self):
         """At 16 kHz / 512-sample blocks, ``int(16000 / 512 * 2.0) = 62``

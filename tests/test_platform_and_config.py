@@ -439,10 +439,24 @@ class TestResetToDefaultsPreservesOnboardingCompleted:
     """Reset to Defaults preserves onboarding_completed."""
 
     def test_reset_skips_onboarding(self):
-        settings = (
-            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
-        ).read_text(encoding="utf-8")
         # resetToDefaults skips onboarding_completed via the hoisted
         # CONFIG_PROTECTED_KEYS blocklist (excluded from factory reset).
-        assert "onboarding_completed" in settings
-        assert "CONFIG_PROTECTED_KEYS" in settings
+        # The reset implementation lives in the extracted
+        # pages/settings/hooks/useSettingsReset.ts hook; the guard
+        # follows the logic to its real home.
+        reset_hook = (
+            REPO_ROOT
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "pages"
+            / "settings"
+            / "hooks"
+            / "useSettingsReset.ts"
+        )
+        assert reset_hook.exists(), "reset logic must live in the extracted hook"
+        reset_src = reset_hook.read_text(encoding="utf-8")
+        assert "onboarding_completed" in reset_src
+        assert "CONFIG_PROTECTED_KEYS" in reset_src

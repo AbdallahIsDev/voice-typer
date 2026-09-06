@@ -495,12 +495,17 @@ def test_supervisor_backoff_constants(util_rs_source) -> None:
 
 
 def test_supervisor_max_retries_is_5(util_rs_source) -> None:
-    """ADR-0020 §10: supervisor retry cap must be 5 before full-app relaunch."""
-    cap_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
+    """ADR-0020 §10: supervisor retry cap must be 5 before full-app relaunch.
+
+    The cap is the ``SUPERVISOR_BACKOFF_MS`` schedule length (the
+    standalone ``SUPERVISOR_MAX_RETRIES`` constant was production-dead
+    and has been removed — same invariant, live symbol).
+    """
+    cap_re = re.compile(r"const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
     m = cap_re.search(util_rs_source)
-    assert m, "util.rs must define `const SUPERVISOR_MAX_RETRIES: u32 = N`"
-    cap = int(m.group(1))
-    assert cap == 5, f"SUPERVISOR_MAX_RETRIES must be 5 (got {cap}); ADR-0020 §10 cap"
+    assert m, "util.rs must define `const SUPERVISOR_BACKOFF_MS: &[u64] = &[...]`"
+    cap = len([x.strip() for x in m.group(1).split(",") if x.strip()])
+    assert cap == 5, f"SUPERVISOR_BACKOFF_MS.len() (the supervisor retry cap) must be 5 (got {cap}); ADR-0020 §10 cap"
 
 
 def test_supervisor_backoff_schedule_length_matches_cap(util_rs_source) -> None:
@@ -511,14 +516,14 @@ def test_supervisor_backoff_schedule_length_matches_cap(util_rs_source) -> None:
     index out of bounds. If longer, the extra steps are unreachable.
     """
     backoff_re = re.compile(r"const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
-    cap_re = re.compile(r"const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
     m_back = backoff_re.search(util_rs_source)
-    m_cap = cap_re.search(util_rs_source)
-    assert m_back and m_cap, "supervisor constants must be defined in util.rs"
+    assert m_back, "supervisor constants must be defined in util.rs"
     steps = [int(x.strip()) for x in m_back.group(1).split(",") if x.strip()]
-    cap = int(m_cap.group(1))
+    # The retry cap IS the schedule length (respawn_inner iterates it
+    # once per attempt); it must stay 5.
+    cap = 5
     assert len(steps) == cap, (
-        f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must equal SUPERVISOR_MAX_RETRIES ({cap}) so the loop iterates exactly N times"  # noqa: E501
+        f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must stay equal to the retry cap ({cap}) so the loop iterates exactly N times"  # noqa: E501
     )
 
 

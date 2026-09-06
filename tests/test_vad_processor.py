@@ -76,7 +76,7 @@ def _silence_vad_unavailable_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Suppress the Silero-unavailable warning in test output.
 
     Tests construct VadProcessor with ``use_silero_vad=False`` so the
-    lazy ``_check_vad_available`` import is skipped — but the
+    lazy ``is_available`` import is skipped — but the
     auto-fixture keeps things quiet even when a config has
     ``use_silero_vad=True``.
     """
@@ -1017,3 +1017,49 @@ class TestThreadSafety:
         # counters zeroed. After update_frame wins, state may be any
         # valid member. Either way, no exception.
         assert vp.state in (VadState.UNKNOWN, VadState.SILENCE, VadState.SPEECH)
+
+
+# ── Availability predicate contract ───────────────────────────────────
+
+
+class TestVadAvailabilityContract:
+    """The Silero availability predicate is ``vad.is_available``.
+
+    The historical ``_check_vad_available`` wrapper called
+    ``is_available()`` and then re-checked the same model-path existence
+    predicate ``is_available()`` already covers — a redundant
+    double-check that could drift out of sync with the real predicate.
+    It was removed; callers use ``is_available`` directly."""
+
+    def test_redundant_check_wrapper_is_removed(self) -> None:
+        import voice_typer.server.vad as vad_module
+
+        assert not hasattr(vad_module, "_check_vad_available"), (
+            "_check_vad_available was a redundant double-check of "
+            "is_available(); it must not come back (update callers "
+            "instead if availability semantics change)."
+        )
+
+    def test_lazy_default_resolves_is_available_true(self, monkeypatch) -> None:
+        """With the injected callable unset, VadProcessor's lazy default
+        resolves to ``vad.is_available`` and its result is honored."""
+        from voice_typer.server import vad as vad_module
+        from voice_typer.server.vad_processor import VadProcessor
+
+        cfg = MagicMock()
+        cfg.use_silero_vad = True
+        cfg.vad_speech_threshold = 0.5
+        cfg.vad_silence_threshold = 0.3
+        monkeypatch.setattr(vad_module, "is_available", lambda: True)
+        assert VadProcessor(cfg).silero_available is True
+
+    def test_lazy_default_resolves_is_available_false(self, monkeypatch) -> None:
+        from voice_typer.server import vad as vad_module
+        from voice_typer.server.vad_processor import VadProcessor
+
+        cfg = MagicMock()
+        cfg.use_silero_vad = True
+        cfg.vad_speech_threshold = 0.5
+        cfg.vad_silence_threshold = 0.3
+        monkeypatch.setattr(vad_module, "is_available", lambda: False)
+        assert VadProcessor(cfg).silero_available is False

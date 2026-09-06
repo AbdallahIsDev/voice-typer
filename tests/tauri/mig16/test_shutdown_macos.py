@@ -607,15 +607,24 @@ class TestShutdownConstants:
             )
 
     def test_supervisor_max_retries_is_5(self):
-        """SUPERVISOR_MAX_RETRIES = 5 → after 5 failed respawns, full-app relaunch."""
+        """Retry cap = SUPERVISOR_BACKOFF_MS.len() = 5 → after 5 failed
+        respawns, full-app relaunch.
+
+        The standalone `SUPERVISOR_MAX_RETRIES` constant was
+        production-dead (no runtime reader) and has been removed; the
+        cap is the backoff schedule length that `respawn_inner`
+        iterates. Same invariant, live symbol.
+        """
         src = _read(_UTIL_RS)
         m = re.search(
-            r"pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)",
+            r"pub\(crate\)\s+const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(.*?)\]",
             src,
         )
-        assert m, "SUPERVISOR_MAX_RETRIES constant not found in util.rs"
-        assert int(m.group(1)) == 5, (
-            f"SUPERVISOR_MAX_RETRIES must be 5 (then full-app relaunch per ADR-0020 §10), got {m.group(1)}"
+        assert m, "SUPERVISOR_BACKOFF_MS schedule not found in util.rs"
+        steps = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
+        assert len(steps) == 5, (
+            f"SUPERVISOR_BACKOFF_MS.len() (the supervisor retry cap) must be 5 "
+            f"(then full-app relaunch per ADR-0020 §10), got {len(steps)}"
         )
 
     def test_pre_restart_delay_is_500ms(self):
@@ -633,28 +642,25 @@ class TestShutdownConstants:
         )
 
     def test_backoff_schedule_length_matches_retry_cap(self):
-        """SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES so the loop iterates
-        exactly N times before falling back to app.restart().
+        """The backoff schedule has 5 steps — the retry cap the supervisor
+        loop iterates before falling back to app.restart().
 
-        If these drift apart (e.g., someone adds a 6th backoff step but
-        forgets to bump SUPERVISOR_MAX_RETRIES), the supervisor would either
-        never reach the relaunch path or skip backoff steps.
+        (The standalone `SUPERVISOR_MAX_RETRIES` constant was
+        production-dead and has been removed; the cap IS the schedule
+        length — `respawn_inner` iterates it once per attempt.)
         """
         src = _read(_UTIL_RS)
         sched_m = re.search(
             r"pub\(crate\)\s+const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(.*?)\]",
             src,
         )
-        cap_m = re.search(
-            r"pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)",
-            src,
-        )
-        assert sched_m and cap_m
+        assert sched_m, "SUPERVISOR_BACKOFF_MS schedule not found in util.rs"
         steps = [int(x.strip()) for x in sched_m.group(1).split(",")]
-        cap = int(cap_m.group(1))
+        # The retry cap IS the schedule length; it must stay 5.
+        cap = 5
         assert len(steps) == cap, (
-            f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must equal SUPERVISOR_MAX_RETRIES "
-            f"({cap}) so the supervisor loop iterates exactly N times before "
+            f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must stay equal to the "
+            f"retry cap ({cap}) so the supervisor loop iterates exactly N times before "
             f"falling back to app.restart()"
         )
 

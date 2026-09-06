@@ -173,6 +173,53 @@ class TestHighPassFilter:
         high_rms = float(np.sqrt(np.mean(high_result**2)))
         assert low_rms < high_rms * 0.5
 
+    @pytest.mark.parametrize("sample_rate", [8000, 16000, 22050, 44100, 48000, 88200, 96000])
+    def test_design_poles_strictly_inside_unit_circle(self, sample_rate):
+        """Design-time stability gate: float32 SOS poles satisfy max|pole| < 1.
+
+        Guards the failure mode that made the old float32 b/a form
+        diverge: coefficient rounding moving tightly-clustered poles
+        OUTSIDE the unit circle at native rates. The filter must build
+        (not degrade) at every rate, and the coefficients it actually
+        stores must have all poles strictly inside z=1 — checked here
+        independently of the production gate so a design change that
+        weakens stability is caught even if the gate itself regressed.
+        """
+        from scipy.signal import sos2zpk
+
+        f = HighPassFilter(cutoff_hz=80.0, sample_rate=sample_rate)
+        assert not f.is_degraded, f"filter unexpectedly degraded at {sample_rate} Hz"
+        assert f._state is not None
+        sos, _zi = f._state
+        _z, poles, _k = sos2zpk(np.asarray(sos, dtype=np.float32))
+        max_pole = float(np.max(np.abs(poles)))
+        assert max_pole < 1.0, f"max|pole|={max_pole:.6f} >= 1 at {sample_rate} Hz"
+
+    def test_unstable_design_degrades_to_passthrough(self, monkeypatch):
+        """A design whose float32 poles land on/outside z=1 must never run.
+
+        Simulates a hypothetical future design change (order/cutoff) that
+        produces an unstable float32 SOS: the design-time pole gate must
+        route construction to the degraded-passthrough path (same
+        contract as any other init failure) instead of running a
+        recursion known to diverge to inf/NaN.
+
+        The fake SOS section ``[1, 0, 0 | 1, 0, 1.1]`` has poles at
+        ±j·sqrt(1.1) → |pole| ≈ 1.049 > 1.
+        """
+        import scipy.signal
+
+        unstable_sos = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 1.1]], dtype=np.float32)
+        monkeypatch.setattr(scipy.signal, "butter", lambda *a, **kw: unstable_sos)
+        f = HighPassFilter(cutoff_hz=80.0, sample_rate=48000)
+        assert f.is_degraded
+        assert f._state is None
+        # Degraded passthrough: audio flows through untouched.
+        audio = np.ones(64, dtype=np.float32)
+        out = f.process(audio, 48000)
+        assert out is not None
+        assert out is audio or np.array_equal(out, audio)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # NoiseGate tests

@@ -302,3 +302,122 @@ class TestLengthContractPreserved:
             "ER-88: empty input must return empty output (the FIR guard "
             "`src_audio.size >= fir.size` skips convolution for tiny inputs)."
         )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Test 4: the cached-FIR-taps fast path is numerically equivalent to
+# ``resample_poly`` — exercised UNMOCKED (real scipy ``upfirdn``, real
+# taps). The earlier tests mocked ``upfirdn``, which is exactly why the
+# tuple-unpacking bug survived: every call raised ``ValueError`` inside
+# the fast path and silently fell back to ``resample_poly``.
+# ────────────────────────────────────────────────────────────────────────────
+class TestCachedTapsFastPathNumericEquivalence:
+    """The cached-taps path must run (no exception churn, no fallback)
+    and produce output matching ``scipy.signal.resample_poly``.
+
+    * Uncapped ratios (48k→16k: up=1, down=3): BIT-identical output —
+      the cached design is scipy's design, and the shared
+      ``_resample_via_cached_taps`` helper applies scipy's exact
+      ``raw[n_pre_remove : n_pre_remove + n_out]`` trim.
+    * Capped "ugly" ratios (44.1k→16k): same length + finite + strongly
+      correlated — the intentionally shorter FIR trades transition-band
+      width for ~30× fewer MACs, so exact equality does not hold by
+      design.
+    """
+
+    def test_fast_path_bit_matches_resample_poly_at_48k(self):
+        """48k→16k float32: fast path output is bit-identical to resample_poly."""
+        import math
+
+        from scipy.signal import resample_poly
+        from voice_typer.server.recording.resampling import resample_audio
+
+        sr_in, sr_out = 48000, 16000
+        g = math.gcd(sr_in, sr_out)
+        up, down = sr_out // g, sr_in // g
+        n = 512  # the production chunk size
+        t = np.arange(n, dtype=np.float32) / sr_in
+        audio = (0.4 * np.sin(2 * np.pi * 220.0 * t) + 0.05 * np.sin(2 * np.pi * 3.0 * t)).astype(np.float32)
+
+        reference = resample_poly(audio, up, down)
+        result = resample_audio(audio.copy(), sr_in, sr_out, log_resample=False)
+
+        assert len(result) == len(reference) == -(-n * up // down), (
+            f"fast path output length {len(result)} != resample_poly length {len(reference)}"
+        )
+        assert result.dtype == np.float32
+        assert np.all(np.isfinite(result))
+        np.testing.assert_array_equal(
+            result,
+            reference.astype(np.float32),
+            err_msg="cached-taps fast path must be bit-identical to resample_poly at uncapped ratios",
+        )
+
+    def test_fast_path_runs_without_fallback(self, monkeypatch):
+        """The fast path must not raise-and-fall-back on every call.
+
+        ``_get_resample_poly`` is patched to a function whose RESULT
+        raises if invoked: if the ``upfirdn`` fast path worked, the
+        fallback is never touched and the resample succeeds; if the
+        old tuple bug were present (``ValueError`` on every call), the
+        fallback would run and blow up the test.
+        """
+        from voice_typer.server.recording import resampling
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("resample_poly fallback was invoked — fast path failed")
+
+        monkeypatch.setattr(resampling, "_get_resample_poly", lambda: _boom)
+        audio = np.sin(2 * np.pi * 220.0 * np.arange(512) / 48000).astype(np.float32)
+        result = resampling.resample_audio(audio, 48000, 16000, log_resample=False)
+        assert len(result) == 171  # ceil(512 * 1 / 3)
+        assert np.all(np.isfinite(result))
+
+    def test_upfirdn_receives_unpacked_taps_array(self, monkeypatch):
+        """Spy on the real ``upfirdn``: its first positional argument
+        must be the taps ARRAY, not the 3-tuple (the original defect)."""
+        from voice_typer.server.recording import resampling
+
+        calls: list[object] = []
+        # Wrap the real scipy upfirdn via the production import path.
+        import scipy.signal
+
+        original_upfirdn = scipy.signal.upfirdn
+
+        def spying_upfirdn(h, x, *args, **kwargs):
+            calls.append(h)
+            return original_upfirdn(h, x, *args, **kwargs)
+
+        monkeypatch.setattr(scipy.signal, "upfirdn", spying_upfirdn)
+        audio = np.ones(512, dtype=np.float32)
+        resampling.resample_audio(audio, 48000, 16000, log_resample=False)
+
+        assert len(calls) == 1, f"expected exactly one upfirdn call, got {len(calls)}"
+        taps_arg = calls[0]
+        assert isinstance(taps_arg, np.ndarray), (
+            f"upfirdn must receive the unpacked taps ndarray, got {type(taps_arg)!r}"
+        )
+
+    def test_capped_ratio_44k1_same_length_and_correlated(self):
+        """44.1k→16k (capped half_len): same length as resample_poly,
+        finite, and strongly correlated (intentional design deviation,
+        not a bug)."""
+        import math
+
+        from scipy.signal import resample_poly
+        from voice_typer.server.recording.resampling import resample_audio
+
+        sr_in, sr_out = 44100, 16000
+        g = math.gcd(sr_in, sr_out)
+        up, down = sr_out // g, sr_in // g
+        n = 512
+        t = np.arange(n, dtype=np.float64) / sr_in
+        audio = (0.4 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)
+
+        reference = resample_poly(audio, up, down)
+        result = resample_audio(audio.copy(), sr_in, sr_out, log_resample=False)
+
+        assert len(result) == len(reference) == -(-n * up // down)
+        assert np.all(np.isfinite(result))
+        corr = float(np.corrcoef(reference.astype(np.float64), result.astype(np.float64))[0, 1])
+        assert corr > 0.95, f"capped-ratio output diverged from resample_poly (corr={corr:.4f})"

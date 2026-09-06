@@ -314,13 +314,23 @@ class TestTranscribeWithFallback:
         assert engine._model is mock_model
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["beam_size"] == 1
-        assert kwargs["best_of"] == 1
+        # ``best_of`` must NOT be forwarded: faster-whisper only honors it
+        # when sampling with non-zero temperature, so under the pinned
+        # ``temperature=0.0`` it was a silent no-op and the knob was removed
+        # from every decode call site.
+        assert "best_of" not in kwargs
         assert kwargs["temperature"] == 0.0
         assert kwargs["condition_on_previous_text"] is False
         assert kwargs["without_timestamps"] is True
 
     def test_custom_decode_settings_are_passed_to_model(self):
-        """Configurable decode settings should reach faster-whisper."""
+        """Configurable decode settings should reach faster-whisper.
+
+        ``best_of`` is the documented exception: it is stored on the engine
+        but must NOT reach ``model.transcribe`` — faster-whisper only honors
+        it when sampling with non-zero temperature, and the pinned
+        ``temperature=0.0`` made the forwarded value a silent no-op.
+        """
         import numpy as np
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -338,9 +348,10 @@ class TestTranscribeWithFallback:
         result = engine.transcribe(np.zeros(16000, dtype=np.float32))
 
         assert result == "custom"
+        assert engine.best_of == 2, "the engine still stores the configured value"
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["beam_size"] == 3
-        assert kwargs["best_of"] == 2
+        assert "best_of" not in kwargs, "best_of is a no-op under temperature=0.0 — it must not be forwarded"
         assert kwargs["condition_on_previous_text"] is True
         assert kwargs["without_timestamps"] is True
 
@@ -511,6 +522,9 @@ class TestTranscribeWords:
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["word_timestamps"] is True
         assert kwargs["without_timestamps"] is False
+        # ``best_of`` must NOT be forwarded (no-op under temperature=0.0 —
+        # same contract as the batch path).
+        assert "best_of" not in kwargs
 
     def test_transcribe_words_empty_audio_returns_empty_without_calling_model(self):
         import numpy as np
@@ -960,3 +974,47 @@ class TestWarmUpInference:
         engine._model.transcribe.side_effect = RuntimeError("GPU error")
         # Should not raise
         engine._warm_up_model()
+
+
+class TestVadParametersSharedConstant:
+    """Both whisper decode loops must pass ONE shared ``_VAD_PARAMETERS``
+    constant (previously an identical ``vad_parameters=dict(...)`` literal
+    was duplicated in ``transcribe_unlocked`` and
+    ``transcribe_words_unlocked`` — a drift surface for the Silero VAD
+    tuning)."""
+
+    @staticmethod
+    def _module_source() -> str:
+        import inspect
+
+        import voice_typer.server.transcription_result as transcription_result
+
+        return inspect.getsource(transcription_result)
+
+    def test_constant_defined_once_with_pinned_values(self):
+        import voice_typer.server.transcription_result as transcription_result
+
+        assert transcription_result._VAD_PARAMETERS == {
+            "min_silence_duration_ms": 500,
+            "speech_pad_ms": 200,
+        }
+        # The tuning keys must not reappear as inline keyword literals in
+        # either decode loop — the constant is the single source.
+        src = self._module_source()
+        assert "min_silence_duration_ms=500" not in src, (
+            "VAD tuning must come from the shared _VAD_PARAMETERS constant, not an inline literal"
+        )
+        assert "speech_pad_ms=200" not in src, (
+            "VAD tuning must come from the shared _VAD_PARAMETERS constant, not an inline literal"
+        )
+
+    def test_both_decode_loops_reference_the_constant(self):
+        import inspect
+
+        from voice_typer.server import transcription_result
+
+        for fn in (transcription_result.transcribe_unlocked, transcription_result.transcribe_words_unlocked):
+            fn_src = inspect.getsource(fn)
+            assert fn_src.count("vad_parameters=_VAD_PARAMETERS") == 1, (
+                f"{fn.__name__} must pass the shared _VAD_PARAMETERS constant exactly once"
+            )

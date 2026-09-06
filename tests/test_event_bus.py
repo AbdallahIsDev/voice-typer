@@ -24,8 +24,7 @@ previous ``_push_event_now`` semantics:
 - re-entrant publish (a subscriber that itself calls publish) does
   not deadlock (RLock).
 
-GT-3 additions (TestSubscriberExceptionLogLevel /
-TestConfigChangeListenerExceptionLogLevel) pin the WARNING-on-first /
+GT-3 additions (TestSubscriberExceptionLogLevel) pin the WARNING-on-first /
  DEBUG-on-repeat rate-limit policy for subscriber exceptions.
 
 GT-C1-7 additions (TestShutdownConsolidation) pin the deletion of the
@@ -65,17 +64,11 @@ def _clean_subscribers():
     with event_bus._lock:
         original = set(event_bus._subscribers)
         event_bus._subscribers.clear()
-    with event_bus._config_change_lock:
-        original_listeners = set(event_bus._config_change_listeners)
-        event_bus._config_change_listeners.clear()
     log_rate_limit.reset()
     yield
     with event_bus._lock:
         event_bus._subscribers.clear()
         event_bus._subscribers.update(original)
-    with event_bus._config_change_lock:
-        event_bus._config_change_listeners.clear()
-        event_bus._config_change_listeners.update(original_listeners)
 
 
 # ── publish with no subscribers ────────────────────────────────────────
@@ -470,52 +463,6 @@ class TestSubscriberExceptionLogLevel:
         assert len(matching) == 5
         assert matching[0].levelno == logging.WARNING
         assert all(r.levelno == logging.DEBUG for r in matching[1:])
-
-
-class TestConfigChangeListenerExceptionLogLevel:
-    """GT-3: the config-change-listener fan-out path mirrors the
-    generic publish path — first occurrence WARNING, subsequent
-    DEBUG."""
-
-    def test_first_listener_exception_logged_at_warning(self, caplog):
-        log_rate_limit.reset()
-
-        class _BadListener:
-            def on_config_changed(self, _updates: dict) -> None:
-                raise RuntimeError("config boom")
-
-        bad = _BadListener()
-        event_bus.subscribe_config_changes(bad)
-        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
-            result = event_bus._publish_config_change({"foo": 1})
-        # No successful delivery (the only listener raised).
-        assert result is False
-        matching = [r for r in caplog.records if "config-change listener raised" in r.getMessage()]
-        assert len(matching) == 1
-        assert matching[0].levelno == logging.WARNING
-        assert matching[0].exc_info is not None
-
-    def test_second_listener_exception_logged_at_debug(self, caplog):
-        log_rate_limit.reset()
-
-        # SAME instance — shares the rate-limit counter.
-        bad = _BadConfigListener()
-        event_bus.subscribe_config_changes(bad)
-        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
-            event_bus._publish_config_change({"foo": 1})
-            event_bus._publish_config_change({"foo": 2})
-        matching = [r for r in caplog.records if "config-change listener raised" in r.getMessage()]
-        assert len(matching) == 2
-        assert matching[0].levelno == logging.WARNING
-        assert matching[1].levelno == logging.DEBUG
-
-
-class _BadConfigListener:
-    """Module-level listener class so ``__qualname__`` is stable
-    (a nested class would also work; this just reads cleaner)."""
-
-    def on_config_changed(self, _updates: dict) -> None:
-        raise RuntimeError("config repeat")
 
 
 # ── None handling ──────────────────────────────────────────────────────

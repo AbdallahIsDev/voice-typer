@@ -358,29 +358,25 @@ def test_supervisor_backoff_schedule_is_5_steps_doubling(util_source: str) -> No
 
 
 def test_supervisor_backoff_schedule_length_matches_max_retries(util_source: str) -> None:
-    """``SUPERVISOR_BACKOFF_MS.len()`` must equal ``SUPERVISOR_MAX_RETRIES`` (=5).
+    """``SUPERVISOR_BACKOFF_MS.len()`` must be 5 — it IS the retry cap.
 
-    The ``respawn_inner`` loop iterates over the schedule; if the
-    schedule were shorter than MAX_RETRIES, the exhaustion branch
-    (``attempt >= SUPERVISOR_MAX_RETRIES``) would never fire and the loop
-    would exit silently to the post-loop ``app.restart()`` fallback.
-    Asserting equality guarantees the exhaustion branch is reachable.
+    The ``respawn_inner`` loop iterates over the schedule; the schedule
+    length is the number of respawn attempts before the exhaustion
+    branch (post-loop ``app.restart()`` fallback) fires. The standalone
+    ``SUPERVISOR_MAX_RETRIES`` constant was production-dead (no runtime
+    reader) and has been removed — the cap is the schedule length now.
     """
     sched_match = re.search(
         r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
         util_source,
     )
-    cap_match = re.search(
-        r"SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)",
-        util_source,
-    )
-    assert sched_match is not None and cap_match is not None
+    assert sched_match is not None, "SUPERVISOR_BACKOFF_MS schedule not found in util.rs"
     sched_len = len([v for v in sched_match.group("vals").split(",") if v.strip()])
-    max_retries = int(cap_match.group("val"))
+    # The retry cap IS the schedule length; it must stay 5.
+    max_retries = 5
     assert sched_len == 5, f"SUPERVISOR_BACKOFF_MS must have 5 entries, got {sched_len}"
-    assert max_retries == 5, f"SUPERVISOR_MAX_RETRIES must be 5, got {max_retries}"
     assert sched_len == max_retries, (
-        f"SUPERVISOR_BACKOFF_MS.len() ({sched_len}) must equal SUPERVISOR_MAX_RETRIES "
+        f"SUPERVISOR_BACKOFF_MS.len() ({sched_len}) must stay equal to the retry cap "
         f"({max_retries}) so the loop iterates exactly N times before "
         f"falling back to app.restart()"
     )
@@ -423,11 +419,18 @@ def test_supervisor_respawn_inner_iterates_backoff_schedule(supervisor_source: s
 
 
 def test_supervisor_max_retries_constant_is_5(util_source: str) -> None:
-    """ADR-0020 §10: ``SUPERVISOR_MAX_RETRIES`` must be exactly 5."""
-    match = re.search(r"SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)", util_source)
-    assert match is not None, "SUPERVISOR_MAX_RETRIES const declaration not found"
-    assert int(match.group("val")) == 5, (
-        f"SUPERVISOR_MAX_RETRIES must be 5 (then fall back to full-app relaunch), got {match.group('val')}"
+    """ADR-0020 §10: the supervisor retry cap must be exactly 5.
+
+    The cap is the ``SUPERVISOR_BACKOFF_MS`` schedule length (the
+    standalone ``SUPERVISOR_MAX_RETRIES`` constant was production-dead
+    and has been removed — same invariant, live symbol).
+    """
+    match = re.search(r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]", util_source)
+    assert match is not None, "SUPERVISOR_BACKOFF_MS schedule not found in util.rs"
+    cap = len([v for v in match.group("vals").split(",") if v.strip()])
+    assert cap == 5, (
+        f"SUPERVISOR_BACKOFF_MS.len() (the supervisor retry cap) must be 5 "
+        f"(then fall back to full-app relaunch), got {cap}"
     )
 
 

@@ -25,7 +25,7 @@ import pytest
 
 scipy = pytest.importorskip("scipy.signal")  # skips the whole module if missing
 
-from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE  # noqa: E402
+from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE, WHISPER_SAMPLE_RATE  # noqa: E402
 from voice_typer.server.audio_filters.noise_suppressor import (  # noqa: E402
     _INT16_SCALE,
     _RNNOISE_FRAME_SIZE,
@@ -258,6 +258,69 @@ class TestNoiseSuppressorResamplerIntegration:
         ns.reset()
         assert ns._upsampler._in_total == 0
         assert ns._upsampler._out_total == 0
+
+
+class TestNoiseSuppressorLatencyIncludesResampler:
+    """``NoiseSuppressor.latency_ms`` must report the model's algorithmic
+    frame/hop delay PLUS the round-trip group delay of the streaming
+    resampler pair when the source rate differs from the model's native
+    rate — the FIR anti-imaging/anti-aliasing stages delay the signal even
+    though the sample count round-trips exactly."""
+
+    @staticmethod
+    def _make(method: str, sample_rate: int) -> NoiseSuppressor:
+        # ``latency_ms`` depends only on the selected method + the source
+        # rate; backend availability is orthogonal and covered by the
+        # degradation-matrix tests, so pin the method the same way the
+        # clip tests pin ``_method`` on their stub suppressor.
+        ns = NoiseSuppressor(method=method, sample_rate=sample_rate)
+        ns._method = method
+        return ns
+
+    def test_native_rate_reports_bare_model_latency(self):
+        # At the model's native rate both resamplers stay None — no FIR
+        # delay to add.
+        assert self._make("rnnoise", RNNOISE_SAMPLE_RATE).latency_ms == pytest.approx(10.0)
+        assert self._make("gtcrn", WHISPER_SAMPLE_RATE).latency_ms == pytest.approx(16.0)
+
+    def test_rnnoise_16k_source_adds_resampler_delay(self):
+        ns = self._make("rnnoise", 16000)
+        # 16k→48k: up=3/down=1 pair, 31-tap FIR per stage → 15 samples of
+        # group delay per stage at the 48 kHz intermediate rate
+        # (0.3125 ms × 2 = 0.625 ms on top of the 10 ms RNNoise frame).
+        assert ns.latency_ms == pytest.approx(10.0 + 0.625)
+        assert ns.latency_ms > 10.0, "a non-native source rate MUST add the resampler group delay"
+
+    def test_gtcrn_48k_source_adds_resampler_delay(self):
+        ns = self._make("gtcrn", RNNOISE_SAMPLE_RATE)
+        # 48k→16k: up=1/down=3 pair — same 0.625 ms round-trip FIR delay
+        # on top of the 16 ms GTCRN hop.
+        assert ns.latency_ms == pytest.approx(16.0 + 0.625)
+        assert ns.latency_ms > 16.0, "a non-native source rate MUST add the resampler group delay"
+
+    @pytest.mark.parametrize("source_rate", [16000, 22050, 44100, 48000, 96000])
+    def test_latency_matches_actual_resampler_filter_group_delay(self, source_rate):
+        """The reported delay must derive from the REAL designed FIR filters.
+
+        Derives the expected delay from the actual ``firwin`` taps the
+        lazily-created resampler pair carries (group delay of a symmetric
+        FIR = ``(num_taps - 1) / 2`` intermediate samples) and asserts
+        ``latency_ms`` equals the model frame delay plus exactly that —
+        pinning the latency computation to the filter actually constructed
+        by ``_ensure_resamplers`` so the two can never drift.
+        """
+        ns = self._make("rnnoise", source_rate)
+        ns._ensure_resamplers(source_rate)
+        upsampler, downsampler = ns._upsampler, ns._downsampler
+        if upsampler is None or downsampler is None:
+            # Native rate — no resamplers, no extra delay.
+            assert ns.latency_ms == pytest.approx(10.0)
+            return
+        upsampler_delay_s = ((len(upsampler._h) - 1) / 2) / (source_rate * upsampler._up)
+        downsampler_delay_s = ((len(downsampler._h) - 1) / 2) / (RNNOISE_SAMPLE_RATE * downsampler._up)
+        expected_extra_ms = (upsampler_delay_s + downsampler_delay_s) * 1000.0
+        assert expected_extra_ms > 0.0
+        assert ns.latency_ms == pytest.approx(10.0 + expected_extra_ms)
 
 
 if __name__ == "__main__":

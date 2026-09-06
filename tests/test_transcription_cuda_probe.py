@@ -105,9 +105,11 @@ class TestProbeCudaRuntime:
         The success path:
 
           1. Calls ``self._model.transcribe(...)`` with the same
-             kwargs as ``_transcribe_unlocked`` (beam_size, best_of,
+             kwargs as ``_transcribe_unlocked`` (beam_size,
              temperature=0.0, vad_filter=False, language,
-             condition_on_previous_text, without_timestamps=True).
+             condition_on_previous_text, without_timestamps=True;
+             ``best_of`` is deliberately NOT forwarded — it is a no-op
+             under ``temperature=0.0``).
           2. Iterates through every segment (lazy ctranslate2 generator
              — the real GPU work happens during iteration).
           3. Logs "CUDA runtime OK" and returns normally.
@@ -136,6 +138,13 @@ class TestProbeCudaRuntime:
         assert mock_model.transcribe.call_count == 1, (
             f"expected exactly 1 transcribe call, got {mock_model.transcribe.call_count}"
         )
+        _, probe_kwargs = mock_model.transcribe.call_args
+        # ``best_of`` must NOT be forwarded: faster-whisper only honors it
+        # when sampling with non-zero temperature, so under the pinned
+        # ``temperature=0.0`` it was a silent no-op and the knob was removed
+        # from every decode call site (probe + warm-up included).
+        assert "best_of" not in probe_kwargs
+        assert probe_kwargs["temperature"] == 0.0
         # Device stays CUDA — the fallback did NOT fire.
         assert cuda_engine._device == "cuda", (
             "on probe success _device must remain 'cuda' — the fallback must NOT fire."

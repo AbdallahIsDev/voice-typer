@@ -238,14 +238,15 @@ class TestParallelPoolDrain:
             f"be running SEQUENTIALLY"
         )
 
-    def test_uses_run_parallel_with_timeout_with_two_items(self, _stub_shutdown_environment, monkeypatch):
+    def test_uses_run_parallel_with_timeout_with_three_items(self, _stub_shutdown_environment, monkeypatch):
         """the early bookend must delegate to
-        ``_run_parallel_with_timeout`` with a 2-item list (one for
-        ``ipc_server.stop``, one for the WS pool drain).
+        ``_run_parallel_with_timeout`` with a 3-item list (one for
+        ``ipc_server.stop``, one for the WS dispatch pool drain, one
+        for the WS encode pool drain).
 
         This is a structural assertion — it spies on
         ``_run_parallel_with_timeout`` and verifies the batch has
-        exactly 2 items with the expected descriptions. The concurrency
+        exactly 3 items with the expected descriptions. The concurrency
         timing test (above) verifies the items actually run in parallel.
         """
         # Spy on _run_parallel_with_timeout.
@@ -275,7 +276,8 @@ class TestParallelPoolDrain:
         # MagicMock.stop returns instantly; MagicMock._ws_dispatch_pool.shutdown
         # returns instantly (no real pool → _drain_ws_dispatch_pool early-returns
         # because hasattr(mock_pool, "shutdown") is True but the shutdown call
-        # is a no-op MagicMock).
+        # is a no-op MagicMock). Same for the auto-vivified
+        # ``_ws_encode_pool`` MagicMock.
         controller = ShutdownController(fake_app)
         controller._do_cleanup()
 
@@ -291,18 +293,20 @@ class TestParallelPoolDrain:
             "_run_parallel_with_timeout must be called with a batch containing 'ipc_server.stop'"
         )
         descs = [item[0] for item in early_bookend]
-        assert len(early_bookend) == 2, (
-            f"early-bookend batch must have exactly 2 items; got {len(early_bookend)} ({descs})"
+        assert len(early_bookend) == 3, (
+            f"early-bookend batch must have exactly 3 items; got {len(early_bookend)} ({descs})"
         )
         assert "ipc_server.stop" in descs, f"early-bookend batch must contain 'ipc_server.stop'; got {descs}"
         assert "ws_dispatch_pool.drain" in descs, (
             f"early-bookend batch must contain 'ws_dispatch_pool.drain'; got {descs}"
         )
+        assert "ws_encode_pool.drain" in descs, f"early-bookend batch must contain 'ws_encode_pool.drain'; got {descs}"
         # Timeouts: ipc_server.stop has a 2.0s hard ceiling (PERF-
         # SHUTDOWN-002 — it returns in ms since the drains are gated on
         # ``app._shutting_down``, and 2.0s bounds a regression); the WS
-        # pool drain keeps a 5.0s budget (in-flight WS handlers can
-        # legitimately run longer).
+        # dispatch pool drain keeps a 5.0s budget (in-flight WS handlers can
+        # legitimately run longer); the WS encode pool drain is bounded
+        # at 2.0s (encodes are pure CPU — milliseconds in practice).
         timeouts = {desc: timeout for desc, _func, timeout in early_bookend}
         assert timeouts["ipc_server.stop"] == 2.0, (
             f"ipc_server.stop must have timeout=2.0 (hard ceiling after PERF-SHUTDOWN-002); "
@@ -310,6 +314,108 @@ class TestParallelPoolDrain:
         )
         assert timeouts["ws_dispatch_pool.drain"] == 5.0, (
             f"ws_dispatch_pool.drain must have timeout=5.0; got {timeouts['ws_dispatch_pool.drain']}"
+        )
+        assert timeouts["ws_encode_pool.drain"] == 2.0, (
+            f"ws_encode_pool.drain must have timeout=2.0 (bounded encode drain); got {timeouts['ws_encode_pool.drain']}"
+        )
+
+
+class TestEncodePoolDrain:
+    """The WS frame-encode pool must be drained alongside the dispatch
+    pool in the early-bookend batch (previously ``shutdown_encode_pool``
+    existed and was exported but was never wired into the shutdown path,
+    so the pool's non-daemon workers were only joined via ``atexit``)."""
+
+    def test_encode_pool_drain_cancels_and_joins(self, _stub_shutdown_environment):
+        """a REAL encode pool with an in-flight task gets
+        ``shutdown(wait=False, cancel_futures=True)`` (via
+        ``shutdown_encode_pool``) AND a bounded ``shutdown(wait=True)``
+        join, and the server/singleton refs are dropped."""
+        fake_app = _FakeApp()
+        fake_app._ipc_server = MagicMock()
+
+        encode_pool = ThreadPoolExecutor(max_workers=1)
+
+        task_end: list[float] = []
+
+        def sleepy_encode():
+            time.sleep(0.3)
+            task_end.append(time.monotonic())
+
+        encode_pool.submit(sleepy_encode)
+        time.sleep(0.05)  # let the worker START the task (running, not queued)
+        fake_app._ipc_server._ws_encode_pool = encode_pool
+
+        encode_wait_join: list[float] = []
+        join_lock = threading.Lock()
+        original_shutdown = encode_pool.shutdown
+
+        def tracked_shutdown(*args, **kwargs):
+            result = original_shutdown(*args, **kwargs)
+            if kwargs.get("wait", False):
+                with join_lock:
+                    # Recorded AFTER the wait=True join returns — i.e. after
+                    # every running task has finished.
+                    encode_wait_join.append(time.monotonic())
+            return result
+
+        encode_pool.shutdown = tracked_shutdown  # type: ignore[method-assign]
+
+        controller = ShutdownController(fake_app)
+        start = time.monotonic()
+        controller._do_cleanup()
+        elapsed = time.monotonic() - start
+
+        # The bounded join ran (shutdown(wait=True) invoked by the drain item).
+        assert len(encode_wait_join) == 1, (
+            f"ws_encode_pool drain must perform a shutdown(wait=True) join; got {len(encode_wait_join)} calls"
+        )
+        # The in-flight encode was NOT cancelled and the join waited for it:
+        # the wait=True call returns only after the 0.3s task completed.
+        assert task_end, "in-flight encode must not be cancelled by the drain"
+        assert encode_wait_join[0] >= task_end[0], (
+            "ws_encode_pool drain must wait for the in-flight encode to finish "
+            "(wait=True join must return after the running task)"
+        )
+        # shutdown_encode_pool drops the server attribute (bounded: total
+        # drain stays well under the 2.0s item budget).
+        assert fake_app._ipc_server._ws_encode_pool is None
+        assert elapsed < 2.0, f"ws_encode_pool drain must stay bounded (<2s); elapsed={elapsed:.2f}s"
+
+    def test_no_encode_pool_attribute_skips_drain_item(self, _stub_shutdown_environment, monkeypatch):
+        """a server without ``_ws_encode_pool`` must not add the
+        encode-pool item (nothing to drain)."""
+        captured_batches: list[list] = []
+
+        import voice_typer.server.shutdown.ws_drain as _ws_drain
+
+        original_fn = _ws_drain._run_parallel_with_timeout
+
+        def spy(items):
+            captured_batches.append(list(items))
+            return original_fn(items)
+
+        monkeypatch.setattr("voice_typer.server.shutdown.ws_drain._run_parallel_with_timeout", spy)
+
+        fake_app = _FakeApp()
+        fake_app._ipc_server = MagicMock(spec=object)  # strict: NO auto-vivified attrs
+        fake_app._ipc_server.stop = MagicMock()
+        fake_app._ipc_server._ws_dispatch_pool = MagicMock()
+        # NOTE: ``_ws_encode_pool`` deliberately NOT set.
+
+        controller = ShutdownController(fake_app)
+        controller._do_cleanup()
+
+        early_bookend = None
+        for batch in captured_batches:
+            descs = [item[0] for item in batch]
+            if "ipc_server.stop" in descs:
+                early_bookend = batch
+                break
+        assert early_bookend is not None
+        descs = [item[0] for item in early_bookend]
+        assert "ws_encode_pool.drain" not in descs, (
+            f"encode-pool drain item must be skipped when the server has no _ws_encode_pool; got {descs}"
         )
 
 

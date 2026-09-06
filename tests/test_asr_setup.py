@@ -19,15 +19,48 @@ from voice_typer.server.asr_setup import (
 
 
 def _install_hf_stub():
-    """Install a stub huggingface_hub module so the import succeeds."""
-    if "huggingface_hub" not in sys.modules:
-        stub = types.ModuleType("huggingface_hub")
+    """Install a package-shaped stub ``huggingface_hub`` so imports succeed.
 
-        def fake_snapshot(*args, **kwargs):
-            return None
+    The download-gate tqdm subclass imports
+    ``huggingface_hub.utils.tqdm`` lazily, so the stub must be a real
+    package in ``sys.modules`` (``huggingface_hub`` + ``.utils`` +
+    ``.utils.tqdm`` with a minimal ``tqdm`` class) — a bare module
+    would make that import raise ``ModuleNotFoundError`` (``'huggingface_hub'
+    is not a package``) before the patched ``snapshot_download`` ever runs.
+    """
+    if "huggingface_hub" in sys.modules:
+        return
 
-        stub.snapshot_download = fake_snapshot
-        sys.modules["huggingface_hub"] = stub
+    def fake_snapshot(*args, **kwargs):
+        return None
+
+    stub = types.ModuleType("huggingface_hub")
+    stub.snapshot_download = fake_snapshot
+    stub.__path__ = []  # mark as package so submodule imports resolve
+    sys.modules["huggingface_hub"] = stub
+
+    utils = types.ModuleType("huggingface_hub.utils")
+    utils.__path__ = []
+    sys.modules["huggingface_hub.utils"] = utils
+
+    hf_tqdm = types.ModuleType("huggingface_hub.utils.tqdm")
+
+    # Mirrors the real submodule's export name (lowercase `tqdm`), which
+    # the gate subclass imports by that exact name. The minimal stand-in
+    # only needs the constructor/protocol surface the gate touches.
+    class _StubTqdm:
+        def __init__(self, *args, **kwargs):
+            self.total = kwargs.get("total")
+            self.n = 0
+
+        def update(self, n=1):
+            self.n += n
+
+        def close(self):
+            pass
+
+    hf_tqdm.tqdm = _StubTqdm
+    sys.modules["huggingface_hub.utils.tqdm"] = hf_tqdm
 
 
 class TestVerifyModelIntegrityReturnsDetails:
