@@ -584,9 +584,8 @@ class OutputMixin:
                         # client doesn't grow the buffer unboundedly
                         # during shutdown.
                         self._pending_tcp = pending + self._pending_tcp
-                        _pending_cap_shutdown = 1000
-                        if len(self._pending_tcp) > _pending_cap_shutdown:
-                            _dropped = len(self._pending_tcp) - _pending_cap_shutdown
+                        if len(self._pending_tcp) > _TCP_PENDING_BUFFER_CAP:
+                            _dropped = len(self._pending_tcp) - _TCP_PENDING_BUFFER_CAP
                             del self._pending_tcp[:_dropped]
                 return
             # Write-readiness gate: ``_await_socket_writable`` blocks
@@ -762,11 +761,10 @@ class OutputMixin:
             # 1000-entry cap from the ``tcp_mode`` branch is enforced
             # so we don't grow the buffer unboundedly.
             if _undrained:
-                _pending_cap_remerge = 1000
                 with self._lock:
                     self._pending_tcp = _undrained + self._pending_tcp
-                    if len(self._pending_tcp) > _pending_cap_remerge:
-                        _dropped = len(self._pending_tcp) - _pending_cap_remerge
+                    if len(self._pending_tcp) > _TCP_PENDING_BUFFER_CAP:
+                        _dropped = len(self._pending_tcp) - _TCP_PENDING_BUFFER_CAP
                         del self._pending_tcp[:_dropped]
                 log.debug(
                     "[IPC] re-merged %d undrained pending entries",

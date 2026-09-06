@@ -41,7 +41,7 @@ time.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Final
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
@@ -52,6 +52,18 @@ from voice_typer.server.hallucination import (
 from voice_typer.server.vad_policy import decide_vad_filter
 
 np = lazy_module("numpy")
+
+# Silero-VAD tuning passed to BOTH faster-whisper decode loops (batch
+# ``transcribe_unlocked`` + streaming-words ``transcribe_words_unlocked``).
+# faster-whisper consumes the mapping read-only (``VadOptions(**vad_parameters)``
+# — verified against faster-whisper 1.2.1), so ONE shared module-level dict
+# is safe; it was previously duplicated as an identical ``dict(...)`` literal
+# inside each loop. Keep the values identical across both call sites by
+# construction: never re-assign per call, never mutate the shared dict.
+_VAD_PARAMETERS: Final[dict[str, int]] = {
+    "min_silence_duration_ms": 500,
+    "speech_pad_ms": 200,
+}
 
 # Use the ``transcription`` logger name so log records emitted from this
 # extracted module are captured by tests that filter by
@@ -161,16 +173,18 @@ def transcribe_unlocked(
             rms,
         )
 
+    # NOTE: ``best_of`` is deliberately NOT passed — faster-whisper only
+    # honors it when sampling with non-zero temperature, and the pinned
+    # ``temperature=0.0`` (greedy decoding, no fallback-temperature retries)
+    # made the forwarded config knob a silent no-op. ``temperature=0.0``
+    # itself MUST stay: faster-whisper's default is a fallback gradient
+    # (``[0.0, 0.2, ...]``) that would change decoding behavior.
     segments, info = engine._model.transcribe(
         audio,
         beam_size=engine.beam_size,
-        best_of=engine.best_of,
         temperature=0.0,
         vad_filter=use_vad_filter,
-        vad_parameters=dict(
-            min_silence_duration_ms=500,
-            speech_pad_ms=200,
-        ),
+        vad_parameters=_VAD_PARAMETERS,
         language=engine.language,
         condition_on_previous_text=engine.condition_on_previous_text,
         without_timestamps=True,
@@ -370,16 +384,14 @@ def transcribe_words_unlocked(
         getattr(engine.config, "vad_filter_enabled", True),
     )
 
+    # Same ``best_of`` reasoning as ``transcribe_unlocked`` above: a no-op
+    # under the pinned ``temperature=0.0``, so it is not forwarded.
     segments, _info = engine._model.transcribe(
         audio,
         beam_size=engine.beam_size,
-        best_of=engine.best_of,
         temperature=0.0,
         vad_filter=use_vad_filter,
-        vad_parameters=dict(
-            min_silence_duration_ms=500,
-            speech_pad_ms=200,
-        ),
+        vad_parameters=_VAD_PARAMETERS,
         language=engine.language,
         condition_on_previous_text=engine.condition_on_previous_text,
         word_timestamps=True,

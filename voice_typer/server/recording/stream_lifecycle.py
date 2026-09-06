@@ -42,10 +42,10 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from voice_typer.server._audio_constants import (
-    _AUDIO_BLOCKSIZE,
     _TEARDOWN_CALLBACK_DRAIN_BUDGET_S,
     _TEARDOWN_CALLBACK_POLL_INTERVAL_S,
     SILERO_VAD_SAMPLE_RATES,
+    scaled_audio_blocksize,
 )
 from voice_typer.server._lazy_import import lazy_module
 
@@ -174,11 +174,17 @@ class StreamLifecycle:
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
-                    # VAD-001: request 512-sample blocks so Silero VAD
-                    # gets the exact chunk size it expects. PortAudio
+                    # VAD-001 (rate-scaled): request ~32 ms blocks so each
+                    # chunk resamples to EXACTLY 512 samples at 16 kHz —
+                    # the Silero VAD window (1536 @ 48 kHz, 1411 @ 44.1 kHz;
+                    # the 512 floor keeps the contract on low-rate devices).
+                    # A fixed 512 block at native 48 kHz produced 10.7 ms
+                    # chunks (~93.75 callbacks/sec) — ~3× the designed
+                    # worker/VAD cadence, with VAD hysteresis frame counts
+                    # running ~3× faster than documented. PortAudio
                     # may still deliver a different size on some drivers,
                     # but vad.py now pads/truncates to handle that.
-                    blocksize=_AUDIO_BLOCKSIZE,
+                    blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint.
                     # On ALSA/CoreAudio/WASAPI this selects the smallest
                     # viable buffer (10-20 ms end-to-end callback latency).
@@ -315,8 +321,9 @@ class StreamLifecycle:
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
-                    # VAD-001: request 512-sample blocks for Silero VAD
-                    blocksize=_AUDIO_BLOCKSIZE,
+                    # VAD-001 (rate-scaled): ~32 ms blocks, same rationale
+                    # as the primary open_stream_for_candidates call above.
+                    blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint
                     # (mirrors the primary open_stream_for_candidates call;
                     # PortAudio silently falls back if unavailable).

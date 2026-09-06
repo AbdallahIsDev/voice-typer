@@ -61,10 +61,32 @@ class HighPassFilter(AudioFilter):
         nyq = self._sample_rate / 2.0
         cutoff = min(max(self._cutoff_hz, 20.0), nyq * 0.99)
         try:
+            from scipy.signal import butter, sos2zpk
+
             # Order 4 for steeper rolloff (24 dB/octave), SOS form for
             # numerical stability (see class docstring).
             sos = butter(4, cutoff / nyq, btype="high", output="sos")
             sos = np.asarray(sos, dtype=np.float32)
+            # Design-time stability gate: the float32 cast above (which
+            # keeps the per-chunk path zero-copy) must leave every pole
+            # strictly INSIDE the unit circle. An order-4 Butterworth
+            # high-pass has four tightly-clustered poles near z=1; the
+            # old b/a form rounded them outward at high sample rates and
+            # diverged to inf/NaN within ~150 ms — the failure mode the
+            # SOS form exists to prevent. Verified against the real
+            # design at every native rate (max|pole| ≈ 0.998 at 96 kHz,
+            # comfortably < 1), so this only trips on a genuinely broken
+            # design (e.g. a future order/cutoff change). An explicit
+            # raise — not an ``assert``, which ``-O`` strips — routes
+            # through the ``except`` below to the degraded-passthrough
+            # path instead of ever running a recursion known to diverge.
+            _zeros, poles, _gain = sos2zpk(sos)
+            max_pole = float(np.max(np.abs(poles))) if len(poles) else 0.0
+            if not max_pole < 1.0:
+                raise ValueError(
+                    f"unstable high-pass design: max|pole|={max_pole:.6f} >= 1 "
+                    f"(cutoff={cutoff:.1f} Hz, sr={self._sample_rate}, order=4, float32 SOS)"
+                )
             # Start from silence: all-zero IIR memory, exactly like the
             # previous b/a form (``zi = zeros``). Do NOT use
             # ``sosfilt_zi`` here — it returns the steady-state DC

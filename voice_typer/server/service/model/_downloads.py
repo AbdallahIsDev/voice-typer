@@ -489,7 +489,12 @@ class DownloadsMixin:
                     model_name,
                     repo_id,
                 )
-                _push_progress(event_bus, model_name, 100, f"{model_name} already cached")
+                # Status-only event at a NON-terminal percent: the single
+                # 100% push for this download call is the shared terminal
+                # push below ("Download of ... complete"). Pushing the
+                # terminal percent here too made every cache hit emit TWO
+                # 100% events; the bar must reach 100 exactly once.
+                _push_progress(event_bus, model_name, 5, f"{model_name} already cached")
             except Exception:
                 # pull target size from the
                 # registry instead of the hard-coded size_targets
@@ -790,9 +795,32 @@ class DownloadsMixin:
                     model_name,
                     last_total_bytes_seen // (1024 * 1024),
                 )
-                _push_progress(event_bus, model_name, 100, f"{model_name} download complete")
         except ImportError:
-            log.debug("[SERVICE] huggingface_hub not available, falling back to engine.load()")
+            # huggingface_hub is missing or broken (stripped venv /
+            # damaged install). This arm previously only logged a debug
+            # line claiming a "fallback to engine.load()" — a fallback
+            # that no longer exists — and then FELL THROUGH to the
+            # success report: 100% progress, a "downloaded successfully"
+            # toast, and {"success": True} with NO model files on
+            # disk. Report a structured failure instead (same shape as
+            # the Parakeet path's reason-table unpack), and release the
+            # single-flight gate so the next download attempt isn't
+            # refused as "already active" (both cleanup calls are
+            # idempotent no-ops if the cache-miss branch's ``finally``
+            # already ran).
+            if download_id is not None:
+                self._unregister_download(download_id)
+            clear_download_pause_state()
+            msg = _PARAKEET_REASON_MESSAGES["huggingface_hub_missing"]
+            log.exception("[SERVICE] Download of '%s' failed: %s", model_name, msg)
+            _push_progress(event_bus, model_name, 0, msg)
+            _notify(self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {msg}")
+            return {
+                "success": False,
+                "error": msg,
+                "reason": "huggingface_hub_missing",
+                "model": model_name,
+            }
 
         # VERIFY-LIGHT: skip the expensive full-model load verification.
         # Previously this loaded a TranscriptionEngine and called
@@ -802,6 +830,11 @@ class DownloadsMixin:
         # checks — there's no need to load the entire model just to
         # confirm the files exist.
         log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
+        # Single terminal 100% push per download call: the cache-hit
+        # branch reports "already cached" as a status-only event at a
+        # non-terminal percent, and the cache-miss branch reaches here
+        # after its per-chunk progress stream (which caps at 95%). This
+        # is the ONLY event any success path pushes at 100%.
         _push_progress(event_bus, model_name, 100, f"Download of {model_name} complete")
         # invalidate the tray models submenu cache
         # so the next right-click reflects the newly-downloaded

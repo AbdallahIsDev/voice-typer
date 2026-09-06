@@ -67,10 +67,12 @@ def probe_cuda_runtime(engine, progress_callback=None):
         # Must exercise the same cuBLAS kernels as real dictation.
         # NOTE: vad_filter=False is deliberate — VAD would reject a
         # sine wave as non-speech, causing Whisper to be skipped.
+        # ``best_of`` is deliberately NOT passed: faster-whisper only
+        # honors it when sampling with non-zero temperature, so under
+        # the pinned ``temperature=0.0`` it was a silent no-op.
         segments, info = engine._model.transcribe(
             probe_audio,
             beam_size=engine.beam_size,
-            best_of=engine.best_of,
             temperature=0.0,
             vad_filter=False,
             language=engine.language,
@@ -173,10 +175,11 @@ def warm_up_model(engine) -> None:
         import numpy as np
 
         warmup_audio = np.zeros(int(_WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
+        # Same ``best_of`` reasoning as the probe above: a no-op under the
+        # pinned ``temperature=0.0``, so it is not forwarded.
         segments, _ = engine._model.transcribe(
             warmup_audio,
             beam_size=1,
-            best_of=1,
             temperature=0.0,
             vad_filter=False,
             language=engine.language,

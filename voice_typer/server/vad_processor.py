@@ -193,7 +193,7 @@ class VadProcessor:
                 :meth:`on_config_changed` or the 5s TTL fallback.
             vad_check_available_fn: optional callable returning bool
                 (Silero available?). When None, imports
-                ``voice_typer.server.vad._check_vad_available`` lazily
+                ``voice_typer.server.vad.is_available`` lazily
                 (preserving the prior deferred-import behavior).
         """
         self._config: Any = config
@@ -253,7 +253,7 @@ class VadProcessor:
             try:
                 if vad_check_available_fn is None:
                     from voice_typer.server.vad import (
-                        _check_vad_available as _vad_check_available,
+                        is_available as _vad_check_available,
                     )
 
                     vad_check_available_fn = _vad_check_available

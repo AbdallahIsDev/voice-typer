@@ -127,6 +127,23 @@ def _get_resample_poly_fn():
     return _resample_poly_fn
 
 
+# Cached lazy lookup of ``_resample_via_cached_taps`` — the shared
+# cached-FIR-taps fast path (unpack + scipy-equivalent trim). Same
+# lazy-import rationale as the two accessors above: the resampling
+# module pulls numpy at import, so it must not be loaded eagerly here.
+_resample_via_cached_taps_fn = None
+
+
+def _get_resample_via_cached_taps_fn():
+    """Lazy accessor for ``_resample_via_cached_taps`` from resampling.py."""
+    global _resample_via_cached_taps_fn
+    if _resample_via_cached_taps_fn is None:
+        from voice_typer.server.recording.resampling import _resample_via_cached_taps
+
+        _resample_via_cached_taps_fn = _resample_via_cached_taps
+    return _resample_via_cached_taps_fn
+
+
 log = logging.getLogger(__name__)
 
 QualityCallback = Callable[[float, float], None]
@@ -521,7 +538,15 @@ class AudioProcessor:
                 # statements on the RT thread.
                 try:
                     taps = _get_resample_fir_taps_fn()(up, down)
-                    chunk = _get_upfirdn()(taps, chunk, up=up, down=down).astype(np.float32, copy=False)
+                    # ``taps`` is the ``(h_padded, n_pre_remove,
+                    # n_pre_pad)`` design context —
+                    # ``_resample_via_cached_taps`` unpacks it, applies
+                    # scipy's spin-up trim, and returns float32 (a
+                    # no-op cast when the cached float32 taps already
+                    # produced float32 output). Passing the resolved
+                    # ``_get_upfirdn()`` callable keeps the patch seam
+                    # live (tests patch ``_upfirdn``).
+                    chunk = _get_resample_via_cached_taps_fn()(taps, chunk, up, down, _get_upfirdn())
                 except Exception:
                     chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
                 # one-shot WARNING (rate-limited) so operators can

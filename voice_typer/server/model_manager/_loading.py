@@ -63,6 +63,57 @@ class LoadingMixin:
 
         def active_transcriber(self) -> Any | None: ...
 
+    def _on_load_success(self, backend_name: str) -> None:
+        """Shared post-load success ritual for every model-load path.
+
+        The load paths live in separate mixins (``_loading.py`` /
+        ``_change.py``) and each used to hand-roll the same completion
+        sequence: LRU touch + evict, deliberate-unload flag clear, and
+        the tray "Ready" message. The copies had drifted — three of the
+        six hardcoded English tray strings instead of the localized
+        ``state.model_manager.ready_*`` keys. This helper now owns the
+        ritual:
+
+        1. touch the freshly-loaded backend so PERF-015 LRU tracking
+           sees it, then evict the LRU model if more than
+           ``_MAX_LOADED_MODELS`` are loaded. Guarded so a tracking
+           failure doesn't break the load.
+        2. clear the deliberate-unload flag — the backend is healthy
+           again, so a FUTURE genuine failure must re-notify the user.
+        3. transition the tray to IDLE with the LOCALIZED ready
+           message: ``state.model_manager.ready_whisper`` (with the
+           engine's device info) for a loaded whisper engine,
+           ``state.model_manager.ready_other`` otherwise. The renderer
+           pushes localized values for both keys via
+           ``set_tray_locale`` (see ``client/.../i18n/push.ts``), so the
+           message follows the user's UI locale on every path.
+
+        Called with the backend that just finished loading (in every
+        production path this equals ``self._registry.active_name``
+        after a successful load).
+        """
+        try:
+            self.touch_model(backend_name)
+            self._evict_lru_model()
+        except Exception:
+            log.warning("[PERF] LRU tracking failed (non-fatal)", exc_info=True)
+        self._clear_deliberately_unloaded(backend_name)
+        active = self._registry.get_active()
+        name = self._registry.active_name
+        if name == "whisper" and active is not None:
+            self._app.tray.set_state(
+                AppState.IDLE,
+                i18n.t(
+                    "state.model_manager.ready_whisper",
+                    device_info=active.device_info,
+                ),
+            )
+        else:
+            self._app.tray.set_state(
+                AppState.IDLE,
+                i18n.t("state.model_manager.ready_other", name=name.title()),
+            )
+
     def load_background(self) -> None:
         """Background worker: create + load the transcription engine.
 
@@ -150,37 +201,7 @@ class LoadingMixin:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
 
             if success:
-                #  PERF-015 LRU eviction — touch the
-                # freshly-loaded backend so it's tracked, then evict the
-                # LRU model if more than _MAX_LOADED_MODELS are now loaded.
-                # Guarded so a tracking failure doesn't break the load.
-                try:
-                    self.touch_model(self._registry.active_name)
-                    self._evict_lru_model()
-                except Exception:
-                    log.warning(
-                        "[PERF] LRU tracking failed (non-fatal)",
-                        exc_info=True,
-                    )
-                # Successful load → the backend is healthy again; clear
-                # any deliberate-unload flag so a FUTURE genuine failure
-                # re-notifies the user.
-                self._clear_deliberately_unloaded(self._registry.active_name)
-                active = self._registry.get_active()
-                name = self._registry.active_name
-                if name == "whisper" and active is not None:
-                    self._app.tray.set_state(
-                        AppState.IDLE,
-                        i18n.t(
-                            "state.model_manager.ready_whisper",
-                            device_info=active.device_info,
-                        ),
-                    )
-                else:
-                    self._app.tray.set_state(
-                        AppState.IDLE,
-                        i18n.t("state.model_manager.ready_other", name=name.title()),
-                    )
+                self._on_load_success(self._registry.active_name)
             else:
                 if self._app._shutting_down:
                     return
@@ -417,27 +438,7 @@ class LoadingMixin:
             self._notify_model_load_refused(exc, backend=new_backend)
             return
         if success:
-            #  PERF-015 LRU eviction — touch the
-            # freshly-loaded backend so it's tracked, then evict the
-            # LRU model if more than _MAX_LOADED_MODELS are now loaded.
-            # Guarded so a tracking failure doesn't break the load.
-            try:
-                self.touch_model(self._registry.active_name)
-                self._evict_lru_model()
-            except Exception:
-                log.warning(
-                    "[PERF] LRU tracking failed (non-fatal)",
-                    exc_info=True,
-                )
-            # Successful load → backend healthy again; clear any
-            # deliberate-unload flag so a future genuine failure
-            # re-notifies.
-            self._clear_deliberately_unloaded(self._registry.active_name)
-            active = self._registry.get_active()
-            self._app.tray.set_state(
-                AppState.IDLE,
-                f"Ready -- {active.device_info}" if active else "Ready",
-            )
+            self._on_load_success(self._registry.active_name)
         else:
             self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             if notify_on_failure:
@@ -482,28 +483,7 @@ class LoadingMixin:
 
             success = self._registry.load_with_fallback(progress_callback=on_progress)
             if success:
-                #  PERF-015 LRU eviction — touch the
-                # freshly-loaded backend so it's tracked, then evict the
-                # LRU model if more than _MAX_LOADED_MODELS are now loaded.
-                # Guarded so a tracking failure doesn't break the load.
-                try:
-                    self.touch_model(self._registry.active_name)
-                    self._evict_lru_model()
-                except Exception:
-                    log.warning(
-                        "[PERF] LRU tracking failed (non-fatal)",
-                        exc_info=True,
-                    )
-                # Successful load → backend healthy again; clear any
-                # deliberate-unload flag so a future genuine failure
-                # re-notifies.
-                self._deliberately_unloaded.discard(self._registry.active_name)
-                active = self._registry.get_active()
-                info = getattr(active, "device_info", "unknown") if active else "unknown"
-                self._app.tray.set_state(
-                    AppState.IDLE,
-                    i18n.t("state.model_manager.ready_whisper", device_info=info),
-                )
+                self._on_load_success(self._registry.active_name)
                 log.info("[MODEL] Loaded successfully")
             else:
                 raise RuntimeError("All backends failed to load")
@@ -677,23 +657,13 @@ class LoadingMixin:
                     )
                 finally:
                     self._sync_load_in_progress = False
-                # Re-arm the idle-unload timer for the next idle period
-                # (touch_model only arms when backend == active_name).
+                # Shared success ritual: re-arm the idle-unload timer
+                # (touch_model only arms when backend == active_name),
+                # then surface the active backend's device info on the
+                # tray via the localized ready message (matches the
+                # other five load paths).
                 try:
-                    self.touch_model(self._registry.active_name)
+                    self._on_load_success(backend)
                 except Exception:
-                    log.debug("[MODEL] touch_model after reload failed", exc_info=True)
-                # Surface the active backend's device info on the tray
-                # so the user sees "Ready -- <device>" (matches the
-                # set_active_backend success-path tray message).
-                try:
-                    active = self._registry.get_active()
-                    name = self._registry.active_name
-                    if active is not None:
-                        if name == "whisper":
-                            self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
-                        else:
-                            self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
-                except Exception:
-                    log.debug("[MODEL] tray set_state after reload failed", exc_info=True)
+                    log.debug("[MODEL] success ritual after reload failed", exc_info=True)
         return self.active_transcriber()

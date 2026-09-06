@@ -58,6 +58,44 @@ NATIVE_MIC_RATES: frozenset[int] = frozenset({8000, 16000, 44100, 48000})
 # lands in one place.
 _AUDIO_BLOCKSIZE: int = 512
 
+
+def scaled_audio_blocksize(native_rate: int) -> int:
+    """Rate-scaled PortAudio ``blocksize`` for a recording stream.
+
+    Returns the blocksize that makes each callback chunk represent
+    ~32 ms of audio at ``native_rate``: ``max(512, int(rate * 0.032))``.
+    The 512 floor preserves the Silero VAD 512-sample contract (and a
+    sane minimum block) on low-rate devices; at 16 kHz the formula
+    yields exactly 512.
+
+    Why rate-scaling matters: a fixed 512 block at a 48 kHz native rate
+    is a 10.7 ms chunk → ~93.75 callbacks/sec, ~3× the designed 16-31 Hz
+    worker/VAD cadence — every VAD hysteresis frame count and chunk-based
+    time constant then runs ~3× faster than designed, and Silero computes
+    ~3× the intended inferences per second on reflect-padded 170→512
+    windows. With the scaled block (1536 @ 48 kHz, 1411 @ 44.1 kHz,
+    3072 @ 96 kHz), each chunk resamples onto the 512-sample Silero
+    window at 16 kHz, restoring the designed cadence at every native
+    rate. Precision note: 48/96 kHz are exact integer ratios (512
+    post-resample samples precisely); 44.1 kHz is not — 1411 samples
+    is ~31.995 ms ≈ 511.93 samples' worth at 16 kHz, so the
+    512-sample window there is exact by LENGTH only (the resampler
+    rounds the output up to 512; ``vad.py`` additionally pads /
+    truncates any driver-level deviation from the window contract).
+
+    Mirrors the sibling level monitor's fix
+    (``level_monitor/monitoring.py``: ``max(512, int(native_rate * 0.032))``),
+    which corrected this same defect for its own stream.
+    """
+    rate = int(native_rate)
+    if rate <= 0:
+        # Unknown / unresolved rate: fall back to the fixed 512 contract
+        # rather than computing a nonsense block from a zero or negative
+        # rate.
+        return _AUDIO_BLOCKSIZE
+    return max(_AUDIO_BLOCKSIZE, int(rate * 0.032))
+
+
 # ``_teardown_stream`` busy-poll budget + interval. The
 # ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
 # RUNNING and CLEARED on exit — the inverse of the typical

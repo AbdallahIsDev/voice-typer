@@ -154,10 +154,12 @@ class _OrchestratorMixin:
           * ``TranscriptionEngine._transcribe_unlocked`` — breaks the
             segment loop and best-effort calls
             ``ctranslate2.Translator.interrupt()``.
-          * ``ParakeetEngine._transcribe_segment`` /
-            ``_transcribe_batch`` — the ``_AbortStoppingCriteria``
-            returns True on the next generated token, stopping
-            ``model.generate()``.
+          * ``ParakeetEngine`` — ``request_abort`` sets the engine's
+            ``_abort_event``; ``_transcribe_chunks`` checks it between
+            chunks and breaks out of the loop after the current chunk
+            completes (the ONNX backend has no per-token stop hook —
+            the ``_AbortStoppingCriteria`` name survives only as an
+            inert compatibility shim in ``parakeet_engine._shims``).
           * ``CloudEngine._send_openai_compatible`` /
             ``_send_deepgram`` — the retry loop checks the event at
             the top of each iteration and bails out.

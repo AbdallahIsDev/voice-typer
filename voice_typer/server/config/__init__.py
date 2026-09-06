@@ -172,7 +172,7 @@ from voice_typer.server.config_internals.paths import (  # noqa: F401 — backwa
 # Defined in ``config_validators.py`` (the import-safe leaf module) and
 # re-imported here so this module + the IPC validator share a single
 # source of truth.
-from voice_typer.server.config_validators import (  # noqa: F401 — backward-compat re-export  # noqa: E402,F401 — re-exported so tests / parity checks can import from voice_typer.server.config
+from voice_typer.server.config_validators import (  # noqa: F401,E402 — backward-compat re-export; imported below the header so tests / parity checks can import from voice_typer.server.config
     MAX_RECORDING_TIME_SECONDS_DEFAULT,
     MAX_RECORDING_TIME_SECONDS_MAX,
     MAX_RECORDING_TIME_SECONDS_MIN,

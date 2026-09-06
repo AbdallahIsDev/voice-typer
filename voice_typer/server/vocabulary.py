@@ -897,11 +897,17 @@ class VocabularyManager:
         rate). The "Test corrections" panel passes False so previewing
         a phrase never inflates real usage numbers.
         """
-        # Pre-compiled regexes shared with text_cleanup — avoids the
-        # 200 re-cache lookups per dictation (50 words × 4 categories)
-        # that the inline ``re.sub``/``re.match`` calls previously
-        # incurred.
-        from voice_typer.server.text_cleanup import _RE_MISSPELL_WRAP, _RE_TOKEN_KEY
+        # Pre-compiled regex + the memoized token-key normalizer, shared
+        # with text_cleanup — avoids the 200 re-cache lookups per
+        # dictation (50 words × 4 categories) that the inline
+        # ``re.sub``/``re.match`` calls previously incurred, and reuses
+        # text_cleanup's LRU-cached ``_token_key`` instead of re-running
+        # the strip regex for every token (most dictations repeat tokens
+        # heavily). NOTE: this import must stay FUNCTION-LEVEL —
+        # ``text_cleanup`` imports this module at load time
+        # (``_corrections_data`` needs ``BUNDLED_CORRECTIONS_PATH``), so
+        # a module-level import here would be a circular import.
+        from voice_typer.server.text_cleanup import _RE_MISSPELL_WRAP, _token_key
 
         # (category, original, count) hits for the usage tracker.
         hits: list[tuple[str, str, int]] = []
@@ -971,7 +977,7 @@ class VocabularyManager:
             if not isinstance(entries, dict) or not entries:
                 continue
             for i, token in enumerate(tokens):
-                key = _RE_TOKEN_KEY.sub("", token).lower()
+                key = _token_key(token)
                 correction = entries.get(key)
                 if correction is not None:
                     match = _RE_MISSPELL_WRAP.match(token)

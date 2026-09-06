@@ -782,7 +782,12 @@ def setup_logging(
         # EVERY record that reaches the handler (regardless of which
         # logger it was logged to), so attaching at the handler level is
         # sufficient AND avoids a redundant double-scan for records
-        # logged directly to ``voice_typer``. See the  comment
+        # logged directly to ``voice_typer``. The SAME instance is
+        # attached to both sinks below — per-handler double invocation is
+        # neutralised by the idempotence guard at the top of
+        # ``PIIRedactionFilter.filter`` (an already-redacted record is
+        # accepted without re-running the scan), so no second attachment
+        # is removed. See the comment
         # block below the handler-installation block for the full
         # rationale.
         from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter

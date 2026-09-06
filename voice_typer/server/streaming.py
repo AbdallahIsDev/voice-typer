@@ -14,6 +14,14 @@ from typing import Any
 
 from voice_typer.server._lazy_import import lazy_module
 
+# Token-key normalizer: the MEMOIZED helper shared with text_cleanup is
+# the single authoritative definition (``text_cleanup._engine._token_key``,
+# lru_cache over the precompiled ``^\W+|\W+$`` regex). Streaming previously
+# carried its own uncached ``_word_key`` duplicate; the assembler normalizes
+# every committed word AND every near-duplicate probe, so the shared
+# thread-safe LRU amortizes the repeated function-word/punctuation keys.
+from voice_typer.server.text_cleanup import _token_key
+
 np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
@@ -491,7 +499,7 @@ class StreamingTextAssembler:
             )
             self._seen_timestamps.discard(evicted_ts_key)
 
-        key = _word_key(word.word)
+        key = _token_key(word.word)
         # Absolute index = base_offset + current deque length (before append).
         absolute_idx = self._base_offset + len(self._words)
         self._words.append(word)
@@ -515,7 +523,7 @@ class StreamingTextAssembler:
         self._words_dirty = True
 
     def _has_near_duplicate_unlocked(self, word: WordTiming) -> bool:
-        key = _word_key(word.word)
+        key = _token_key(word.word)
         if not key:
             return False
         matching_indices = self._word_key_index.get(key, [])
@@ -531,16 +539,6 @@ class StreamingTextAssembler:
             ):
                 return True
         return False
-
-
-def _word_key(word: str) -> str:
-    return _TOKEN_KEY_RE.sub("", word).lower()
-
-
-# PERF-PIPE: precompile the regex used in _token_key at module level
-# to avoid recompilation on every call (called thousands of times
-# per cleanup pass).
-_TOKEN_KEY_RE = __import__("re").compile(r"^\W+|\W+$")
 
 
 class PartialTranscriptionBroadcaster:

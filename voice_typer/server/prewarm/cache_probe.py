@@ -117,10 +117,12 @@ _PREWARM_SKIP_HOT_RATIO = 0.9
 def _iter_warmable_files(root: Path) -> Iterator[Path]:
     """Iterate warmable files under ``root`` without per-file ``stat()``.
 
-    replaces the old ``root.rglob('*')`` + ``path.is_file()``
-    pattern. ``rglob`` followed by ``is_file()`` issues a fresh
-    ``stat()`` syscall per entry (~40 k stats for torch alone) even
-    though ``os.scandir`` already returned the d_type for each entry.
+    This is the single warmable-file walker used by BOTH production
+    consumers (``_warm_package_files`` and the stat-count regression
+    test). It replaces the old ``root.rglob('*')`` + ``path.is_file()``
+    pattern, which issued a fresh ``stat()`` syscall per entry (~40 k
+    stats for torch alone) even though ``os.scandir`` already returned
+    the d_type for each entry.
 
     This implementation uses an explicit ``os.scandir`` stack-walk
     (iterative, not recursive — so deep trees don't hit the recursion
@@ -130,8 +132,20 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
     FUSE mounts) fall back to a stat() — but that's the same
     worst-case as the old code, so no regression.
 
+    Pruning lives HERE (not at the consumer) so directories that can
+    never contribute to import-time I/O are never walked at all:
+    directory entries named ``tests`` / ``test`` / ``docs`` /
+    ``__pycache__`` (``_WARM_PACKAGE_SKIP_DIRS``) or ending in
+    ``.dist-info`` / ``.egg-info`` are skipped, matching the
+    consumer-side filter the old rglob loop applied per file. The
+    root itself is never pruned (the old relative-parts check only
+    covered directories BELOW the root).
+
     Only yields files whose suffix is in ``_WARM_PACKAGE_SUFFIXES`` —
-    callers don't have to filter. The walk follows symlinks as
+    callers don't have to filter. The suffix test uses the same
+    ``Path.suffix`` semantics as the old loop (a hidden file named
+    exactly ``.pyc`` has no suffix and is skipped, exactly as
+    ``Path.suffix`` behaved before). The walk follows symlinks as
     ``scandir`` does by default; the symlink-loop test
     (``test_walk_handles_symlinks_without_infinite_loop``) confirms
     the iterative stack-walk terminates on a self-referential
@@ -145,6 +159,7 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
     seen: set[Path] = set()
     stack: list[Path] = [root]
     suffixes = _WARM_PACKAGE_SUFFIXES
+    skip_dirs = _WARM_PACKAGE_SKIP_DIRS
     while stack:
         current = stack.pop()
         try:
@@ -161,6 +176,18 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
                         # link itself; skip.
                         continue
                     if is_dir:
+                        # Skip-dir pruning INSIDE the walk: these
+                        # directories never contribute to import-time
+                        # I/O, so don't descend into them. Same filter
+                        # the old rglob consumer applied per file —
+                        # moving it here keeps the warmed-file SET
+                        # identical while avoiding the descent.
+                        if (
+                            entry.name in skip_dirs
+                            or entry.name.endswith(".dist-info")
+                            or entry.name.endswith(".egg-info")
+                        ):
+                            continue
                         try:
                             real = Path(entry.path).resolve()
                         except OSError:
@@ -170,11 +197,10 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
                         seen.add(real)
                         stack.append(Path(entry.path))
                         continue
-                    # File: filter by suffix (the only test the
-                    # production code makes; per-file stat happens
-                    # later in the warm path which doesn't care about
-                    # d_type).
-                    if not entry.name.endswith(tuple(suffixes)):
+                    # File: filter by suffix with the SAME Path.suffix
+                    # semantics the old consumer used (pure string
+                    # computation — no stat).
+                    if Path(entry.name).suffix not in suffixes:
                         continue
                     yield Path(entry.path)
         except (FileNotFoundError, PermissionError, NotADirectoryError):
@@ -224,27 +250,11 @@ def _warm_package_files(pkg_name: str) -> int:
     total = 0
     t0 = time.perf_counter()
     for root in roots:
-        # iterate rglob directly — sorted() would force a full
-        # directory walk into memory before the first read, doubling
-        # peak RSS for large packages (torch has ~40k files).
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in _WARM_PACKAGE_SUFFIXES:
-                continue
-            # skip files whose path crosses a skipped directory
-            # (``tests/``, ``docs/``, ``__pycache__``, ``*.dist-info``,
-            # ``*.egg-info``). ``rglob`` does not prune directories, so
-            # we filter on the relative path parts here. The cost is
-            # one ``Path.parts`` tuple allocation per file — cheaper
-            # than the ``open`` + ``read`` we'd otherwise do for files
-            # that never contribute to import-time I/O.
-            rel = path.relative_to(root)
-            if any(
-                part in _WARM_PACKAGE_SKIP_DIRS or part.endswith(".dist-info") or part.endswith(".egg-info")
-                for part in rel.parts[:-1]
-            ):
-                continue
+        # Single shared walker: os.scandir-based (no per-file stat),
+        # with the suffix filter AND the skip-dir pruning living inside
+        # the walker, so the warmed-file set is identical to the old
+        # rglob loop that filtered at the consumer.
+        for path in _iter_warmable_files(root):
             try:
                 total += _warm_file(path)
             except OSError as exc:

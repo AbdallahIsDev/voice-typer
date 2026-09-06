@@ -10,6 +10,10 @@ class) so the device-detection concern can be unit-tested in isolation:
   near load time, and cache the result on the engine.
 * :func:`apply_auto_beam_size` — re-resolve ``engine.beam_size`` when the
   user left it on auto, after the resolved device changed.
+* :func:`whisper_cpu_threads` — derive the CTranslate2 intra-op thread
+  budget for ``WhisperModel`` from the machine's core count (capped), so
+  CPU dictation uses the hardware instead of CTranslate2's fixed
+  4-thread default.
 
 TEST PATCH COMPATIBILITY
 ------------------------
@@ -30,6 +34,7 @@ keep taking effect.
 from __future__ import annotations
 
 import logging
+import os
 
 # Use the ``transcription`` logger name so log records emitted from this
 # extracted module are captured by tests that filter by
@@ -110,6 +115,49 @@ def resolve_device_once(engine) -> None:
     engine._requested_device = None
     engine._device, engine._compute_type = engine._resolve_device(device)
     engine._apply_auto_beam_size()
+
+
+# Hard ceiling on the CTranslate2 intra-op thread budget. Without a
+# cap, wide machines would hand every core to the decoder and starve
+# the audio pipeline's real-time capture path.
+_WHISPER_CPU_THREADS_CAP = 8
+
+
+def whisper_cpu_threads() -> int:
+    """Return the ``cpu_threads`` budget to pass to ``WhisperModel``.
+
+    CTranslate2 defaults to 4 intra-op threads when ``cpu_threads`` is
+    left unset, which under-uses multi-core machines — the CPU decode
+    path is the primary non-GPU path and the whole GPU→CPU fallback
+    chain. This derives the budget from the available cores, capped at
+    :data:`_WHISPER_CPU_THREADS_CAP` so decode threads never contend
+    badly with the audio capture pipeline.
+
+    Resolution order:
+
+    1. ``psutil.cpu_count(logical=False)`` — physical cores (psutil is
+       a declared project dependency; ``logical=False`` avoids paying
+       SMT hyperthreads that barely help batched matrix work).
+    2. ``os.sched_getaffinity(0)`` — affinity-aware logical CPU count
+       (Linux; used when the physical count is unavailable).
+    3. ``os.cpu_count()`` — final fallback (Windows/macOS have no
+       ``sched_getaffinity``).
+
+    Always returns ``>= 1``.
+    """
+    physical: int | None = None
+    try:
+        import psutil
+
+        physical = psutil.cpu_count(logical=False)
+    except ImportError:
+        physical = None
+    if physical is None:
+        try:
+            physical = len(os.sched_getaffinity(0))
+        except AttributeError:
+            physical = os.cpu_count() or 1
+    return max(1, min(_WHISPER_CPU_THREADS_CAP, physical))
 
 
 def apply_auto_beam_size(engine) -> None:

@@ -302,6 +302,27 @@ def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> li
 # ──────────────────────────────────────────────────────────────
 
 
+def _assert_bounded_offset(offset: int) -> None:
+    """Shared deep-OFFSET guard for every list path.
+
+    Deep OFFSET pagination is O(offset) on SQLite (it scans and
+    discards ``offset`` rows before returning the first result); at
+    offset=10K on a 500K-row DB this was measured at ~594ms. Callers
+    needing deeper pagination must use cursor pagination
+    (``before_timestamp`` + ``before_id``), which is O(log N) per page
+    via ``idx_timestamp_id``. The assert is intentional — it surfaces
+    deep-OFFSET callers loudly so they migrate rather than silently
+    degrading on large DBs. Every OFFSET (non-cursor) list path —
+    :func:`get_recent`, :func:`search` (all three no-cursor query
+    branches) and :func:`get_favorites` — must call this so the
+    bounded-offset contract has a single source of truth.
+    """
+    assert offset < 1000, (
+        f"OFFSET pagination requires offset < 1000 (got {offset}); "
+        "use cursor pagination (before_timestamp + before_id) for deeper pages"
+    )
+
+
 def get_recent(
     db: HistoryDB,
     limit: int = 50,
@@ -362,16 +383,7 @@ def get_recent(
                 ),
             )
         else:
-            # Guard against deep-OFFSET pagination. SQLite must scan and
-            # discard ``offset`` rows before returning the first result;
-            # at offset=10K on a 500K-row DB this was measured at ~594ms.
-            # Callers needing deeper pagination must use cursor
-            # pagination (before_timestamp + before_id), which is
-            # O(log N) per page via idx_timestamp_id.
-            assert offset < 1000, (
-                f"OFFSET pagination requires offset < 1000 (got {offset}); "
-                "use cursor pagination (before_timestamp + before_id) for deeper pages"
-            )
+            _assert_bounded_offset(offset)
             cursor.execute(
                 """
                 SELECT
@@ -546,10 +558,7 @@ def search(
                 # No-cursor path: push LIMIT (+ OFFSET) into the trigram
                 # FTS subquery (same shape/rationale as the unicode61
                 # push-down branch).
-                assert offset < 1000, (
-                    f"OFFSET pagination requires offset < 1000 (got {offset}); "
-                    "use cursor pagination (before_timestamp + before_id) for deeper pages"
-                )
+                _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
                     """
@@ -630,10 +639,7 @@ def search(
                 # timestamp defaults to CURRENT_TIMESTAMP, but not
                 # identical for same-second ties, so the outer sort is
                 # still required.
-                assert offset < 1000, (
-                    f"OFFSET pagination requires offset < 1000 (got {offset}); "
-                    "use cursor pagination (before_timestamp + before_id) for deeper pages"
-                )
+                _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
                     """
@@ -704,6 +710,10 @@ def search(
                     ),
                 )
             else:
+                # LIKE fallback, OFFSET branch: same bounded-offset
+                # contract as the FTS branches (this branch previously
+                # lacked the guard — same silent O(offset) skip scan).
+                _assert_bounded_offset(offset)
                 cursor.execute(
                     """
                     SELECT
@@ -776,6 +786,10 @@ def get_favorites(
                 ),
             )
         else:
+            # Same bounded-offset contract as ``get_recent`` / ``search``:
+            # without this guard the IPC layer could pass offsets up to
+            # 10,000,000 and trigger a silent O(offset) skip scan.
+            _assert_bounded_offset(offset)
             cursor.execute(
                 """
                 SELECT

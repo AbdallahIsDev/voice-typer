@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+from voice_typer.server._audio_constants import (
+    WHISPER_SAMPLE_RATE,
+    scaled_audio_blocksize,
+)
 
 from ._state import _state
 
@@ -585,10 +588,10 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         # Previously ``blocksize=512`` was hardcoded, which on a 48 kHz
         # device produced ~10.7 ms chunks (≈94 Hz callback rate) and
         # made the 64-entry ring buffer hold only ~0.68 s of audio —
-        # far short of the ~2 s window it is sized for. The ``max(512, ...)``
-        # floor preserves the 512-sample minimum on low-rate devices so
-        # PortAudio doesn't get pathologically small blocks.
-        blocksize = max(512, int(native_rate * 0.032))
+        # far short of the ~2 s window it is sized for. The shared
+        # helper applies the same 512-sample floor on low-rate devices
+        # so PortAudio doesn't get pathologically small blocks.
+        blocksize = scaled_audio_blocksize(native_rate)
 
         # Cell for the not-yet-created InputStream: the finished-callback
         # guard needs the stream's IDENTITY, but Python has no forward

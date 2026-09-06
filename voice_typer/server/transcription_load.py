@@ -29,11 +29,15 @@ np = lazy_module("numpy")
 
 @runtime_checkable
 class TranscriberProtocol(Protocol):
-    """Protocol that any transcription engine must implement.
+    """Protocol that every transcription engine must implement.
 
-    ``isinstance(backend, TranscriberProtocol)`` correctly identifies
-    backends that support streaming (including the ``transcribe_words``
-    method used by ``streaming.py`` and ``recording_controller.py``).
+    This is the REQUIRED surface shared by all engines — Whisper,
+    Parakeet, Qwen and Cloud. Word-level transcription is deliberately
+    NOT part of it: only the local Whisper engine implements
+    ``transcribe_words`` (see :class:`WordLevelTranscriber`), and the
+    streaming coordinator gates that optional capability with an
+    explicit ``hasattr(active, "transcribe_words")`` check before any
+    streaming session starts.
     """
 
     @property
@@ -54,5 +58,24 @@ class TranscriberProtocol(Protocol):
 
     @property
     def loaded_via(self) -> str: ...
+
+
+@runtime_checkable
+class WordLevelTranscriber(Protocol):
+    """Optional capability protocol: word-level (streaming) transcription.
+
+    Only the local Whisper ``TranscriptionEngine`` implements
+    ``transcribe_words`` — Parakeet, Qwen and the cloud engines
+    deliberately do not. Production never assumes the capability: the
+    streaming session coordinator gates with
+    ``hasattr(active, "transcribe_words")`` (mirroring
+    :class:`WordLevelTranscriber` structurally) before starting a
+    streaming session, so a Protocol that REQUIRED the method would
+    misdocument the actual contract.
+
+    Consumers MUST either isinstance-check against this
+    ``runtime_checkable`` protocol or repeat the explicit ``hasattr``
+    gate — never call ``transcribe_words`` unconditionally.
+    """
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...

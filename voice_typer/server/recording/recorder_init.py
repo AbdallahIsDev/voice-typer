@@ -84,7 +84,7 @@ import queue
 import threading
 from typing import TYPE_CHECKING, Any
 
-from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE, WHISPER_SAMPLE_RATE
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE, scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
 
 if TYPE_CHECKING:
@@ -509,13 +509,20 @@ class RecorderInitMixin:
         # Configurable via config.pre_roll_buffer_seconds (0 = disabled).
         #
         # the deque maxlen MUST be sized against the device's
-        # *effective* sample rate, not config.sample_rate (16kHz). At
-        # 48kHz the same 512-sample blocksize fires 3× more often, so a
-        # 1-second pre-roll needs 3× the chunk capacity. The placeholder
-        # sizing below uses config.sample_rate as a safe default for the
-        # common 16kHz case; start() re-sizes the deque once
-        # _effective_sr is known (after the device loop succeeds) using
-        # the values cached in _preroll_seconds / _preroll_blocksize.
+        # *effective* sample rate using the rate-scaled blocksize, not a
+        # fixed-512 chunk assumption. The stream delivers ~32 ms chunks
+        # at every native rate (``scaled_audio_blocksize``: 512 @ 16 kHz,
+        # 1536 @ 48 kHz, 1411 @ 44.1 kHz — the value the stream open
+        # paths pass to ``sd.InputStream``), so sizing this deque from a
+        # fixed 512 while the callback delivers scaled chunks would make
+        # the pre-roll over-capture the configured pre-speech seconds
+        # ~3× at 48 kHz (~6× at 96 kHz). The placeholder sizing below
+        # uses config.sample_rate with the matching scaled blocksize as
+        # a safe default for the common 16 kHz case; start() re-sizes
+        # the deque once _effective_sr is known (after the device loop
+        # succeeds) via ``SessionState.resize_buffers_for_sample_rate``,
+        # which recomputes the chunk count from the cached
+        # _preroll_seconds and the effective rate's scaled blocksize.
         # pre_roll_buffer_seconds is a Config dataclass field
         # (config.py, default 0.0) — always present on a real Config
         # instance, so the getattr fallback could never fire and was
@@ -528,9 +535,12 @@ class RecorderInitMixin:
         # using _effective_sr without re-reading config (which the audio
         # callback does not touch).
         self._preroll_seconds: float = preroll_seconds
-        self._preroll_blocksize: int = _AUDIO_BLOCKSIZE  # matches sd.InputStream blocksize
+        # Chunk-size mirror for the placeholder deque below: the ~32 ms
+        # block the stream is opened with at ``sample_rate`` (at the
+        # 16 kHz config default this is exactly 512 — the Silero window).
+        self._preroll_blocksize: int = scaled_audio_blocksize(sample_rate)
         self._preroll_buffer: collections.deque = collections.deque(
-            maxlen=int(preroll_seconds * sample_rate / _AUDIO_BLOCKSIZE) + 2 if preroll_seconds > 0 else 0
+            maxlen=int(preroll_seconds * sample_rate / self._preroll_blocksize) + 2 if preroll_seconds > 0 else 0
         )
         self._preroll_active: bool = preroll_seconds > 0  # only capture when enabled
 

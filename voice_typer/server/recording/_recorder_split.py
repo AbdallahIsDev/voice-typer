@@ -51,9 +51,10 @@ from typing import TYPE_CHECKING, Any
 
 # ``_AUDIO_BLOCKSIZE`` is used in ``start_recording`` to scale
 # the SPSC ring buffer capacity to ~2s of headroom at the device's
-# effective sample rate. Imported from ``_audio_constants`` (single
+# effective sample rate (via the rate-scaled wrapper in the same
+# module). Imported from ``_audio_constants`` (single
 # source of truth, no circular import).
-from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE, scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
 
 # ── Contiguous recording storage (replaces the chunk deque + concat caches) ──
@@ -1013,19 +1014,27 @@ def start_recording(recorder: Recorder) -> None:
     recorder._session_state.resize_buffers_for_sample_rate(recorder, effective_sr, max_rec)
 
     # Scale the SPSC ring buffer to ~2s of headroom at the
-    # device's effective sample rate. ``_resize_buffers_for_sample_rate``
-    # (in ``session_state.py``) already resizes for ~1.0s with a floor
-    # of 16 chunks — sufficient for VAD inference spikes (Silero ~1-5ms
-    # per chunk on CPU) but tight when the audio worker briefly falls
-    # behind on RNNoise (~50ms/chunk * 16 Hz = 800ms/sec of CPU). At
-    # 48 kHz / 512-sample blocks, the 1.0s sizing gives only 93 chunks;
-    # a 1s worker stall would evict ~93 chunks ~ 1s of speech.
+    # device's effective sample rate.
+    # ``SessionState.resize_buffers_for_sample_rate`` (in
+    # ``session_state.py``) has already sized the ring from the
+    # ``VOICE_TYPER_RING_BUFFER_SECONDS`` env var (default 2.0) with a
+    # floor of 64 chunks — sufficient for VAD inference spikes (Silero
+    # ~1-5ms per chunk on CPU), RNNoise worker stalls (~50ms/chunk on
+    # CPU) and the pre-roll filter-chain prepend that now runs on the
+    # worker thread while live audio accumulates in the ring. This
+    # block re-applies the ~2.0s sizing at ``start_recording`` level as
+    # the reassignment vehicle: any stale chunks from a prior session
+    # must be securely zeroed and dropped BEFORE the worker starts
+    # consuming.
     #
-    # Override to 2.0s headroom (floor 64 chunks so a 16 kHz device
-    # still gets ~2s — 64 * 512 / 16000 = 2.048s). The per-chunk
-    # resample cost (after the retune removal) runs on the worker
-    # thread, not the RT callback, so the larger capacity absorbs the
-    # extra per-chunk latency without dropping audio.
+    # Chunk math: callback chunks are rate-scaled ~32 ms blocks
+    # (``scaled_audio_blocksize`` — 512 @ 16 kHz, 1536 @ 48 kHz), so
+    # ``int(sr / blocksize * 2.0)`` chunks hold ~2 s of audio at every
+    # native rate. Computing the capacity from a fixed 512 while the
+    # callback delivers scaled chunks would over-allocate the chunk
+    # count ~3× at 48 kHz (each scaled chunk holds 3× the samples).
+    # Floor 64 chunks so a 16 kHz device still gets ~2s —
+    # 64 * 512 / 16000 = 2.048s.
     #
     # SEC-audit-008: zero each chunk's numpy array BEFORE reassignment
     # so the previous session's audio data doesn't linger in process
@@ -1042,7 +1051,8 @@ def start_recording(recorder: Recorder) -> None:
     # float32 arrays survive until GC).
     _uu36_sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
     if _uu36_sizing_sr > 0:
-        _uu36_new_ring_capacity = max(64, int(_uu36_sizing_sr / _AUDIO_BLOCKSIZE * 2.0))
+        _uu36_blocksize = scaled_audio_blocksize(_uu36_sizing_sr)
+        _uu36_new_ring_capacity = max(64, int(_uu36_sizing_sr / _uu36_blocksize * 2.0))
         for _payload in recorder._ring_buffer:
             _arr = _payload[0] if isinstance(_payload, tuple) else _payload
             if isinstance(_arr, np.ndarray):

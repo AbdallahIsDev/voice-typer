@@ -101,16 +101,21 @@ _CONTRACTION_FIXES: dict[str, str] = {
     "mustnt": "mustn't",
     "im": "I'm",
     "ive": "I've",
-    "ill": "I'll",
-    "id": "I'd",
     "youre": "you're",
     "youve": "you've",
     "youll": "you'll",
     "youd": "you'd",
     "hes": "he's",
     "shes": "she's",
-    "its": "it's",  # NB: ambiguous with possessive "its" — see note below
-    "were": "we're",  # NB: ambiguous with "we were" — see note below
+    # "its" -> "it's" and "were" -> "we're" are deliberately ABSENT:
+    # both are ubiquitous legitimate words (possessive "its", question
+    # "Were you..."), and a whole-word rewrite silently inverts the
+    # sentence's meaning — violating this module's "MUST NOT change
+    # the meaning" contract. The contraction typos they would catch
+    # ("its a test", "were going home") are rarer than the false
+    # positives, so the safe trade is to not rewrite them at all.
+    # Same reasoning removed "ill" -> "I'll" and "id" -> "I'd"
+    # ("she felt ill", "enter your id").
     "theyre": "they're",
     "theyve": "they've",
     "theyll": "they'll",

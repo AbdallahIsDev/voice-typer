@@ -136,7 +136,7 @@ log = logging.getLogger(__name__)
 # ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
 # it here so ``from voice_typer.server.recording import X`` keeps working.
-from .audio_pipeline import (  # noqa: E402  # noqa: E402 — owner of the buffer-telemetry constants
+from .audio_pipeline import (  # noqa: E402 — owner of the buffer-telemetry constants
     _BUFFER_TELEMETRY_ENABLED,
     _XRUN_ALERT_PERIOD,
     _XRUN_ALERT_THRESHOLD,

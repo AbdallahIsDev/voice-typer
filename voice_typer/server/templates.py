@@ -677,11 +677,11 @@ class TemplateManager:
         can still win — matching the pre-fix behavior where a short
         contains trigger beats a long exact trigger.
 
-        snapshot the match indexes under ``self._lock``
-        BEFORE iterating so a concurrent CRUD mutation (which
-        reassigns ``_exact_index`` / ``_contains_list`` via
-        ``_rebuild_indexes``) can't leave ``match`` iterating a
-        half-rebuilt list.  ``substitute_variables`` is called OUTSIDE
+        the match indexes are read under ``self._lock`` so a
+        concurrent CRUD mutation (which rebuilds ``_exact_index`` /
+        ``_contains_list`` via ``_rebuild_indexes``, also under the
+        lock) can't leave ``match`` iterating a half-rebuilt index.
+        ``substitute_variables`` is called OUTSIDE
         the lock so the (potentially blocking) clipboard read in
         ``{clipboard}`` doesn't block concurrent CRUD calls.
         """
@@ -706,11 +706,14 @@ class TemplateManager:
             # is >= best_len, no subsequent (longer) trigger can beat the
             # current best, so we early-exit. Before any match is found
             # (best_len == inf) we scan the entire contains list.
-            # iterate a snapshot of the list so a concurrent
-            # ``_rebuild_indexes`` (which reassigns ``_contains_list``)
-            # can't truncate our iteration mid-scan.
-            contains_snapshot = list(self._contains_list)
-            for trigger_norm, t in contains_snapshot:
+            # iterate ``self._contains_list`` DIRECTLY (no per-call
+            # copy): every writer goes through ``_rebuild_indexes``
+            # under ``self._lock`` and REASSIGNS the attribute to a
+            # fresh list (built + sorted before publication), so the
+            # object referenced here is never mutated in place. The
+            # previous ``list(...)`` snapshot copied up to MAX_TEMPLATES
+            # entries on every dictation for no concurrency benefit.
+            for trigger_norm, t in self._contains_list:
                 if len(trigger_norm) >= best_len:
                     break
                 if trigger_norm in normalized:

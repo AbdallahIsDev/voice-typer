@@ -63,12 +63,6 @@ log = logging.getLogger("voice_typer.worker")
 # maximum envelope size.
 _MAX_FRAME_BYTES = 1 * 1024 * 1024
 
-# Concurrent-connection limit (DoS protection). The worker should only
-# ever have ONE authenticated client (the slim-core sidecar); the limit
-# is set to a small number to allow a brief overlap during the
-# sidecar's respawn window (master plan §7.2 "Respawn scheduler").
-_MAX_WS_CONNECTIONS = 4
-
 # Protocol version — imported from the shared
 # ``voice_typer.server.ipc.protocol_version`` module (single source of
 # truth, kept in lockstep with the TCP/WS transports and the Rust/TS
@@ -493,13 +487,19 @@ async def run_worker_server(  # noqa: ANN001 - websockets type is imported lazil
     #
     # NOTE: ``websockets.asyncio.server.serve`` does NOT accept a
     # ``max_connections`` kwarg (unlike the legacy
-    # ``websockets.server.serve``). Connection-limiting is done inside
-    # ``_handle_connection`` via the auth gate — the worker should
-    # only ever have ONE authenticated client (the slim-core sidecar),
-    # so a semaphore is unnecessary; a second client attempting auth
-    # with the same token is rejected at the auth step (the slim-core
-    # sidecar's respawn scheduler guarantees at most one sidecar is
-    # alive at a time).
+    # ``websockets.server.serve``), and the worker deliberately ships
+    # NO connection cap. Access to this server rests on three real
+    # controls: the auth gate inside ``_handle_connection`` (a
+    # per-launch bearer token the host generates via
+    # ``secrets.token_bytes`` on every worker spawn), the loopback-only
+    # bind (``LOOPBACK_HOST``), and the OS-assigned ephemeral port,
+    # which is discoverable only through the worker's stdout
+    # ``worker_started`` line. The worker should only ever have ONE
+    # authenticated client (the slim-core sidecar); there is NO
+    # connection tracking here and the auth step does NOT reject a
+    # same-token second client — single-client exclusivity holds in
+    # practice because the slim-core sidecar's respawn scheduler
+    # guarantees at most one sidecar is alive at a time.
     async def _handler(websocket) -> None:  # noqa: ANN001
         await _handle_connection(
             websocket,

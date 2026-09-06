@@ -899,6 +899,13 @@ class PIIRedactionFilter(logging.Filter):
     whose message includes ``?key=sk-…`` — which would otherwise be
     emitted verbatim by ``log.error("...: %s", exc,
     exc_info=True)`` style call sites.
+
+    The filter is idempotent: because a single instance is attached to
+    several handlers (SEC-003), a record that already carries
+    ``redacted_msg`` from a previous handler's pass is accepted
+    (returns ``True``) WITHOUT re-running the scan — the first pass
+    already mutated ``record.msg`` / ``record.exc_text`` in place, and
+    redaction is idempotent, so the emitted bytes are unchanged.
     """
 
     _PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -930,6 +937,20 @@ class PIIRedactionFilter(logging.Filter):
     ]
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # Idempotence guard: this filter instance is attached to BOTH the
+        # file handler and the stderr handler (SEC-003 — every sink must
+        # be filtered). Python's logging fires handler filters once per
+        # handler on the SAME LogRecord object, so the second pass would
+        # re-run the full redaction scan on already-redacted text —
+        # roughly a third of per-line logging cost, because the
+        # ``\d{3,}`` fast-trigger rarely short-circuits on operational
+        # lines (ports, durations, PIDs). ``record.redacted_msg`` is set
+        # unconditionally by every full pass below, so a set attribute
+        # proves this record was already scrubbed; redaction is
+        # idempotent, so skipping the second scan is byte-identical.
+        if getattr(record, "redacted_msg", None) is not None:
+            return True
+
         msg = record.getMessage()
         msg = _redact_text(msg)
         # store the redacted message on ``record.redacted_msg`` so

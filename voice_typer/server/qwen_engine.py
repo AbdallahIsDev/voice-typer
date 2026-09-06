@@ -34,6 +34,7 @@ from typing import Any
 import numpy as np
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+from voice_typer.server.asr_utils import merge_chunks
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 
 log = logging.getLogger(__name__)
@@ -46,19 +47,13 @@ log = logging.getLogger(__name__)
 # Despite earlier comments claiming Whisper-style models
 # "do not re-transcribe overlap text", real-world Qwen3-ASR runs DO
 # duplicate a few words at chunk boundaries (the 3 s overlap is
-# transcribed by both the previous and the current chunk). We dedup
-# by comparing the previous chunk's tail against the current chunk's
-# head and removing the matching prefix (see ``_dedup_overlap``).
+# transcribed by both the previous and the current chunk). The seam
+# merge is delegated to :func:`voice_typer.server.asr_utils.merge_chunks`
+# — the same canonical normalized dedup (punctuation-stripped,
+# case-insensitive, window-bounded) that ParakeetEngine uses, so both
+# local engines behave identically at chunk seams.
 _QWEN_CHUNK_SECONDS = 30
 _QWEN_CHUNK_OVERLAP_SECONDS = 3
-# word-count heuristic for overlap dedup at chunk boundaries.
-# N=3 balances false negatives (small N → more duplicates slip through)
-# against false positives (large N → legitimate repetition stripped).
-# At ~3 words/sec English speech, a 3 s audio overlap can produce up
-# to ~9 words of duplicate text, but ASR rarely re-transcribes the
-# entire overlap region verbatim — N=3 catches the common 1-3 word
-# repeat (e.g. "the end" + "the end of the sentence").
-_QWEN_OVERLAP_DEDUP_WORDS = 3
 
 
 class QwenEngine:
@@ -303,10 +298,12 @@ class QwenEngine:
 
         Because consecutive chunks share a 3 s overlap
                 (``_QWEN_CHUNK_OVERLAP_SECONDS``), the overlap region is
-                transcribed by both chunks. We dedup the boundary by comparing
-                the previous chunk's tail against the current chunk's head and
-                removing the matching prefix (see ``_dedup_overlap``). Surviving
-                chunk texts are then joined with simple concatenation.
+                transcribed by both chunks. The surviving chunk texts are
+                merged by :func:`voice_typer.server.asr_utils.merge_chunks`,
+                which skips the duplicated boundary words with the same
+                normalized overlap detection ParakeetEngine uses
+                (punctuation-stripped, case-insensitive, window-bounded),
+                and joins the results with single spaces.
 
         Batched path: when ``_INFERENCE_BATCH_SIZE`` > 1 (set via the
         ``QWEN_BATCH_SIZE`` env var), ``_transcribe_chunks_batched``
@@ -329,51 +326,15 @@ class QwenEngine:
         # Get raw chunk texts (batched or sequential, with per-chunk
         # hallucination filtering applied inline).  Empty strings in
         # the result list indicate hallucination rejection or no
-        # speech — the dedup pass below skips them without advancing
-        # ``prev_text``.
+        # speech — merge_chunks skips them without letting them
+        # participate in the overlap comparison.
         chunk_texts = self._transcribe_chunks_batched(model, chunks, sample_rate)
 
-        # Dedup pass: compare each non-empty chunk's head against the
-        # last appended chunk's tail and remove the matching prefix.
-        # This is a sequential pass because dedup is stateful (tracks
-        # ``prev_text``) — but it's pure string operations, so the cost
-        # is negligible vs. the inference that produced the texts.
-        results: list[str] = []
-        # track the previous chunk's appended text so the
-        # current chunk's head can be deduped against it. Only updated
-        # when a chunk's text is actually appended (hallucination-
-        # rejected or empty chunks do NOT advance prev_text — their
-        # predecessor is still the most recent valid contribution).
-        prev_text = ""
-        for i, text in enumerate(chunk_texts):
-            if not text:
-                continue
-            # remove duplicate words at the overlap boundary.
-            # Only dedup against a non-empty predecessor; the first
-            # chunk has no predecessor and is appended verbatim.
-            if prev_text:
-                text = self._dedup_overlap(
-                    prev_text,
-                    text,
-                    n=_QWEN_OVERLAP_DEDUP_WORDS,
-                )
-                if not text:
-                    # Entire current chunk was a duplicate of the
-                    # previous chunk's tail — nothing new to append.
-                    # prev_text is NOT advanced: the previous chunk's
-                    # tail remains the most recent valid transcription
-                    # for the next chunk's overlap comparison.
-                    log.debug(
-                        "[QWEN] chunk %d/%d fully deduped against predecessor — skipping",
-                        i + 1,
-                        len(chunk_texts),
-                    )
-                    continue
-            results.append(text)
-            prev_text = text
-        if not results:
-            return ""
-        return " ".join(results).strip()
+        # Seam merge: skip overlap-duplicated words at chunk boundaries
+        # and join. Delegated to the canonical shared helper so Qwen and
+        # Parakeet chunk seams behave identically (single source of
+        # truth — one dedup implementation for both local engines).
+        return merge_chunks(chunk_texts)
 
     def _transcribe_chunks_batched(
         self,
@@ -560,54 +521,6 @@ class QwenEngine:
         return texts
 
     @staticmethod
-    def _dedup_overlap(
-        prev_text: str,
-        curr_text: str,
-        n: int = _QWEN_OVERLAP_DEDUP_WORDS,
-    ) -> str:
-        """Remove duplicate words at chunk overlap boundaries.
-
-        When audio is split into overlapping chunks, the overlap region
-        is transcribed twice. If the last ``k`` words of ``prev_text``
-        match the first ``k`` words of ``curr_text`` (for any ``k`` in
-        ``[1, n]``), the matching prefix is removed from ``curr_text``.
-
-        Algorithm: try the largest ``k`` first (``k = n``) and decrease
-        until a match is found or ``k = 0``. The largest matching ``k``
-        maximises dedup while avoiding partial-word false positives
-        (a 3-word match is far more reliable than a 1-word match for
-        common stopwords like "the" / "a" / "and").
-
-        Parameters
-        ----------
-        prev_text : str
-            The previous chunk's (already-deduped) transcription text.
-        curr_text : str
-            The current chunk's transcription text.
-        n : int, optional
-            Maximum number of words to compare at the boundary.
-            Defaults to ``_QWEN_OVERLAP_DEDUP_WORDS`` (3).
-
-        Returns
-        -------
-        str
-            ``curr_text`` with the duplicate head removed, or
-            ``curr_text`` unchanged if no overlap is detected. May
-            return an empty string if the entire ``curr_text`` matched
-            the tail of ``prev_text`` (caller is responsible for
-            handling this case — typically by skipping the chunk).
-        """
-        prev_words = prev_text.split()
-        curr_words = curr_text.split()
-        if not prev_words or not curr_words:
-            return curr_text
-        max_k = min(n, len(prev_words), len(curr_words))
-        for k in range(max_k, 0, -1):
-            if prev_words[-k:] == curr_words[:k]:
-                return " ".join(curr_words[k:])
-        return curr_text
-
-    @staticmethod
     def _split_audio(
         audio: np.ndarray,
         chunk_sec: float,
@@ -633,41 +546,6 @@ class QwenEngine:
             overlap_duration=overlap_sec,
             sample_rate=WHISPER_SAMPLE_RATE,
         )
-
-    def transcribe_batch(self, audio_chunks: list[np.ndarray]) -> list[str]:
-        """PERF-009: Batch transcription API for multiple audio chunks.
-
-        Processes multiple audio chunks through the model in a single
-        session. This is a forward-looking API — the current Qwen3-ASR
-        implementation processes chunks sequentially, but the interface
-        allows for future optimization (parallel streams, batched
-        attention, etc.).
-
-        Design rationale: the sequential implementation is acceptable
-        because Voice Typer is a single-user desktop application — only
-        one dictation session is active at a time, so batch calls are
-        rare (mainly used for segmented transcription of a single
-        recording). The sequential path keeps the code simple and
-        avoids memory fragmentation from parallel streams. A future
-        multi-user or server deployment would justify revisiting this
-        design decision.
-
-        Parameters
-        ----------
-        audio_chunks : list[np.ndarray]
-            List of audio arrays to transcribe.
-
-        Returns
-        -------
-        list[str]
-            List of transcribed text strings, one per chunk.
-        """
-        if not audio_chunks:
-            return []
-        results = []
-        for chunk in audio_chunks:
-            results.append(self.transcribe(chunk))
-        return results
 
     def transcribe_with_fallback(
         self,

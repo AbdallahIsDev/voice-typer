@@ -62,8 +62,9 @@ _resample_poly_lock = threading.Lock()
 # designs/sec × N=160 taps each ≈ 2.5k taps/sec of wasted work on
 # the RT thread. The cache stores the pre-computed taps (designed
 # with scipy's default ``('kaiser', 5.0)`` window, scaled by ``up``,
-# and zero-padded so the output is centered — bit-identical to what
-# ``resample_poly`` produces internally) keyed by the reduced
+# and zero-padded so the output is centered — the same shape scipy
+# uses internally, and numerically identical to ``resample_poly`` for
+# the ratios where the shared design is uncapped) keyed by the reduced
 # (up, down) pair. Cache is bounded by the number of distinct
 # sample-rate ratios seen in practice (≤2 — the device's native
 # rate and the chain's 16 kHz rate), so it's effectively a tiny
@@ -216,9 +217,11 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     if cached is not None:
         return cached
     # Cache miss — design the filter. This is the same algorithm
-    # scipy uses internally; we reproduce it here so the cached
-    # version produces output bit-identical (within float32
-    # precision) to the direct ``resample_poly`` call.
+    # scipy uses internally; when the ``_RESAMPLE_FIR_HALF_LEN_CAP``
+    # below does not truncate ``half_len``, the cached version produces
+    # output numerically identical to the direct ``resample_poly`` call
+    # (pinned by the unmocked numeric-equivalence test); for capped
+    # ratios the output is close but intentionally not identical.
     from scipy.signal import firwin
 
     # Mirror scipy.signal.resample_poly's filter design exactly:
@@ -281,6 +284,71 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
             _resample_fir_cache.clear()
         _resample_fir_cache[key] = ctx
         return ctx
+
+
+def _upfirdn_output_len(len_h: int, n_in: int, up: int, down: int) -> int:
+    """Output length of ``scipy.signal.upfirdn`` for the given shapes.
+
+    Mirrors scipy's private ``_output_len`` helper — the formula
+    ``((n_in - 1) * up + len_h - 1) // down + 1`` — so the cached-taps
+    fast path can reproduce ``resample_poly``'s padding decisions
+    without reaching into scipy internals.
+    """
+    return ((n_in - 1) * up + len_h - 1) // down + 1
+
+
+def _resample_via_cached_taps(
+    taps: tuple[np.ndarray, int, int],
+    audio: np.ndarray,
+    up: int,
+    down: int,
+    upfirdn_fn: Any,
+) -> np.ndarray:
+    """Run the cached-FIR-taps fast path (scipy ``resample_poly`` equivalent).
+
+    ``taps`` is the ``(h_padded, n_pre_remove, n_pre_pad)`` 3-tuple from
+    :func:`_get_resample_fir_taps`; ``upfirdn_fn`` is the caller's
+    resolved ``scipy.signal.upfirdn`` callable (kept a parameter so each
+    call site's lazy-import / patch seam is preserved).
+
+    Mirrors ``resample_poly``'s output handling exactly:
+
+    * pad the taps with the trailing zeros scipy computes as
+      ``n_post_pad`` so the raw ``upfirdn`` output has at least
+      ``n_pre_remove + n_out`` samples, and
+    * slice ``raw[n_pre_remove : n_pre_remove + n_out]`` where
+      ``n_out = ceil(n_in * up / down)`` — the leading ``n_pre_remove``
+      samples are the filter's spin-up transient.
+
+    Returns float32 (the cached taps are pre-cast float32, so a float32
+    input yields a float32 output with no copy; a float64 input is
+    converted, matching the previous ``np.asarray(..., dtype=np.float32)``
+    contract at every call site).
+
+    NOTE: the output equals ``resample_poly(audio, up, down)`` whenever
+    the shared filter design is identical — i.e. for ratios where the
+    ``_RESAMPLE_FIR_HALF_LEN_CAP`` below does not bite (max(up, down)
+    ≤ 25: 8k↔16k, 16k↔48k, 48k→16k, 96k→16k, ... — verified
+    bit-identical for float32 input). For capped "ugly" ratios
+    (44.1k→16k, 22.05k→16k) the shorter FIR intentionally trades a
+    wider transition band for ~30× fewer MACs; the output is then
+    close to, but not identical with, ``resample_poly`` (length and
+    finiteness still pinned by the numeric-equivalence test).
+    """
+    h_padded, n_pre_remove, _n_pre_pad = taps
+    n_in = audio.size
+    n_out = n_in * up // down + bool(n_in * up % down)
+    # Replicate scipy's ``n_post_pad`` loop: append trailing zeros until
+    # the raw output is long enough to slice ``n_out`` samples after the
+    # removed prefix (rarely needed given the filter lengths — scipy:
+    # "We should rarely need to do this given our filter lengths...").
+    n_post_pad = 0
+    while _upfirdn_output_len(h_padded.size + n_post_pad, n_in, up, down) < n_out + n_pre_remove:
+        n_post_pad += 1
+    if n_post_pad:
+        h_padded = np.concatenate((h_padded, np.zeros(n_post_pad, dtype=h_padded.dtype)))
+    raw = upfirdn_fn(h_padded, audio, up=up, down=down)
+    return np.asarray(raw[n_pre_remove : n_pre_remove + n_out], dtype=np.float32)
 
 
 # PERF-001: eagerly preload scipy.signal.resample_poly at module import
@@ -481,19 +549,21 @@ def resample_audio(
         # every call. ``upfirdn`` is what ``resample_poly`` calls
         # internally after designing the filter; by designing once and
         # caching we skip the redundant ``firwin`` work on every chunk.
-        # The output is bit-identical to ``resample_poly(audio, up, down)``
-        # because we use the same filter design (see
-        # ``_get_resample_fir_taps`` for the rationale).
+        # ``_resample_via_cached_taps`` applies the same leading-sample
+        # trim scipy does, so for ratios where the cached design is
+        # identical to scipy's (48k→16k, 96k→16k, 8k↔16k, ...) the
+        # output matches ``resample_poly(audio, up, down)`` — for the
+        # capped "ugly" ratios (44.1k→16k, 22.05k→16k) it is close but
+        # not identical (see the helper's NOTE).
         try:
             from scipy.signal import upfirdn
 
             taps = _get_resample_fir_taps(up, down)
-            # ``_get_resample_fir_taps`` pre-casts taps to float32, so
-            # ``upfirdn`` returns float32 directly when ``audio`` is
-            # float32. ``np.asarray(..., dtype=np.float32)`` is a no-op
-            # (returns the same array) when the dtype already matches —
-            # avoiding the per-call ``.astype(np.float32)`` allocation.
-            audio = np.asarray(upfirdn(taps, audio, up=up, down=down), dtype=np.float32)
+            # ``_resample_via_cached_taps`` trims the spin-up prefix and
+            # returns float32 (a no-op cast when the cached float32 taps
+            # already produced float32 output — avoiding the per-call
+            # ``.astype(np.float32)`` allocation).
+            audio = _resample_via_cached_taps(taps, audio, up, down, upfirdn)
         except Exception:
             # Fall back to ``resample_poly`` if ``upfirdn`` fails for
             # any reason (e.g. scipy version doesn't ship ``upfirdn``,

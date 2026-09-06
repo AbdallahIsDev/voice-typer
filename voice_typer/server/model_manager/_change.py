@@ -28,6 +28,22 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.model_manager")
 
 
+def _backend_for_model_size(model_size: str) -> AsrBackendName:
+    """Map a user-selected ``model_size`` to its owning ASR backend.
+
+    Single authoritative copy of the mapping the two change-model entry
+    points (``change_model`` and ``_change_model_setattr_phase``)
+    previously duplicated verbatim: ``parakeet`` → the parakeet
+    backend, ``qwen`` → the qwen backend, everything else (whisper
+    sizes, ``tiny``, ``large-v3``, …) → the whisper backend.
+    """
+    if model_size == "parakeet":
+        return "parakeet"
+    if model_size == "qwen":
+        return "qwen"
+    return "whisper"
+
+
 class ChangeMixin:
     # Members provided by the composed ``ModelManager`` (manager.py):
     # core state lives on ``ModelManagerCore`` (_base.py). Annotations
@@ -51,6 +67,8 @@ class ChangeMixin:
         def _mark_deliberately_unloaded(self, backend_name: str | None) -> None: ...
 
         def _clear_deliberately_unloaded(self, backend_name: str | None) -> None: ...
+
+        def _on_load_success(self, backend_name: str) -> None: ...
 
         def _ensure_engine(self, backend_name: str) -> None: ...
 
@@ -107,12 +125,7 @@ class ChangeMixin:
         old_model_size = self._app.config.model_size
         # Determine new backend (mirrors _change_model_setattr_phase
         # logic) so the ack dict carries the pending backend.
-        if model_size == "parakeet":
-            new_backend = "parakeet"
-        elif model_size == "qwen":
-            new_backend = "qwen"
-        else:
-            new_backend = "whisper"
+        new_backend = _backend_for_model_size(model_size)
         # spawn background daemon thread for the full cycle.
         self._change_model_background(model_size)
         return {
@@ -234,12 +247,7 @@ class ChangeMixin:
         Caller MUST hold both ``_config_mutation_lock`` and
         ``_model_change_lock``.
         """
-        if model_size == "parakeet":
-            new_backend: AsrBackendName = "parakeet"
-        elif model_size == "qwen":
-            new_backend = "qwen"
-        else:
-            new_backend = "whisper"
+        new_backend: AsrBackendName = _backend_for_model_size(model_size)
 
         old_backend = self._app.config.asr_backend
         log.info(
@@ -351,40 +359,7 @@ class ChangeMixin:
         try:
             success = self._registry.load_active(progress_callback=on_progress)
             if success:
-                #  PERF-015 LRU eviction — touch the
-                # freshly-loaded backend so it's tracked, then evict
-                # the LRU model if more than _MAX_LOADED_MODELS are
-                # now loaded. Guarded so a tracking failure doesn't
-                # break the load.
-                try:
-                    self.touch_model(new_backend)
-                    self._evict_lru_model()
-                except Exception:
-                    log.warning(
-                        "[PERF] LRU tracking failed for %s (non-fatal)",
-                        new_backend,
-                        exc_info=True,
-                    )
-                # Successful load → backend healthy; clear any
-                # deliberate-unload flag for it.
-                self._clear_deliberately_unloaded(new_backend)
-                active = self._registry.get_active()
-                if new_backend == "whisper" and active is not None:
-                    self._app.tray.set_state(
-                        AppState.IDLE,
-                        i18n.t(
-                            "state.model_manager.ready_whisper",
-                            device_info=active.device_info,
-                        ),
-                    )
-                else:
-                    self._app.tray.set_state(
-                        AppState.IDLE,
-                        i18n.t(
-                            "state.model_manager.ready_other",
-                            name=new_backend.title(),
-                        ),
-                    )
+                self._on_load_success(new_backend)
                 self._app.tray.invalidate_menu_cache()
                 return None
             log.warning(
@@ -694,23 +669,7 @@ class ChangeMixin:
             try:
                 success = self._registry.load_active(progress_callback=on_progress)
                 if success:
-                    try:
-                        self.touch_model(self._registry.active_name)
-                        self._evict_lru_model()
-                    except Exception:
-                        log.warning(
-                            "[PERF] LRU tracking failed (non-fatal)",
-                            exc_info=True,
-                        )
-                    # Successful load → backend healthy; clear any
-                    # deliberate-unload flag for it.
-                    self._clear_deliberately_unloaded(backend)
-                    active = self._registry.get_active()
-                    name = self._registry.active_name
-                    if name == "whisper" and active is not None:
-                        self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
-                    else:
-                        self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
+                    self._on_load_success(backend)
                     self._app.tray.invalidate_menu_cache()
                     load_outcome = True
                 else:

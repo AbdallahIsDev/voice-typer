@@ -118,20 +118,16 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
 def shutdown_encode_pool(server: IPCServer | None = None) -> None:
     """Drain / cancel in-flight WS frame encodes.
 
-    Called by ``ShutdownController._do_cleanup`` (in
-    ``shutdown_controller.py`` — NOT this file) to drain / cancel
-    in-flight encodes BEFORE tearing down the recorder / history DB /
-    crash-recovery writer. Mirrors the dispatch-pool drain
-    (``_ws_dispatch_pool.shutdown(wait=False, cancel_futures=True)``).
-
-    NOTE: ``shutdown_controller.py`` is OUTSIDE this module's file
-    ownership boundary. A matching ``sidecar_ws.shutdown_encode_pool(
-    ipc_server)`` call must be added to ``_do_cleanup`` in a follow-up
-    by the orchestrator (or by the shutdown_controller.py owner);
-    until then the pool's worker threads are leaked on shutdown
-    (acceptable — the process is exiting anyway, the OS reclaims the
-    threads, and any in-flight encode is aborted by process exit
-    regardless of pool state).
+    Called by ``drain_ws_dispatch_pool``
+    (``voice_typer/server/shutdown/ws_drain.py``) as an EARLY, bounded
+    (~2s) item of the shutdown parallel batch: it cancels QUEUED
+    encodes and drops the server/singleton refs, and the drain item
+    adds a bounded daemon-thread ``shutdown(wait=True)`` join for any
+    RUNNING encode — mirroring the dispatch-pool drain
+    (``_ws_dispatch_pool.shutdown(wait=False, cancel_futures=True)``
+    + bounded join). This closes the gap where the pool's worker
+    threads were only reclaimed by the ``atexit`` join at process
+    exit, delaying shutdown and racing subsystem teardown.
     """
     global _ws_encode_pool_singleton
     pool: ThreadPoolExecutor | None = None

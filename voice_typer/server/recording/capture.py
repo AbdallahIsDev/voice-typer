@@ -143,8 +143,10 @@ class AudioCallbackDispatcher:
                 This method is invoked by PortAudio from the real-time audio
                 thread (via the wrapper on
                 ``Recorder._audio_callback_dispatch``). It must complete
-                well before the next buffer arrives (~32ms at 512 blocksize /
-                16kHz). To meet this deadline, it does ONLY:
+                well before the next buffer arrives (~32ms — the stream
+                blocksize is rate-scaled so every chunk is ≈32 ms of
+                audio at any native rate: 512 samples @ 16 kHz, 1536 @
+                48 kHz). To meet this deadline, it does ONLY:
 
                 1. Pre-roll capture when not recording (small, fast: ~10µs for
                    copy + mono downmix + deque append).

@@ -65,7 +65,7 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording import recorder as _recorder_mod
 from voice_typer.server.recording.buffer import _secure_clear_array
@@ -547,28 +547,46 @@ class SessionState:
         both the main recording buffer and the pre-roll deque using
         the ACTUAL chunk duration ``blocksize / effective_sr``.
 
-        previously the main buffer was sized against a stale
-        1024-sample/16kHz assumption (chunk_seconds=0.064). At 48kHz
-        with 512-sample blocks the real chunk_seconds is 512/48000 ≈
-        0.0107s, so 30000 default chunks only hold ~5.3 min — a
-        30-min dictation silently lost the first ~25 min via deque
-        maxlen eviction. We resize to ``int(max_rec / chunk_seconds)
-        + safety`` so the buffer can always hold the full configured
+        The blocksize used for the sizing below is the rate-scaled one
+        (``scaled_audio_blocksize(sizing_sr)`` — the same helper the
+        stream open paths in ``stream_lifecycle.py`` and
+        ``disconnect_handler.py`` pass to ``sd.InputStream``), so
+        ``chunk_seconds`` is ~32 ms at EVERY native rate (512 @ 16 kHz,
+        1536 @ 48 kHz, 1411 @ 44.1 kHz). Sizing from a fixed 512 while
+        the stream actually delivers scaled chunks would make the
+        pre-roll deque over-capture ~3× the configured pre-speech
+        seconds at 48 kHz (~6× at 96 kHz) and would size the main
+        buffer / ring chunk counts for chunks that never arrive.
+
+        History: the main buffer used to be sized against a stale
+        1024-sample/16kHz assumption (chunk_seconds=0.064) — at the
+        then-fixed 512-sample blocks a 30-min dictation silently lost
+        its first ~25 min via deque maxlen eviction. We resize to
+        ``int(max_rec / chunk_seconds) + safety`` so the buffer can
+        always hold the full configured
         max_recording_time_seconds. Existing buffer contents (empty
         at this point in start()) are preserved via list(deque).
 
-        the pre-roll deque was sized in __init__ using
-        ``config.sample_rate`` (16kHz). At 48kHz the same 1-second
-        pre-roll needs 3× the chunk capacity. Re-size here using
-        ``effective_sr`` so the pre-roll actually captures the
-        configured ``pre_roll_buffer_seconds``. Existing pre-roll
+        the pre-roll deque placeholder in __init__ is sized from
+        ``config.sample_rate``; re-size here from ``sizing_sr`` so the
+        deque holds the configured ``pre_roll_buffer_seconds`` of
+        audio — a duration contract, not a chunk count computed for a
+        different chunk size — at every rate. Existing pre-roll
         chunks already captured by the audio callback (between
         stream.start() above and here) are preserved.
         """
-        blocksize = _AUDIO_BLOCKSIZE  # matches sd.InputStream blocksize below
         sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
         if sizing_sr <= 0:
             sizing_sr = recorder.config.sample_rate
+        # Rate-scaled ~32 ms blocks — the SAME blocksize the stream was
+        # opened with (stream_lifecycle.py passes
+        # ``scaled_audio_blocksize(candidate_sr)`` to ``sd.InputStream``;
+        # the disconnect-handler restart path does the same). Sizing the
+        # buffers from this value keeps ``chunk_seconds`` — and with it
+        # the main-buffer / ring / pre-roll chunk counts — matched to
+        # the chunks the audio callback actually delivers at every
+        # native rate.
+        blocksize = scaled_audio_blocksize(sizing_sr)
         chunk_seconds = blocksize / sizing_sr if sizing_sr > 0 else 0.064
 
         if max_rec > 0 and chunk_seconds > 0:
@@ -628,12 +646,13 @@ class SessionState:
         if sizing_sr > 0:
             new_ring_capacity = int(sizing_sr / blocksize * _ring_buffer_seconds)
             # floor at 64 chunks so a 16 kHz / 512-block device
-            # still gets ~2s of headroom (64 * 512 / 16000 = 2.048s),
-            # preserving the RNNoise-worker-stall headroom intent that
-            # previously lived in the (now-removed) ``_uu36_*`` override
-            # block in ``_recorder_split.start_recording``. 64 chunks
-            # is also sufficient for one VAD inference spike (Silero
-            # ~1-5ms against a 32ms budget).
+            # still gets ~2s of headroom (64 * 512 / 16000 = 2.048s;
+            # the scaled blocksize keeps the ~2 s duration contract at
+            # higher native rates too — each chunk stays ~32 ms).
+            # This re-applies the headroom intent that is also applied
+            # by the ring-reassignment block in
+            # ``_recorder_split.start_recording``, which runs after
+            # this resize with the same scaled chunk math.
             if new_ring_capacity < 64:
                 new_ring_capacity = 64
             if new_ring_capacity != _recorder_mod._AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
@@ -721,10 +740,17 @@ class SessionState:
                                 exc_info=True,
                             )
                     recorder._audio_pipeline._buffer.appendleft(mono_chunk.copy())
+                # Real chunk size for the duration estimate: the
+                # pre-roll deque holds raw device-rate callback chunks
+                # of ``scaled_audio_blocksize(effective_sr)`` samples
+                # each — NOT a fixed 512. A fixed-512 estimate
+                # understated the reported duration by the
+                # scaled/fixed ratio (~3× at 48 kHz, ~6× at 96 kHz).
+                _preroll_chunk_s = scaled_audio_blocksize(recorder._effective_sr) / recorder._effective_sr
                 log.debug(
                     "[RECORDING] Prepended %d pre-roll chunks (~%.1fs)",
                     len(preroll_chunks),
-                    len(preroll_chunks) * 512 / recorder._effective_sr,
+                    len(preroll_chunks) * _preroll_chunk_s,
                 )
                 # zero + clear the pre-roll deque after the
                 # prepend. Without this, the pre-roll chunks (which

@@ -368,7 +368,7 @@ class RegistryCore:
 
     def transcribe_with_fallback(
         self,
-        audio: bytes,
+        audio: np.ndarray,
         *args: object,
         name: str | None = None,
         **kwargs: object,

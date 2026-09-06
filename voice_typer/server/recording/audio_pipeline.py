@@ -630,9 +630,10 @@ class AudioPipeline:
                         # re-designs its FIR filter (``firwin``) on
                         # every call — at the ~16 Hz VAD cadence that is
                         # ~16 redundant filter designs/sec on the worker
-                        # thread. ``upfirdn`` with the cached taps is
-                        # bit-identical (same filter design) and costs a
-                        # dict lookup + C call. Module-top aliases
+                        # thread. ``upfirdn`` with the cached taps costs
+                        # a dict lookup + C call and produces the same
+                        # trimmed output as ``resample_poly`` for the
+                        # uncapped ratios. Module-top aliases
                         # (``_sp_signal`` / ``_resampling_mod``) resolve
                         # through the source module's ``__dict__`` at
                         # call time, so the path is patchable in tests
@@ -640,21 +641,22 @@ class AudioPipeline:
                         # ``patch("...resampling._get_resample_fir_taps", ...)``).
                         try:
                             taps = _resampling_mod._get_resample_fir_taps(_up, _down)
-                            # ``_get_resample_fir_taps`` pre-casts taps
-                            # to float32 at design time, so ``upfirdn``
-                            # returns float32 directly when the input is
-                            # float32. ``np.asarray(..., dtype=np.float32)``
-                            # is a no-op (returns the same array) when
-                            # the dtype already matches — avoiding the
-                            # per-chunk ``.astype(np.float32)`` allocation.
-                            vad_audio = np.asarray(
-                                _sp_signal.upfirdn(
-                                    taps,
-                                    filtered.ravel(),
-                                    up=_up,
-                                    down=_down,
-                                ),
-                                dtype=np.float32,
+                            # ``_get_resample_fir_taps`` returns the
+                            # ``(h_padded, n_pre_remove, n_pre_pad)``
+                            # design context;
+                            # ``_resample_via_cached_taps`` unpacks it,
+                            # applies scipy's spin-up trim
+                            # (``raw[n_pre_remove : n_pre_remove + n_out]``),
+                            # and returns float32 (a no-op cast when the
+                            # cached float32 taps already produced
+                            # float32 output — avoiding the per-chunk
+                            # ``.astype(np.float32)`` allocation).
+                            vad_audio = _resampling_mod._resample_via_cached_taps(
+                                taps,
+                                filtered.ravel(),
+                                _up,
+                                _down,
+                                _sp_signal.upfirdn,
                             )
                         except Exception:
                             # Fall back to ``resample_poly`` if

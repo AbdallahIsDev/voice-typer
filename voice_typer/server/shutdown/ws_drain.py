@@ -1,9 +1,10 @@
-"""WS dispatch-pool drain (extracted from ``shutdown_controller``).
+"""WS dispatch + encode pool drain (extracted from ``shutdown_controller``).
 
 Houses the body of :meth:`ShutdownController._drain_ws_dispatch_pool` —
 the early bookend of ``_do_cleanup`` that stops the IPC server and
-drains / cancels in-flight WS dispatch requests BEFORE any subsystem
-teardown, concurrently, in a single ``_run_parallel_with_timeout`` batch.
+drains / cancels in-flight WS dispatch requests AND in-flight WS frame
+encodes BEFORE any subsystem teardown, concurrently, in a single
+``_run_parallel_with_timeout`` batch.
 
 The controller keeps a thin delegate on :class:`CleanupMixin`
 (``shutdown_controller/_cleanup.py``) so the instance-method API used by
@@ -29,24 +30,25 @@ import threading
 from collections.abc import Callable
 
 from voice_typer.server._timeout_utils import _run_parallel_with_timeout
+from voice_typer.server.sidecar_ws_internals.encode_pool import shutdown_encode_pool
 
 log = logging.getLogger("voice_typer.server.shutdown_controller")
 
 
 def drain_ws_dispatch_pool(controller, app) -> None:
-    """Early bookend: stop the IPC server + drain the WS dispatch pool.
+    """Early bookend: stop the IPC server + drain the WS dispatch + encode pools.
 
     Extracted from ``_do_cleanup``. Stops the IPC server
     EARLY so inbound requests can't resurrect torn-down subsystems,
-    and drains / cancels in-flight WS dispatch requests BEFORE any
-    subsystem teardown — concurrently, in a single
+    and drains / cancels in-flight WS dispatch requests and WS frame
+    encodes BEFORE any subsystem teardown — concurrently, in a single
     ``_run_parallel_with_timeout`` batch. They touch disjoint pools
-    (the TCP worker pool and the WS dispatch pool), so
-    parallelisation is safe. ``_shutting_down`` is already True (set
-    by ``quit()`` before calling ``_do_cleanup``), so the
+    (the TCP worker pool, the WS dispatch pool, and the WS encode
+    pool), so parallelisation is safe. ``_shutting_down`` is already
+    True (set by ``quit()`` before calling ``_do_cleanup``), so the
     ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is already
-    rejecting NEW requests. Best-effort — failures here don't
-    prevent the rest of cleanup from running.
+    rejecting NEW requests. Best-effort — failures here don't prevent
+    the rest of cleanup from running.
 
     Preserves the ``if join_thread.is_alive():`` drain-timeout
     branch (pinned by
@@ -81,9 +83,10 @@ def drain_ws_dispatch_pool(controller, app) -> None:
                 # in-flight WS handler that touches the recorder /
                 # history_db / crash_recovery subsystems. Spawn a
                 # daemon-thread ``shutdown(wait=True)`` and join the
-                # spawner with a 5s hard deadline (generous for any single
-                # handler, short enough to bound teardown). If the drain
-                # doesn't complete in 5s, log + proceed.
+                # spawner with a bounded deadline — 4.5s, deliberately
+                # UNDER this item's 5.0s parallel budget (see below).
+                # If the drain doesn't complete within the join, log
+                # + proceed.
                 ws_pool.shutdown(wait=False, cancel_futures=True)
                 log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
                 join_thread = threading.Thread(
@@ -101,9 +104,58 @@ def drain_ws_dispatch_pool(controller, app) -> None:
                 # and the WARNING never landed).
                 join_thread.join(timeout=4.5)
                 if join_thread.is_alive():
-                    log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
+                    # Name BOTH bounds honestly (mirrors the encode-pool
+                    # WARNING below): the inner join is 4.5s (deliberately
+                    # under the item's 5.0s parallel budget so this
+                    # WARNING always wins the deadline race) — "5s" alone
+                    # misreports which bound expired.
+                    log.warning(
+                        "[SHUTDOWN] ws_dispatch_pool did not drain within "
+                        "its 4.5s join (5.0s budget) — proceeding anyway"
+                    )
 
             early_items.append(("ws_dispatch_pool.drain", _drain_ws_pool, 5.0))
+
+        encode_pool = getattr(ipc_server, "_ws_encode_pool", None)
+        if encode_pool is not None and hasattr(encode_pool, "shutdown"):
+
+            def _drain_encode_pool() -> None:
+                # The WS frame-encode pool must be drained for the same
+                # reason as the dispatch pool: CPython >=3.9
+                # ThreadPoolExecutor workers are non-daemon and get
+                # joined via ``atexit`` — a queued near-cap encode would
+                # otherwise delay process exit and race the subsystem
+                # teardown batch. ``shutdown_encode_pool`` cancels
+                # QUEUED encodes and drops the server/singleton refs;
+                # the bounded daemon-thread join below then waits for
+                # any RUNNING encode, mirroring the dispatch-pool item.
+                shutdown_encode_pool(ipc_server)
+                log.debug("[SHUTDOWN] WS encode pool shut down (cancel_futures=True)")
+                join_thread = threading.Thread(
+                    target=encode_pool.shutdown,
+                    kwargs={"wait": True},
+                    daemon=True,
+                )
+                join_thread.start()
+                # 1.8s inner join, deliberately UNDER this item's 2.0s
+                # parallel budget (same outer/inner deadline pairing as
+                # the dispatch-pool item above: the inner join must
+                # expire first so the diagnostic WARNING lands).
+                join_thread.join(timeout=1.8)
+                if join_thread.is_alive():
+                    # Name BOTH bounds honestly: the inner join is 1.8s
+                    # (deliberately under the item's 2.0s parallel budget
+                    # so this WARNING always wins the deadline race) —
+                    # "2s" alone misreports which bound expired.
+                    log.warning(
+                        "[SHUTDOWN] ws_encode_pool did not drain within its 1.8s join (2.0s budget) — proceeding anyway"
+                    )
+
+            # Early + bounded (~2s): encodes are pure CPU
+            # (json.dumps + .encode, ~2.2ms per 1MiB frame), so a
+            # healthy pool drains in milliseconds; the 2s ceiling only
+            # bounds a pathological backlog.
+            early_items.append(("ws_encode_pool.drain", _drain_encode_pool, 2.0))
 
         if early_items:
             _run_parallel_with_timeout(early_items)

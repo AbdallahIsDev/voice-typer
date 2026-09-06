@@ -74,8 +74,10 @@ class WaveformBubbleWiring:
     Threading contract (PERF- / BUBBLE-):
 
         The ``on_level`` callback fires from the PortAudio thread at the
-        device's native chunk rate (~31 Hz @ 16 kHz / blocksize 512,
-        ~94 Hz @ 48 kHz). Calling ``_push_event_now`` directly held the IPC
+        recorder's chunk rate — ~31 Hz at every native sample rate now
+        that the stream blocksize is rate-scaled (≈32 ms of audio per
+        chunk, 512-sample floor; a fixed 512 block used to make 48 kHz
+        devices fire at ~94 Hz). Calling ``_push_event_now`` directly held the IPC
         server's ``_lock`` for ``json.dumps`` + ``socket.sendall``, which on
         a slow Electron receive window stalled the audio thread and
         triggered xruns. The actual IPC send is therefore pushed to a
@@ -131,8 +133,11 @@ class WaveformBubbleWiring:
 
         def _push_bubble_level(rms: float, peak: float) -> None:
             # PERF-: this callback fires from the
-            # PortAudio thread at the device's native chunk rate
-            # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
+            # PortAudio thread at the recorder's chunk rate — ~31 Hz at
+            # every native sample rate now that the stream blocksize is
+            # rate-scaled (≈32 ms of audio per chunk, 512-sample floor;
+            # a fixed 512 block used to make 48 kHz devices fire at
+            # ~94 Hz).
             # Calling _push_event_now directly was holding the IPC
             # server's _lock for json.dumps + socket.sendall, which on
             # a slow Electron receive window stalled the audio thread
@@ -208,6 +213,11 @@ class WaveformBubbleWiring:
             """
             q = self._bubble_level_queue
             stop = self._bubble_level_worker_stop
+            # Narrowing (not suppression): the attributes are Optional only
+            # because __init__ pre-declares them as None; the thread is
+            # started exclusively from the create-then-start path above,
+            # so both are non-None by the time this worker runs.
+            assert q is not None and stop is not None
             last_mirror_ts = 0.0
             while not stop.is_set():
                 try:

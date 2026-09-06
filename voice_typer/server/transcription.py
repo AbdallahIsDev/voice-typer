@@ -68,7 +68,7 @@ from typing import Any
 # suppression on the import below)
 # for backward compatibility with tests that patch
 # ``voice_typer.server.transcription.cleanup_hf_cache_dir``.
-from voice_typer.server._hf_cache_cleanup import (  # noqa: F401  # noqa: F401
+from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
     cleanup_failed_cache as _cleanup_failed_cache,
     cleanup_hf_cache_dir,
 )
@@ -128,6 +128,7 @@ from voice_typer.server.transcription_device import (  # noqa: E402
     apply_auto_beam_size as _apply_auto_beam_size_impl,
     resolve_device as _resolve_device_impl,
     resolve_device_once as _resolve_device_once_impl,
+    whisper_cpu_threads as _whisper_cpu_threads_impl,
 )
 
 # HF cache-probe / download-gate bodies (``_probe_cache`` /
@@ -526,10 +527,22 @@ class TranscriptionEngine:
                 # time WhisperModel construction to measure
                 # prewarm cache-hit effectiveness.
                 _t0 = time.perf_counter()
+                # cpu_threads: CTranslate2 silently defaults to 4
+                # intra-op threads when the option is omitted — the
+                # CPU path (and the whole GPU→CPU fallback chain) would
+                # leave most cores idle on wide machines. Pass a
+                # hardware-derived budget capped at a safe ceiling
+                # (ignored on CUDA, applied automatically when the
+                # fallback chain lands on CPU). num_workers maps to
+                # CTranslate2's inter_threads — pinned to 1 (the
+                # library default) so the single-decoder contract is
+                # explicit and no thread budget is doubled up.
                 model = WhisperModel(
                     model_size,
                     device=device,
                     compute_type=compute_type,
+                    cpu_threads=_whisper_cpu_threads_impl(),
+                    num_workers=1,
                 )
                 _load_elapsed = time.perf_counter() - _t0
                 _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"

@@ -150,30 +150,6 @@ def is_available() -> bool:
     return _VAD_MODEL_PATH.exists()
 
 
-def _check_vad_available() -> bool:
-    """Cheap startup check: is Silero VAD usable WITHOUT a network round-trip?
-
-        Returns True only if onnxruntime is importable AND the bundled
-        local model file exists, so ``_load_model`` will succeed via
-        ``onnxruntime.InferenceSession`` without ever touching the
-        network. Returns False if either:
-
-          * onnxruntime is not importable (VAD entirely unavailable), or
-          * the bundled ``silero_vad.onnx`` is missing — in which case
-            ``_load_model`` logs an ERROR and returns ``(None, None)`` so
-            VAD degrades to the RMS fallback (handled by callers).
-
-    this is the helper the issue asked for — called once at
-        startup so the app can surface a warning when VAD will be unavailable
-        *before* the first dictation, rather than failing silently. It does a
-        filesystem stat only (no model load, no network), so it is safe to call
-        from ``RecordingController.__init__`` on the startup path.
-    """
-    if not is_available():
-        return False
-    return _VAD_MODEL_PATH.exists()
-
-
 def _load_model():
     """Lazily load the Silero VAD ONNX model and initialize the hidden state.
 

@@ -678,7 +678,7 @@ class PersistedJSON(Generic[T]):
             # try .bak recovery after quarantining the corrupt main.
             recovered = self._try_load_bak()
             if recovered is not None:
-                return recovered  # type: ignore[return-value]
+                return recovered  # type: ignore[return-value, no-any-return]
             return self._default  # type: ignore[return-value]
 
     def _try_load_bak(self) -> Any | None:

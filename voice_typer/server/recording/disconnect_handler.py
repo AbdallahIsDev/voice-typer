@@ -54,7 +54,16 @@ import threading
 import time
 from typing import Any
 
-from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+# The mid-session device-reconnect restart opens its stream with the
+# same rate-scaled blocksize the primary open path uses
+# (``stream_lifecycle.py``): ~32 ms of audio per callback chunk at the
+# candidate's native rate (512 floor preserves the Silero VAD contract
+# at 16 kHz and below; 1536 @ 48 kHz, 1411 @ 44.1 kHz). A fixed 512 at
+# 48 kHz would produce ~94 callbacks/s — ~3× the designed 16-31 Hz
+# worker/VAD cadence — and every chunk-count-based time constant
+# (VAD hysteresis frames, ring-buffer headroom) would then run ~3×
+# faster than designed on this path too.
+from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording.vad_helpers import refresh_vad_caches
 
@@ -493,7 +502,14 @@ class DisconnectHandler:
                 dtype=np.float32,
                 device=_restart_device,  # configured-by-name or None
                 callback=recorder._current_callback,
-                blocksize=_AUDIO_BLOCKSIZE,
+                # Rate-scaled ~32 ms blocks (same helper as the primary
+                # open paths in stream_lifecycle.py) so the reconnect
+                # stream keeps the designed callback/VAD cadence and the
+                # buffers sized by
+                # ``SessionState.resize_buffers_for_sample_rate`` (which
+                # sizes from the same scaled chunk duration) stay
+                # consistent with the chunks this stream delivers.
+                blocksize=scaled_audio_blocksize(candidate_sr),
                 # Request the host API's "low" latency hint
                 # (mirrors the primary open_stream_for_candidates call in
                 # stream_lifecycle.py; PortAudio silently falls back if
@@ -502,64 +518,88 @@ class DisconnectHandler:
                 # AUDIO-HOT: finished_callback detects unexpected stream termination
                 finished_callback=recorder._stream_finished_callback,
             )
-            # flush stale-rate ring-buffer contents BEFORE
-            # ``stream.start()``. Pre-fix, the zeroing + clear lived
-            # AFTER ``stream.start()`` (between start and clear, the
-            # new stream's PortAudio callback fired ~1-3 times at 16
-            # Hz × ~60ms window ≈ 1 chunk, pushing fresh NEW-rate
-            # audio into ``_ring_buffer`` — which the subsequent
-            # ``.clear()`` indiscriminately zeroed along with the
-            # intended OLD-rate chunks). Moving the clear BEFORE
-            # ``stream.start()`` means only pre-disconnect old-rate
-            # chunks are cleared; the new stream's first chunks land
-            # in an empty ring buffer and are preserved.
-            #
-            # SEC-audit-008: zero each chunk's numpy array BEFORE
-            # ``.clear()`` so the user's voice data doesn't linger in
-            # process memory after the deque reference is dropped (the
-            # bare ``.clear()`` only drops references, leaving the
-            # underlying float32 arrays intact until GC). Mirrors the
-            # preroll-buffer pattern in stop()/discard() (see
-            # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring
-            # buffer chunks are small (~2KB each, capacity-bounded by
-            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
-            # acceptable here. Ring buffer items are 5-tuples
-            # ``(chunk_copy, frames, time_info, status, perf_ts)`` —
-            # the numpy array is the first element. Defensive against
-            # direct-array items (legacy/fallback) too.
-            #
-            # ``collections.deque.clear()`` is atomic under the GIL
-            # and the ring buffer is single-producer (audio callback)
-            # / single-consumer (worker), so clearing here without
-            # the lock is safe — the worker's next ``popleft()``
-            # raises ``IndexError`` and the drain loop breaks cleanly.
-            for _payload in recorder._ring_buffer:
-                _arr = _payload[0] if isinstance(_payload, tuple) else _payload
-                if isinstance(_arr, np.ndarray):
-                    _arr.fill(0)
-            recorder._ring_buffer.clear()
-            stream.start()
-            # re-check the stop_generation under the stream-lifecycle
-            # lock BEFORE assigning ``recorder._stream``. A concurrent
-            # ``stop()`` could have bumped the generation between our
-            # earlier bouncer check (top of the locked block) and this
-            # assignment; assigning ``recorder._stream`` anyway would
-            # leak the new stream (stop() already tore down the old one
-            # and would not see this new one) and leave a zombie
-            # callback running. If the generation changed, close the
-            # new stream and bail out.
-            if _captured_generation != recorder._stop_generation:
-                log.debug(
-                    "[RECORDING] Disconnect restart aborted — "
-                    "stop_generation changed (%d != %d) before stream assignment",
-                    _captured_generation,
-                    recorder._stop_generation,
-                )
+            # close-on-raise guard: from the successful
+            # ``sd.InputStream(...)`` above to the STATE-OWNERSHIP
+            # handoff below, this created stream is owned by NO ONE
+            # else. If ``stream.start()`` raises (the device can die in
+            # the open→start window — PortAudioError/OSError) or
+            # anything else in this window fails, the created-but-
+            # unstarted stream must be closed or its PortAudio
+            # resources (and the device handle) leak. Mirrors the
+            # close-on-raise shape in
+            # ``stream_lifecycle.open_stream_for_candidates``. The
+            # generation-mismatch branch below closes + returns on its
+            # own and never reaches this handler (a ``return`` is not
+            # an exception).
+            try:
+                # flush stale-rate ring-buffer contents BEFORE
+                # ``stream.start()``. Pre-fix, the zeroing + clear lived
+                # AFTER ``stream.start()`` (between start and clear, the
+                # new stream's PortAudio callback fired ~1-3 times at 16
+                # Hz × ~60ms window ≈ 1 chunk, pushing fresh NEW-rate
+                # audio into ``_ring_buffer`` — which the subsequent
+                # ``.clear()`` indiscriminately zeroed along with the
+                # intended OLD-rate chunks). Moving the clear BEFORE
+                # ``stream.start()`` means only pre-disconnect old-rate
+                # chunks are cleared; the new stream's first chunks land
+                # in an empty ring buffer and are preserved.
+                #
+                # SEC-audit-008: zero each chunk's numpy array BEFORE
+                # ``.clear()`` so the user's voice data doesn't linger in
+                # process memory after the deque reference is dropped (the
+                # bare ``.clear()`` only drops references, leaving the
+                # underlying float32 arrays intact until GC). Mirrors the
+                # preroll-buffer pattern in stop()/discard() (see
+                # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring
+                # buffer chunks are small (~2KB each, capacity-bounded by
+                # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
+                # acceptable here. Ring buffer items are 5-tuples
+                # ``(chunk_copy, frames, time_info, status, perf_ts)`` —
+                # the numpy array is the first element. Defensive against
+                # direct-array items (legacy/fallback) too.
+                #
+                # ``collections.deque.clear()`` is atomic under the GIL
+                # and the ring buffer is single-producer (audio callback)
+                # / single-consumer (worker), so clearing here without
+                # the lock is safe — the worker's next ``popleft()``
+                # raises ``IndexError`` and the drain loop breaks cleanly.
+                for _payload in recorder._ring_buffer:
+                    _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+                    if isinstance(_arr, np.ndarray):
+                        _arr.fill(0)
+                recorder._ring_buffer.clear()
+                stream.start()
+                # re-check the stop_generation under the stream-lifecycle
+                # lock BEFORE assigning ``recorder._stream``. A concurrent
+                # ``stop()`` could have bumped the generation between our
+                # earlier bouncer check (top of the locked block) and this
+                # assignment; assigning ``recorder._stream`` anyway would
+                # leak the new stream (stop() already tore down the old one
+                # and would not see this new one) and leave a zombie
+                # callback running. If the generation changed, close the
+                # new stream and bail out.
+                if _captured_generation != recorder._stop_generation:
+                    log.debug(
+                        "[RECORDING] Disconnect restart aborted — "
+                        "stop_generation changed (%d != %d) before stream assignment",
+                        _captured_generation,
+                        recorder._stop_generation,
+                    )
+                    with contextlib.suppress(Exception):
+                        stream.close()
+                    return
+                # STATE-OWNERSHIP: the stream slot lives on StreamLifecycle.
+                recorder._stream_lifecycle._stream = stream
+            except Exception:
+                # Nothing below the failed statement owns the stream yet
+                # (the handoff is the last statement of the try body), so
+                # close it and re-raise: the outer transient-failure arm
+                # then logs + clears ``_device_disconnected`` for the next
+                # health-checker re-probe, and the programming-bug arm
+                # still re-raises AttributeError/TypeError/KeyError.
                 with contextlib.suppress(Exception):
                     stream.close()
-                return
-            # STATE-OWNERSHIP: the stream slot lives on StreamLifecycle.
-            recorder._stream_lifecycle._stream = stream
+                raise
             with recorder._audio_pipeline._lock:
                 recorder._effective_sr = candidate_sr
                 # reset the silence timer so a hot-swap recovery does

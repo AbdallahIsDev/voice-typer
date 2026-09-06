@@ -30,6 +30,39 @@ _FLOAT_TO_INT16_MAX: float = float(2**15 - 1)  # 32767.0
 _INT16_SCALE: float = _FLOAT_TO_INT16_MAX
 
 
+def _resampler_fir_num_taps(up: int, down: int) -> int:
+    """FIR length used by :class:`_StreamingResampler` for an ``up``/``down`` ratio.
+
+    Shared by the resampler constructor (which designs the filter with
+    ``scipy.signal.firwin``) and by the latency computation (which needs the
+    filter's group delay), so the designed filter and the reported delay can
+    never drift apart.
+    """
+    rate_gcd = math.gcd(up, down)
+    up_reduced = up // rate_gcd
+    down_reduced = down // rate_gcd
+    taps = 10 * max(up_reduced, down_reduced) + 1
+    if taps % 2 == 0:
+        taps += 1
+    return taps
+
+
+def _resampler_group_delay_ms(up: int, down: int, input_rate: int) -> float:
+    """Group delay (ms) of one :class:`_StreamingResampler` FIR stage.
+
+    The FIR is a symmetric (linear-phase) filter, so its group delay is
+    exactly ``(num_taps - 1) / 2`` samples at the INTERMEDIATE rate the
+    filter actually runs at — ``input_rate * up`` (``process()`` zero-stuffs
+    the input by ``up`` before the FIR and decimates by ``down`` after). The
+    tap count comes from the same formula the constructor designs the filter
+    with, so this tracks the real filter exactly (verified by test against
+    the actual ``firwin`` output length).
+    """
+    delay_samples = (_resampler_fir_num_taps(up, down) - 1) / 2
+    intermediate_rate = input_rate * up
+    return delay_samples / intermediate_rate * 1000.0
+
+
 class _StreamingResampler:
     """Streaming polyphase resampler ( / ).
 
@@ -62,19 +95,18 @@ class _StreamingResampler:
 
         # Design the FIR filter ONCE at construction (). Cutoff is the
         # lower Nyquist of input / output (1.0 == Nyquist in firwin's fs=2.0
-        # convention). Filter length is chosen as ``10 * max(up, down) + 1``
-        # (odd, so the polyphase decomposition is symmetric). The exact length
-        # is not load-bearing for the tests; only the "designed once" and
-        # "stable identity" invariants matter.
+        # convention). Filter length comes from the shared
+        # ``_resampler_fir_num_taps`` helper (odd, so the polyphase
+        # decomposition is symmetric) — the latency computation derives the
+        # group delay from the SAME helper, so the reported delay always
+        # matches the filter actually designed here.
         from scipy.signal import firwin
 
-        gcd = math.gcd(self._up, self._down)
-        up_reduced = self._up // gcd
-        down_reduced = self._down // gcd
+        rate_gcd = math.gcd(self._up, self._down)
+        up_reduced = self._up // rate_gcd
+        down_reduced = self._down // rate_gcd
         cutoff = 1.0 / max(up_reduced, down_reduced)
-        num_taps = 10 * max(up_reduced, down_reduced) + 1
-        if num_taps % 2 == 0:
-            num_taps += 1
+        num_taps = _resampler_fir_num_taps(self._up, self._down)
         self._h = np.asarray(firwin(num_taps, cutoff, fs=2.0), dtype=np.float64)
 
         # Persistent lfilter state (len = len(h) - 1 for an FIR filter).
@@ -702,15 +734,42 @@ class NoiseSuppressor(AudioFilter):
         if self._gtcrn_downsampler is not None:
             self._gtcrn_downsampler.reset()
 
+    def _resampler_pair_delay_ms(self, native_rate: int) -> float:
+        """Round-trip group delay (ms) of this suppressor's streaming resampler pair.
+
+        The streaming path is source-rate → (upsampler) → native-rate model
+        → (downsampler) → source-rate. Each stage's symmetric FIR contributes
+        its group delay even though the sample count round-trips exactly, so
+        the end-to-end latency is the model's algorithmic delay PLUS both FIR
+        delays. The up/down ratios mirror what ``_ensure_resamplers`` /
+        ``_ensure_gtcrn_resamplers`` derive from the actual rates, and the
+        per-stage delay comes from the same tap-count formula the resampler
+        constructor designs its filter with — nothing hardcoded. Zero when
+        the source already runs at the model's native rate (both resamplers
+        stay ``None``).
+        """
+        source_rate = self._source_sample_rate
+        if source_rate <= 0 or source_rate == native_rate:
+            return 0.0
+        rate_gcd = math.gcd(native_rate, source_rate)
+        up = native_rate // rate_gcd
+        down = source_rate // rate_gcd
+        # Upsampler: input at the source rate. Downsampler: constructed as
+        # ``_StreamingResampler(down, up)`` with its input at the native rate.
+        return _resampler_group_delay_ms(up, down, source_rate) + _resampler_group_delay_ms(down, up, native_rate)
+
     @property
     def latency_ms(self) -> float:
-        # ~10ms (one RNNoise frame)
+        # ~10ms (one RNNoise frame) / ~16ms (one 256-sample GTCRN hop at
+        # 16 kHz — the streaming STFT's overlap-add algorithmic delay; see
+        # gtcrn_backend.py), PLUS the round-trip group delay of the streaming
+        # resampler pair when the source rate differs from the model's
+        # native rate (the FIR anti-imaging/anti-aliasing stages delay the
+        # signal by their group delay before the first output sample flows).
         if self._method == "rnnoise":
-            return 10.0
-        # ~16ms (one 256-sample GTCRN hop at 16 kHz — the streaming
-        # STFT's overlap-add algorithmic delay; see gtcrn_backend.py)
+            return 10.0 + self._resampler_pair_delay_ms(RNNOISE_SAMPLE_RATE)
         if self._method == "gtcrn":
-            return 16.0
+            return 16.0 + self._resampler_pair_delay_ms(WHISPER_SAMPLE_RATE)
         return 0.0
 
     @property
