@@ -25,10 +25,13 @@
 
 use super::*;
 
-// `SUPERVISOR_MAX_RETRIES` lives at module scope in `util.rs` (not here)
-// so the Python source-inspection regex in tests/tauri/mig*/test_*.py
-// keeps matching against `util.rs`. It's imported here via `use super::*;`
-// (it's `pub(crate)`), so the test fns below reference it unqualified.
+// The supervisor retry cap is `SUPERVISOR_BACKOFF_MS.len()` (the
+// schedule `respawn_inner` iterates) — there is no separate
+// `SUPERVISOR_MAX_RETRIES` constant anymore (it was production-dead;
+// the mig* gate tests pin the cap as a schedule-length invariant too).
+// It's imported here via `use super::*;`
+// (they're all `pub(crate)`), so the test fns below reference them
+// unqualified.
 
 //supervisor backoff constants (ADR-0020 §10) ─────────────────
 
@@ -42,18 +45,13 @@ fn test_supervisor_backoff_constants() {
         &[500, 1000, 2000, 4000, 8000],
         "SUPERVISOR_BACKOFF_MS must be [500, 1000, 2000, 4000, 8000] (doubling schedule)"
     );
+    // The schedule length IS the retry cap: `respawn_inner` iterates
+    // the schedule once per attempt and falls back to `app.restart()`
+    // after the last entry, so a 5-entry schedule = 5 retries.
     assert_eq!(
-        SUPERVISOR_MAX_RETRIES, 5,
-        "SUPERVISOR_MAX_RETRIES must be 5 (then fall back to full-app relaunch)"
-    );
-    // The schedule length must match the retry cap so the loop in
-    // `respawn_inner` actually iterates SUPERVISOR_MAX_RETRIES times
-    // (each iteration sleeps delay_ms[attempt] before retrying)
-    // before falling back to `app.restart()`.
-    assert_eq!(
-        SUPERVISOR_BACKOFF_MS.len() as u32,
-        SUPERVISOR_MAX_RETRIES,
-        "SUPERVISOR_BACKOFF_MS.len() must equal SUPERVISOR_MAX_RETRIES so the loop iterates exactly N times"
+        SUPERVISOR_BACKOFF_MS.len(),
+        5,
+        "SUPERVISOR_BACKOFF_MS.len() is the supervisor retry cap and must be 5 (then fall back to full-app relaunch)"
     );
     // Verify the doubling property explicitly — guards against an
     // accidental edit that breaks the geometric progression.

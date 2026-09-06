@@ -83,13 +83,87 @@ fn suppression_window_blocks_then_expires() {
     suppress_persist_for_window();
     assert!(currently_suppressed());
 
-    // Generation bumped by the suppress call.
-    let before = SCHEDULE_GENERATION.load(Ordering::SeqCst);
-    assert!(before >= 1);
-
     // Expired window reads as unsuppressed again.
     if let Ok(mut slot) = SUPPRESS_UNTIL.lock() {
         *slot = Some(Instant::now() - Duration::from_millis(1));
     }
     assert!(!currently_suppressed());
+}
+
+#[test]
+fn schedule_stores_latest_move_last_write_wins() {
+    let _guard = CACHE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+
+    store_pending_move(10, 20);
+    store_pending_move(-30, -40);
+    let queued = PENDING_MOVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map(|p| p.pos);
+    assert_eq!(queued, Some((-30, -40)));
+
+    // Clear so the async tests below start from an empty queue.
+    *PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+#[tokio::test]
+async fn quiesced_wake_fires_after_full_debounce_window() {
+    let _guard = CACHE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    *PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    // Drain any leftover wakeup permit from a previous test — notify
+    // permits persist in the shared static between tests and would
+    // otherwise make the waiter below return instantly with None.
+    let _ = tokio::time::timeout(Duration::from_millis(5), wait_for_quiesced_move()).await;
+
+    let waiter = tokio::spawn(wait_for_quiesced_move());
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let started = Instant::now();
+    store_pending_move(11, 22);
+    PERSIST_NOTIFY.get_or_init(Notify::new).notify_one();
+
+    let fired = waiter.await.expect("debounce task panicked");
+    assert_eq!(fired, Some((11, 22)));
+    // The wake must fire no earlier than one full debounce window after
+    // the move was stored (trailing-edge debounce; small tolerance for
+    // scheduler jitter).
+    assert!(
+        started.elapsed() >= Duration::from_millis(PERSIST_DEBOUNCE_MS - 50),
+        "fired {:?} after store — earlier than the {}ms debounce window",
+        started.elapsed(),
+        PERSIST_DEBOUNCE_MS
+    );
+
+    // The fired move is consumed (a surplus wakeup permit can't re-fire it).
+    assert!(PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()).is_none());
+}
+
+#[tokio::test]
+async fn quiesced_wake_extends_window_and_keeps_latest_move() {
+    let _guard = CACHE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    *PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    // Drain any leftover wakeup permit from a previous test.
+    let _ = tokio::time::timeout(Duration::from_millis(5), wait_for_quiesced_move()).await;
+
+    let waiter = tokio::spawn(wait_for_quiesced_move());
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    store_pending_move(1, 2);
+    PERSIST_NOTIFY.get_or_init(Notify::new).notify_one();
+    // A second move INSIDE the window must re-arm the debounce (the
+    // fire waits for the FULL window after the LAST move) and win as
+    // the persisted pair.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let started = Instant::now();
+    store_pending_move(3, 4);
+    PERSIST_NOTIFY.get_or_init(Notify::new).notify_one();
+
+    let fired = waiter.await.expect("debounce task panicked");
+    assert_eq!(fired, Some((3, 4)));
+    assert!(
+        started.elapsed() >= Duration::from_millis(PERSIST_DEBOUNCE_MS - 50),
+        "fired {:?} after the last move — the debounce window was not re-armed",
+        started.elapsed()
+    );
+
+    *PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }

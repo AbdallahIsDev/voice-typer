@@ -101,45 +101,9 @@ pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
     spawn_sidecar_and_get_port_inner(app, token, Some(shutting_down)).await
 }
 
-/// Public cold-start entry point: spawn the Python sidecar via Tauri's
-/// `externalBin` mechanism and read the `server_started` JSON from
-/// stdout. Returns the bound port + the child handle on success.
-///
-/// This is the no-`shutting_down`-flag sibling of
-/// [`spawn_sidecar_and_get_port_with_shutdown`] — used by the cold-start
-/// path (`initialize_sidecar` in `main.rs::setup`) where there is no
-/// pre-existing shutdown flag to poll (the supervisor installs one
-/// later, but the first spawn happens before the supervisor's flag is
-/// wired up). The supervisor's respawn path calls
-/// `spawn_sidecar_and_get_port_with_shutdown` instead, passing its own
-/// `&state.shutting_down` so a user-quit mid-respawn short-circuits the
-/// stdout-read loop.
-///
-/// Both paths delegate to the shared `spawn_sidecar_and_get_port_inner`
-/// helper so the dev-mode / release-mode dispatch + the
-/// `server_started` parsing logic live in exactly one place.
-///
-/// Kept at module scope (not inside the test module) so the Python
-/// source-inspection regex `fn\s+spawn_sidecar_and_get_port\s*\(\s*app\s*:\s*&tauri::AppHandle`
-/// (test_externalbin_spawn_linux.py) keeps matching.
-/// `#[allow(dead_code)]` suppresses the lint for the no-runtime-caller
-/// contract; the cold-start path currently calls the
-/// `_with_shutdown` variant (passing a fresh `AtomicBool`), but this
-/// signature is pinned by the gate-check test as the documented public
-/// entry point. Removing the function would silently break the
-/// migration-gate contract.
-#[allow(dead_code)]
-pub(crate) async fn spawn_sidecar_and_get_port(
-    app: &tauri::AppHandle,
-    token: &str,
-) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
-    spawn_sidecar_and_get_port_inner(app, token, None).await
-}
-
-/// Internal helper shared by `spawn_sidecar_and_get_port` and
-/// `spawn_sidecar_and_get_port_with_shutdown`. The `shutting_down`
-/// parameter is `Option<&AtomicBool>`: `None` for the cold-start path
-/// (no flag to poll — `is_shutting_down` returns `false` unconditionally),
+/// Internal helper behind `spawn_sidecar_and_get_port_with_shutdown`.
+/// The `shutting_down` parameter is `Option<&AtomicBool>`: `None` for a
+/// no-flag caller (— `is_shutting_down` returns `false` unconditionally),
 /// `Some(&flag)` for the supervisor-respawn path (polled between
 /// stdout-read iterations).
 async fn spawn_sidecar_and_get_port_inner(
@@ -170,7 +134,8 @@ async fn spawn_sidecar_and_get_port_inner(
 /// # Sequence
 ///
 /// 1. Generate the per-launch bearer token via `util::generate_token`.
-/// 2. Spawn the sidecar via `spawn_sidecar_and_get_port` (which
+/// 2. Spawn the sidecar via `spawn_sidecar_and_get_port_with_shutdown`
+///    (which
 ///    dispatches to dev-mode or release-mode spawn based on the
 ///    `VOICE_TYPER_SIDECAR_DEV` env var).
 /// 3. Re-check `state.shutting_down` AFTER spawn returns — if the
@@ -325,7 +290,8 @@ mod spawn_tests;
 /// can install them into `WorkerState` via the same pattern.
 /// Uncalled until Phase 2c wires `initialize_worker` after pack
 /// verification + `app.manage()`s `WorkerState` (see the module-level
-/// comment) — same contract-pinned pattern as `spawn_sidecar_and_get_port`.
+/// comment) — same contract-pinned pattern as
+/// `spawn_sidecar_and_get_port_with_shutdown`.
 #[allow(dead_code)]
 pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
     app: &tauri::AppHandle,
@@ -377,7 +343,7 @@ pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
 ///    `sidecar::supervisor::respawn`).
 /// Uncalled until Phase 2c wires the pack-verified trigger (see the
 /// module-level comment) — same contract-pinned pattern as
-/// `spawn_sidecar_and_get_port`.
+/// `spawn_sidecar_and_get_port_with_shutdown`.
 #[allow(dead_code)]
 pub(crate) async fn initialize_worker(
     app_handle: &tauri::AppHandle,

@@ -129,18 +129,13 @@ impl log::Log for CombinedLogger {
             crate::util::session_id(),
             msg
         );
-        let term_line = format!("{} {:5} {}", term_ts, record.level(), msg);
-        // gate the per-line `eprintln!` on the cached
-        // `stderr_verbose` flag (computed once at logger init from
-        // `cfg!(debug_assertions)` OR `RUST_LOG_STDERR=1`). The prior
-        // unconditional `eprintln!` was a wasted `write(2)` syscall
-        // per log line in release builds where stderr is /dev/null.
-        // Always emit in debug builds so `cargo tauri dev` shows live
-        // logs in the launching terminal; opt-in for release builds.
-        //
-        // `AtomicBool::load(Relaxed)` — runtime-toggleable
-        // without restart. Same per-line cost as a `bool` load.
+        // The terminal line is built ONLY when stderr logging is
+        // actually enabled — the `format!` used to run unconditionally,
+        // wasting one String allocation per log line in release builds
+        // where `stderr_verbose` is false (the line was formatted and
+        // immediately dropped). Format is unchanged: `HH:MM:SS LEVEL msg`.
         if self.stderr_verbose.load(Ordering::Relaxed) {
+            let term_line = format!("{} {:5} {}", term_ts, record.level(), msg);
             eprintln!("{}", term_line);
         }
         // ADR-0020 §11: exclude `bubble_level` from the file log

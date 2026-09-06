@@ -223,7 +223,12 @@ pub(super) fn spawn_reader_task(
                                 // envelope instead (see ALLOWED_EVENT_TYPES),
                                 // so this carve-out's PERF rationale holds
                                 // while both windows stay fed.
-                                let _ = app_for_reader.emit("bubble_level", payload.clone());
+                                // moved (not cloned) into the emit — this
+                                // branch `continue`s right after, so the
+                                // payload has no further readers and the
+                                // clone was a per-frame allocation on the
+                                // highest-rate host path.
+                                let _ = app_for_reader.emit("bubble_level", payload);
                             }
                             continue;
                         }
@@ -263,7 +268,10 @@ pub(super) fn spawn_reader_task(
                         // `usePythonEvent("mic_level")` → api.onEvent → the
                         // generic envelope, not a typed listener.
                         if is_high_rate_event_type(event_type) {
-                            let _ = app_for_reader.emit(emit_name, payload.clone());
+                            // Typed-only branch: nothing reads `payload`
+                            // after this emit, so MOVE it instead of
+                            // cloning (≤30 Hz bubble_level-class frames).
+                            let _ = app_for_reader.emit(emit_name, payload);
                         } else {
                             let _ = app_for_reader.emit(emit_name, payload.clone());
                             let _ = app_for_reader

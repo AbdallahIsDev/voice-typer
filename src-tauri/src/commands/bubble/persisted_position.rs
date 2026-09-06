@@ -17,16 +17,17 @@
 //!    placements arm a suppression window so they are never mistaken for
 //!    drags (mirrors Electron's `suppressDurablePersistFor`).
 //!
-//! All state lives in process-global atomics/mutexes because the readers
+//! All state lives in process-global mutexes/atomics because the readers
 //! and writers run on different threads (WS reader task, event-loop
-//! callback, spawned debounce tasks). No `block_on` anywhere — the
-//! debounce uses an async sleep inside a spawned task (C-TOKIO-1).
+//! callback, the long-lived debounce task). No `block_on` anywhere —
+//! the debounce task parks on a `tokio::sync::Notify` and re-arms with
+//! an async sleep (C-TOKIO-1).
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+use tokio::sync::Notify;
 
 use crate::commands::sidecar_cmds::dispatch_fire_and_forget;
 use crate::state::SidecarState;
@@ -46,9 +47,28 @@ static PERSISTED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 /// Wall-clock instant until which persistence is suppressed.
 static SUPPRESS_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
 
-/// Monotonic generation counter — bumped on every schedule/cancel so a
-/// queued debounce task can detect it was superseded.
-static SCHEDULE_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// A drag move queued for the debounced persist: the coordinates plus
+/// the instant they were scheduled, so the debounce task can sleep
+/// until exactly `PERSIST_DEBOUNCE_MS` after the LAST move.
+struct PendingMove {
+    pos: (i32, i32),
+    scheduled_at: Instant,
+}
+
+/// The newest drag move awaiting persistence (latest wins).
+static PENDING_MOVE: Mutex<Option<PendingMove>> = Mutex::new(None);
+
+/// Wakeup signal for the long-lived debounce task. `schedule_persist`
+/// stores the move, then calls `notify_one`; the task parks on
+/// `notified()` between drags. `notify_one` stores a permit when nobody
+/// is parked, so a move landing while the task is mid-debounce is
+/// never lost.
+static PERSIST_NOTIFY: OnceLock<Notify> = OnceLock::new();
+
+/// Ensures the debounce task is spawned exactly once per process (on
+/// the first drag) instead of once per `WindowEvent::Moved` (~60/sec
+/// during a drag).
+static DEBOUNCE_TASK_SPAWNED: OnceLock<()> = OnceLock::new();
 
 /// Extract the persisted pair from a decoded `bubble_config` payload.
 /// Both keys must be present as finite numbers within `i32` range for
@@ -137,16 +157,14 @@ pub(crate) fn restore_position(app: &tauri::AppHandle) -> Option<(i32, i32)> {
 }
 
 /// Arm the suppression window used by programmatic placements
-/// (`bubble_set_position`, show-time restores).
+/// (`bubble_set_position`, show-time restores). Any drag move still
+/// queued for the debounced persist fires inside this window (the
+/// window strictly outlives the debounce window) and is skipped at
+/// fire time — same net effect as the old generation invalidation.
 pub(crate) fn suppress_persist_for_window() {
-    bump_generation();
     if let Ok(mut slot) = SUPPRESS_UNTIL.lock() {
         *slot = Some(Instant::now() + Duration::from_millis(SUPPRESS_WINDOW_MS));
     }
-}
-
-fn bump_generation() -> u64 {
-    SCHEDULE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1
 }
 
 fn currently_suppressed() -> bool {
@@ -156,27 +174,96 @@ fn currently_suppressed() -> bool {
     }
 }
 
+/// Record a drag move as the pending latest-wins candidate.
+fn store_pending_move(x: i32, y: i32) {
+    if let Ok(mut slot) = PENDING_MOVE.lock() {
+        *slot = Some(PendingMove {
+            pos: (x, y),
+            scheduled_at: Instant::now(),
+        });
+    }
+}
+
 /// Schedule the debounced persist of a dragged bubble position. Called
 /// from the event-loop's `WindowEvent::Moved` branch for the bubble
 /// window — must never block the event loop, hence fire-and-forget all
-/// the way down: bump the generation (invalidating any queued task),
-/// spawn a sleeper, and only the newest task sends the frame.
+/// the way down: record the move, then wake the ONE long-lived debounce
+/// task (spawned on the first drag, parked on `PERSIST_NOTIFY` in
+/// between). No per-event task spawn: at ~60 `Moved` events/sec during
+/// a drag this used to spawn a fresh sleeper per event.
 ///
 /// The WS frame is sent via `dispatch_fire_and_forget` (id 0, no pending
 /// entry): a dropped or ignored write costs at most one stale restore,
 /// never an error surfaced to the user.
 pub(crate) fn schedule_persist(state: &std::sync::Arc<SidecarState>, x: i32, y: i32) {
-    let generation = bump_generation();
-    let state = state.to_owned();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(PERSIST_DEBOUNCE_MS)).await;
-        // Superseded by a newer move (or a cancel/suppress)? Drop out.
-        if SCHEDULE_GENERATION.load(Ordering::SeqCst) != generation {
-            return;
+    // Store BEFORE notifying: the task always reads the latest stored
+    // pair, so this order can never lose a move.
+    store_pending_move(x, y);
+    if DEBOUNCE_TASK_SPAWNED.set(()).is_ok() {
+        tauri::async_runtime::spawn(debounce_persist_loop(state.to_owned()));
+    }
+    PERSIST_NOTIFY.get_or_init(Notify::new).notify_one();
+}
+
+/// Park until a queued move has been quiet for the full debounce
+/// window, then hand it back — a latest-wins trailing debounce whose
+/// fire time is `PERSIST_DEBOUNCE_MS` after the LAST `schedule_persist`
+/// call (identical timing to the previous per-event sleeper). `None`
+/// means the wakeup had nothing queued (a surplus notify permit).
+async fn wait_for_quiesced_move() -> Option<(i32, i32)> {
+    enum Step {
+        /// Quiet window elapsed — fire this move.
+        Fire((i32, i32)),
+        /// Move still inside its window — sleep this long, then re-check.
+        Wait(Duration),
+        /// Nothing queued (surplus wakeup permit).
+        Empty,
+    }
+
+    let window = Duration::from_millis(PERSIST_DEBOUNCE_MS);
+    PERSIST_NOTIFY.get_or_init(Notify::new).notified().await;
+    loop {
+        // Atomically decide under one lock: fire the queued move, or
+        // sleep out the remainder of its quiet window. The lock guard
+        // is confined to this block — never held across the sleep.
+        let step = match PENDING_MOVE.lock() {
+            Ok(mut slot) => match slot.take() {
+                None => Step::Empty,
+                Some(p) => {
+                    let remaining = window.saturating_sub(p.scheduled_at.elapsed());
+                    if remaining.is_zero() {
+                        Step::Fire(p.pos)
+                    } else {
+                        // A move landed inside the window — put it back
+                        // and re-arm (a newer schedule_persist may have
+                        // replaced it by the time we wake).
+                        *slot = Some(p);
+                        Step::Wait(remaining)
+                    }
+                }
+            },
+            Err(_) => Step::Empty,
+        };
+        match step {
+            Step::Fire(pos) => return Some(pos),
+            Step::Wait(remaining) => tokio::time::sleep(remaining).await,
+            Step::Empty => return None,
         }
+    }
+}
+
+/// The long-lived debounce task: parks on `PERSIST_NOTIFY` between
+/// drags and sends exactly one `set_config` frame per quiescence
+/// window, carrying the newest queued move. Replaces the previous
+/// spawn-per-`Moved`-event sleeper.
+async fn debounce_persist_loop(state: std::sync::Arc<SidecarState>) {
+    loop {
+        let Some((x, y)) = wait_for_quiesced_move().await else {
+            continue;
+        };
         if currently_suppressed() {
             log::debug!("[BUBBLE] persist suppressed — skipping programmatic move");
-            return;
+            continue;
         }
         match dispatch_fire_and_forget(
             &state,
@@ -186,7 +273,7 @@ pub(crate) fn schedule_persist(state: &std::sync::Arc<SidecarState>, x: i32, y: 
             Ok(()) => log::info!("[BUBBLE] persisted durable position ({x}, {y})"),
             Err(e) => log::warn!("[BUBBLE] persisting durable position failed: {e}"),
         }
-    });
+    }
 }
 
 #[cfg(test)]

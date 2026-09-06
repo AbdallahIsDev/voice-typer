@@ -16,8 +16,10 @@
 //! declarations against this file's raw source (and assert that dead
 //! constants removed in past refactors never reappear here), so
 //! relocating them would regress the suite without a coordinated test
-//! update. `SUPERVISOR_MAX_RETRIES`'s doc comment below documents the
-//! same contract.
+//! update. The supervisor retry cap is `SUPERVISOR_BACKOFF_MS.len()`
+//! (5) — the now-deleted standalone `SUPERVISOR_MAX_RETRIES` constant
+//! was production-dead and is pinned as a schedule-length invariant in
+//! `util_tests` + the mig* gate tests instead.
 
 pub(crate) mod atomic_fs;
 pub(crate) mod crypto;
@@ -37,25 +39,10 @@ pub(crate) use time::{now_time_only, now_timestamps};
 /// per launch + per respawn; never logged.
 pub(crate) const TOKEN_BYTES: usize = 32;
 
-/// ADR-0020 §10: supervisor backoff schedule (ms). Cap 5 retries
-/// before falling back to full-app relaunch.
+/// ADR-0020 §10: supervisor backoff schedule (ms). The schedule LENGTH
+/// is the supervisor retry cap: `respawn_inner` iterates these steps
+/// and falls back to full-app relaunch after the last one (5 retries).
 pub(crate) const SUPERVISOR_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
-
-/// ADR-0020 §10: supervisor retry cap. After `SUPERVISOR_MAX_RETRIES`
-/// failed respawns, the supervisor emits `supervisor_relaunching` and
-/// calls `app.restart()` (full-app relaunch). No runtime code path
-/// reads this constant directly — the supervisor loop iterates over
-/// `SUPERVISOR_BACKOFF_MS` (whose length == `SUPERVISOR_MAX_RETRIES`),
-/// and the post-loop exhaustion path handles the relaunch.
-///
-/// Kept at module scope (not inside the test module) so the Python
-/// source-inspection regex `pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES`
-/// (test_shutdown_windows.py + 7 sibling mig* test files) keeps matching.
-/// `#[allow(dead_code)]` suppresses the lint for the no-runtime-reader
-/// contract; the constant is pinned equal to
-/// `SUPERVISOR_BACKOFF_MS.len()` by `util_tests::test_supervisor_backoff_constants`.
-#[allow(dead_code)]
-pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5;
 
 /// ADR-0020 §10: cooperative shutdown hard timeout. The sidecar must
 /// ack `{"type":"shutdown"}` and exit within this window; if it
@@ -201,7 +188,8 @@ pub(crate) const HEARTBEAT_MAX_MISSES: u32 = 3;
 #[cfg(unix)]
 pub(crate) const KILL_TREE_SIGTERM_GRACE_MS: u64 = 200;
 
-/// `sidecar/spawn.rs::spawn_sidecar_and_get_port` (and the dev-mode
+/// `sidecar/spawn.rs::spawn_sidecar_and_get_port_with_shutdown` (and
+/// the dev-mode
 /// `spawn_dev_sidecar` sibling): polling interval for the
 /// `server_started` JSON on the sidecar's stdout. 500ms balances
 /// startup latency (a fast sidecar acks in ~50ms, so we sleep ~450ms
