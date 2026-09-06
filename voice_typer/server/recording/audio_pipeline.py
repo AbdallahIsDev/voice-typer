@@ -41,10 +41,11 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
 Patch-path compatibility
 ------------------------
-Tests use ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-to inject fake resample behavior. The ``_recording_pkg._get_resample_poly()``
-indirection (see the module docstring of :mod:`.recorder` §Patch-path) is
-preserved here so the patch takes effect at call time.
+Tests patch the OWNING module
+(``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", ...)``)
+to inject fake resample behavior; the call sites resolve the name
+through the ``resampling`` module object at call time so those patches
+take effect (C-ARCH-2 canonical shape).
 """
 
 from __future__ import annotations
@@ -59,7 +60,6 @@ import threading
 import time
 from typing import Any
 
-from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording import resampling as _resampling_mod
@@ -662,7 +662,7 @@ class AudioPipeline:
                             # (e.g. scipy version without ``upfirdn``,
                             # or an edge-case shape mismatch) — same
                             # fallback as ``resample_audio``.
-                            resample_poly = _recording_pkg._get_resample_poly()
+                            resample_poly = _resampling_mod._get_resample_poly()
                             vad_audio = np.asarray(
                                 resample_poly(
                                     filtered.ravel(),

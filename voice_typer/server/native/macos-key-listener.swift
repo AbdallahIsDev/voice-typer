@@ -595,7 +595,14 @@ DispatchQueue.global(qos: .utility).async {
     var buffer = Data()
     while true {
         let chunk = stdin.availableData
-        if chunk.isEmpty { return }  // EOF — parent closed stdin
+        if chunk.isEmpty {
+            // EOF — parent closed stdin (crash / force-kill / power loss).
+            // Do not linger as an orphan holding the event tap: exit the
+            // process so the kernel closes the devices for us. (Validate
+            // on a real macOS host; logDiag is thread-safe.)
+            logDiag("stdin EOF — parent gone, exiting")
+            exit(0)
+        }
         buffer.append(chunk)
         while let nlIdx = buffer.firstIndex(of: 0x0A) {
             let lineData = buffer.prefix(upTo: nlIdx)

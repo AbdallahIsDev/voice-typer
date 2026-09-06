@@ -449,17 +449,17 @@ class HotkeyDispatcher:
         # give the backend a reference to the tray so
         # it can show permission/fallback/recovery notifications.
         # The _NativeBackendAdapter uses this for its notifications;
-        # other backends ignore it.
+        # other backends ignore it. The attribute is declared on the
+        # ``HotkeyBackend`` base class, so the assignment needs no
+        # suppression.
         with contextlib.suppress(AttributeError, TypeError):
-            new_backend._tray = app.tray  # type: ignore[attr-defined]
+            new_backend._tray = app.tray
         # wire the ``_NativeBackendAdapter``'s native↔legacy
         # state-change hook so the dispatcher can re-sync the pooled
         # ESC / repaste extra matchers when the shared backend's native
         # subprocess permanently fails and the adapter swaps to legacy.
         with contextlib.suppress(AttributeError, TypeError):
-            new_backend._on_state_change_callback = (  # type: ignore[attr-defined]
-                self._handle_shared_native_state_changed
-            )
+            new_backend._on_state_change_callback = self._handle_shared_native_state_changed
         # surface a tray notification when the user binds Caps
         # Lock on Wayland. The ``WaylandHotkey`` backend has no key-
         # suppression mechanism, so the OS will toggle caps state on
@@ -641,7 +641,7 @@ class HotkeyDispatcher:
             # backend's extra matcher handles dispatch.
             aux_native = self._native_of(aux_backend)
             if aux_native is not None:
-                aux_native._delegated = True  # type: ignore[attr-defined]
+                aux_native._delegated = True
             # DEBUG: the caller's per-role "[HOTKEY] ... registered"
             # INFO line appends "(pooled into shared backend)" — a
             # second INFO here duplicated the same event.
@@ -965,7 +965,7 @@ class HotkeyDispatcher:
             # instead of 3, still an improvement. suppress() so non-Windows
             # backends without ``_prefer_message_loop_first`` are skipped.
             with contextlib.suppress(AttributeError, TypeError):
-                self._esc_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
+                self._esc_backend._prefer_message_loop_first = True
 
             def _esc_callback() -> None:
                 # shutdown guard (see _dictation_callback).
@@ -1170,7 +1170,7 @@ class HotkeyDispatcher:
                 # same WM_HOTKEY-preference flag as the ESC backend
                 # (see register_esc for the full rationale).
                 with contextlib.suppress(AttributeError, TypeError):
-                    self._repaste_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
+                    self._repaste_backend._prefer_message_loop_first = True
                 _repaste_cb = self._make_repaste_callback()
                 # Stash the callback so :meth:`_repool_aux_into_shared`
                 # can re-register it after a shared-backend swap.

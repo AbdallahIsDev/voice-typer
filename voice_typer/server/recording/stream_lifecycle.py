@@ -160,7 +160,13 @@ class StreamLifecycle:
                     elif channels > max_ch:
                         channels = max(1, max_ch)  # don't request more than device supports
                 except Exception:
-                    pass
+                    # Channel probe failure falls back to the device default;
+                    # log so a device that keeps failing here is diagnosable.
+                    log.debug(
+                        "[RECORDING] channel probe failed for device %r — using default channel count",
+                        candidate,
+                        exc_info=True,
+                    )
 
                 stream = sd.InputStream(
                     samplerate=candidate_sr,
@@ -206,7 +212,9 @@ class StreamLifecycle:
                             candidate_sr,
                         )
                 except Exception:
-                    pass
+                    # BT quality detection is advisory only — but a persistent
+                    # probe failure should still leave a trail.
+                    log.debug("[RECORDING] Bluetooth HFP profile probe failed", exc_info=True)
 
                 # AUDIO-CH: store actual channel count for callback
                 recorder._actual_channels = channels
@@ -293,7 +301,13 @@ class StreamLifecycle:
                     if fb_max_ch >= 2:
                         fb_channels = 2
                 except Exception:
-                    pass
+                    # Same channel-probe failure contract as the primary
+                    # candidate loop above — fall back to mono, leave a trail.
+                    log.debug(
+                        "[RECORDING] channel probe failed for fallback device %r — using mono",
+                        candidate,
+                        exc_info=True,
+                    )
 
                 stream = sd.InputStream(
                     samplerate=candidate_sr,

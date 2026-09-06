@@ -511,12 +511,32 @@ class LatePhases:
             # delegate from this class — see test_bugfix_regressions.py
             # ``TestAudioMicDeviceChangePoller`` for the full history.
 
-        # 1b. Create desktop launcher shortcut on first run (if absent)
-        # (Run before parallel work so the shortcut exists before mic
-        # enumeration — they're independent but shortcut creation is
-        # fast and quick to fail.)
-        # Phase 2: call startup_tasks directly.
-        startup_tasks.ensure_desktop_shortcut(app)
+        # 1b. Create desktop launcher shortcut on first run (if absent).
+        # Dispatched on a fire-and-forget daemon thread (same precedent as
+        # ``sync_prewarm_task`` above): the COM fast path is quick, but when
+        # the COM API is unavailable the fallback spawns PowerShell with a
+        # 30s ceiling plus a second PowerShell icon-stamp step that takes
+        # seconds — all of which previously ran on the startup critical path
+        # BEFORE hotkey registration, delaying the dictation hotkey. The
+        # shortcut is independent of mic enumeration and idempotent, so a
+        # hung/slow creation has no correctness impact (the next launch
+        # re-checks).
+        def _desktop_shortcut_task() -> None:
+            try:
+                startup_tasks.ensure_desktop_shortcut(app)
+            except Exception:
+                log.debug("[STARTUP] desktop shortcut creation failed", exc_info=True)
+
+        shortcut_thread = threading.Thread(
+            target=_desktop_shortcut_task,
+            name="startup-desktop-shortcut",
+            daemon=True,
+        )
+        shortcut_thread.start()
+        log.debug(
+            "[STARTUP] desktop shortcut creation dispatched to fire-and-forget "
+            "daemon thread — hotkey registration proceeds without waiting on it"
+        )
 
         log.debug("[STARTUP] Running prewarm sync + mic enumeration")
         _startup_parallel_work()

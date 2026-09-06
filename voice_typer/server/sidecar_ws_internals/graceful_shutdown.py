@@ -115,7 +115,7 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
     """
     if getattr(server, "_ws_graceful_shutdown_installed", False):
         return
-    server._ws_graceful_shutdown_installed = True  # type: ignore[attr-defined]
+    server._ws_graceful_shutdown_installed = True
 
     # Initialize the WS-state attributes ONLY if they are not already
     # set. Tests (and a future caller) may pre-populate these before
@@ -126,10 +126,12 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
     # the install's perspective, so we preserve them. The
     # ``_make_real_server_for_graceful_shutdown`` test helper explicitly
     # pre-sets these to real ``set()`` instances before calling install.
+    # All attributes are declared on ``IPCServer.__init__``, so the
+    # assignments below need no type-ignore suppression.
     if getattr(server, "_ws_authenticated_conns", None) is None:
-        server._ws_authenticated_conns = set()  # type: ignore[attr-defined]
+        server._ws_authenticated_conns = set()
     if getattr(server, "_ws_dispatch_futures", None) is None:
-        server._ws_dispatch_futures = set()  # type: ignore[attr-defined]
+        server._ws_dispatch_futures = set()
 
     def ws_graceful_shutdown() -> None:
         """Send close(1001) to all authenticated conns, bounded-wait
@@ -230,7 +232,7 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
         #    into a clean INFO exit instead of a spurious ERROR
         #    traceback + exit code 1 (2026-08-30 tray-Restart noise).
         with contextlib.suppress(Exception):
-            server._ws_graceful_stop_requested = True  # type: ignore[attr-defined]
+            server._ws_graceful_stop_requested = True
         if loop is not None and not loop.is_closed():
             try:
                 loop.call_soon_threadsafe(loop.stop)
@@ -244,23 +246,30 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
 
     server.ws_graceful_shutdown = ws_graceful_shutdown  # type: ignore[attr-defined]
 
-    # Wrap ``server.stop`` so ``ws_graceful_shutdown`` runs FIRST.
-    # The wrapper looks up ``server.ws_graceful_shutdown`` DYNAMICALLY
-    # (not via the closure-captured reference) so tests that replace
-    # ``server.ws_graceful_shutdown`` post-install observe the
-    # replacement. The original ``stop`` is captured at install time
-    # (before any test replacement).
-    original_stop = server.stop
-
-    def wrapped_stop(*args, **kwargs):
+    # Install ``ws_graceful_shutdown`` as an EXPLICIT stop hook (the
+    # ``_ws_stop_hook`` slot declared on ``IPCServer.__init__``) instead
+    # of REPLACING the bound ``stop`` method at instance level. The
+    # ``LifecycleMixin.stop`` implementation calls the hook FIRST (best-
+    # effort: exceptions logged at DEBUG, teardown continues) and then
+    # runs the original TCP teardown. Same ordering contract as the old
+    # instance-level ``stop`` wrapper — ``ws_graceful_shutdown`` runs
+    # BEFORE the TCP teardown — without mutating the class surface (a
+    # monkeypatched/instance-replaced ``stop`` created a hidden call
+    # chain invisible to the type checker).
+    # The hook is looked up DYNAMICALLY at call time by ``stop`` so tests
+    # that replace ``server.ws_graceful_shutdown`` post-install still
+    # observe the replacement; the hook closure itself only references
+    # the server object.
+    def _stop_hook() -> None:
         try:
             # Dynamic lookup — see comment above.
-            server.ws_graceful_shutdown()
+            hook = server.ws_graceful_shutdown
+            if hook is not None:
+                hook()
         except Exception:
             log.debug(
                 "[SIDECAR-WS] ws_graceful_shutdown raised — continuing to original stop",
                 exc_info=True,
             )
-        return original_stop(*args, **kwargs)
 
-    server.stop = wrapped_stop  # type: ignore[attr-defined]
+    server._ws_stop_hook = _stop_hook

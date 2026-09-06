@@ -477,7 +477,12 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
                         else:
                             self._process.send_signal(signal.SIGTERM)
                     except (OSError, ProcessLookupError):
-                        pass
+                        # Process already gone between poll() and signal —
+                        # normal teardown race; log for the device-diagnosability trail.
+                        log.debug(
+                            "[NATIVE-HOTKEY] terminate() raced process exit",
+                            exc_info=True,
+                        )
                     try:
                         self._process.wait(timeout=2.0)
                     except subprocess.TimeoutExpired:
@@ -486,7 +491,12 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
                             self._process.kill()
                             self._process.wait(timeout=1.0)
                         except (subprocess.TimeoutExpired, OSError):
-                            pass
+                            # Force-kill is itself best-effort; the process may
+                            # be stuck in an uninterruptible state. Log it.
+                            log.debug(
+                                "[NATIVE-HOTKEY] force-kill after graceful timeout failed",
+                                exc_info=True,
+                            )
             finally:
                 self._process = None
 

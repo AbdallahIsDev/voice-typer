@@ -312,6 +312,21 @@ class LifecycleMixin:
     def stop(self) -> None:
         """Signal the stdin loop and TCP accept loop to stop.
 
+        Runs the WS graceful-shutdown hook FIRST (when the WebSocket
+        layer attached one — see
+        ``sidecar_ws_internals.graceful_shutdown._attach_ws_graceful_shutdown``
+        which installs it into ``self._ws_stop_hook``): the hook sends
+        close(1001) to authenticated WS connections, bounded-waits for
+        in-flight dispatch futures, and stops the WS loop BEFORE the TCP
+        teardown tears down shared state. The hook is best-effort — an
+        exception is logged at DEBUG and the TCP teardown STILL runs (a
+        failure in the WS close path must never prevent the server from
+        stopping). Previously this ordering was implemented by wrapping
+        the bound ``stop`` method at instance level (``server.stop =
+        wrapped_stop``), which hid the call chain from the type checker;
+        the explicit hook slot keeps the same contract statically
+        visible.
+
         previously ``stop()`` only set ``_running = False``
         and cleared the push hook, but the TCP accept loop checked
         ``getattr(self, '_stopped', False)`` — a flag that was never
@@ -349,6 +364,15 @@ class LifecycleMixin:
         # False). This is acceptable — see the ``__init__`` comment for
         # ``_cached_shutting_down``.
         self._cached_shutting_down = True
+        # WS graceful-shutdown hook FIRST (see docstring): best-effort,
+        # exceptions logged inside the hook itself. ``None`` when the WS
+        # layer never attached (pure-TCP servers, most unit tests).
+        stop_hook = getattr(self, "_ws_stop_hook", None)
+        if stop_hook is not None:
+            try:
+                stop_hook()
+            except Exception:
+                log.debug("[IPC] _ws_stop_hook raised — continuing TCP teardown", exc_info=True)
         # Unregister our push callable.  Other servers in the registry
         # are unaffected.
         # Unsubscribe through the event_bus directly.

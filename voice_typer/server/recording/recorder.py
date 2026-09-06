@@ -2,7 +2,7 @@
 
 Cross-submodule helpers and the mutable ``_resample_poly`` /
 ``_resample_poly_error`` / ``_scipy_preloader_thread`` globals route
-through the package namespace (``_recording_pkg.X``, call-time lookup)
+via the owning submodules (C-ARCH-2; no package-object indirection)
 so ``monkeypatch.setattr("voice_typer.server.recording.X", ...)``
 patches keep affecting production code defined here; ``Recorder`` is
 genuinely defined in this file so ``inspect.getsource`` keeps reading
@@ -37,12 +37,10 @@ np = lazy_module("numpy")
 
 log = logging.getLogger("voice_typer.server.recording")
 
-# Patch-path bridge: ``_recording_pkg.X`` resolves at call time so patches of
-# ``voice_typer.server.recording.X`` (helpers + the mutable globals) stick.
-from voice_typer.server import recording as _recording_pkg  # noqa: E402
-
-# Literal module-top import so ``recorder.X`` stays test-importable and a removed
-# binding raises ``AttributeError`` at import time, not a swallowed ``NameError``.
+# Owning-module imports (C-ARCH-2): call sites below consume the submodule
+# directly instead of routing through the package object. The literal import
+# keeps ``recorder.X`` test-importable and makes a removed binding raise
+# ``AttributeError`` at import time, not a swallowed ``NameError``.
 from voice_typer.server.recording import _secure_clear_array  # noqa: F401, E402
 
 # VadState / VAD state machine extracted to ``vad_processor``; ``take_snapshot``
@@ -403,18 +401,18 @@ class Recorder(RecorderInitMixin):
         Pre-fix the bare-name call raised a ``NameError`` silently swallowed by
         the broad ``except`` — secure-zeroing never ran. Import bound at module
         top (``AttributeError`` if removed); call sites route through
-        ``_recording_pkg.X`` for patchability; the ``(OSError, ValueError)``
+        the ``(OSError, ValueError)``
         clause is narrow so NameError-class bugs surface. STAYS ON ``Recorder``
         — pinned by ``tests/test_secure_clear_array.py``.
         """
         try:
             if self._cached_resampled is not None and self._cached_resampled.size > 0:
-                _recording_pkg._secure_clear_array(self._cached_resampled)
+                _secure_clear_array(self._cached_resampled)
         except (OSError, ValueError):
             log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
         try:
             if self._cached_no_resample_arr is not None and self._cached_no_resample_arr.size > 0:
-                _recording_pkg._secure_clear_array(self._cached_no_resample_arr)
+                _secure_clear_array(self._cached_no_resample_arr)
         except (OSError, ValueError):
             log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
         # Zero the resample-path segment list BEFORE reassignment (mirrors
@@ -425,7 +423,7 @@ class Recorder(RecorderInitMixin):
         try:
             for seg in self._cached_resampled_segments:
                 if seg is not None and seg.size > 0:
-                    _recording_pkg._secure_clear_array(seg)
+                    _secure_clear_array(seg)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_resampled_segments",
@@ -492,7 +490,7 @@ class Recorder(RecorderInitMixin):
                 # ``RuntimeError: cannot join thread before it is started`` —
                 # thread ref assigned before ``Thread.start()``. Narrowed (XS-36).
                 with contextlib.suppress(RuntimeError):
-                    pre_thread.join(timeout=_recording_pkg._AUDIO_WORKER_JOIN_TIMEOUT_S)
+                    pre_thread.join(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S)
                 self._worker_stop_event = threading.Event()
                 self._worker_wake_event = threading.Event()
                 self._worker_thread = None

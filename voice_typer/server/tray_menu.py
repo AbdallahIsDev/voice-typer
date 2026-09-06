@@ -28,7 +28,7 @@ from collections.abc import Callable
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
 # Xlib.display.Display() at module import time, costing ~48 ms and
 # failing without an X display (headless CI). pystray is only needed
-# when build_menu() actually constructs menu items, so defer it. The
+# when build_menu_for_tray() actually constructs menu items, so defer it. The
 # proxy re-reads sys.modules on every access, so tests that inject a
 # mock via monkeypatch.setitem(sys.modules, "pystray", ...) — or that
 # assign tray_menu.pystray directly — keep working unchanged.
@@ -112,116 +112,10 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
     return wrapper
 
 
-def build_menu(
-    *,
-    hotkey: str,
-    toggle_dictation: Callable[[], None],
-    open_app: Callable[[], None],
-    force_cancel_transcription: Callable[[], None] | None = None,
-    restart_app: Callable[[], None],
-    quit_app: Callable[[], None],
-    build_models_submenu: Callable[[], list],
-    # BUGFIX: tray_left_click_action was never read from config — the
-    # tray hardcoded ``default=True`` on "Start Dictation", so left-click
-    # ALWAYS started recording regardless of the Settings page choice.
-    # Now this parameter controls which menu item gets ``default=True``.
-    left_click_action: str = "open_app",
-    # localization function
-    localize: Callable[[str], str] = lambda k: k,
-) -> tuple:
-    """Build the minimal tray menu with Models submenu.
-
-    #13: extracted from TrayIcon._build_menu. Returns a tuple of
-    pystray.MenuItem suitable for passing to pystray.Menu(*items).
-
-    Menu structure:
-      - Open App (default/bold)
-      - Start Dictation
-      - --- separator ---
-      - Models ▸
-      - --- separator ---
-      - Restart
-      - Quit
-
-    About and Diagnostics are no longer in the tray menu; they remain
-    available inside the main application (Electron window).
-
-    Parameters
-    ----------
-    hotkey : str
-        The hotkey string in pynput format (e.g. '<f2>'), used for
-        the "Start Dictation" label.
-    toggle_dictation, open_app, restart_app, quit_app : Callable
-        No-arg callbacks for each menu action. They will be wrapped
-        with wrap_callback() so pystray's (icon, item) invocation
-        convention doesn't break them.
-    force_cancel_transcription : Callable, optional
-         Finding #3: force-cancel a stuck transcription.  Invokes
-        ``_force_recover_from_stuck_transcription(force=True)`` to
-        reset busy flag and tray state immediately.  Safe to call
-        when transcription is not stuck (no-op).
-    build_models_submenu : Callable[[], list]
-        Returns the list of MenuItem for the Models submenu. Delegated
-        to the caller because it depends on TrayIcon's controller +
-        open_electron_window methods (kept in tray.py).
-    left_click_action : str
-        Controls which menu item gets ``default=True`` (the left-click
-        action). "open_app" (default) opens/focuses the Electron window;
-        "toggle_dictation" starts/stops recording.
-    """
-    items = []
-    hotkey_label = display_hotkey(hotkey)
-
-    dictation_default = left_click_action == "toggle_dictation"
-    open_app_default = left_click_action == "open_app"
-
-    # Open App is first (default/bold action)
-    items.append(
-        pystray.MenuItem(
-            localize("open_app"),
-            wrap_callback(open_app),
-            default=open_app_default,
-        )
-    )
-    # Start Dictation is second
-    items.append(
-        pystray.MenuItem(
-            f"{localize('toggle_dictation')} ({hotkey_label})",
-            wrap_callback(toggle_dictation),
-            default=dictation_default,
-        )
-    )
-
-    #  Finding #3: Force-cancel stuck transcription (manual escape hatch)
-    if force_cancel_transcription is not None:
-        items.append(
-            pystray.MenuItem(
-                localize("force_cancel_transcription"),
-                wrap_callback(force_cancel_transcription),
-            )
-        )
-
-    items.append(pystray.Menu.SEPARATOR)
-
-    # Models submenu — only show downloaded models
-    models_sub = build_models_submenu()
-    items.append(pystray.MenuItem(localize("models"), pystray.Menu(*models_sub)))
-
-    items.append(pystray.Menu.SEPARATOR)
-
-    # Restart
-    items.append(pystray.MenuItem(localize("restart"), wrap_callback(restart_app)))
-
-    # Quit
-    items.append(pystray.MenuItem(localize("quit"), wrap_callback(quit_app)))
-
-    return tuple(items)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # ADR-0020 §6.5 / §16: Tauri tray-menu MODEL builder.
 #
-# This is the Tauri/sidecar counterpart to ``build_menu`` above. Instead of
+# This is the Tauri/sidecar counterpart to ``build_menu_for_tray`` (the
+# pystray renderer below). Instead of
 # pystray ``MenuItem`` objects (which require a display), it returns plain
 # dicts that the Tauri host can render directly, plus an ``id`` → callback
 # map used to dispatch a click back to the right action.  It never imports
@@ -449,7 +343,7 @@ def publish_tray_menu(model: list[dict]) -> bool:
     ADR-0020 §6.5 / §16: the serialized menu model is only pushed to the
     event bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``).
     On the Electron/pystray runtime this is a no-op so the native pystray
-    menu (built by :func:`build_menu`) remains the single source of truth
+    menu (built by :func:`build_menu_for_tray`) remains the single source of truth
     and we never double-publish.
 
     Returns ``True`` if the event was published, ``False`` otherwise.

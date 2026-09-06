@@ -21,6 +21,20 @@ log = logging.getLogger("voice_typer.server.hotkeys")
 class HotkeyBackend(ABC):
     """Abstract base for hotkey backends."""
 
+    # Declared cross-cutting hook attributes. The ``HotkeyDispatcher``
+    # (and the ``_NativeBackendAdapter``) set these on ANY backend object
+    # they manage — previously the assignments were raw ``setattr`` sites
+    # guarded by ``contextlib.suppress(AttributeError)`` +
+    # ``# type: ignore[attr-defined]`` because the base class did not
+    # declare them. Declaring them here (with safe defaults) means the
+    # dispatcher's assignments are statically checkable and non-Windows
+    # backends simply inherit the no-op defaults. The windows-native
+    # backend overrides the value in its own ``__init__``.
+    _tray: object | None = None
+    _on_state_change_callback: Callable[[str], None] | None = None
+    _delegated: bool = False
+    _prefer_message_loop_first: bool = False
+
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
         self._on_release_callback: Callable[[], None] | None = None

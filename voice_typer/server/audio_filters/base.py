@@ -348,6 +348,56 @@ class FilterChain:
 # Mirrors the _get_resample_poly pattern in audio_processor.py.
 _lfilter = None
 _lfilter_import_error: Exception | None = None
+_sosfilt = None
+_sosfilt_import_error: Exception | None = None
+_sosfilt_zi = None
+_sosfilt_zi_import_error: Exception | None = None
+
+
+def _get_sosfilt():
+    """Return scipy.signal.sosfilt, importing it lazily on first call.
+
+    Mirrors :func:`_get_lfilter`'s caching contract for the same hot-path
+    rationale. SOS (second-order-section) filtering is the numerically
+    stable form for high-order IIR designs: unlike transfer-function
+    ``b``/``a`` coefficients, sectioned poles keep enough distance from
+    the unit circle that float32 rounding cannot push them outside it.
+    """
+    global _sosfilt, _sosfilt_import_error
+    if _sosfilt is not None:
+        return _sosfilt
+    if _sosfilt_import_error is not None:
+        raise _sosfilt_import_error
+    try:
+        from scipy.signal import sosfilt as _sf
+
+        _sosfilt = _sf
+    except ImportError as exc:
+        _sosfilt_import_error = exc
+        raise
+    return _sosfilt
+
+
+def _get_sosfilt_zi():
+    """Return scipy.signal.sosfilt_zi, importing it lazily on first call.
+
+    Same caching contract as :func:`_get_lfilter` / :func:`_get_sosfilt`.
+    Used once at filter-init time to compute the steady-state initial
+    condition for ``sosfilt``.
+    """
+    global _sosfilt_zi, _sosfilt_zi_import_error
+    if _sosfilt_zi is not None:
+        return _sosfilt_zi
+    if _sosfilt_zi_import_error is not None:
+        raise _sosfilt_zi_import_error
+    try:
+        from scipy.signal import sosfilt_zi as _szi
+
+        _sosfilt_zi = _szi
+    except ImportError as exc:
+        _sosfilt_zi_import_error = exc
+        raise
+    return _sosfilt_zi
 
 
 def _get_lfilter():

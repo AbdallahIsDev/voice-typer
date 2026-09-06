@@ -202,7 +202,16 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
         # Tolerant: a transient FTS5 error must not break
         # the row delete (which already committed).
         try:
+            # Both FTS5 shadow indexes (unicode61 + trigram CJK) in
+            # lockstep — the dictated plaintext lives in both shadow
+            # tables (GDPR erasure guarantee). The CJK optimize is gated
+            # on table existence (SQLite without the trigram tokenizer
+            # never got the V5 migration).
+            from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
             cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('optimize')")
+            if cjk_trigram_table_exists(conn):
+                cursor.execute("INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk) VALUES('optimize')")
             conn.commit()
         except sqlite3.Error as optimize_exc:
             log.warning(
@@ -374,7 +383,16 @@ def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
     try:
         fts_cursor = conn.cursor()
         try:
+            # Both FTS5 shadow indexes (unicode61 + trigram CJK) in
+            # lockstep — the dictated plaintext lives in both shadow
+            # tables (GDPR erasure guarantee). The CJK rebuild is gated
+            # on table existence (SQLite without the trigram tokenizer
+            # never got the V5 migration).
+            from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
             fts_cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+            if cjk_trigram_table_exists(conn):
+                fts_cursor.execute("INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk) VALUES('rebuild')")
             conn.commit()
             log.info("[HISTORY_DB] FTS5 segments rebuilt after clear_all")
         finally:

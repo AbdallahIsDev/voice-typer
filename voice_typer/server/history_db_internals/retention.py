@@ -153,7 +153,17 @@ def _rebuild_fts(
     """
     fts_cursor = conn.cursor()
     try:
+        # Both FTS5 shadow indexes (unicode61 ``transcriptions_fts`` AND
+        # the trigram CJK index ``transcriptions_fts_cjk``) must be kept
+        # in lockstep: the dictated plaintext lives in BOTH shadow
+        # tables, so the GDPR erasure guarantee covers both. The CJK
+        # command is gated on table existence (SQLite without the
+        # trigram tokenizer never got the V5 migration).
+        from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
         fts_cursor.execute(f"INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('{command}')")
+        if cjk_trigram_table_exists(conn):
+            fts_cursor.execute(f"INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk) VALUES('{command}')")
         conn.commit()
         action = "rebuilt" if command == "rebuild" else "optimized"
         if deleted is not None:

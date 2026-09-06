@@ -335,7 +335,9 @@ def _buffer_clear_worker_loop() -> None:
                 return
             _secure_clear_handed_off_buffer(buffer)
         except Exception:
-            pass  # best-effort; the buffer will be GC'd anyway
+            # Best-effort: the buffer will be GC'd anyway, but a persistent
+            # clear-worker failure should be visible in the log.
+            log.debug("[RECORDING] secure-clear worker failed on handed-off buffer", exc_info=True)
         finally:
             _buffer_clear_queue.task_done()
 

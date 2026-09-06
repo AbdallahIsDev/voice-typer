@@ -62,7 +62,6 @@ from voice_typer.server.tray_i18n import (  # noqa: E402,F401
 )
 from voice_typer.server.tray_icon import _make_icon
 from voice_typer.server.tray_menu import (  # noqa: F401
-    build_menu,
     display_hotkey,
     wrap_callback,
 )

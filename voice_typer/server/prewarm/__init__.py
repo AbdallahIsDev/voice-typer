@@ -26,7 +26,7 @@ from .cache_probe import (
     _WORKER_WARM_PACKAGES,
     _active_model_cache_dirs,
     _cache_ratio,
-    _find_parakeet_weights,
+    _model_weight_files,
     _resolve_hf_cache_dir,
     _warm_file,
     _warm_imports,
@@ -41,7 +41,7 @@ from .status import (
 __all__ = [
     # cache_probe
     "_resolve_hf_cache_dir",
-    "_find_parakeet_weights",
+    "_model_weight_files",
     "_active_model_cache_dirs",
     "_cache_ratio",
     "_warm_file",

@@ -927,6 +927,10 @@ def install_blob_into_hf_cache(
             if snap_file.is_symlink() or snap_file.exists():
                 snap_file.unlink()
         except OSError:
-            pass
+            log.debug(
+                "[DOWNLOAD] could not remove stale snapshot symlink before copy: %s",
+                snap_file,
+                exc_info=True,
+            )
         shutil.copyfile(blob_path, snap_file)
     return snap_file

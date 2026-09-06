@@ -4,7 +4,7 @@ This module is an intentional extraction from ``voice_typer/worker/__main__.py``
 per E3 (no spaghetti entry files). It mirrors
 :mod:`voice_typer.server.single_instance`'s shape: a lock file in the
 canonical app config dir, ``O_CREAT | O_EXCL | O_CLOEXEC`` + ``flock``
-on POSIX, best-effort existence check on Windows, and stale-PID
+on POSIX, existence check + stale-PID recovery on Windows, and stale-PID
 recovery when the holder process is dead.
 
 The worker single-instance lock file name (``worker.lock``) is distinct
@@ -56,7 +56,9 @@ class _WorkerSingleInstanceHandle:
     On Windows the lock is best-effort (no named mutex is used here —
     the worker is always spawned by the Tauri host, which already
     enforces single-instance via ``tauri-plugin-single-instance``; the
-    Python-side lock is defense-in-depth for dev-runs from a terminal).
+    Python-side lock is defense-in-depth for dev-runs from a terminal),
+    but a lockfile whose recorded PID is dead IS reclaimed (stale-PID
+    recovery), mirroring the server implementation.
     """
 
     __slots__ = ("_fd", "_path", "_released")
@@ -92,10 +94,11 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
     existence check), logs at WARNING and returns ``None`` — the caller
     decides whether to exit.
 
-    Stale-PID recovery (POSIX): if the lockfile exists but the PID
-    inside is not alive, the lockfile is reclaimed (mirrors
+    Stale-PID recovery (POSIX and Windows): if the lockfile exists but
+    the PID inside is not alive, the lockfile is reclaimed (mirrors
     :func:`voice_typer.server.single_instance._ensure_single_instance_posix`'s
-    stale-PID path).
+    stale-PID path; Windows uses ``OpenProcess`` + ``GetExitCodeProcess``
+    via :func:`voice_typer.server.single_instance._is_pid_alive`).
     """
     lock_path = _worker_lock_path()
     try:
@@ -156,24 +159,30 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
                 log.warning("[WORKER] worker.lock held by pid=%d (permission check) — refusing to start", pid)
                 return None
     else:
-        # Windows: best-effort existence check. The Tauri host's
-        # ``tauri-plugin-single-instance`` is the authoritative gate;
-        # this is defense-in-depth for dev-runs from a terminal.
+        # Windows: existence check + stale-PID recovery, mirroring the
+        # server's ``_ensure_windows_single_instance`` semantics via the
+        # shared ``_is_pid_alive`` probe (OpenProcess + GetExitCodeProcess).
+        # The Tauri host's ``tauri-plugin-single-instance`` remains the
+        # authoritative gate; this is defense-in-depth for dev-runs from
+        # a terminal — but unlike before, a hard-killed worker (Task
+        # Manager / taskkill / crash) no longer bricks offline
+        # transcription: the dead holder's lockfile is reclaimed.
         if lock_path.exists():
             try:
                 pid_str = lock_path.read_text(encoding="ascii").strip()
                 pid = int(pid_str)
-                # On Windows there is no portable ``os.kill(pid, 0)`` —
-                # we use the lockfile's existence as the signal. A stale
-                # lockfile from a crashed worker is reclaimed below if
-                # the PID's process tree is gone (checked via
-                # ``os.kill``-equivalent on Windows; left as TODO since
-                # the Tauri host owns authoritative single-instance).
-                log.warning("[WORKER] worker.lock exists (pid=%d) — refusing to start", pid)
-                return None
             except (OSError, ValueError):
                 log.warning("[WORKER] worker.lock exists but is unreadable — refusing to start")
                 return None
+            from voice_typer.server.single_instance import _is_pid_alive
+
+            if _is_pid_alive(pid):
+                log.warning("[WORKER] worker already running (pid=%d) — refusing to start", pid)
+                return None
+            # Stale lockfile — the recorded PID is dead. Reclaim it.
+            log.info("[WORKER] reclaiming stale worker.lock (pid=%d was dead)", pid)
+            with contextlib.suppress(OSError):
+                lock_path.unlink(missing_ok=True)
         try:
             lock_path.write_text(f"{os.getpid()}\n", encoding="ascii")
         except OSError:

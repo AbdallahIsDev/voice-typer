@@ -615,7 +615,10 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
                     }
                 )
             except Exception:
-                pass
+                # Best-effort: a failed notification publish must never break
+                # mic enumeration, but leave a breadcrumb when it happens so
+                # a silently-stale Microphone page is diagnosable.
+                log.debug("[AUDIO-MIC] microphones_changed publish failed", exc_info=True)
     except Exception as e:
         log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 

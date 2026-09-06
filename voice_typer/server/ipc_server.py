@@ -638,11 +638,50 @@ class IPCServer(
         # (and siblings) still call ``getattr(server, "_ws_...", None)``
         # first and only construct + assign on miss — but the assignment
         # is now a plain ``server._ws_... = x`` with no type-ignore.
-        self._ws_dispatch_pool: ThreadPoolExecutor | None = None
-        self._ws_drained_event: threading.Event | None = None
-        self._ws_inflight_lock: threading.Lock | None = None
+        # NOTE: these five are PRE-CONSTRUCTED here (not left ``None``
+        # for lazy first-use): the WS dispatch factory
+        # (``sidecar_ws._make_dispatch``) previously created them on the
+        # first frame, but the creation logic is pure constructor work
+        # with no WS-loop dependency — doing it here removes a lazy-
+        # init branch from every dispatch and from the shutdown drain
+        # path. ``_ws_connection_semaphore`` stays ``None``: an
+        # ``asyncio.Semaphore`` binds to the loop it is first awaited on,
+        # and ``IPCServer.__init__`` runs OUTSIDE any loop, so it must
+        # remain lazily created by the WS connection path
+        # (``sidecar_ws_internals.connection._get_ws_connection_semaphore``).
+        self._ws_dispatch_pool: ThreadPoolExecutor = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="sidecar-ws-dispatch",
+        )
+        self._ws_drained_event: threading.Event = threading.Event()
+        self._ws_drained_event.set()  # initially drained — count is 0
+        self._ws_inflight_lock: threading.Lock = threading.Lock()
         self._ws_inflight_count: int = 0
         self._ws_connection_semaphore: asyncio.Semaphore | None = None
+
+        # Declare the WS lifecycle attributes injected by
+        # ``sidecar_ws`` / ``sidecar_ws_internals.graceful_shutdown``
+        # (previously raw dynamic ``setattr`` sites, each needing a
+        # ``# type: ignore[attr-defined]`` suppression — the injectors
+        # now assign plain attributes and the type checker can verify
+        # both sides). All are genuinely Optional/preset-able: the
+        # graceful-shutdown install only initializes them when unset,
+        # and test helpers may pre-populate real values.
+        self._ws_loop: asyncio.AbstractEventLoop | None = None
+        self._ws_authenticated_conns: set | None = None
+        self._ws_dispatch_futures: set | None = None
+        self._ws_graceful_stop_requested: bool = False
+        self._ws_graceful_shutdown_installed: bool = False
+        self._ws_encode_pool: ThreadPoolExecutor | None = None
+
+        # Explicit hook slot for the WS graceful-shutdown wrapper (see
+        # ``sidecar_ws_internals.graceful_shutdown``): the install no
+        # longer REPLACES the bound ``stop`` method at instance level —
+        # it assigns the wrapper here, and the ``LifecycleMixin.stop``
+        # implementation calls it first. ``None`` when the WS layer was
+        # never attached (pure-TCP servers).
+        self.ws_graceful_shutdown: typing.Callable[[], None] | None = None
+        self._ws_stop_hook: typing.Callable[[], None] | None = None
 
         # Cached snapshot of ``self.app._shutting_down`` for the hot
         # ``_send`` path. Previously ``_send`` did

@@ -45,17 +45,16 @@ original body become ``recorder.X`` in the extracted body.
 
 Patch-path compatibility
 ------------------------
-Tests use ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-to inject fake resample behavior. The ``_recording_pkg._get_resample_poly()``
-indirection (see the module docstring of :mod:`.recorder` §Patch-path) is
-preserved here so the patch takes effect at call time. The same indirection
-is used for ``_recording_pkg._secure_clear_array(...)`` ( regression
-pinned by ``tests/test_secure_clear_array.py``) and for the module-level
-``_recording_pkg._AUDIO_RING_BUFFER_CAPACITY`` constant used in
-:meth:`SessionState.resize_buffers_for_sample_rate` — accessing it via the
-package namespace means a future test patch on the package binding would
-propagate here automatically (matching how :mod:`.audio_pipeline` /
-:mod:`.device_manager` already consume package-level names).
+This module consumes the owning submodules directly (C-ARCH-2):
+``_secure_clear_array`` is imported from :mod:`.buffer`, and the ring
+buffer capacity constant is read off the :mod:`.recorder` module object
+at call time (``_recorder_mod._AUDIO_RING_BUFFER_CAPACITY``) so a test
+patch of the recorder module attribute propagates. Tests that need to
+stub the secure-clear path patch the OWNING module:
+``monkeypatch.setattr("voice_typer.server.recording.buffer._secure_clear_array", ...)``
+— but note ``secure_clear_caches`` binds the function at import time by
+design (the historical package-object indirection was removed with the
+class of no-op test patches it enabled; see C-ARCH-2).
 """
 
 from __future__ import annotations
@@ -66,9 +65,10 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.recording import recorder as _recorder_mod
+from voice_typer.server.recording.buffer import _secure_clear_array
 from voice_typer.server.recording.format import ensure_mono
 from voice_typer.server.vad_processor import (
     DEFAULT_VAD_SILENCE_THRESHOLD_DB,
@@ -218,7 +218,7 @@ class SessionState:
         try:
             for seg in recorder._cached_resampled_segments:
                 if seg is not None and seg.size > 0:
-                    _recording_pkg._secure_clear_array(seg)
+                    _secure_clear_array(seg)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_resampled_segments in reset_session_state",
@@ -238,7 +238,7 @@ class SessionState:
         try:
             for seg in recorder._cached_no_resample_segments:
                 if seg is not None and seg.size > 0:
-                    _recording_pkg._secure_clear_array(seg)
+                    _secure_clear_array(seg)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_no_resample_segments in reset_session_state",
@@ -433,13 +433,13 @@ class SessionState:
                 ``_secure_clear_array(self._cached_no_resample_arr)``). The
                 primary agent will leave that method untouched on ``Recorder``.
         """
-        # Route through ``_recording_pkg.`` so test patches of the form
-        # ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
-        # take effect at runtime (matching ``_secure_clear_array_background``
-        # in stop()/discard() and the secure-clear block in start()).
+        # Direct owning-module call (C-ARCH-2): the historical
+        # ``_recording_pkg.`` package-object indirection was removed —
+        # tests stub the clear path via the buffer module or by seeding
+        # non-empty caches (see tests/test_session_state_module.py).
         try:
             if recorder._cached_resampled is not None and recorder._cached_resampled.size > 0:
-                _recording_pkg._secure_clear_array(recorder._cached_resampled)
+                _secure_clear_array(recorder._cached_resampled)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_resampled",
@@ -447,7 +447,7 @@ class SessionState:
             )
         try:
             if recorder._cached_no_resample_arr is not None and recorder._cached_no_resample_arr.size > 0:
-                _recording_pkg._secure_clear_array(recorder._cached_no_resample_arr)
+                _secure_clear_array(recorder._cached_no_resample_arr)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_no_resample_arr",
@@ -468,7 +468,7 @@ class SessionState:
         try:
             for seg in recorder._cached_resampled_segments:
                 if seg is not None and seg.size > 0:
-                    _recording_pkg._secure_clear_array(seg)
+                    _secure_clear_array(seg)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_resampled_segments",
@@ -488,7 +488,7 @@ class SessionState:
         try:
             for seg in recorder._cached_no_resample_segments:
                 if seg is not None and seg.size > 0:
-                    _recording_pkg._secure_clear_array(seg)
+                    _secure_clear_array(seg)
         except (OSError, ValueError):
             log.warning(
                 "[RECORDER] secure_clear_array failed for _cached_no_resample_segments",
@@ -636,7 +636,7 @@ class SessionState:
             # ~1-5ms against a 32ms budget).
             if new_ring_capacity < 64:
                 new_ring_capacity = 64
-            if new_ring_capacity != _recording_pkg._AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
+            if new_ring_capacity != _recorder_mod._AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
                 # Preserve any chunks already in the ring buffer
                 # (defensive -- start() clears the ring buffer in
                 # ``_start_audio_worker`` before this point, so this
@@ -649,7 +649,7 @@ class SessionState:
                     sizing_sr,
                     blocksize,
                     new_ring_capacity,
-                    _recording_pkg._AUDIO_RING_BUFFER_CAPACITY,
+                    _recorder_mod._AUDIO_RING_BUFFER_CAPACITY,
                 )
 
         # re-size the pre-roll deque using the effective sample

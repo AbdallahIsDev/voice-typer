@@ -94,7 +94,7 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
             # ``setattr`` on a real IPCServer stores the attribute; on
             # a MagicMock test double it overrides the auto-vivified
             # child (same pattern as ``_ws_dispatch_pool`` above).
-            server._ws_encode_pool = pool  # type: ignore[attr-defined]
+            server._ws_encode_pool = pool
         # Seed / refresh the module-level singleton so the ``_writer``
         # task (which has no server reference) can reach the same pool.
         _ws_encode_pool_singleton = pool
@@ -140,7 +140,7 @@ def shutdown_encode_pool(server: IPCServer | None = None) -> None:
         if pool is not None:
             # Defensive, never fatal.
             with contextlib.suppress(Exception):
-                server._ws_encode_pool = None  # type: ignore[attr-defined]
+                server._ws_encode_pool = None
     if pool is None and _ws_encode_pool_singleton is not None:
         pool = _ws_encode_pool_singleton
         _ws_encode_pool_singleton = None

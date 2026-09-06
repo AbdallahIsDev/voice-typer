@@ -84,6 +84,9 @@ static FILE* g_out   = NULL;  /* stdout, captured for emit() */
 /* signal the stdin reader thread to exit so we don't leak a
  * thread hanging on ReadFile(stdin) when the parent closes the pipe. */
 static volatile LONG g_should_exit = 0;
+/* Main thread's id, captured at startup: the stdin reader thread posts
+ * WM_QUIT to it on stdin EOF (see stdin_reader_thread). */
+static DWORD g_main_thread_id = 0;
 
 /* When we swallow a keyDown, we remember its VK so the matching keyUp is
  * also swallowed — otherwise the foreground app sees an orphan keyUp
@@ -285,6 +288,16 @@ static unsigned __stdcall stdin_reader_thread(void* arg) {
     char line[64];
     while (!g_should_exit) {
         if (fgets(line, sizeof(line), stdin) == NULL) {
+            /* stdin EOF — the Python parent is gone (crash, force-kill,
+             * power loss). Without this branch the process would linger
+             * forever holding the low-level keyboard hook after the app
+             * died ("keys feel dead" to other apps). Signal the exit flag
+             * and wake the main thread's message pump with WM_QUIT so the
+             * main-thread cleanup path unhooks and exits. The hook itself
+             * is NOT unhooked here — only the installing thread may run
+             * the cleanup path safely. */
+            InterlockedExchange(&g_should_exit, 1);
+            PostThreadMessage(g_main_thread_id, WM_QUIT, 0, 0);
             break;
         }
         size_t len = strlen(line);
@@ -680,6 +693,8 @@ static BOOL WINAPI console_handler(DWORD ctrl) {
  * =========================================================================== */
 
 int main(int argc, char** argv) {
+    g_main_thread_id = GetCurrentThreadId();
+
     /* (0) stdout must NOT be fully buffered when piped. On Windows, MSVC's
      *     CRT treats _IOLBF (line buffering) the same as _IOFBF (full
      *     buffering) for non-terminal streams, so we use _IONBF (no

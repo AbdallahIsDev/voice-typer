@@ -22,15 +22,12 @@ defined here.
 
 Patch-path compatibility
 ------------------------
-``resample_audio()`` calls ``_get_resample_poly()`` via the
-``_recording_pkg`` package namespace (NOT a direct ``_get_resample_poly()``
-call) so test patches of the form
-``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake)``
-keep affecting production code defined here. The
-``_recording_pkg`` alias is bound at module top below — the late
-attribute lookup happens at call time, so the partially-initialized
-package state at import time is not an issue (same pattern as
-:mod:`.recorder`).
+``resample_audio()`` resolves ``_get_resample_poly()`` as a module
+global at call time, so a test patch of the OWNING module —
+``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: fake)``
+— takes effect. The historical package-namespace indirection was
+removed per C-ARCH-2 (the recording package now matches the canonical
+shape of its ``server_platform``/``prewarm`` siblings).
 """
 
 from __future__ import annotations
@@ -41,18 +38,9 @@ import threading
 import time
 from typing import Any
 
-from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._lazy_import import lazy_module
 
 from .exceptions import ResampleError, ResampleUnavailableError
-
-# Patch-path bridge: route lookups of ``_get_resample_poly`` through the
-# package namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-# keep affecting production code defined here.  The package ``__init__.py``
-# re-exports ``_get_resample_poly`` from this submodule; we look it up at
-# call time rather than binding at import time so the patch takes effect.
-# (Same pattern as :mod:`.recorder`.)
 
 # All submodules use the package-level logger so log records propagate
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
@@ -412,14 +400,13 @@ def warm_up_resampler(recorder: Any) -> None:
     ``MagicMock`` patches of ``recorder.warm_up_resampler`` keep working
     because the delegator itself is replaced.
 
-    Patch-path compatibility: looks up ``_get_resample_poly`` via the
-    ``_recording_pkg`` package namespace (NOT a direct call) so test
-    patches of the form
-    ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-    keep affecting this code. See the module docstring §Patch-path.
+    Patch-path compatibility: resolves ``_get_resample_poly`` as a
+    module-global at call time, so a test patch of the OWNING module
+    (``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", ...)``)
+    takes effect (C-ARCH-2 — the package-namespace indirection was removed).
     """
     try:
-        resample_poly = _recording_pkg._get_resample_poly()
+        resample_poly = _get_resample_poly()
         # ``_get_resample_poly()`` may legitimately return
         # ``None`` when a test monkeypatches it to ``lambda: None`` or
         # when a future refactor caches a None sentinel instead of
@@ -466,11 +453,10 @@ def resample_audio(
         so genuine bugs (``AttributeError``, ``MemoryError``) propagate
         instead of being silently masked as "resampling failed".
 
-        Patch-path compatibility: calls ``_get_resample_poly()`` via the
-        ``_recording_pkg`` package namespace (NOT a direct call) so test
-        patches of the form
-        ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-        keep affecting this code. See the module docstring §Patch-path.
+        Patch-path compatibility: resolves ``_get_resample_poly`` as a
+        module-global at call time, so a test patch of the OWNING module
+        (``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", ...)``)
+        takes effect (C-ARCH-2 — the package-namespace indirection was removed).
     """
     if log is None:
         log = logging.getLogger("voice_typer.server.recording")
@@ -486,7 +472,7 @@ def resample_audio(
     resampled = False
     last_error: Exception | None = None
     try:
-        resample_poly = _recording_pkg._get_resample_poly()
+        resample_poly = _get_resample_poly()
         gcd = math.gcd(effective_sr, target_sr)
         up = target_sr // gcd
         down = effective_sr // gcd

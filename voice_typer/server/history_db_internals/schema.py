@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 #: cluttering the log with a duplicate.
 _announced_db_paths: set[str] = set()
 
-_CURRENT_SCHEMA_VERSION = 4
+_CURRENT_SCHEMA_VERSION = 5
 
 _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
@@ -169,11 +169,117 @@ _MIGRATION_V4 = """
     END;
 """
 
+# Second FTS5 index using the ``trigram`` tokenizer, consulted ONLY for
+# queries containing CJK / fullwidth characters (the unicode61 index
+# keeps serving Latin queries — see search.py's router).
+#
+# WHY: unicode61 indexes a contiguous CJK run as ONE token, so CJK
+# substring search can never use it — every CJK query fell back to a
+# full-table LIKE scan (O(N) per keystroke as history grows). The
+# trigram tokenizer indexes every 3-character substring, giving
+# O(match count) substring matching for ANY script (verified live:
+# '"你好吗"' matches '今天你好吗', '"见面 bye"' matches '今天见面 bye',
+# '"WORLD"' matches 'hello world' case-insensitively).
+#
+# CONTRACT (pinned by tests/test_history_search_cjk.py +
+# tests/test_history_db_trigram_cjk.py):
+#   - Queries containing a CJK/fullwidth char with length >= 3 take the
+#     trigram MATCH path (indexed). The trigram tokenizer indexes only
+#     3-char substrings, so a 1-2 char query would SILENTLY match
+#     nothing — those keep the LIKE path (substring semantics for every
+#     length).
+#   - The whole capped query is ONE FTS5 phrase (whitespace is part of
+#     the substring; no per-token splitting like the unicode61 router).
+#   - LIKE wildcards (% _) are literal characters here — identical
+#     results to the escaped-LIKE fallback.
+#
+# The table is EXTERNAL-CONTENT (content='transcriptions'), so it adds
+# ~1 index-worth of disk, no text duplication, and is maintained by the
+# SAME trigger + guard pattern as the unicode61 index (V4 guards:
+# encrypted rows are never indexed with ciphertext tokens; the
+# decrypt-aware re-index in internals/encryption.py maintains BOTH
+# indexes). The GDPR 'rebuild'/'optimize' sweep sites in
+# internals/writer.py, internals/crud_writes.py, and
+# internals/retention.py MUST keep both indexes in lockstep — the
+# CJK shadow tables carry the same dictated-plaintext exposure.
+#
+# Backfill uses the FTS5 ``'rebuild'`` command (idempotent: it
+# re-tokenizes every row from the content table), so the migration is
+# safe to re-run on a partial-prior state (IF NOT EXISTS everywhere).
+_MIGRATION_V5 = """
+    BEGIN;
+    CREATE VIRTUAL TABLE IF NOT EXISTS transcriptions_fts_cjk USING fts5(
+        text,
+        content='transcriptions',
+        content_rowid='id',
+        tokenize='trigram'
+    );
+    CREATE TRIGGER IF NOT EXISTS transcriptions_ai_fts_cjk AFTER INSERT ON transcriptions
+    WHEN new.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts_cjk(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS transcriptions_ad_fts_cjk AFTER DELETE ON transcriptions
+    WHEN old.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS transcriptions_au_fts_cjk AFTER UPDATE ON transcriptions
+    WHEN NEW.text_is_encrypted = 0 AND OLD.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk, rowid, text) VALUES ('delete', old.id, old.text);
+        INSERT INTO transcriptions_fts_cjk(rowid, text) VALUES (new.id, new.text);
+    END;
+    INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk) VALUES('rebuild');
+    COMMIT;
+"""
+
 _MIGRATIONS = {
     2: _MIGRATION_V2,
     3: _MIGRATION_V3,
     4: _MIGRATION_V4,
+    5: _MIGRATION_V5,
 }
+
+#: Minimum SQLite version for the FTS5 ``trigram`` tokenizer (schema V5's
+#: CJK index). Trigram shipped in SQLite 3.34.0 (2020-12); python.org
+#: CPython builds bundle far newer, but distro-linked builds (e.g. Ubuntu
+#: 20.04's system libsqlite3 3.31 under a newer CPython) can be older —
+#: there, ``CREATE VIRTUAL TABLE … tokenize='trigram'`` raises "unknown
+#: tokenizer" and every later lockstep rebuild/optimize site would raise
+#: "no such table". The two helpers below keep the history DB openable
+#: there: the migration is skipped and every consumer degrades.
+_SQLITE_TRIGRAM_MIN_VERSION = (3, 34, 0)
+
+
+def sqlite_supports_trigram() -> bool:
+    """Return True when the linked libsqlite3 has the FTS5 trigram tokenizer.
+
+    Reads ``sqlite3.sqlite_version_info`` dynamically (not at import
+    time) so tests can monkeypatch it to simulate an old distro SQLite.
+    """
+    return sqlite3.sqlite_version_info >= _SQLITE_TRIGRAM_MIN_VERSION
+
+
+def cjk_trigram_table_exists(conn: sqlite3.Connection) -> bool:
+    """Return True when the schema-V5 trigram CJK shadow table exists.
+
+    Cheap ``sqlite_master`` probe used to gate every
+    ``transcriptions_fts_cjk`` reference: the migration skips table
+    creation on SQLite builds without the trigram tokenizer, so the
+    lockstep rebuild/optimize/reindex sites and the search router must
+    degrade to the unicode61/LIKE paths instead of raising
+    ``no such table``. Safe to call per-operation — the probe costs
+    micro-seconds against queries that were previously O(N) scans.
+    """
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='transcriptions_fts_cjk'"
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
 
 #: Matches ``ALTER TABLE <name> ADD COLUMN <col>`` so the migration runner
 #: can detect which columns a plain migration intends to add and skip the
@@ -550,6 +656,23 @@ def init_schema(
         migration_sql = _MIGRATIONS.get(version)
         if not migration_sql:
             continue
+
+        # Trigram-availability gate (V5): skip — WITHOUT bumping the
+        # recorded version — when the linked SQLite lacks the FTS5
+        # ``trigram`` tokenizer. The version stays un-bumped so a future
+        # SQLite upgrade retries the migration on the next launch; CJK
+        # queries keep working in the meantime via the search router's
+        # table-existence check + the bounded LIKE fallback. ``break``
+        # (not ``continue``): later migrations depend on earlier ones.
+        if version == 5 and not sqlite_supports_trigram():
+            log.warning(
+                "[HISTORY_DB] SQLite %s lacks the FTS5 trigram tokenizer "
+                "(needs >= %s) — skipping CJK index migration v5; CJK "
+                "search falls back to the bounded LIKE path",
+                sqlite3.sqlite_version,
+                ".".join(str(part) for part in _SQLITE_TRIGRAM_MIN_VERSION),
+            )
+            break
 
         try:
             # Migrations split into two shapes:

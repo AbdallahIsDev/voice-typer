@@ -324,14 +324,32 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
                 # 'delete' with the ciphertext that the rebuild
                 # indexed (token match — removes exactly those
                 # tokens), then insert the decrypted plaintext.
+                # BOTH shadow indexes are maintained in lockstep
+                # (unicode61 + trigram CJK — same ADR §6 invariant).
+                # The CJK pair is gated on table existence (SQLite
+                # without the trigram tokenizer never got the V5
+                # migration).
+                from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
+                plaintext = _text_crypto.decrypt_text(ciphertext, dek)
                 cursor.execute(
                     "INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', ?, ?)",
                     (row_id, ciphertext),
                 )
                 cursor.execute(
                     "INSERT INTO transcriptions_fts(rowid, text) VALUES (?, ?)",
-                    (row_id, _text_crypto.decrypt_text(ciphertext, dek)),
+                    (row_id, plaintext),
                 )
+                if cjk_trigram_table_exists(conn):
+                    cursor.execute(
+                        "INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk, rowid, text)"
+                        " VALUES ('delete', ?, ?)",
+                        (row_id, ciphertext),
+                    )
+                    cursor.execute(
+                        "INSERT INTO transcriptions_fts_cjk(rowid, text) VALUES (?, ?)",
+                        (row_id, plaintext),
+                    )
                 watermark = row_id
             conn.commit()
     except sqlite3.Error as e:

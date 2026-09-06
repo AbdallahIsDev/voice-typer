@@ -148,17 +148,36 @@ class AudioWindowPlanner:
         )
         start_sample = int(round(requested_start_seconds * sample_rate))
         end_sample = int(round(end_seconds * sample_rate))
-        # PERF- the audio parameter comes from
-        # ``Recorder.snapshot()`` which always returns a fresh array
-        # (either ``np.concatenate(...)`` or ``self._cached_resampled.copy()``).
-        # A slice into a fresh array is a view that does not share memory
-        # with the recorder's internal buffer, so the explicit ``.copy()``
-        # that was here before was redundant — it copied 768 KB (1.5 s of
-        # float32 audio) on every snapshot call (16 Hz → 12 MB/s of
-        # allocation pressure). The view is safe because (a) the snapshot
-        # array is not shared with any other consumer, (b) faster-whisper
-        # does not modify its input, and (c) AudioWindow is frozen so
-        # callers cannot reassign ``.audio``.
+        # PROVENANCE INVARIANT — read before touching this window slice:
+        # the ``audio`` parameter is a LIVE VIEW into the recorder's
+        # internal buffers, NOT a fresh copy. Per
+        # ``recording/_recorder_split.py`` (snapshot provenance contract,
+        # ``snapshot()`` returns ``buf.view()`` / ``_cached_resampled[:len]``
+        # — see the invariant comment at the snapshot's allocation site),
+        # ``Recorder.snapshot()`` returns a view over the recorder-owned
+        # storage (the raw ring buffer or ``_cached_resampled``); window
+        # slices of it are nested views whose ``.base`` chain still roots
+        # at the recorder's buffer.
+        #
+        # The zero-clear guard (``_is_view_of_live_recorder_audio`` + the
+        # ``audio.fill(0)`` gate in the streaming teardown) is therefore
+        # LOAD-BEARING: it prevents zeroing memory the recorder (or the
+        # resample cache feeding the next snapshot) is still reading —
+        # the past-corruption bug documented in the teardown's finally
+        # block. The gate works because numpy reports the ROOT buffer as
+        # ``.base`` for simple slices of views: the identity comparison
+        # against the recorder's storage / cache catches the whole view
+        # chain. Do NOT reshape / fancy-index the snapshot without
+        # revisiting that gate (both break the root-``.base`` property),
+        # and do NOT "simplify away" the guard on the belief that the
+        # snapshot is a private copy — it is not.
+        #
+        # (The explicit ``.copy()`` that used to sit here was removed as
+        # redundant: it copied 768 KB (1.5 s of float32 audio) on every
+        # snapshot call (16 Hz → 12 MB/s of allocation pressure). The
+        # view is safe for transcription because (a) faster-whisper does
+        # not modify its input, and (b) AudioWindow is frozen so callers
+        # cannot reassign ``.audio``.)
         window = AudioWindow(
             audio=audio[start_sample:end_sample],
             start_seconds=requested_start_seconds,

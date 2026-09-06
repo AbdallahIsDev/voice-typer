@@ -324,7 +324,17 @@ def _fts5_startup_rebuild(db: HistoryDB, conn: sqlite3.Connection) -> None:
 
     try:
         with contextlib.closing(conn.cursor()) as cursor:
+            # Both FTS5 shadow indexes (unicode61 + trigram CJK) in
+            # lockstep — a 'rebuild' re-tokenizes from the content table,
+            # so each index alone would leave the other one stale. The
+            # CJK rebuild is gated on table existence: on SQLite builds
+            # without the trigram tokenizer the V5 migration is skipped
+            # and the table is absent.
+            from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
             cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+            if cjk_trigram_table_exists(conn):
+                cursor.execute("INSERT INTO transcriptions_fts_cjk(transcriptions_fts_cjk) VALUES('rebuild')")
         conn.commit()
         # Persist the success state so subsequent launches skip
         # the O(N) rebuild. INSERT OR REPLACE upserts the flag

@@ -720,12 +720,12 @@ def _make_dispatch(server: IPCServer):
     #
     # Stored on the server instance (not the closure) so
     # ``ShutdownController._do_cleanup`` can reach it via
-    # ``app._ipc_server._ws_dispatch_pool``. Lazily created on first
-    # dispatch (the WS path may never be entered if the server runs in
-    # TCP / standalone mode). Idempotent: the second call to
-    # ``_get_ws_dispatch_pool`` returns the existing pool.
-    from concurrent.futures import ThreadPoolExecutor
-
+    # ``app._ipc_server._ws_dispatch_pool``. The pool / drained-event /
+    # inflight-lock/count are PRE-CONSTRUCTED in ``IPCServer.__init__``
+    # (the creation logic is pure constructor work with no WS-loop
+    # dependency, so the lazy-init branch per dispatch was dead
+    # weight). The MagicMock-compat ``getattr`` reads are kept so
+    # test doubles that bypass ``__init__`` still work.
     from voice_typer.server.ipc_server import _get_rate_limiter
 
     # Resolve the rate limiter ONCE in the closure body so
@@ -741,12 +741,13 @@ def _make_dispatch(server: IPCServer):
 
     ws_dispatch_pool = getattr(server, "_ws_dispatch_pool", None)
     if ws_dispatch_pool is None:
+        # Only reachable on test doubles that bypass ``__init__``.
+        from concurrent.futures import ThreadPoolExecutor
+
         ws_dispatch_pool = ThreadPoolExecutor(
             max_workers=4,
             thread_name_prefix="sidecar-ws-dispatch",
         )
-        # ``setattr`` on a real IPCServer stores the attribute; on a
-        # MagicMock test double it overrides the auto-vivified child.
         server._ws_dispatch_pool = ws_dispatch_pool
 
     # explicit ``threading.Event`` coordination between the WS
@@ -771,23 +772,23 @@ def _make_dispatch(server: IPCServer):
     # race the count into a wrong value or miss the Event-set on the
     # last exit.
     #
-    # Lazy creation (mirrors the ``_ws_dispatch_pool`` pattern above):
-    # the WS path may never be entered if the server runs in TCP /
-    # standalone mode, so we attach the Event / lock / count to the
-    # server only on first dispatch.
-    import threading as _threading
-
+    # Pre-constructed in ``IPCServer.__init__`` — plain reads here (the
+    # ``getattr`` fallbacks only fire on test doubles that bypass
+    # ``__init__``).
     ws_drained_event = getattr(server, "_ws_drained_event", None)
-    if ws_drained_event is None:
-        ws_drained_event = _threading.Event()
-        ws_drained_event.set()  # initially drained — count is 0
-        server._ws_drained_event = ws_drained_event
     ws_inflight_lock = getattr(server, "_ws_inflight_lock", None)
-    if ws_inflight_lock is None:
-        ws_inflight_lock = _threading.Lock()
-        server._ws_inflight_lock = ws_inflight_lock
-    if getattr(server, "_ws_inflight_count", None) is None:
-        server._ws_inflight_count = 0
+    if ws_drained_event is None or ws_inflight_lock is None:
+        import threading as _threading
+
+        if ws_drained_event is None:
+            ws_drained_event = _threading.Event()
+            ws_drained_event.set()  # initially drained — count is 0
+            server._ws_drained_event = ws_drained_event
+        if ws_inflight_lock is None:
+            ws_inflight_lock = _threading.Lock()
+            server._ws_inflight_lock = ws_inflight_lock
+        if getattr(server, "_ws_inflight_count", None) is None:
+            server._ws_inflight_count = 0
 
     async def dispatch(msg: dict, websocket) -> dict | None:
         msg_type = msg.get("type")
@@ -1368,7 +1369,7 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     # ``contextlib.suppress`` guards against a test double where
     # attribute-write may be restricted.
     with contextlib.suppress(Exception):
-        server._ws_loop = loop  # type: ignore[attr-defined]
+        server._ws_loop = loop
 
     # Register the authenticated websocket on
     # ``server._ws_authenticated_conns`` so ``ws_graceful_shutdown``
@@ -1490,7 +1491,7 @@ def run(server: IPCServer) -> int:
         # connection (idempotently — same loop, shared across all
         # connections).
         with contextlib.suppress(Exception):
-            server._ws_loop = asyncio.get_running_loop()  # type: ignore[attr-defined]
+            server._ws_loop = asyncio.get_running_loop()
 
         # bind on 127.0.0.1:0 → OS assigns an ephemeral port.
         # max_size enforces the 1 MiB frame cap (ADR-0020 §10).

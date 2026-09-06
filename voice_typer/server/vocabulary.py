@@ -149,12 +149,15 @@ class VocabularyManager:
         # the merged ``_data`` drops unchanged user entries on every
         # subsequent save (the wholesale user-file replace would lose them).
         self._bundled_raw: dict[str, Any] = {}
-        # lazy cache of compiled regex patterns for phrase_corrections
-        # and extra_word_patterns. Invalidated (set to None) on any mutation
-        # (add_entry/remove_entry/import_json/_load_and_merge). Rebuilt on
-        # first apply_to_text() call after invalidation. At 5000 entries this
-        # saves ~50ms per dictation cycle (was recompiling per phrase per call).
-        self._compiled_patterns: dict[str, list[tuple[re.Pattern[str], str, str]]] | None = None
+        # Combined-alternation regex cache for phrase-level categories
+        # (``_get_combined_phrase_pattern``). Maps category → (pattern,
+        # lookup) or () as a negative cache for empty categories.
+        # Invalidated on any mutation
+        # (add_entry/remove_entry/import_json/_load_and_merge); rebuilt on
+        # the first apply_to_text() call after invalidation.
+        self._combined_phrase_cache: (
+            dict[str, tuple[re.Pattern[str], dict[str, tuple[str, str]]] | tuple[()]] | None
+        ) = None
         self._load_and_merge()
 
     def _invalidate_pattern_cache(self) -> None:
@@ -166,38 +169,65 @@ class VocabularyManager:
         invoked under ``live_vm._lock`` by
         ``save_vocabulary_with_diff`` (``service/vocabulary.py``), so
         acquiring the non-reentrant ``threading.Lock`` here would
-        self-deadlock. The rebuild path in ``_get_compiled_patterns``
+        self-deadlock. The rebuild path in ``_get_combined_phrase_pattern``
         reads ``self._data`` under the lock, so a concurrent rebuild
         cannot observe a half-merged data state.
         """
-        self._compiled_patterns = None
+        self._combined_phrase_cache = None
 
-    def _get_compiled_patterns(self, category: str) -> list[tuple[re.Pattern[str], str, str]]:
-        """return cached compiled patterns for a phrase category, rebuilding if needed.
+    def _get_combined_phrase_pattern(self, category: str) -> tuple[re.Pattern[str], dict[str, tuple[str, str]]] | None:
+        """Build (or fetch from cache) the combined-alternation regex for a
+        phrase-level category.
 
-        Each cached entry is ``(compiled_pattern, good, original)`` —
-        ``original`` is kept so ``apply_to_text`` can report WHICH
-        correction fired to the usage tracker.
+        Returns ``(pattern, lookup)`` where ``pattern`` is a single
+        ``(?:alt1|alt2|...)`` regex over ALL of the category's escaped
+        originals (longer-first so overlapping entries prefer the longer
+        match — the SRE trie resolves alternation order) and ``lookup``
+        maps ``original.lower()`` → ``(good, original)`` for the sub
+        callback (replacement + usage-tracker key). Returns ``None`` for
+        empty/non-list categories so ``apply_to_text`` skips the pass
+        entirely.
+
+        Performance contract: one full-text scan per category per
+        dictation, regardless of entry count — replaces the prior
+        per-entry ``pattern.subn`` loop that re-scanned the full text
+        once per entry (M entries = M scans).
+        Cache is invalidated on any mutation via
+        ``_invalidate_pattern_cache`` (the same signal the per-entry
+        cache uses).
         """
-        if self._compiled_patterns is None:
-            self._compiled_patterns = {}
-        if category not in self._compiled_patterns:
-            with self._lock:
-                entries = self._data.get(category, [])
-                if not isinstance(entries, list):
-                    self._compiled_patterns[category] = []
-                    return []
-                sorted_entries = sorted(
-                    entries,
-                    key=lambda e: len(e[0]) if isinstance(e, list | tuple) and len(e) >= 2 else 0,
-                    reverse=True,
-                )
-            self._compiled_patterns[category] = [
-                (re.compile(re.escape(entry[0]), re.IGNORECASE), entry[1], entry[0])
-                for entry in sorted_entries
-                if isinstance(entry, list | tuple) and len(entry) >= 2
-            ]
-        return self._compiled_patterns[category]
+        if self._combined_phrase_cache is None:
+            self._combined_phrase_cache = {}
+        cached = self._combined_phrase_cache.get(category)
+        if cached is not None:
+            return cached or None  # (empty sentinel) → None
+        with self._lock:
+            entries = self._data.get(category, [])
+            if not isinstance(entries, list) or not entries:
+                self._combined_phrase_cache[category] = ()  # negative cache
+                return None
+            sorted_entries = sorted(
+                (e for e in entries if isinstance(e, list | tuple) and len(e) >= 2),
+                key=lambda e: len(e[0]),
+                reverse=True,
+            )
+            if not sorted_entries:
+                self._combined_phrase_cache[category] = ()  # negative cache
+                return None
+            lookup: dict[str, tuple[str, str]] = {}
+            alternations: list[str] = []
+            for entry in sorted_entries:
+                key = entry[0].lower()
+                if key in lookup:
+                    # Duplicate original (case-insensitive) — first
+                    # (longest) wins; keep the alternation deduped too.
+                    continue
+                lookup[key] = (entry[1], entry[0])
+                alternations.append(re.escape(entry[0]))
+        pattern = re.compile("(?:" + "|".join(alternations) + ")", re.IGNORECASE)
+        compiled: tuple[re.Pattern[str], dict[str, tuple[str, str]]] = (pattern, lookup)
+        self._combined_phrase_cache[category] = compiled
+        return compiled
 
     # ── Loading and merging ──────────────────────────────────────────
 
@@ -876,24 +906,44 @@ class VocabularyManager:
         # (category, original, count) hits for the usage tracker.
         hits: list[tuple[str, str, int]] = []
 
-        # Phrase-level corrections first (longer matches first)
-        # use cached compiled patterns instead of recompiling per
-        # phrase per call. Cache is invalidated on any mutation.
+        # Phrase-level corrections — ONE combined-alternation pass per
+        # category (the same design proven in text_cleanup/_engine.py).
+        # Previously each entry ran its own ``pattern.subn`` over the FULL
+        # text: M entries = M full-text scans per dictation, so a large
+        # vocabulary (cap: 5000 phrases + 5000 patterns) paid thousands of
+        # scans per dictation. The combined regex compiles the escaped
+        # literals to an SRE trie, giving O(text + entries) matching
+        # regardless of entry count.
+        #
+        # Semantics note (intentional, mirrors text_cleanup): a single
+        # ``subn`` pass scans the ORIGINAL text, so a replacement that
+        # introduces another entry's original from the SAME category is
+        # NOT re-substituted (no intra-category chaining). The old
+        # per-entry loop DID rescan mutated text, which made an entry
+        # whose replacement contained a sibling entry's original fire
+        # unintended cascading corrections. Cross-category order is
+        # preserved (phrase_corrections runs before extra_word_patterns,
+        # then the word-level dict pass), so corrections that chain
+        # ACROSS categories still apply.
         for cat in ("phrase_corrections", "extra_word_patterns"):
-            compiled = self._get_compiled_patterns(cat)
-            for pattern, good, original in compiled:
-                # use a callable replacement to prevent
-                # regex backref interpretation. Previously `pattern.sub(good, text)`
-                # interpreted `\1`, `\g<0>`, `\9` etc. in the user-supplied
-                # `good` string. A malicious or accidental entry like
-                # `["x", "\\9"]` raises `re.error` on every dictation
-                # cycle (DoS). The lambda treats `good` as a literal
-                # string with no backref processing. ``subn`` also
-                # returns the substitution count, which drives the
-                # usage tracker.
-                text, count = pattern.subn(lambda _m, _g=good: _g, text)
-                if count:
-                    hits.append((cat, original, count))
+            combined = self._get_combined_phrase_pattern(cat)
+            if combined is None:
+                continue
+            pattern, lookup = combined
+            counts: dict[str, int] = {}
+
+            def _phrase_repl(
+                m: re.Match[str],
+                _lookup: dict[str, tuple[str, str]] = lookup,
+                _counts: dict[str, int] = counts,
+            ) -> str:
+                key = m.group(0).lower()
+                _counts[key] = _counts.get(key, 0) + 1
+                return _lookup[key][0]
+
+            text, _total = pattern.subn(_phrase_repl, text)
+            for key, count in counts.items():
+                hits.append((cat, lookup[key][1], count))
 
         # Word-level corrections — single tokenization pass shared
         # across all 4 dict-based categories (previously the loop

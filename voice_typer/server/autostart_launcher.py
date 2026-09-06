@@ -349,7 +349,13 @@ def launch() -> int:
     if backend_running:
         log.info("[AUTOSTART] backend already running — focusing existing instance")
         _focus_running_app()
-        time.sleep(0.5)
+        # No pre-exit sleep: the focus child is spawned detached (POSIX
+        # ``start_new_session=True``; Windows inherits the process tree, and
+        # Explorer does not wait on autostart entries' children), and neither
+        # the OS login sequence nor the parent process needs this launcher to
+        # linger — the sleep only delayed "login complete" by a fixed 0.5s on
+        # every autostart login with a prewarmed backend. The RESULT line
+        # below still records the outcome + duration (C-CROSS-5).
         return 0
 
     # Tauri mode takes precedence over the Electron build/dev paths so

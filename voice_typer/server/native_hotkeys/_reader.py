@@ -14,6 +14,11 @@ log = logging.getLogger(__name__)
 
 
 class _ReaderMixin:
+    # Human-readable backend name used in log messages. Provided by the
+    # composing backend class (``_core.py`` sets ``platform_name: str =
+    # "subprocess"``); declared here so the mixin's own methods typecheck.
+    platform_name: str
+
     def _reader_loop(self) -> None:
         """Read lines from the binary's stdout and dispatch.
 
@@ -97,6 +102,14 @@ class _ReaderMixin:
             try:
                 line_bytes = self._process.stdout.readline()
             except Exception:
+                # Read failure (broken pipe / closed stream) is treated as
+                # EOF below, but leave a breadcrumb — a binary that dies
+                # mid-handshake looks identical to a clean exit otherwise.
+                log.debug(
+                    "[NATIVE-HOTKEY] readline() failed on %s binary stdout — treating as EOF",
+                    self.platform_name,
+                    exc_info=True,
+                )
                 line_bytes = b""
             if not line_bytes:
                 # EOF — process likely exited

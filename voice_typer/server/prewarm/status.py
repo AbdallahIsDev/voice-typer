@@ -50,7 +50,11 @@ import logging
 import time
 from pathlib import Path
 
-from voice_typer.server.prewarm.cache_probe import _active_model_cache_dirs, _cache_ratio
+from voice_typer.server.prewarm.cache_probe import (
+    _active_model_cache_dirs,
+    _cache_ratio,
+    _model_weight_files,
+)
 
 log = logging.getLogger("voice_typer.server.prewarm")
 
@@ -240,26 +244,19 @@ def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
     sizes: list[int] = []
     ratios: list[float] = []
     total_bytes = 0
-    for d in active_dirs:
-        snapshots_dir = d / "snapshots"
-        if not snapshots_dir.is_dir():
-            continue
+    # Probe the ACTIVE payload files via the shared weight-file finder
+    # (Whisper ``model.bin``, Parakeet ONNX shards, legacy safetensors).
+    # Previously this hardcoded ``snapshot / "model.safetensors"`` — a
+    # file the current ONNX engine never downloads — so the card always
+    # reported "cold / 0 bytes" even right after a successful warm run.
+    for weights in _model_weight_files(active_dirs):
         try:
-            entries = list(snapshots_dir.iterdir())
+            size = weights.stat().st_size
         except OSError:
             continue
-        for snapshot in entries:
-            if not snapshot.is_dir():
-                continue
-            weights = snapshot / "model.safetensors"
-            if weights.exists():
-                try:
-                    size = weights.stat().st_size
-                except OSError:
-                    continue
-                sizes.append(size)
-                ratios.append(_cache_ratio(weights))
-                total_bytes += size
+        sizes.append(size)
+        ratios.append(_cache_ratio(weights))
+        total_bytes += size
     if sizes and total_bytes > 0:
         cached_bytes = sum(int(s * r) for s, r in zip(sizes, ratios, strict=True))
         cache_ratio = cached_bytes / total_bytes

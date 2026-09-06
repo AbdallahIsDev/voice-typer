@@ -98,6 +98,21 @@ _CACHE_RATIO_HIT_THRESHOLD_US = 50.0
 # the declared fallback (in addition to the active backend's model).
 _WHISPER_FALLBACK_MODEL_SIZE = "tiny"
 
+# Weight-file suffixes warmed by :func:`_warm_model_weights` and probed
+# by the Cache Status card. Mirrors the "at least one model file"
+# check in ``security/model_integrity.py`` (``model_extensions``):
+# Whisper ships ``model.bin``, Parakeet (ONNX engine) ships
+# ``*.onnx`` shards, and the legacy torch-era Parakeet download ships
+# ``model.safetensors`` (no longer fetched but still valid to warm if
+# present on disk).
+_MODEL_WEIGHTS_SUFFIXES: frozenset[str] = frozenset({".bin", ".onnx", ".safetensors"})
+
+# A weight/file is considered "already hot" at this sampled cache
+# ratio; the warm phase SKIPS it instead of re-reading every byte.
+# Same 0.9 threshold the Cache Status card uses for the "hot" label
+# (ADR-0009 Issue 3) so the probe and the warm gate agree.
+_PREWARM_SKIP_HOT_RATIO = 0.9
+
 
 def _iter_warmable_files(root: Path) -> Iterator[Path]:
     """Iterate warmable files under ``root`` without per-file ``stat()``.
@@ -343,6 +358,18 @@ def _warm_imports() -> None:
             continue
         if bytes_read > 0:
             warmed.append(pkg)
+    # Warm the active model's WEIGHT files too (the multi-GB payload
+    # that dominates post-reboot cold start). Each file is gated by
+    # the latency-based ``_cache_ratio`` probe inside
+    # :func:`_warm_model_weights`, so an already-hot file is skipped
+    # instead of re-read byte-for-byte. Best-effort — a probe/warm
+    # failure only costs the cold-start benefit.
+    try:
+        weight_bytes = _warm_model_weights(_active_model_cache_dirs())
+        if weight_bytes > 0:
+            warmed.append("model-weights")
+    except Exception:
+        log.debug("[PREWARM] model-weights warm pass failed — continuing", exc_info=True)
     elapsed = time.perf_counter() - t0
     # C-LOG-2: lifecycle-completion log line carries the canonical
     # space-separated ``<duration>`` suffix from ``format_duration()``
@@ -536,32 +563,82 @@ def _resolve_hf_cache_dir() -> Path:
     return _paths.legacy_hf_cache_dir()
 
 
-def _find_parakeet_weights() -> Path | None:
-    """Locate the cached Parakeet ``model.safetensors``, or None if absent.
+def _model_weight_files(active_dirs: list[Path]) -> list[Path]:
+    """Return the model WEIGHT files (any snapshot) for the active model dirs.
 
-    ADR-0009 Issue 1: uses ``_resolve_hf_cache_dir()`` instead of
-    ``_config_dir()`` so the lookup still works when prewarm is fired by
-    the BootTrigger before the user session is fully initialized.
+    Replaces the deleted ``_find_parakeet_weights`` (which hardcoded
+    ``model.safetensors`` — a file the current ONNX Parakeet engine
+    never downloads, so the lookup always returned ``None``). The
+    active payload names come from the pinned integrity manifest
+    (``security/model_integrity.py``): Whisper ships ``model.bin``,
+    the ONNX Parakeet ships ``encoder-model.fp16.onnx`` /
+    ``decoder_joint-model.fp16.onnx`` / ``nemo128.onnx``. Rather than
+    enumerating exact names (which drift per backend), this walks each
+    active dir's snapshot and returns every file whose suffix is a
+    known weight format (``.bin`` / ``.onnx`` / ``.safetensors``) —
+    the same set ``verify_model_integrity`` accepts as "a model file".
+
+    ADR-0009 Issue 1: callers use ``_resolve_hf_cache_dir()``-derived
+    dirs so the lookup still works when prewarm is fired by the
+    BootTrigger before the user session is fully initialized.
     """
-    try:
-        from voice_typer.server.parakeet_engine import _PARAKERT_MODEL_ID
-    except Exception:
-        return None
+    files: list[Path] = []
+    for d in active_dirs:
+        snapshots_dir = d / "snapshots"
+        if not snapshots_dir.is_dir():
+            continue
+        try:
+            entries = list(snapshots_dir.iterdir())
+        except OSError:
+            continue
+        for snapshot in entries:
+            if not snapshot.is_dir():
+                continue
+            try:
+                for f in snapshot.iterdir():
+                    if f.is_file() and f.suffix in _MODEL_WEIGHTS_SUFFIXES:
+                        files.append(f)
+            except OSError:
+                continue
+    return files
 
-    cache_root = _resolve_hf_cache_dir() / "hub"
-    model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
-    snapshots = model_dir / "snapshots"
-    if not snapshots.is_dir():
-        return None
-    try:
-        for entry in snapshots.iterdir():
-            if entry.is_dir():
-                weights = entry / "model.safetensors"
-                if weights.exists():
-                    return weights
-    except OSError:
-        pass
-    return None
+
+def _warm_model_weights(active_dirs: list[Path]) -> int:
+    """Page the active model's weight files into the OS standby cache.
+
+    (2) of the Fast-Startup fixes: the library warm list above only
+    covers runtime-pack libraries — the multi-GB weight files
+    dominate post-reboot cold-start cost, so they are warmed here,
+    once per worker start. Each file is first probed with
+    :func:`_cache_ratio`: at or above ``_PREWARM_SKIP_HOT_RATIO`` the
+    file is SKIPPED (fix (1) — an already-hot multi-GB file is not
+    re-read byte-for-byte; the latency probe costs a few dozen 4K
+    reads). Best-effort: OSError per file is logged at DEBUG.
+
+    Returns the number of bytes actually read (0 when everything was
+    already hot or no weights exist).
+    """
+    t0 = time.perf_counter()
+    total = 0
+    skipped_hot = 0
+    weight_files = _model_weight_files(active_dirs)
+    for path in weight_files:
+        try:
+            if _cache_ratio(path) >= _PREWARM_SKIP_HOT_RATIO:
+                skipped_hot += 1
+                continue
+            total += _warm_file(path)
+        except OSError as exc:
+            log.debug("[PREWARM] skip weight %s: %s", path, exc)
+    elapsed = time.perf_counter() - t0
+    log.info(
+        "[PREWARM] model weights warm pass: %d file(s), %d already hot, %.1f MB read%s",
+        len(weight_files),
+        skipped_hot,
+        total / (1024 * 1024),
+        format_duration(elapsed),
+    )
+    return total
 
 
 def _active_model_cache_dirs() -> list[Path]:

@@ -13,7 +13,7 @@
       "min_proto_version": 1
     },
     "windows-key-listener-x86_64.exe": {
-      "sha256": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
+      "sha256": "a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1",
       "version": "1.0.0",
       "min_proto_version": 1
     },
@@ -38,9 +38,9 @@
       "_note": "legacy alias (compile_native.sh emits this name on Linux). sha256_by_arch is the canonical per-arch field; the flat sha256 field is a backward-compat default (x86_64 sha256) retained until binary_path.get_expected_sha256 is made arch-aware. aarch64 sha256 is left empty pending the update_native_manifests.py script from aarch64 builds are new)."
     },
     "windows-key-listener.exe": {
-      "sha256": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
+      "sha256": "a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1",
       "sha256_by_arch": {
-        "x86_64": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
+        "x86_64": "a7fef26377e9ef7c53b9675651217d13d5fbc61c7c3e2c6cd204b9178e9a14c1",
         "aarch64": ""
       },
       "version": "1.0.0",

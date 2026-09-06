@@ -130,6 +130,15 @@ static void *stdin_reader_thread(void *arg) {
     char line[64];
     while (!g_should_exit) {
         if (fgets(line, sizeof(line), stdin) == NULL) {
+            /* stdin EOF — the Python parent is gone (crash, force-kill,
+             * power loss). Without this, the process would linger until
+             * the next keystroke broke a dead pipe, holding the keyboard
+             * device files the whole time. Set the exit flag; the main
+             * poll loop (500 ms timeout) observes it within one tick and
+             * runs the normal cleanup path (close_hotplug_watch +
+             * close_devices). PDEATHSIG is not used because the parent
+             * here is the intermediate spawn shell, not the app. */
+            g_should_exit = 1;
             break;
         }
         size_t len = strlen(line);

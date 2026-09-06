@@ -136,6 +136,43 @@ def has_cjk_or_wide_chars(query: str) -> bool:
     return any(lo <= codepoint <= hi for codepoint in map(ord, capped) for lo, hi in _CJK_WIDE_CODEPOINT_RANGES)
 
 
+# Minimum query length for the trigram CJK path.
+#
+# The trigram tokenizer indexes only 3-character substrings, and an FTS5
+# MATCH whose phrase is shorter than 3 tokens SILENTLY matches nothing
+# (verified live against SQLite 3.50 — no error, empty result). CJK
+# queries shorter than 3 chars keep the LIKE path, which gives correct
+# substring results for every length.
+_TRIGRAM_MIN_QUERY_CHARS = 3
+
+
+def _build_trigram_phrase(query: str) -> str:
+    """Build the FTS5 MATCH expression for the trigram CJK path.
+
+    The whole capped query becomes ONE double-quoted FTS5 phrase — the
+    trigram tokenizer treats every character (including whitespace and
+    ``%``/``_``) as indexable text, so the phrase matches the query as a
+    literal substring, exactly like the escaped-LIKE fallback it
+    replaces. Embedded double quotes are doubled (FTS5 string-escape).
+    """
+    return '"' + query.replace('"', '""') + '"'
+
+
+def is_trigram_cjk_query(query: str) -> bool:
+    """Return True if the (capped) query should use the trigram CJK index.
+
+    Criteria: contains at least one CJK/fullwidth character (the scripts
+    unicode61 cannot substring-match) AND is at least 3 characters long
+    (shorter queries would silently match nothing on the trigram index —
+    see ``_TRIGRAM_MIN_QUERY_CHARS``) and keep the LIKE path's true
+    substring semantics.
+    """
+    from voice_typer.server import history_db as _hd
+
+    capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
+    return len(capped) >= _TRIGRAM_MIN_QUERY_CHARS and has_cjk_or_wide_chars(capped)
+
+
 def sanitize_fts_query(query: str) -> str:
     """Escape FTS5 special characters so user input is treated as literals.
 
@@ -441,8 +478,15 @@ def search(
     with contextlib.closing(conn.cursor()) as cursor:
         capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
         use_cursor = before_timestamp is not None and before_id is not None
-        # CJK / fullwidth queries bypass FTS5 (unicode61 cannot
-        # substring-match those scripts) and take the LIKE path below.
+        # CJK / fullwidth queries: the unicode61 index cannot substring-
+        # match those scripts (a contiguous CJK run is ONE token). Since
+        # schema V5 a SECOND FTS5 index (``transcriptions_fts_cjk``,
+        # trigram tokenizer) serves them with indexed substring matching:
+        # whole-query length >= 3 chars → trigram MATCH path (one phrase,
+        # literal semantics — wildcards are just characters); shorter
+        # queries keep the LIKE path (the trigram index only stores
+        # 3-char substrings, so a 1-2 char MATCH would silently match
+        # nothing).
         # Queries FTS5 cannot tokenize (LIKE wildcards, punctuation-only,
         # fullwidth punctuation) intentionally keep the LIKE fallback:
         # it treats wildcards as literals and is the pinned contract for
@@ -450,7 +494,98 @@ def search(
         # test_history_search_cjk.py). Do NOT short-circuit these to an
         # empty result — that regressed CJK punctuation search.
         use_fts = bool(capped) and is_fts_compatible_query(capped) and not has_cjk_or_wide_chars(capped)
-        if use_fts:
+        use_trigram_cjk = bool(capped) and not use_fts and is_trigram_cjk_query(capped)
+        if use_trigram_cjk:
+            # Availability gate: on SQLite builds without the trigram
+            # tokenizer the V5 migration is skipped and the shadow table
+            # does not exist — degrade to the bounded LIKE path instead
+            # of raising "no such table" (same true-substring semantics,
+            # just unindexed).
+            from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
+
+            use_trigram_cjk = cjk_trigram_table_exists(conn)
+        if use_trigram_cjk:
+            trigram_query = _build_trigram_phrase(capped)
+            if use_cursor:
+                # Cursor path: no LIMIT push-down (the cursor WHERE
+                # filters by (timestamp, id), not rowid — pushing LIMIT
+                # into FTS could starve the cursor filter), mirroring the
+                # unicode61 cursor branch.
+                cursor.execute(
+                    """
+                    SELECT
+                        t.id,
+                        SUBSTR(t.text, 1, ?) AS text,
+                        LENGTH(t.text) AS text_full_length,
+                        t.text_is_encrypted,
+                        t.timestamp,
+                        t.duration,
+                        t.model,
+                        t.device,
+                        t.word_count,
+                        t.char_count,
+                        t.favorite,
+                        t.language
+                    FROM transcriptions t
+                    JOIN transcriptions_fts_cjk AS f ON f.rowid = t.id
+                    WHERE transcriptions_fts_cjk MATCH ?
+                      AND (t.timestamp < ? OR (t.timestamp = ? AND t.id < ?))
+                    ORDER BY t.timestamp DESC, t.id DESC
+                    LIMIT ?
+                """,
+                    (
+                        _hd._HISTORY_TEXT_PREVIEW_LENGTH,
+                        trigram_query,
+                        before_timestamp,
+                        before_timestamp,
+                        before_id,
+                        limit,
+                    ),
+                )
+            else:
+                # No-cursor path: push LIMIT (+ OFFSET) into the trigram
+                # FTS subquery (same shape/rationale as the unicode61
+                # push-down branch).
+                assert offset < 1000, (
+                    f"OFFSET pagination requires offset < 1000 (got {offset}); "
+                    "use cursor pagination (before_timestamp + before_id) for deeper pages"
+                )
+                fts_subquery_limit = limit + offset
+                cursor.execute(
+                    """
+                    SELECT
+                        t.id,
+                        SUBSTR(t.text, 1, ?) AS text,
+                        LENGTH(t.text) AS text_full_length,
+                        t.text_is_encrypted,
+                        t.timestamp,
+                        t.duration,
+                        t.model,
+                        t.device,
+                        t.word_count,
+                        t.char_count,
+                        t.favorite,
+                        t.language
+                    FROM (
+                        SELECT rowid
+                        FROM transcriptions_fts_cjk
+                        WHERE transcriptions_fts_cjk MATCH ?
+                        ORDER BY rowid DESC
+                        LIMIT ?
+                    ) AS f
+                    JOIN transcriptions t ON t.id = f.rowid
+                    ORDER BY t.timestamp DESC, t.id DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (
+                        _hd._HISTORY_TEXT_PREVIEW_LENGTH,
+                        trigram_query,
+                        fts_subquery_limit,
+                        limit,
+                        offset,
+                    ),
+                )
+        elif use_fts:
             fts_query = sanitize_fts_query(capped)
             if use_cursor:
                 # Cursor path: cannot push LIMIT into FTS because the

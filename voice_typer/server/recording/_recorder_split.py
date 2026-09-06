@@ -108,14 +108,14 @@ _GROWABLE_BUFFER_HARD_CAP_SAMPLES_PER_CHUNK = 2 * _AUDIO_BLOCKSIZE
 # WHISPER_SAMPLE_RATE (16 kHz). The helper definition still lives in
 # ``disconnect_handler.py`` (other call site also removed; the function
 # is kept for the direct unit tests in ``test_device_manager.py``).
-from .exceptions import (  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
-    ResampleError,
-)
-
 # Audio-format helpers (bodies of the removed ``Recorder._resample_chunk``
 # / ``Recorder._prepare_audio`` delegators). Imported at module level so
 # tests can patch ``voice_typer.server.recording._recorder_split.resample_chunk``
 # / ``...prepare_audio``.
+from . import buffer as _buffer_mod  # noqa: E402 — owning module of the secure-clear helpers (C-ARCH-2)
+from .exceptions import (  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
+    ResampleError,
+)
 from .format import prepare_audio, resample_chunk  # noqa: E402
 
 # VAD per-chunk cache refresh (body of the removed
@@ -589,11 +589,9 @@ def _invalidate_resampled_cache(recorder: Recorder, new_key: tuple) -> None:
     securely zeroed BEFORE being replaced (SEC-audit-008), the resample
     cursor returns to the start of the buffer, and the compat segment-list
     slots are reset. Caller holds ``recorder._audio_pipeline._lock``."""
-    from voice_typer.server import recording as _recording_pkg
-
     cached = getattr(recorder, "_cached_resampled", None)
     if cached is not None and cached.size > 0:
-        _recording_pkg._secure_clear_array(cached)
+        _buffer_mod._secure_clear_array(cached)
     recorder._cached_resampled = np.array([], dtype=np.float32)
     recorder._cached_resampled_len = 0
     recorder._cached_native_chunk_count = 0
@@ -774,7 +772,6 @@ def discard_recording(recorder: Recorder) -> None:
     # imported (it imports this module near the top, before the constants
     # are defined). By deferring the import to call time we read the
     # constants from the fully-loaded module.
-    from voice_typer.server import recording as _recording_pkg
     from voice_typer.server.recording.recorder import (
         _AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S,
         _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S,
@@ -874,7 +871,7 @@ def discard_recording(recorder: Recorder) -> None:
         # ``start()`` reset (incorrect for any caller polling between
         # discard() and start()).
         recorder._audio_pipeline._total_buffered_samples = 0
-        _recording_pkg._secure_clear_array_background(_old_buffer)
+        _buffer_mod._secure_clear_array_background(_old_buffer)
 
 
 def start_recording(recorder: Recorder) -> None:
@@ -1321,7 +1318,6 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # the constants are defined). By deferring the import to call time
     # we read the constants from the fully-loaded module — mirrors
     # ``discard_recording`` and ``start_recording``.
-    from voice_typer.server import recording as _recording_pkg
     from voice_typer.server.recording.recorder import (
         _AUDIO_WORKER_JOIN_TIMEOUT_S,
         _EVENT_WORKER_JOIN_TIMEOUT_S,
@@ -1478,7 +1474,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # enqueued before ``export_copy()`` read the storage.
     # ``export_copy()`` allocates fresh memory, so zeroing the old
     # storage afterwards cannot affect the returned audio.
-    _recording_pkg._secure_clear_array_background(_old_buffer)
+    _buffer_mod._secure_clear_array_background(_old_buffer)
 
     # Log audio statistics for diagnostics
     # Critical: prefer the captured ``_buffer_sr`` (the
