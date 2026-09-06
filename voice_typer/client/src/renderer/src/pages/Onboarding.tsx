@@ -1,31 +1,43 @@
-//this file was an 884-line monolith with 6 inline
-// step components, wizard state, and a permissions-probe lifecycle all
-// living in one component. It is now a thin composition root (~180 lines):
-// - hooks/useOnboardingWizard  → wizard state, init effect, navigation
-// - hooks/usePermissionsProbe  → permissions probe + test-hotkey listener
-// - components/<Step>          → 6 extracted step renderers
-// - lib/types.ts + constants.ts → shared contracts
-// The `export default function OnboardingPage` signature is unchanged so
-// App.tsx routing and existing tests continue to work. Pure structural
-// refactor — no behavior changes.
+// OnboardingPage — composition root for the first-run wizard.
 //
-// R7-F8 contract (cancelled-flag guard): the init() effect moved to
-// `./onboarding/hooks/useOnboardingWizard.ts` and still follows the
-// canonical pattern there:
+// This file was an 884-line monolith with 6 inline step components,
+// wizard state, and a permissions-probe lifecycle all living in one
+// component. It has been decomposed into dedicated modules; the page
+// now owns layout + wiring only:
+//   - onboarding/hooks/useOnboardingWizard → wizard state, init effect,
+//     navigation, step submission
+//   - onboarding/hooks/usePermissionsProbe → permissions probe +
+//     test-hotkey listener
+//   - onboarding/hooks/useDoneStepConsent  → Done-step
+//     voice_biometric_consent gate (get_config probe, immediate
+//     persist on toggle, revert on failure)
+//   - onboarding/components/<Step>         → step renderers
+//   - onboarding/lib/{types,constants}.ts  → shared contracts
+// The page renders the progress header, the per-step body, the Done-
+// step consent + apply-error panels, the footer (Back / Skip /
+// Continue-Get Started with the per-step advancement gates), and the
+// skip confirmation dialog. The `export default function OnboardingPage`
+// signature is unchanged so App.tsx routing and existing tests continue
+// to work. Pure structural refactor — no behavior changes.
+//
+// Cancelled-flag contract (async effects): every async effect in this
+// wizard follows the canonical guard pattern so no setState lands after
+// unmount:
 // let cancelled = false;
 // ... if (cancelled) return;
 // return () => { cancelled = true; };
-// The behavioral R7-F8 test (no setState-after-unmount warning) still
-// passes against the live component; the source-content substring
-// assertions resolve to this pointer comment.
+// The init effect lives in `./onboarding/hooks/useOnboardingWizard.ts`
+// and the consent probe in `./onboarding/hooks/useDoneStepConsent.ts`,
+// both following the pattern. The behavioral test (no setState-after-
+// unmount warning) passes against the live components; the source-
+// content substring assertions resolve to this pointer comment.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import ConsentStep from "./onboarding/components/ConsentStep";
 import DoneStep from "./onboarding/components/DoneStep";
@@ -34,6 +46,7 @@ import MicrophoneStep from "./onboarding/components/MicrophoneStep";
 import ModelStep from "./onboarding/components/ModelStep";
 import PermissionsStep from "./onboarding/components/PermissionsStep";
 import WelcomeStep from "./onboarding/components/WelcomeStep";
+import { useDoneStepConsent } from "./onboarding/hooks/useDoneStepConsent";
 import { useOnboardingWizard } from "./onboarding/hooks/useOnboardingWizard";
 import { usePermissionsProbe } from "./onboarding/hooks/usePermissionsProbe";
 import {
@@ -42,7 +55,6 @@ import {
 	MODEL_DEFAULT,
 	STEP_TITLE_KEY,
 } from "./onboarding/lib/constants";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 export default function OnboardingPage({
 	onComplete,
@@ -103,70 +115,11 @@ export default function OnboardingPage({
 		handleTestHotkey,
 	} = usePermissionsProbe(step?.step_name, selectedHotkey);
 
-	//voice_biometric_consent gate on the Done step.
-	// Backend refuses to record without this flag (recording_controller.py:249),
-	// but the wizard previously completed without ever asking. Now the
-	// Done step renders an inline consent checkbox; the Get Started
-	// button stays disabled until the user accepts. On accept, we
-	// persist `voice_biometric_consent` ONLY — the HuggingFace consent
-	// for model downloads is granted explicitly on the Model step (the
-	// app never downloads a model automatically, so there is no hidden
-	// download to consent to here). Initial state is loaded from
-	// get_config so a user who already consented via Settings → Privacy
-	// can skip past.
-	const { call } = usePython();
-	// callRef mirror (Home.tsx pattern): the consent-probe effect below
-	// must not depend on the `call` identity — a test mock handing out a
-	// fresh `call` per render would re-fire the get_config probe on every
-	// render (OOM loop class). ``callRef.current`` is read instead.
-	const callRef = useLatestRef(call);
-	const [consentAccepted, setConsentAccepted] = useState(false);
-	const [consentPersisting, setConsentPersisting] = useState(false);
-
-	useEffect(() => {
-		if (step?.step_name !== DONE_STEP_NAME) return;
-		let cancelled = false;
-		(async () => {
-			try {
-				const cfg = await callRef.current<{
-					voice_biometric_consent?: boolean;
-				}>("get_config");
-				if (cancelled) return;
-				if (cfg?.voice_biometric_consent === true) {
-					setConsentAccepted(true);
-				}
-			} catch (e) {
-				// Older backend without the flag — leave
-				// consent unaccepted so the user is
-				// prompted to grant it.
-				console.warn(
-					"[renderer:Onboarding] get_config consent probe failed:",
-					e,
-				);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [step?.step_name]);
-
-	const handleConsentToggle = (nextChecked: boolean) => {
-		setConsentAccepted(nextChecked);
-		// Persist immediately so the flag is set even if the user
-		// closes the window without clicking Get Started.
-		setConsentPersisting(true);
-		call("set_config", {
-			voice_biometric_consent: nextChecked,
-		})
-			.catch((e) => {
-				console.error("[renderer:Onboarding] set_config consent failed:", e);
-				// Revert on failure so the UI doesn't
-				// claim consent was granted when it
-				// wasn't persisted.
-				setConsentAccepted(!nextChecked);
-			})
-			.finally(() => setConsentPersisting(false));
-	};
+	//voice_biometric_consent gate on the Done step (extracted to
+	// ./onboarding/hooks/useDoneStepConsent.ts — probe, persist,
+	// revert-on-failure).
+	const { consentAccepted, consentPersisting, handleConsentToggle } =
+		useDoneStepConsent(step?.step_name);
 
 	// ── Focus ref for init-error branch ──────────────────────────
 	// Must be declared before any early return so the hooks are

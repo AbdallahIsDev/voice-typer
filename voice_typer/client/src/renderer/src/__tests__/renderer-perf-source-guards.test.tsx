@@ -24,9 +24,12 @@
  *      `{...sectionProps}` spread into a `*SettingsSection` child,
  *      causing every section component to re-render on every Settings
  *      page render. Also guards: the empty-state visibility derivation
- *      is keyed on `[settingsFilter]` (not recomputed per render), and
+ *      is keyed on the query (not recomputed per render) and
  *      `resetToDefaults` is a stable `useCallback` (ConfirmDialog's
- *      `onConfirm` benefits).
+ *      `onConfirm` benefits) — both derivations now live in the
+ *      extracted settings hooks (`settings/hooks/useSettingsSearch.ts`
+ *      / `settings/hooks/useSettingsReset.ts`) after the page-root
+ *      slimming, and are asserted at their new homes.
  *
  *  (b) Home — the status pill, mic toggle button, last-transcription
  *      preview, and recording timer are extracted into their own files
@@ -147,26 +150,33 @@ describe("Settings page keeps sectionProps referentially stable via useMemo", ()
 		expect(plainObjectPattern.test(src)).toBe(false);
 	});
 
-	it("derives empty-state visibility from settingsFilter via a memo keyed on [settingsFilter]", () => {
-		const src = readSrc("pages/Settings.tsx");
-		// The original buggy form flipped `hasAnyVisibleRow` state from
-		// a dep-less effect (ran after every render). The current form
-		// derives `hasAnyVisibleRow` purely via useMemo keyed on
-		// `[settingsFilter]`, so memoized section children don't
-		// re-render unless the query actually changes.
+	it("derives empty-state visibility via a memo keyed on the query (search hook)", () => {
+		// The empty-state derivation moved from the page root into the
+		// extracted search hook (page-root slimming); the invariant is
+		// unchanged: `hasAnyVisibleRow` is derived purely via useMemo
+		// keyed on the query (the page's `settingsFilter` is passed as
+		// `query`), so memoized section children don't re-render unless
+		// the query actually changes.
+		const src = readSrc("pages/settings/hooks/useSettingsSearch.ts");
 		const memoMatch = src.match(
 			/const\s+hasAnyVisibleRow\s*=\s*useMemo\(\(\)\s*=>\s*\{[\s\S]*?\n\s*\},\s*\[([^\]]*)\]/,
 		);
 		expect(memoMatch, "hasAnyVisibleRow useMemo not found").not.toBeNull();
 		const depsBody = memoMatch?.[1] ?? "";
-		expect(depsBody).toContain("settingsFilter");
+		expect(depsBody).toContain("query");
+		// The derivation consumes the memoized label universe — that must
+		// be a dep too, or a label-universe change would leave a stale
+		// sentinel.
+		expect(depsBody).toContain("sectionLabelsByPage");
 	});
 
-	it("wraps resetToDefaults in useCallback", () => {
-		const src = readSrc("pages/Settings.tsx");
-		// resetToDefaults must be wrapped in useCallback so its identity
-		// is stable across renders (ConfirmDialog's onConfirm prop
-		// benefits).
+	it("wraps resetToDefaults in useCallback (reset hook)", () => {
+		// The reset-to-defaults flow moved from the page root into
+		// the extracted reset hook (page-root slimming); the
+		// invariant is unchanged: `resetToDefaults` is a stable
+		// `useCallback` (ConfirmDialog's `onConfirm` prop benefits)
+		// carrying the deps its closure reads.
+		const src = readSrc("pages/settings/hooks/useSettingsReset.ts");
 		expect(src).toMatch(/const\s+resetToDefaults\s*=\s*useCallback\(/);
 		// The deps array must include the values the closure reads.
 		const cbMatch = src.match(

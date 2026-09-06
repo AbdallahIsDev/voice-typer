@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
@@ -34,7 +35,6 @@ import {
 	type VocabRow,
 	withEntryIds,
 } from "../lib/transform";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 /** Per-entry usage from the server's `get_correction_usage` snapshot. */
 export interface EntryUsage {
@@ -168,6 +168,7 @@ export function useVocabulary({
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
 	// and re-fetched after every save (the server prunes usage records
 	// for deleted corrections, so the map must track the live entries).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadUsage = useCallback(async () => {
 		try {
 			const snapshot = await callRef.current<{
@@ -200,6 +201,7 @@ export function useVocabulary({
 		}
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadVocabulary = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
@@ -260,6 +262,7 @@ export function useVocabulary({
 		loadUsage();
 	}, [loadVocabulary, loadUsage]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const persistVocabulary = useCallback(
 		async (updated: VocabRow[]) => {
 			// Strip the client-side ``_id`` before sending to the backend

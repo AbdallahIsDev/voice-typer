@@ -32,7 +32,7 @@
  * attempts, the poll stops calling get_config (no infinite polling
  * against a dead backend).
  */
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
@@ -43,7 +43,7 @@ import {
 	stableMocks,
 } from "@/__tests__/helpers/stableMocks";
 
-const { mockCall } = stableMocks;
+const { mockCall, mockPythonEvent } = stableMocks;
 
 vi.mock("@/hooks/usePython", () => pythonMock());
 
@@ -98,6 +98,32 @@ function Harness() {
  */
 function readStatus(): string {
 	return useAppStore.getState().connectionStatus;
+}
+
+/**
+ * Helper: invoke the registered usePythonEvent callback for a given
+ * event type (same pattern as useConnection-respawn-error.test.tsx —
+ * the mockPythonEvent spy records each registration as
+ * `mockPythonEvent(eventType, callback)`; find the most recent one and
+ * invoke it).
+ */
+function dispatchEvent(eventType: string, data: unknown): void {
+	const calls = (
+		mockPythonEvent as unknown as {
+			mock: { calls: unknown[][] };
+		}
+	).mock.calls;
+	for (let i = calls.length - 1; i >= 0; i--) {
+		const entry = calls[i];
+		if (entry !== undefined && entry[0] === eventType) {
+			(entry[1] as (d: unknown) => void)(data);
+			return;
+		}
+	}
+	throw new Error(
+		`No usePythonEvent subscription found for "${eventType}". ` +
+			`Registered types: ${calls.map((c) => c[0]).join(", ")}`,
+	);
 }
 
 describe("useConnection — background reconnect poll", () => {
@@ -217,5 +243,80 @@ describe("useConnection — background reconnect poll", () => {
 		// microscopically after the cap window).
 		const delta = callsAfterExtraWait - callsAfterCap;
 		expect(delta).toBeLessThanOrEqual(1);
+	});
+
+	it("applies the fetched config snapshot to the store on background reconnect", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+
+		// Phase 1: backend down → initial 5 retries exhaust →
+		// "disconnected".
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.reject(new Error("down"));
+			if (type === "get_status") return Promise.resolve({ status: "idle" });
+			if (type === "onboarding_is_first_run")
+				return Promise.resolve({ is_first_run: false });
+			return Promise.resolve({});
+		});
+
+		render(<Harness />);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(11_000);
+		});
+		expect(readStatus()).toBe("disconnected");
+
+		// Seed the pre-outage snapshot the UI would be showing.
+		useAppStore.getState().setConfig({ hotkey: "stale-pre-outage" });
+
+		// Phase 2: backend recovers with a CHANGED config. The
+		// reconnect probe must APPLY it to the store (align with the
+		// initial-connect path), not discard it.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config")
+				return Promise.resolve({
+					onboarding_completed: true,
+					hotkey: "ctrl+shift+space",
+				});
+			if (type === "get_status") return Promise.resolve({ status: "idle" });
+			if (type === "onboarding_is_first_run")
+				return Promise.resolve({ is_first_run: false });
+			return Promise.resolve({});
+		});
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_500);
+		});
+
+		expect(readStatus()).toBe("connected");
+		expect(useAppStore.getState().config?.hotkey).toBe("ctrl+shift+space");
+	});
+
+	it("applies the fetched config snapshot to the store on the reconnected synthetic event", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config")
+				return Promise.resolve({
+					onboarding_completed: true,
+					hotkey: "ctrl+alt+k",
+				});
+			if (type === "get_status") return Promise.resolve({ status: "idle" });
+			if (type === "onboarding_is_first_run")
+				return Promise.resolve({ is_first_run: false });
+			return Promise.resolve({});
+		});
+
+		render(<Harness />);
+		await waitFor(() => {
+			expect(readStatus()).toBe("connected");
+		});
+
+		// Simulate a stale pre-outage snapshot, then a TCP recovery.
+		useAppStore.getState().setConfig({ hotkey: "stale-pre-outage" });
+		await act(async () => {
+			dispatchEvent("reconnected", undefined);
+		});
+
+		await waitFor(() => {
+			expect(useAppStore.getState().config?.hotkey).toBe("ctrl+alt+k");
+		});
+		expect(readStatus()).toBe("connected");
 	});
 });

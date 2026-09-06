@@ -17,7 +17,9 @@
  *   - R7-F12  Models.tsx — model card heading uses
  *             `meta?.display_name ?? model.name` (no hardcoded
  *             "Qwen3-" / "NVIDIA Parakeet TDT v3" strings).
- *   - R7-F13  History.tsx + Home.tsx — debouncedRefreshFromEvent is
+ *   - R7-F13  History (the debounced-refresh pipeline now lives in
+ *             history/hooks/useHistoryEventRefresh.ts after the page-root
+ *             slimming) + Home.tsx — debouncedRefreshFromEvent is
  *             extracted via useCallback and passed to both
  *             usePythonEvent subscriptions (single callback identity).
  *   - R7-F15  About.tsx — configDir initial state is "" (empty) and
@@ -583,9 +585,17 @@ describe("R7-F12: Models.tsx — display_name fallback for variant heading", () 
 // ── R7-F13 ─────────────────────────────────────────────────────────────
 
 describe("R7-F13: History + Home — debouncedRefreshFromEvent via useCallback", () => {
-	it("History.tsx source declares debouncedRefreshFromEvent via useCallback and passes it to both usePythonEvent calls", async () => {
+	it("History's refresh hook declares debouncedRefreshFromEvent via useCallback and passes it to both usePythonEvent calls", async () => {
 		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/History.tsx", "utf8");
+		// The background-refresh pipeline (the debounced handler +
+		// both event subscriptions) was extracted from the page
+		// root into the refresh hook — the contract follows the
+		// code: one useCallback'd handler shared by BOTH
+		// subscriptions.
+		const src = fs.readFileSync(
+			"src/renderer/src/pages/history/hooks/useHistoryEventRefresh.ts",
+			"utf8",
+		);
 		expect(src).toContain("const debouncedRefreshFromEvent = useCallback(");
 		// Count usePythonEvent invocations — there should be at least
 		// two, and both should pass `debouncedRefreshFromEvent` as the

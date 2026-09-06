@@ -28,11 +28,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-level cache — persists across page navigations so microphone
 // settings render instantly on re-visit instead of showing a loading
@@ -188,6 +188,7 @@ export function useMicrophoneData({
 	// stale React state. The default ``() => false`` keeps existing
 	// callers (the ``microphones_changed`` hot-swap handler) working
 	// without changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
 			/**
@@ -362,6 +363,7 @@ export function useMicrophoneData({
 
 	usePythonEvent(
 		"config_changed",
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 		useCallback((): (() => void) | undefined => {
 			// Hot/cold split: a config echo (including the ones OUR OWN
 			// updateConfig writes trigger) only needs the fresh config —

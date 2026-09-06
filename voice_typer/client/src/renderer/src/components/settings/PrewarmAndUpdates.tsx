@@ -47,12 +47,12 @@ import {
 	formatRelativeTime,
 } from "@/components/settings/DiagnosticsSettingsSection";
 import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import pkg from "../../../../../package.json";
 import type { IsVisibleFn } from "./types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 const APP_VERSION = pkg.version as string;
 
@@ -250,6 +250,7 @@ export default function PrewarmAndUpdates({
 	// On mount: fetch prewarm status only. No network call is ever
 	// fired from this component (the prewarm status call is a local
 	// IPC bridge to the Python sidecar, not a network call).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {

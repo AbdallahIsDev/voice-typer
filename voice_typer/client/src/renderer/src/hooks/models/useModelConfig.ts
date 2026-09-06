@@ -29,6 +29,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { safeApiKey } from "@/hooks/models/useCloudProviders";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import {
@@ -39,7 +40,6 @@ import {
 } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -151,6 +151,7 @@ export function useModelConfig({
 	// for an active-but-missing model must show `downloaded: false` so
 	// the UI offers a restore/clear affordance instead of a dead-end
 	// disabled "Active" tick.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
 			const status = await callRef.current<ModelStatusMap>("get_model_status");
@@ -187,6 +188,7 @@ export function useModelConfig({
 	// Now we fire all three in parallel via `Promise.allSettled`. The
 	// `get_config` result is the gating one — `applyActiveState` runs
 	// as soon as it resolves. The other two settle in the background.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadConfig = useCallback(async (): Promise<void> => {
 		// Claim the load generation — an earlier in-flight load whose
 		// responses resolve after this one started must not clobber the
@@ -324,6 +326,7 @@ export function useModelConfig({
 	// always showed their SUCCESS toast even when the backend save
 	// failed. The wrapper now re-throws on error so each caller can
 	// branch on the result.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>): Promise<void> => {
 			// callRef mirror (same convention as loadConfig /

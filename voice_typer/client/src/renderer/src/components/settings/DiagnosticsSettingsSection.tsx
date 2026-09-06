@@ -22,19 +22,14 @@
 
 import { Copy01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	memo,
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useState,
-} from "react";
+import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
 import { APP_NAME } from "@/branding";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { getLocale, t, tChoice } from "@/i18n/i18n";
@@ -47,7 +42,6 @@ import type { ModelStatusMap } from "@/types/ipc";
 // it stays in sync with the single source of truth.
 import pkg from "../../../../../package.json";
 import type { IsVisibleFn } from "./types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 const APP_VERSION = pkg.version as string;
 
@@ -183,6 +177,7 @@ export const DiagnosticsSettingsSection = memo(
 		const [loadedVia, setLoadedVia] = useState("");
 		const [modelStatus, setModelStatus] = useState<ModelStatusMap | null>(null);
 
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 		useEffect(() => {
 			let cancelled = false;
 

@@ -788,4 +788,58 @@ describe("Settings search auto-switch navigation", () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(mockNavigate).not.toHaveBeenCalled();
 	});
+
+	// The empty-banner sentinel and the auto-switch MUST share one match
+	// semantic. Pre-unification the auto-switch also counted superstring
+	// matches (query contains a short label) while the banner only counted
+	// label-includes-query — so one query could navigate to a section AND
+	// claim nothing matched. This pins both directions of the agreement:
+	// a superstring-only query neither navigates NOR shows the banner-less
+	// contradiction (it shows the banner), and a real substring match both
+	// navigates AND keeps the banner hidden.
+	it("auto-switch and empty banner AGREE on the same query (one match semantic)", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Settings")).toBeTruthy();
+		});
+
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+
+		// Direction 1 — superstring-only query: contains the whole
+		// "LLM Polishing" label but is not contained by any label. The old
+		// split semantics navigated here (q.includes(label)); the unified
+		// strict semantic must NOT navigate and MUST show the banner.
+		useGlobalSearch.getState().setQuery("the llm polishing rows");
+		await waitFor(() => {
+			expect(
+				screen.getByText('No settings match "the llm polishing rows"'),
+			).toBeTruthy();
+		});
+		expect(mockNavigate).not.toHaveBeenCalled();
+
+		// Direction 2 — a genuine substring match: the banner stays hidden
+		// and the auto-switch navigates to the best-matching section page.
+		useGlobalSearch.getState().setQuery("llm polishing");
+		await waitFor(() => {
+			expect(mockNavigate).toHaveBeenCalledWith(
+				"settingsAI",
+				expect.objectContaining({
+					settingsScrollTarget: expect.objectContaining({
+						rowHint: expect.any(String),
+					}),
+				}),
+			);
+		});
+		await waitFor(() => {
+			expect(screen.queryByText(/No settings match/)).toBeNull();
+		});
+	});
 });

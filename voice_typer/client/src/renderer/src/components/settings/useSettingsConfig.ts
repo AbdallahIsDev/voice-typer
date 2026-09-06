@@ -39,12 +39,12 @@
 //     (the user's attempted value is retained for edit + retry).
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-level cache — persists across page navigations so settings
 // render instantly on re-visit instead of showing a loading spinner.
@@ -194,6 +194,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		};
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadConfig = useCallback(
 		async (isCancelled: () => boolean = () => cancelledRef.current) => {
 			try {

@@ -23,14 +23,13 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
-
 import type { SettingsSectionSharedProps } from "./types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 export const AudioSettingsSection = memo(function AudioSettingsSection({
 	config,
@@ -76,6 +75,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	// Best-effort: if the call fails we leave `volumeBackend` as null and
 	// the toggle stays enabled-but-server-validated (the Python side also
 	// gates on `supports_per_session`).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadVolumeBackend = useCallback(async () => {
 		try {
 			const result = await callRef.current<{

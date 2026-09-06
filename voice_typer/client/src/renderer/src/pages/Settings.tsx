@@ -23,9 +23,7 @@ import { LinuxWindowButtonsSettingsSection } from "@/components/settings/LinuxWi
 import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
 import { OverlaySettingsSection } from "@/components/settings/OverlaySettingsSection";
 import { PostProcessingSettingsSection } from "@/components/settings/PostProcessingSettingsSection";
-import PrewarmAndUpdates, {
-	getPrewarmAndUpdatesLabels,
-} from "@/components/settings/PrewarmAndUpdates";
+import PrewarmAndUpdates from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import { ResourcesSettingsSection } from "@/components/settings/ResourcesSettingsSection";
@@ -35,7 +33,6 @@ import {
 	SECTION_TITLE_BY_PAGE,
 	type SettingsSectionPage,
 } from "@/components/settings/settingsSections";
-import { getSectionLabels } from "@/components/settings/settingsTabLabels";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
@@ -45,20 +42,12 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
-import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
-
-// keys excluded from reset-to-defaults because they
-// encode one-time state (schema version, onboarding flag, OS-specific
-// warning dismissal) that must survive a factory reset of user-tunable
-// preferences. Hoisted to module scope so `resetToDefaults` can be a
-// stable useCallback without re-allocating the list each render.
-const CONFIG_PROTECTED_KEYS = [
-	"schema_version",
-	"wayland_warned",
-	"onboarding_completed",
-] as const;
+import { useSettingsDeepLinks } from "./settings/hooks/useSettingsDeepLinks";
+import { useSettingsReset } from "./settings/hooks/useSettingsReset";
+import { useSettingsSearch } from "./settings/hooks/useSettingsSearch";
+import { useSettingsSurfaceScroll } from "./settings/hooks/useSettingsSurfaceScroll";
 
 /**
  * Back affordance for a Settings section page: a compact ghost row that
@@ -78,8 +67,8 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 			onClick={onBack}
 		>
 			{/* Left-pointing chevron — mirrored in RTL by the shared
-			    directional-icon rule (index.css) so it always points
-			    "back". */}
+                            directional-icon rule (index.css) so it always points
+                            "back". */}
 			<HugeiconsIcon
 				icon={ArrowLeft01Icon}
 				strokeWidth={2}
@@ -137,15 +126,10 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	const { themeMode: themeModeProp, handleThemeChange } = useTheme(call);
 	//obtain `navigate` directly from the navigation hook
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
-	const {
-		navigate,
-		pendingConsentField,
-		consumeConsentField,
-		pendingSettingsScrollTarget,
-		consumeSettingsScrollTarget,
-	} = useNavigation();
+	// (The consent + search deep-link channels are consumed inside
+	// useSettingsDeepLinks — this page only navigates.)
+	const { navigate } = useNavigation();
 	const { showSnack } = useSnackbar();
-	const [showResetDialog, setShowResetDialog] = useState(false);
 	// Local help-overlay state for the Troubleshooting "Keyboard
 	// Shortcuts" button. The app-level instance lives in App.tsx
 	// (`useHelpOverlayShortcut`), which this page can't reach — a second
@@ -167,259 +151,39 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	const activeSection: SettingsSectionPage | null = isSettingsSectionPage(page)
 		? page
 		: null;
+	// Per-surface scroll-offset memory, keyed by the raw page literal
+	// (including the hub's "settings"). Owned by the page and shared by
+	// the scroll hooks below: the deep-link consumption zeroes the
+	// Privacy surface's saved offset BEFORE the surface-scroll restore
+	// effect reads it, so the hook call order here is load-bearing.
 	const scrollPositionsRef = useRef<Record<string, number>>({});
-	const prevSurfaceRef = useRef<Page>(page);
 
-	// Consent deep-link (``client.consent_required`` path). A consent
-	// refusal elsewhere (mic test / level monitor / dictation gate)
-	// navigates here with ``{ consentField }`` (see NavigateOptions in
-	// useNavigation.ts); the field is staged in the nav store as
-	// ``pendingConsentField`` and consumed ONCE on the Privacy section
-	// page — the only surface that renders the consent toggles.
-	const [focusedConsentField, setFocusedConsentField] = useState<string | null>(
-		null,
-	);
-	// One-shot scroll guard + ring-lifetime timer for the consent
-	// deep-link highlight (see the scroll effect below). Also reused
-	// for the cross-page Settings search deep-link highlight — both
-	// share the same ring-lifetime mechanism since only one deep-link
-	// target can be active at a time.
-	const scrolledTargetRef = useRef<string | null>(null);
-	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// Cross-page search deep-link target hint (consumed on section-page
-	// mount + on page change). The Settings search may fire this from
-	// any section page — the source page sets it via
-	// `navigate(bestPage, { settingsScrollTarget: { rowHint } })`,
-	// the destination page consumes it here.
-	const [searchScrollHint, setSearchScrollHint] = useState<string | null>(null);
-
-	// Consume the pending consent deep-link target: clear any active
-	// search filter (so the consent row is visible) and arm the
-	// highlight state. The nav store routed the user to
-	// "settingsPrivacy"; we just arm the highlight here.
-	useEffect(() => {
-		if (!pendingConsentField) return;
-		const field = consumeConsentField();
-		if (!field) return;
-		clearQuery();
-		scrollPositionsRef.current.settingsPrivacy = 0;
-		setFocusedConsentField(field);
-	}, [pendingConsentField, consumeConsentField, clearQuery]);
-
-	// Consume the pending cross-page Settings search deep-link target.
-	// Mirrors the consent-deep-link consumption: clear the search filter
-	// (so the matched row is visible) + arm the highlight state with the
-	// rowHint (the matched label string) so the scroll effect can find
-	// + ring the matching element by visible-text content.
-	useEffect(() => {
-		if (!pendingSettingsScrollTarget) return;
-		const target = consumeSettingsScrollTarget();
-		if (!target) return;
-		clearQuery();
-		const hint = target.rowHint;
-		if (hint) setSearchScrollHint(hint);
-	}, [pendingSettingsScrollTarget, consumeSettingsScrollTarget, clearQuery]);
-
-	// Scroll the deep-linked consent row into view once it's rendered
-	// (Privacy section page active + config loaded). The row is rendered
-	// by PrivacySettingsSection with a ``data-consent-field`` attribute;
-	// retry until found (bounded) in case the lazy page / config fetch
-	// is still settling. The scroll is ONE-SHOT per deep-link target
-	// (``scrolledTargetRef``) so a config identity change — e.g. the
-	// user toggling the just-highlighted consent — doesn't re-trigger a
-	// smooth re-center. The highlight ring's lifetime starts when the
-	// row is actually found, so a slow ``get_config`` can't clear the
-	// ring before the row renders.
-	useEffect(() => {
-		if (!focusedConsentField || !config || page !== "settingsPrivacy") return;
-		if (scrolledTargetRef.current === focusedConsentField) return;
-		let attempts = 0;
-		let cancelled = false;
-		const tryScroll = () => {
-			if (cancelled) return;
-			// Match by attribute VALUE rather than interpolating the
-			// field into a selector — the field comes from the backend
-			// envelope, and value-filtering avoids any selector
-			// injection edge.
-			const el = Array.from(
-				document.querySelectorAll<HTMLElement>("[data-consent-field]"),
-			).find(
-				(node) =>
-					node.getAttribute("data-consent-field") === focusedConsentField,
-			);
-			if (el) {
-				scrolledTargetRef.current = focusedConsentField;
-				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
-				// Ring lifetime starts now (row actually visible).
-				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-				highlightTimerRef.current = setTimeout(() => {
-					setFocusedConsentField(null);
-					scrolledTargetRef.current = null;
-				}, 2600);
-				return;
-			}
-			// Bounded retry (~3s) — a stale target can't spin forever.
-			if (attempts < 60) {
-				attempts += 1;
-				setTimeout(tryScroll, 50);
-			}
-		};
-		const timer = setTimeout(tryScroll, 0);
-		return () => {
-			cancelled = true;
-			clearTimeout(timer);
-		};
-	}, [focusedConsentField, config, page]);
-
-	// Cross-page Settings search deep-link scroll + highlight. Mirrors
-	// the consent-deep-link scroll logic but matches by VISIBLE TEXT
-	// (the rowHint string) rather than by attribute value — the search
-	// deep-link carries the matched label text (translated at the
-	// moment the user typed), so we walk rendered SettingRow elements
-	// and pick the first whose label text contains the hint. The match
-	// is intentionally substring + case-insensitive so a partial hint
-	// (e.g. trailing whitespace) still resolves.
-	useEffect(() => {
-		if (!searchScrollHint || !config) return;
-		if (scrolledTargetRef.current === searchScrollHint) return;
-		let attempts = 0;
-		let cancelled = false;
-		const tryScroll = () => {
-			if (cancelled) return;
-			const hint = searchScrollHint.toLowerCase();
-			// SettingRow renders the row label inside a <span> with class
-			// `text-(--text-primary)`. We walk all rows on the page and
-			// pick the first whose label text contains the hint.
-			const candidates = Array.from(
-				document.querySelectorAll<HTMLElement>("[data-settings-row-label]"),
-			);
-			const el = candidates.find((node) =>
-				(node.textContent ?? "").toLowerCase().includes(hint),
-			);
-			if (el) {
-				scrolledTargetRef.current = searchScrollHint;
-				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
-				el.classList.add(
-					"ring-2",
-					"ring-ring",
-					"ring-offset-2",
-					"ring-offset-background",
-				);
-				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-				highlightTimerRef.current = setTimeout(() => {
-					setSearchScrollHint(null);
-					scrolledTargetRef.current = null;
-					el.classList.remove(
-						"ring-2",
-						"ring-ring",
-						"ring-offset-2",
-						"ring-offset-background",
-					);
-				}, 2600);
-				return;
-			}
-			if (attempts < 60) {
-				attempts += 1;
-				setTimeout(tryScroll, 50);
-			}
-		};
-		const timer = setTimeout(tryScroll, 0);
-		return () => {
-			cancelled = true;
-			clearTimeout(timer);
-		};
-	}, [searchScrollHint, config]);
-
-	// Max-lifetime safety net: even if the target row never renders
-	// (e.g. an unknown ``consent_field`` or a stale search hint), the
-	// highlight can't linger indefinitely.
-	useEffect(() => {
-		if (!focusedConsentField && !searchScrollHint) return;
-		const timer = setTimeout(() => {
-			setFocusedConsentField(null);
-			setSearchScrollHint(null);
-			scrolledTargetRef.current = null;
-		}, 5000);
-		return () => clearTimeout(timer);
-	}, [focusedConsentField, searchScrollHint]);
-
-	// label-based search auto-switch (SECTION PAGES ONLY — on the hub a
-	// query filters the section rows instead of yanking the user to a
-	// section page mid-typing). Score each section page by counting
-	// label matches and navigate to the highest-scoring one. Requires
-	// q.length >= 2 to avoid jarring switches as the user types.
-	//
-	// The Advanced page's label set is supplemented with PrewarmAndUpdates
-	// row labels (e.g. "Prewarm cache status", "Installed version",
-	// "Latest release") so queries like "prewarm", "cache", "version",
-	// "update" route to the page where the PrewarmAndUpdates component
-	// lives. The labels are translated at the moment the user types via
-	// getPrewarmAndUpdatesLabels().
-	//
-	// When the best-matching page is DIFFERENT from the current section
-	// page, navigate + carry the matched label as a settingsScrollTarget
-	// rowHint so the destination can scroll to + highlight the matched
-	// row. When it IS the current page, no navigation is needed — the
-	// local filter predicate (`_filter_settings`) handles in-page
-	// filtering.
-	//
-	// The very first render is skipped so a stale query left in the
-	// store by a previous visit doesn't yank the user to another page
-	// on mount.
-	const searchNavFirstRenderRef = useRef(true);
-	useEffect(() => {
-		if (searchNavFirstRenderRef.current) {
-			searchNavFirstRenderRef.current = false;
-			return;
-		}
-		if (!activeSection) return;
-		const q = settingsFilter.toLowerCase().trim();
-		if (!q || q.length < 2) return;
-		let bestPage: SettingsSectionPage | null = null;
-		let bestScore = 0;
-		let bestLabel = "";
-		const sectionLabels = getSectionLabels();
-		sectionLabels.settingsAdvanced = [
-			...sectionLabels.settingsAdvanced,
-			...getPrewarmAndUpdatesLabels(),
-		];
-		for (const [sectionPage, labels] of Object.entries(sectionLabels)) {
-			for (const label of labels) {
-				const matches =
-					label.toLowerCase().includes(q) || q.includes(label.toLowerCase());
-				if (matches) {
-					const score = label.length; // prefer the longest (most specific) match
-					if (score > bestScore) {
-						bestScore = score;
-						bestPage = sectionPage as SettingsSectionPage;
-						bestLabel = label;
-					}
-				}
-			}
-		}
-		if (bestPage && bestScore > 0 && bestPage !== activeSection) {
-			// Cross-page navigation — carry the matched label as a
-			// rowHint so the destination page can scroll + ring.
-			navigate(bestPage, {
-				settingsScrollTarget: { rowHint: bestLabel },
-			});
-		}
-	}, [settingsFilter, activeSection, navigate]);
-
-	// Restore scroll position when the active surface changes (hub ↔
-	// section page ↔ another section page).
-	useEffect(() => {
-		if (prevSurfaceRef.current !== page) {
-			prevSurfaceRef.current = page;
-			const saved = scrollPositionsRef.current[page] ?? 0;
-			if (saved > 0) {
-				requestAnimationFrame(() => {
-					const mainEl = document.getElementById("main-content");
-					if (mainEl) mainEl.scrollTop = saved;
-				});
-			}
-		}
-	}, [page]);
+	// Deep-link machinery — consent + cross-page search targets
+	// (consume → scroll-to-row → highlight ring, with the shared
+	// one-shot guard, ring-lifetime timer, and max-lifetime safety
+	// net). See useSettingsDeepLinks; must be called BEFORE
+	// useSettingsSurfaceScroll so the consumption runs first.
+	const { focusedConsentField } = useSettingsDeepLinks({
+		config,
+		page,
+		scrollPositionsRef,
+	});
+	// Search derivations + label auto-switch: ONE memoized label
+	// universe + ONE shared match predicate feeding the empty-banner
+	// sentinel, the cross-section result groups, and the auto-switch
+	// (see useSettingsSearch).
+	const { hasAnyVisibleRow, otherSectionGroups } = useSettingsSearch({
+		query: settingsFilter,
+		activeSection,
+		navigate,
+	});
+	// Restore the active surface's saved scroll offset on hub ↔ section
+	// transitions (see useSettingsSurfaceScroll).
+	useSettingsSurfaceScroll({ page, scrollPositionsRef });
+	// Reset-to-defaults flow — confirm-dialog state + the guarded
+	// defaults fetch/apply (see useSettingsReset).
+	const { showResetDialog, setShowResetDialog, resetToDefaults } =
+		useSettingsReset({ config, call, updateConfig, showSnack });
 
 	// Always re-fetch on mount, even when the module-level cache is
 	// populated. Pre-fix, the `if (!config)` guard short-circuited the
@@ -453,40 +217,6 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		),
 	);
 
-	//reset-to-defaults wrapped in useCallback so ConfirmDialog's
-	// `onConfirm` prop identity stays stable across renders. The
-	// CONFIG_PROTECTED_KEYS blocklist (above) is hoisted to module scope so
-	// it doesn't need to be a dep.
-	const resetToDefaults = useCallback(async () => {
-		if (!config) return;
-		setShowResetDialog(false);
-		try {
-			const defaults = await call<Record<string, unknown>>("get_defaults");
-			if (defaults && typeof defaults === "object") {
-				const safeDefaults: Record<string, unknown> = {};
-				for (const [key, value] of Object.entries(defaults)) {
-					if (value === "<redacted>") continue;
-					if ((CONFIG_PROTECTED_KEYS as readonly string[]).includes(key))
-						continue;
-					safeDefaults[key] = value;
-				}
-				await updateConfig(safeDefaults as Partial<VoiceTyperConfig>);
-				showSnack(t("settings.resetToDefaultsToast"), "success");
-			} else {
-				showSnack(t("settings.fetchDefaultsFailed"), "error");
-			}
-		} catch (err) {
-			console.error("[renderer:Settings] Failed to reset to defaults:", err);
-			// Known failure classes (timeout / backend unreachable) get
-			// their curated localized message; unknown ones keep the
-			// contextual fallback.
-			showSnack(
-				userFacingErrorMessage(err, t, t("settings.resetFailed")),
-				"error",
-			);
-		}
-	}, [config, call, updateConfig, showSnack]);
-
 	// Local wrapper around the useTheme handleThemeChange so the Color
 	// Scheme Select doesn't revert while the debounced save is in flight.
 	//`onThemeChange` is now obtained from the useTheme hook
@@ -498,55 +228,6 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		},
 		[mergeExternalConfig, handleThemeChange],
 	);
-
-	//empty-state sentinel — derived purely from `settingsFilter` via
-	// useMemo: if no section label (across all section pages + the
-	// PrewarmAndUpdates rows) matches the query, the empty banner is
-	// shown on section pages. The label sets come from the same
-	// `getSectionLabels()` / `getPrewarmAndUpdatesLabels()` helpers used
-	// by the auto-switch effect, so the derivation stays consistent with
-	// the auto-switch scoring. (The hub renders its own empty state
-	// inside SettingsHub.)
-	const hasAnyVisibleRow = useMemo(() => {
-		if (!settingsFilter.trim()) return true;
-		const q = settingsFilter.toLowerCase();
-		const sectionLabels = getSectionLabels();
-		const allLabels = [
-			...Object.values(sectionLabels).flat(),
-			...getPrewarmAndUpdatesLabels(),
-		];
-		return allLabels.some((label) => label.toLowerCase().includes(q));
-	}, [settingsFilter]);
-
-	// "Results from other section pages" (search grouping): matches the
-	// SAME label sets as the empty-state + auto-switch derivations above,
-	// but keeps every match from every OTHER section page (the active
-	// page's own matches are filtered inline by the sections). Each
-	// entry navigates to its page with a rowHint so the destination
-	// scrolls to + rings the matched row (the proven search deep-link
-	// path). Only rendered on section pages — the hub's rows already
-	// list their matched labels inline.
-	const otherSectionGroups = useMemo(() => {
-		if (!activeSection || !settingsFilter.trim()) return [];
-		const q = settingsFilter.toLowerCase();
-		const sectionLabels = getSectionLabels();
-		sectionLabels.settingsAdvanced = [
-			...sectionLabels.settingsAdvanced,
-			...getPrewarmAndUpdatesLabels(),
-		];
-		return Object.entries(sectionLabels)
-			.filter(([sectionPage]) => sectionPage !== activeSection)
-			.map(([sectionPage, labels]) => ({
-				sectionPage: sectionPage as SettingsSectionPage,
-				// Different section titles can render the same translated
-				// word — dedupe so a match produces ONE chip per unique
-				// label (and unique React keys).
-				labels: [...new Set(labels)].filter((label) =>
-					label.toLowerCase().includes(q),
-				),
-			}))
-			.filter((g) => g.labels.length > 0);
-	}, [settingsFilter, activeSection]);
 
 	// Help-overlay labels derived from the user's config via the shared
 	// configHotkeyLabels helper (same source App.tsx's overlay uses).
@@ -622,8 +303,8 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 							onThemeChange={handleThemeChangeLocal}
 						/>
 						{/* Linux-only (returns null elsewhere): the frameless
-						    title bar's window-button layout — follow the desktop's
-						    button-layout or pick a custom side/visibility. */}
+                                                    title bar's window-button layout — follow the desktop's
+                                                    button-layout or pick a custom side/visibility. */}
 						<LinuxWindowButtonsSettingsSection {...sectionProps} />
 					</>
 				);
@@ -700,11 +381,11 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 					)
 				)}
 				{/* amber keyboard-permission banner — placed immediately under
-				    the page heading (hub) / back button (section pages) so the
-				    user sees the "click to fix" prompt before the settings
-				    content. Renders null when permission is granted / not
-				    needed, so the layout is unchanged on platforms where the
-				    banner doesn't apply (Windows). */}
+                                    the page heading (hub) / back button (section pages) so the
+                                    user sees the "click to fix" prompt before the settings
+                                    content. Renders null when permission is granted / not
+                                    needed, so the layout is unchanged on platforms where the
+                                    banner doesn't apply (Windows). */}
 				<KeyboardPermissionBanner />
 
 				{/* Save-failure banner — the REAL save-status surface.
@@ -809,10 +490,10 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 			</div>
 
 			{/* Reset-confirm + page-level help overlay serve the Advanced
-			    page's Troubleshooting section only — gated so the hub and
-			    other section pages don't mount them. The hooks backing them
-			    (showResetDialog / helpOpen) stay at the top of the component
-			    per the Rules of Hooks. */}
+                            page's Troubleshooting section only — gated so the hub and
+                            other section pages don't mount them. The hooks backing them
+                            (showResetDialog / helpOpen) stay at the top of the component
+                            per the Rules of Hooks. */}
 			{page === "settingsAdvanced" && (
 				<>
 					<ConfirmDialog
@@ -827,10 +508,10 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 					/>
 
 					{/* Page-level help overlay for the Troubleshooting section's
-					    "Keyboard Shortcuts" button. Same shared component App.tsx
-					    mounts for the `?` shortcut; labels come from the user's
-					    config via the shared configHotkeyLabels helper so both
-					    instances can never drift. */}
+                                            "Keyboard Shortcuts" button. Same shared component App.tsx
+                                            mounts for the `?` shortcut; labels come from the user's
+                                            config via the shared configHotkeyLabels helper so both
+                                            instances can never drift. */}
 					<HelpOverlay
 						open={helpOpen}
 						onClose={() => setHelpOpen(false)}

@@ -5,13 +5,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // The six consent flags surfaced on the consolidated Consent step
 // (voice biometric, HuggingFace, OpenAI / Groq / Deepgram cloud ASR,
@@ -188,6 +188,7 @@ export function useOnboardingWizard(
 		setRetryCounter((c) => c + 1);
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		void retryCounter;
 		let cancelled = false;

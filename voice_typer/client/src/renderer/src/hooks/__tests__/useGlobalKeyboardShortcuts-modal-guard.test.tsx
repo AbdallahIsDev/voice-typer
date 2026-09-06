@@ -12,7 +12,7 @@
  * The zoom shortcuts (Ctrl+= / Ctrl+-) are intentionally NOT guarded —
  * they're page-zoom semantics that apply regardless of modal state.
  */
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks singleton: the sonner `toast.error` wired into
@@ -137,53 +137,41 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 	});
 
 	it("Ctrl+= (zoom in) still fires when a modal is open (zoom is not gated)", () => {
-		renderHook();
+		const { setTextSize } = renderHook();
 		const dialog = attachOpenDialog();
 		dispatchKey("=");
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+		expect(setTextSize).toHaveBeenCalledWith(15);
 		dialog.remove();
 	});
 
-	it("Ctrl++ (zoom in via the '+' alternative key) fires the same set_config", () => {
+	it("Ctrl++ (zoom in via the '+' alternative key) rides the same setTextSize path", () => {
 		// The catalog pins eventKeys ["=", "+"] — the "+" form is the
 		// unshifted alternative on some layouts. Both must dispatch to
 		// the same zoom-in handler.
-		renderHook();
+		const { setTextSize } = renderHook();
 		dispatchKey("+");
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+		expect(setTextSize).toHaveBeenCalledWith(15);
 	});
 
-	it("Ctrl+Wheel set_config failure stays SILENT (documented wheel contract)", async () => {
-		// The wheel error path swallows set_config failures — the key
-		// shortcuts toast, the wheel does not (matches the original
-		// inline effect). Pinned here so a refactor can't re-unify the
-		// two error surfaces.
-		renderHook();
-		mockCall.mockRejectedValueOnce(new Error("backend restart"));
-		dispatchWheel(-1);
-		// Let the rejected promise's catch run.
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
-		expect(mockToastError).not.toHaveBeenCalled();
-	});
-
-	it("Ctrl+= set_config failure surfaces a toast (key path is loud)", async () => {
-		// The asymmetry pinned by the test above: key shortcuts DO toast
-		// on set_config failure. Guards the loud path from being
-		// accidentally silenced too.
-		renderHook();
-		mockCall.mockRejectedValueOnce(new Error("backend restart"));
+	it("zoom performs NO direct set_config write (single debounced save path)", async () => {
+		// Persistence is owned by useTheme's debounced save (flushed on
+		// unmount/beforeunload). The shortcut layer must not write config
+		// directly — a per-tick write double-writes every zoom step and
+		// fans each write out into a config_changed push + get_config
+		// round-trip. Pinned here so the second write path can't return.
+		const { setTextSize } = renderHook();
 		dispatchKey("=");
-		await waitFor(() => {
-			expect(mockToastError).toHaveBeenCalledWith("errorBoundary.unknownError");
-		});
+		dispatchWheel(-1);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(setTextSize).toHaveBeenCalledWith(15);
+		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
 	});
 
 	it("Ctrl+- (zoom out) still fires when a modal is open (zoom is not gated)", () => {
-		renderHook(14);
+		const { setTextSize } = renderHook(14);
 		const dialog = attachOpenDialog();
 		dispatchKey("-");
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 13 });
+		expect(setTextSize).toHaveBeenCalledWith(13);
 		dialog.remove();
 	});
 
@@ -212,9 +200,9 @@ describe("useGlobalKeyboardShortcuts — rapid consecutive zoom events", () => {
 		dispatchWheel(-1);
 		expect(setTextSize).toHaveBeenNthCalledWith(1, 15);
 		expect(setTextSize).toHaveBeenNthCalledWith(2, 16);
-		expect(mockCall).toHaveBeenNthCalledWith(2, "set_config", {
-			text_size: 16,
-		});
+		// No direct IPC from the shortcut layer — the debounced save
+		// in useTheme coalesces the burst into ONE backend write.
+		expect(mockCall).not.toHaveBeenCalled();
 	});
 
 	it("accumulates two consecutive Ctrl+= key events (14 → 15 → 16)", () => {

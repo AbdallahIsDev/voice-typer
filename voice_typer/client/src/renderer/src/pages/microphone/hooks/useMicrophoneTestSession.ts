@@ -39,6 +39,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { usePythonEvent } from "@/hooks/usePython";
 import type { ShowSnackOptions, SnackbarType } from "@/hooks/useSnackbar";
@@ -56,7 +57,6 @@ import type {
 	TestResultQuality,
 	TestStopResult,
 } from "../lib/types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * Fixed microphone-test recording duration, in seconds. The test is
@@ -612,6 +612,7 @@ export function useMicrophoneTestSession({
 	// Keep the consent-retry ref pointed at the latest closure.
 	startTestRef.current = startTest;
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const selectMicrophone = useCallback(
 		async (micId: string | null) => {
 			// Stop any active test first
@@ -737,6 +738,7 @@ export function useMicrophoneTestSession({
 	// which are exactly the intervals ``startTest`` created one commit
 	// earlier (the frozen-00:00 timer bug). Audio-pausing on unmount is
 	// owned by ``useMicrophonePlayback`` (its own cleanup effect).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		return () => {
 			if (testTimerRef.current) {

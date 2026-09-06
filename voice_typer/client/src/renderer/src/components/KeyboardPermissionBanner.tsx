@@ -30,10 +30,10 @@
 import { AlertCircleIcon, Settings03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import type { PermissionsResult } from "@/types/ipc";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Refresh interval: every 60s. The macOS Accessibility permission can
 // be granted at any time in System Settings; the banner should disappear
@@ -73,6 +73,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 	const cancelledRef = useRef(false);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		cancelledRef.current = false;
 

@@ -1,4 +1,4 @@
-// Home.tsx was a 949-line monolith
+// Home.tsx was an 888-line monolith (now 744)
 // mixing layout, data-fetching, business logic, and 4 inline
 // sub-components + 1 inline hook. It is now a thin composition root
 // that imports the extracted pieces from `./home/`:
@@ -7,6 +7,13 @@
 //   - `./home/lib/status.ts`       — normalizeHotkey, statusLabelFor, statusKeyFor
 //   - `./home/lib/cache.ts`        — loadCachedRecent/Stats, persistRecent/Stats
 //   - `./home/hooks/useFirstRecordingCelebration.ts` — first-run celebration
+//   - `./home/hooks/useLastTranscriptionPreview.ts`  — last-transcription card
+//       state (text + quality + auto-clear timer), undo/repaste/discard, and
+//       the `recording_started` reset
+//   - `./home/hooks/useForceCancel.ts` — "Force cancel" state machine
+//       (status_change transitions + reveal delay + store sync + cancel IPC)
+//   - `./home/hooks/useDownloadProgressEvent.ts` — download-progress bar
+//   - `./home/hooks/useDictationToggle.ts` — consent-gated dictation toggle
 //   - `./home/components/MicToggleButton.tsx`         — mic toggle button
 //   - `./home/components/RecordingStatusPill.tsx`     — status pill
 //   - `./home/components/LastTranscriptionPreview.tsx` — last transcription card
@@ -22,6 +29,13 @@
 // ) continue to work. Pure structural refactor — no behaviour
 // changes.
 //
+// Wiring note: the `usePythonEvent` subscriptions stay in this
+// composition root (the source-guard regression tests grep Home.tsx for
+// them) and delegate their business logic to the hooks above — except
+// `recording_started` (owned by useLastTranscriptionPreview) and
+// `download_progress` (owned by useDownloadProgressEvent), whose
+// subscriptions live inside their hooks.
+//
 // contract: `debouncedRefreshFromEvent` is declared via
 // `useCallback` and passed to BOTH the `transcription_final` and
 // `history_changed` `usePythonEvent` subscriptions (single callback
@@ -29,7 +43,6 @@
 // it stays here in the composition root rather than moving into a hook.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
@@ -38,6 +51,7 @@ import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { Spinner } from "@/components/feedback/Spinner";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
@@ -47,37 +61,29 @@ import {
 	useStatsShare,
 } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
-import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
-import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { useThemePalette } from "@/lib/theme-palette";
 import { formatDevice, formatModel } from "@/lib/utils/configDisplay";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type {
-	HistoryRecord,
-	TodayStats,
-	TranscriptionQualitySummary,
-} from "@/types/ipc";
+import type { HistoryRecord, TodayStats } from "@/types/ipc";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingLevelBar } from "./home/components/RecordingLevelBar";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { RecordingTimer } from "./home/components/RecordingTimer";
+import { useDictationToggle } from "./home/hooks/useDictationToggle";
+import { useDownloadProgressEvent } from "./home/hooks/useDownloadProgressEvent";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
+import { useForceCancel } from "./home/hooks/useForceCancel";
+import { useLastTranscriptionPreview } from "./home/hooks/useLastTranscriptionPreview";
 import {
 	loadCachedRecent,
 	loadCachedStats,
 	persistRecent,
 	persistStats,
 } from "./home/lib/cache";
-import {
-	DEFAULT_STATUS_COLOR,
-	FORCE_CANCEL_DELAY_MS,
-	LAST_TEXT_AUTO_CLEAR_MS,
-	STATUS_COLORS,
-} from "./home/lib/constants";
-import { useLatestRef } from "@/hooks/useLatestRef";
+import { DEFAULT_STATUS_COLOR, STATUS_COLORS } from "./home/lib/constants";
 import {
 	normalizeHotkey,
 	statusKeyFor,
@@ -104,25 +110,11 @@ export default function Home() {
 	const celebrateFirstRecording = useFirstRecordingCelebration(call);
 
 	const [hotkey, setHotkey] = useState("F2");
-	const [lastText, setLastText] = useState("");
-	// Engine-reported confidence summary carried by the latest
-	// `transcription_final` push (Whisper batch path only — see
-	// `build_quality_summary` in `voice_typer/server/transcription.py`).
-	// Cleared everywhere `lastText` is cleared so a stale low-confidence
-	// flag can never attach to a NEW transcription.
-	const [lastQuality, setLastQuality] = useState<
-		TranscriptionQualitySummary | undefined
-	>(undefined);
 	// The live MM:SS recording timer (elapsed seconds + its 1s interval)
 	// is owned by <RecordingTimer /> (./home/components) — keeping the
 	// per-second tick state here re-rendered the whole Home tree every
 	// second. See RecordingTimer.tsx.
 	const isRecording = recordingState === "recording";
-	const [downloadPct, setDownloadPct] = useState<number | null>(null);
-	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
-		null,
-	);
-	const [showForceCancel, setShowForceCancel] = useState(false);
 	// Per-instance cache refs (replaced the prior module-level
 	// `let _cachedRecent` / `let _cachedStats` mutable bindings).
 	const cachedRecentRef = useRef<HistoryRecord[]>([]);
@@ -139,8 +131,30 @@ export default function Home() {
 			loadCachedStats(cachedStatsRef) === null &&
 			loadCachedRecent(cachedRecentRef).length === 0,
 	);
-	const [toggling, setToggling] = useState(false);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
+
+	// ── Extracted event-concern hooks (./home/hooks/) ──
+	// Each call owns one concern that used to live inline in this
+	// root: the download-progress bar, the ephemeral last-
+	// transcription preview (text + quality + auto-clear timer +
+	// card actions), the force-cancel state machine, and the
+	// consent-gated dictation toggle. `useDictationToggle` needs
+	// `cfg` (the gate reads `voice_biometric_consent`), so the
+	// wiring sits after the config state above.
+	const downloadPct = useDownloadProgressEvent(recordingState);
+	const {
+		lastText,
+		lastQuality,
+		applyTranscriptionFinal,
+		handleUndo,
+		handleRepaste,
+		handleDiscard,
+	} = useLastTranscriptionPreview(call, celebrateFirstRecording);
+	const forceCancel = useForceCancel(call);
+	const { handleToggle, toggling, hasAttemptedDictation } = useDictationToggle(
+		call,
+		cfg,
+	);
 	const { agoLabel, markUpdated } = useLastUpdated();
 	// Ref mirror of `markUpdated` (declared above via useLastUpdated) so
 	// the mount-load effect keeps `[]` deps — see the callRef comment.
@@ -158,11 +172,6 @@ export default function Home() {
 	// the active ASR backend is a cloud one (§4.9: "works — cloud
 	// never needs the pack").
 	const { isReady: packReady } = useOfflinePackDownload();
-	// Tracks whether the user has pressed the dictation toggle at least
-	// once. The banner is gated on this so a fresh page load with a
-	// missing pack doesn't surface the "Preparing…" line until the
-	// user actually attempts dictation.
-	const [hasAttemptedDictation, setHasAttemptedDictation] = useState(false);
 	const {
 		imageRef,
 		downloadImage,
@@ -188,11 +197,9 @@ export default function Home() {
 		};
 	}, []);
 
-	//timer refs declared BEFORE the usePythonEvent handlers
-	// that use them (avoids temporal-dead-zone errors).
+	//timer ref declared BEFORE the usePythonEvent handlers
+	// that use it (avoids temporal-dead-zone errors).
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	//timer that auto-clears lastText after 5s of idle.
-	const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// stale-data flag. Set to `true` when a `transcription_final`
 	// or `history_changed` event arrives while the window is hidden
@@ -209,6 +216,7 @@ export default function Home() {
 	// declared via `useCallback` and passed to BOTH usePythonEvent
 	// subscriptions below so they share a single callback identity (the
 	// test greps Home.tsx for this declaration).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
@@ -280,6 +288,7 @@ export default function Home() {
 	// blocked on a slow `get_history`), and `Promise.allSettled` is
 	// used to mark the load complete once all three have settled —
 	// mirroring the parallel-fetch pattern in `handleManualRefresh`.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		const cfgSettled = callRef
@@ -357,21 +366,15 @@ export default function Home() {
 		}
 	}, [call, markUpdated]);
 
-	//+ : status_change listener — tracks entry into "transcribing" so
-	// we can show "Force cancel" after FORCE_CANCEL_DELAY_MS. The
-	// hotkey is no longer re-fetched here — see the `config_changed`
-	// handler below. The `status_change` event fires on every
-	// recording → transcribing → idle transition, so a per-event
-	// `get_config` round-trip was wasted work.
+	// status_change listener — delegates to the force-cancel state
+	// machine (tracks entry into "transcribing" so the "Force cancel"
+	// affordance can reveal after FORCE_CANCEL_DELAY_MS). The hotkey
+	// is NOT re-fetched here — see the `config_changed` handler
+	// below: `status_change` fires on every recording → transcribing
+	// → idle transition, so a per-event `get_config` round-trip
+	// would be wasted work.
 	usePythonEvent("status_change", (data): (() => void) | undefined => {
-		const status = typeof data?.status === "string" ? data.status : "";
-		if (status === "transcribing") {
-			setTranscribeStartedAt((prev) => prev ?? Date.now());
-			setShowForceCancel(false);
-		} else {
-			setTranscribeStartedAt(null);
-			setShowForceCancel(false);
-		}
+		forceCancel.applyStatusChange(data);
 		return undefined;
 	});
 
@@ -408,79 +411,25 @@ export default function Home() {
 		};
 	});
 
-	//surface "Force cancel" after FORCE_CANCEL_DELAY_MS in "transcribing".
-	useEffect(() => {
-		if (transcribeStartedAt === null) return;
-		const timeout = setTimeout(
-			() => setShowForceCancel(true),
-			FORCE_CANCEL_DELAY_MS,
-		);
-		return () => clearTimeout(timeout);
-	}, [transcribeStartedAt]);
-
-	// Belt-and-suspenders: sync transcribe tracking with the recordingState
-	// prop in case the page mounts mid-transcription.
-	useEffect(() => {
-		if (recordingState === "transcribing") {
-			setTranscribeStartedAt((prev) => prev ?? Date.now());
-		} else {
-			setTranscribeStartedAt(null);
-			setShowForceCancel(false);
-		}
-	}, [recordingState]);
-
-	//subscribe to download_progress events emitted while a
-	// HuggingFace model download is in flight.
-	usePythonEvent(
-		"download_progress",
-		(data: Record<string, unknown> | undefined): (() => void) | undefined => {
-			const pct = data?.percent;
-			if (typeof pct === "number" && pct >= 0 && pct <= 100) {
-				setDownloadPct(pct);
-			}
-			return undefined;
-		},
-	);
-	useEffect(() => {
-		if (recordingState !== "loading") setDownloadPct(null);
-	}, [recordingState]);
-
-	// transcription_final: update lastText + auto-clear, refresh
-	// recent/stats, celebrate the first ever transcription.
+	// transcription_final: the text/quality half (preview state +
+	// auto-clear timer + first-run celebration) is owned by
+	// useLastTranscriptionPreview; the refresh half stays here so
+	// the shared `debouncedRefreshFromEvent` identity contract is
+	// preserved (the source-guard tests grep this root for it).
 	usePythonEvent("transcription_final", (data): (() => void) | undefined => {
-		if (typeof data?.text === "string" && data.text.trim()) {
-			setLastText(data.text);
-			setLastQuality(data.quality ?? undefined);
-			if (lastTextTimer.current) clearTimeout(lastTextTimer.current);
-			lastTextTimer.current = setTimeout(() => {
-				setLastText("");
-				setLastQuality(undefined);
-			}, LAST_TEXT_AUTO_CLEAR_MS);
-			celebrateFirstRecording();
-		}
+		applyTranscriptionFinal(data);
 		debouncedRefreshFromEvent();
 		return undefined;
 	});
 
 	usePythonEvent("history_changed", debouncedRefreshFromEvent);
 
-	usePythonEvent("recording_started", (): (() => void) | undefined => {
-		setLastText("");
-		if (lastTextTimer.current) {
-			clearTimeout(lastTextTimer.current);
-			lastTextTimer.current = null;
-		}
-		return undefined;
-	});
-
-	// Clean up pending refresh timer on unmount.
+	// Clean up the pending refresh timer on unmount. (The preview
+	// auto-clear timer's unmount cleanup lives inside
+	// useLastTranscriptionPreview.)
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			if (lastTextTimer.current) {
-				clearTimeout(lastTextTimer.current);
-				lastTextTimer.current = null;
-			}
 		};
 	}, []);
 
@@ -490,98 +439,6 @@ export default function Home() {
 		copyImageToClipboard,
 		revealInFolder,
 	};
-
-	const handleToggle = useCallback(async () => {
-		// Mark that the user has attempted dictation so the
-		// "Preparing offline engine…" banner (gated on
-		// `!packReady && hasAttemptedDictation`) can surface if the
-		// runtime pack isn't ready yet. Set BEFORE the consent gate
-		// so the banner appears even if consent is missing — the
-		// user has still pressed the mic button, which counts as an
-		// "attempted offline transcription" per §4.9.
-		setHasAttemptedDictation(true);
-		// GDPR Art. 9 gate: the backend refuses to start recording without
-		// ``voice_biometric_consent`` — but the refusal is silent over
-		// IPC (``toggle_dictation`` returns ``ack`` and only the tray
-		// notification fires). Gate client-side so the user gets the
-		// unified point-of-use consent dialog (Allow → persists the
-		// consent → starts recording) instead of a dead button. The
-		// backend gate (recording_lifecycle.py) remains the enforcement
-		// backstop for hotkey/tray-triggered dictation.
-		if (cfg && !cfg.voice_biometric_consent) {
-			openConsentGate({
-				consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
-				bodyKey: consentBodyKey(VOICE_BIOMETRIC_CONSENT_FIELD),
-				// Retry after granting: start dictation (the button press
-				// that was blocked).
-				onAllow: () => call("toggle_dictation"),
-			});
-			return;
-		}
-		setToggling(true);
-		try {
-			await call("toggle_dictation");
-		} catch (err) {
-			console.error("[renderer:Home] Toggle dictation failed:", err);
-			toast.error(t("home.toggleFailed"));
-		} finally {
-			setToggling(false);
-		}
-		// ``t`` is a stable module-level import — not a render-scoped
-		// value, so it must NOT be listed as a dep (biome
-		// useExhaustiveDependencies flags it as unnecessary).
-		// ``navigate`` was removed from the deps when the consent
-		// gate became the unified ConsentGateDialog (its "Open
-		// Settings" action navigates via the store, not this
-		// callback) — the only prior consumer of ``navigate`` here.
-	}, [call, cfg]);
-
-	const handleUndo = useCallback(async () => {
-		try {
-			await call("undo_last");
-		} catch (err) {
-			console.error("[renderer:Home] Undo failed:", err);
-			toast.error(t("home.undoFailed"));
-		}
-		setLastText("");
-		if (lastTextTimer.current) {
-			clearTimeout(lastTextTimer.current);
-			lastTextTimer.current = null;
-		}
-	}, [call]);
-
-	const handleRepaste = useCallback(async () => {
-		try {
-			await call("repaste_last");
-		} catch (err) {
-			console.error("[renderer:Home] Re-paste failed:", err);
-			toast.error(t("home.repasteFailed"));
-		}
-	}, [call]);
-
-	// Discard: clears the EPHEMERAL preview card only — the transcription
-	// itself stays in persisted history (and remains on screen in
-	// History). The server's transcription_final payload carries no
-	// history id, so there is no honest backend command to delete "the
-	// last transcription" from here; local clear is the real contract.
-	const handleDiscard = useCallback(() => {
-		setLastText("");
-		setLastQuality(undefined);
-		if (lastTextTimer.current) {
-			clearTimeout(lastTextTimer.current);
-			lastTextTimer.current = null;
-		}
-	}, []);
-
-	const handleForceCancel = useCallback(async () => {
-		try {
-			await call("force_cancel_transcription");
-			toast.success(t("home.forceCancel"));
-		} catch (err) {
-			console.error("[renderer:Home] Force cancel failed:", err);
-			toast.error(t("home.forceCancelFailed"));
-		}
-	}, [call]);
 
 	// Stable callback for ActivityList's `onViewAll` so the
 	// memo'd ActivityList (default export, React.memo) doesn't
@@ -711,10 +568,10 @@ export default function Home() {
 				</div>
 			)}
 
-			{showForceCancel && recordingState === "transcribing" && (
+			{forceCancel.showForceCancel && recordingState === "transcribing" && (
 				<button
 					type="button"
-					onClick={handleForceCancel}
+					onClick={forceCancel.handleForceCancel}
 					className="text-xs text-warning hover:text-warning/80 hover:underline transition-colors"
 					aria-label={t("home.forceCancelHint")}
 				>

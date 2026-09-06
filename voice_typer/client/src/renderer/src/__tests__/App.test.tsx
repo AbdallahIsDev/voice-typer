@@ -418,7 +418,7 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		);
 	}
 
-	it("Ctrl+= keydown bumps text size and persists via set_config through the mounted App", async () => {
+	it("Ctrl+= keydown bumps text size through the mounted App (no direct set_config)", async () => {
 		mockCall.mockResolvedValue({});
 		await mountApp();
 
@@ -427,7 +427,11 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(15);
 		});
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+		// Persistence rides useTheme's SINGLE debounced save (flushed on
+		// unmount/beforeunload) — the shortcut layer must not write config
+		// directly. (useTheme is stubbed here, so NO set_config at all is
+		// the correct App-level contract.)
+		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
 	});
 
 	it("Ctrl+wheel (deltaY<0) zooms in and Ctrl+wheel (deltaY>0) zooms out", async () => {
@@ -438,7 +442,6 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(15);
 		});
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
 
 		// Zoom out: the hook's textSizeRef advances SYNCHRONOUSLY inside
 		// bumpTextSize (so rapid wheel bursts accumulate correctly), so
@@ -449,7 +452,9 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(14);
 		});
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 14 });
+		// No direct config write from the zoom path — the debounced save
+		// in useTheme (stubbed here) owns the single backend write.
+		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
 	});
 
 	it("plain wheel without Ctrl does NOT zoom (modifier guard applies)", async () => {
@@ -465,7 +470,7 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		expect(mockCall).not.toHaveBeenCalled();
 	});
 
-	it("Ctrl+wheel set_config failure stays silent (no toast) through the mounted App", async () => {
+	it("Ctrl+wheel failure path stays silent (no toast) through the mounted App", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "set_config")
 				return Promise.reject(new Error("backend down"));
@@ -477,11 +482,13 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(15);
 		});
-		// The rejected set_config must be swallowed by the wheel path's
-		// silentOnError contract — the loud toast path is key-shortcut-only.
+		// The zoom path performs NO direct set_config write — persistence
+		// is owned by useTheme's debounced save (whose failures are logged
+		// there). No error surface may fire from the shortcut layer.
 		await act(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
+		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
 		expect(stable.toastError).not.toHaveBeenCalled();
 	});
 });

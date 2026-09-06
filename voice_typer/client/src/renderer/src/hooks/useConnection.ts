@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, RecordingState } from "@/types/ipc";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 //runtime validator for the RecordingState string-literal
 // union.  The backend emits status values as plain strings over IPC;
@@ -164,6 +164,7 @@ export function useConnection({
 
 	// ── Connection lifecycle ──────────────────────────────────────
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		let retries = 0;
 		const maxRetries = 5;
@@ -341,6 +342,7 @@ export function useConnection({
 	// while preserving the dead-backend detection guarantee (a dead
 	// backend stops pushing, and 60s later the probe kicks in to
 	// confirm + flip to disconnected).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 
@@ -426,6 +428,7 @@ export function useConnection({
 	// 12-attempt budget. The cap exists to prevent infinite polling
 	// against a backend that's never coming back; the user can still
 	// hit Retry manually at any time.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		if (connectionStatus !== "disconnected") return;
 
@@ -440,7 +443,7 @@ export function useConnection({
 			if (attempts >= MAX_BACKGROUND_RECONNECTS) return;
 			attempts++;
 			try {
-				await callRef.current<VoiceTyperConfig>("get_config");
+				const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 				if (!cancelled) {
 					// Success — flip to "connected". The
 					// connection-lifecycle effect above
@@ -450,8 +453,14 @@ export function useConnection({
 					// config + recording state here so the
 					// app doesn't show stale data while
 					// waiting for the next status_change
-					// push.
+					// push. The fetched config snapshot is
+					// applied to the store (same as the
+					// initial-connect probe) so config-driven
+					// UI converges to the backend truth after
+					// an outage instead of keeping the
+					// pre-outage snapshot.
 					setConnectionStatus("connected");
+					setConfig(cfg);
 					setLastError(null);
 					// Same atomic pair write as the initial probe — the
 					// reconnect snapshot must hydrate pill + reason line
@@ -499,7 +508,13 @@ export function useConnection({
 			cancelled = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [connectionStatus, setConnectionStatus, setLastError, setRecordingState]);
+	}, [
+		connectionStatus,
+		setConnectionStatus,
+		setConfig,
+		setLastError,
+		setRecordingState,
+	]);
 
 	// ── App-level event subscriptions ─────────────────────────────
 
@@ -599,11 +614,18 @@ export function useConnection({
 		"reconnected",
 		useCallback((): (() => void) | undefined => {
 			markEventReceived();
-			call("get_config")
-				.then(() => setConnectionStatus("connected"))
+			// Apply the fetched config snapshot to the store (same as the
+			// initial-connect probe + background reconnect): a TCP recovery
+			// must converge the UI to backend truth, not just flip the
+			// status pill.
+			call<VoiceTyperConfig>("get_config")
+				.then((cfg) => {
+					setConfig(cfg);
+					setConnectionStatus("connected");
+				})
 				.catch(() => setConnectionStatus("disconnected"));
 			return undefined;
-		}, [markEventReceived, call, setConnectionStatus]),
+		}, [markEventReceived, call, setConfig, setConnectionStatus]),
 	);
 
 	//the backend emits `state_changed` once on every

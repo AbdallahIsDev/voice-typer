@@ -8,9 +8,11 @@
  *   - Ctrl/Cmd+B           → toggle sidebar collapsed state.
  *   - Ctrl/Cmd+,           → navigate to Settings.
  *   - Ctrl/Cmd+H           → navigate to Home.
- *   - Ctrl/Cmd+= (or "+")  → bump text size up by 1 (clamped to 20), persist
- *                             via `set_config` IPC. No-op while typing in an
- *                             input/textarea/contentEditable.
+ *   - Ctrl/Cmd+= (or "+")  → bump text size up by 1 (clamped to 20). The new
+ *                             size is applied via `setTextSize` (useTheme) and
+ *                             persisted by its SINGLE debounced `set_config`
+ *                             save (flushed on unmount/beforeunload). No-op
+ *                             while typing in an input/textarea/contentEditable.
  *   - Ctrl/Cmd+-           → bump text size down by 1 (clamped to 10), same
  *                             guards as above.
  *   - Ctrl/Cmd+Wheel       → bump text size up/down by 1 (same clamps). Fires
@@ -31,9 +33,13 @@
  * shortcut has no such guard (matches original behaviour — Ctrl+Wheel is
  * rarely sent while typing).
  *
- * Errors from the `set_config` IPC are surfaced as `toast.error(
- * errorBoundary.unknownError)` for the key shortcuts and silently
- * swallowed for the wheel shortcut (matches original).
+ * The zoom shortcuts perform NO direct `set_config` write — persistence
+ * goes exclusively through `setTextSize`'s debounced save (the one write
+ * path documented in useTheme). A direct per-tick write here would double
+ * every zoom step's config write and amplify each one into a
+ * `config_changed` push + full `get_config` round-trip in the Home page.
+ * Backend write failures are handled (logged) by the debounced save's own
+ * catch — the shortcut layer has no error surface of its own.
  */
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -74,6 +80,7 @@ export {
 	IN_APP_BINDINGS,
 	IN_APP_SHORTCUTS,
 } from "@/components/hotkey/shortcuts";
+
 import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
@@ -138,6 +145,7 @@ export function useGlobalKeyboardShortcuts({
 		textSizeRef.current = textSize;
 	}, [textSize]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		// Per-binding handlers keyed by catalog id — the ACTIONS half of
 		// the binding table. Which key triggers which action comes from
@@ -162,10 +170,7 @@ export function useGlobalKeyboardShortcuts({
 			);
 		};
 
-		const bumpTextSize = (
-			delta: number,
-			opts: { silentOnError?: boolean } = {},
-		) => {
+		const bumpTextSize = (delta: number): void => {
 			const current = textSizeRef.current ?? 14;
 			const next =
 				delta > 0 ? Math.min(current + 1, 20) : Math.max(current - 1, 10);
@@ -173,20 +178,13 @@ export function useGlobalKeyboardShortcuts({
 			// Advance the ref BEFORE awaiting any re-render so consecutive
 			// events (Ctrl+Wheel bursts) see the accumulated value.
 			textSizeRef.current = next;
+			// SINGLE write path: update the theme store and let its debounced
+			// save coalesce the backend `set_config` write (the pending save
+			// is flushed on unmount/beforeunload, so the last tick of a burst
+			// is never lost). Do NOT add a direct `set_config` here — it
+			// double-writes every zoom step and each write fans out into a
+			// config_changed push + get_config round-trip on the Home page.
 			setTextSize(next);
-			callRef
-				.current("set_config", { text_size: next })
-				.catch((err: unknown) => {
-					// Key shortcuts surface failures loudly; the wheel path
-					// swallows them (documented contract below — the wheel
-					// handler passes silentOnError: true).
-					if (opts.silentOnError) return;
-					console.warn(
-						"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
-						err,
-					);
-					toast.error(t("errorBoundary.unknownError"));
-				});
 		};
 
 		const handlers: Record<InAppShortcutId, (e: KeyboardEvent) => void> = {
@@ -214,8 +212,9 @@ export function useGlobalKeyboardShortcuts({
 			// Settings search field) does NOT hijack the keystroke to
 			// bump text size. The browser's native zoom remains
 			// available via Ctrl++ (different key) outside the app's
-			// text-size shortcut namespace. Behaviour is otherwise
-			// preserved (same min/max bounds, same `set_config` IPC).
+			// text-size shortcut namespace. Persistence rides the
+			// same single debounced `setTextSize` save path as the
+			// key shortcuts (same min/max bounds).
 			zoomIn: (e) => {
 				if (isTyping(e)) return;
 				e.preventDefault();
@@ -268,9 +267,9 @@ export function useGlobalKeyboardShortcuts({
 			if (!e.ctrlKey && !e.metaKey) return;
 			e.preventDefault();
 			if (e.deltaY < 0) {
-				bumpTextSize(1, { silentOnError: true });
+				bumpTextSize(1);
 			} else if (e.deltaY > 0) {
-				bumpTextSize(-1, { silentOnError: true });
+				bumpTextSize(-1);
 			}
 		};
 

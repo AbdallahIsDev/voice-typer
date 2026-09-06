@@ -39,10 +39,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-cache keys for the SWR seed (see lib/ipcCache.ts). Only the
 // FIRST page + stats are cached — that's what a revisit renders
@@ -175,6 +175,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 		[],
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const fetchPage = useCallback(
 		async (
 			query: string,
@@ -222,6 +223,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// ``load`` is invoked from the page mount effect, the search debounce,
 	// the favorites toggle, the retry button, and the manual refresh
 	// button. When called with no args, falls back to the filter ref.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const load = useCallback(
 		async (query?: string, favoritesOnly?: boolean) => {
 			// Resolve the effective filter (explicit args win; otherwise read
@@ -317,6 +319,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// ``transcription_final`` / ``history_changed`` handlers. It re-runs
 	// the load WITHOUT flipping ``loading`` so the spinner doesn't swap
 	// back in over the user's existing list during a background refresh.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const refreshFromEvent = useCallback(async () => {
 		const { query, favoritesOnly } = filterRef.current;
 

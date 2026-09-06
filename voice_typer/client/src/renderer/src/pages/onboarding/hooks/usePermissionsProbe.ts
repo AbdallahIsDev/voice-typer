@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import type { PermissionsResult } from "@/types/ipc";
 import { TEST_HOTKEY_TIMEOUT_MS } from "../lib/constants";
 import type { PermissionsTestState } from "../lib/types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 export interface UsePermissionsProbeResult {
 	permissionsResult: PermissionsResult | null;
@@ -79,6 +79,7 @@ export function usePermissionsProbe(
 	}, [call]);
 
 	// ── Permissions probe effect ───────────────────────────────────
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		if (stepName !== "Permissions") {
 			setPermissionsResult(null);

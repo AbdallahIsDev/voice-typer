@@ -28,13 +28,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 import type { IsVisibleFn } from "./types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 interface TroubleshootingSettingsSectionProps {
 	/** Search-filter predicate — same shape as the page-level helper. */
@@ -109,6 +109,7 @@ export const TroubleshootingSettingsSection = memo(
 		const [staleResetCommand, setStaleResetCommand] = useState<string | null>(
 			null,
 		);
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 		useEffect(() => {
 			if (!isMac) return;
 			let cancelled = false;

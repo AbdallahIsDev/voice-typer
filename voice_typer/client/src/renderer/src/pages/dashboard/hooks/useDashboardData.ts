@@ -31,6 +31,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
@@ -50,7 +51,6 @@ import {
 	type PeriodStats,
 	type RangeId,
 } from "../lib/streaks";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 /** History sample size for the dashboard's derived stats. */
 export const DASHBOARD_SAMPLE_LIMIT = 500;
@@ -148,6 +148,7 @@ export function useDashboardData({
 		useState<CorrectionUsageSnapshot | null>(null);
 
 	/** Fetch all dashboard data from the Python backend. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const refreshData = useCallback(async () => {
 		try {
 			const [cfg, history, totalCount, status, correctionUsage, modelStatus] =

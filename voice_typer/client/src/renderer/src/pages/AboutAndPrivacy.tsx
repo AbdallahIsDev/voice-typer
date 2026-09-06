@@ -40,11 +40,11 @@ import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
 import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { t, useT } from "@/i18n/i18n";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import pkg from "../../../../package.json";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 // App version — read directly from package.json (see VERSION-SOURCE-FIX
 // comment at the top of the file) so this never drifts from the
@@ -151,6 +151,7 @@ export default function AboutAndPrivacyPage() {
 	// a failed fetch leaves it empty and the row shows "—".
 	const [configDir, setConfigDir] = useState("");
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		(async () => {

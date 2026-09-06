@@ -96,6 +96,19 @@ import type { VoiceTyperConfig } from "@/types/config";
 // refusal surfaces through the consent path or the warn log.
 const START_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 
+// ──  start/stop ownership sequence (module-scoped) ──
+//
+// Monotonic counters tracking ``level_monitor_start`` issuances and the
+// ``level_monitor_stop`` calls that have claimed them, shared by every
+// effect run of this hook. Module scope (not a per-instance ref) is
+// deliberate: a full page remount creates a NEW hook instance while the
+// PREVIOUS instance's in-flight start IPC may still resolve afterwards,
+// and the backend level monitor is a single global stream — so "is this
+// issuance still the newest one" and "has this issuance already been
+// matched with a stop" must be answerable across hook instances.
+let monitorStartIssuedSeq = 0;
+let monitorStopClaimedSeq = 0;
+
 interface UseMicrophoneLevelMonitorOptions {
 	/** Current voice-typer config (read for ``config.microphone``). */
 	config: VoiceTyperConfig | null;
@@ -253,9 +266,18 @@ export function useMicrophoneLevelMonitor({
 	// restarts monitoring without any extra imperative plumbing.
 	// (The ``level_monitor_start`` boot-race retry schedule lives in the
 	// module-level ``START_RETRY_DELAYS_MS`` above.)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
-		if (paused) {
-			setMicMonitoring(false);
+		// Send ``level_monitor_stop`` unless a stop for an equal-or-newer
+		// start issuance was already claimed (by a previous paused
+		// teardown, another run's cleanup, or a deferred in-flight-start
+		// teardown). A claim at seq N means every start issuance ≤ N has
+		// been matched with a stop — the backend serialises command
+		// handling under its dispatch lock, so a stop claimed at N also
+		// covers any ≤ N start still queued ahead of it on the wire.
+		const sendStopClaiming = (upToSeq: number): void => {
+			if (monitorStopClaimedSeq >= upToSeq) return;
+			monitorStopClaimedSeq = upToSeq;
 			callRef
 				.current("level_monitor_stop")
 				.catch((err) =>
@@ -264,6 +286,13 @@ export function useMicrophoneLevelMonitor({
 						err,
 					),
 				);
+		};
+		if (paused) {
+			setMicMonitoring(false);
+			// Stop whatever any effect run may have started — including a
+			// start IPC still in flight (its resolution-time teardown below
+			// sees this claim and stays quiet instead of double-stopping).
+			sendStopClaiming(monitorStartIssuedSeq);
 			return;
 		}
 		// Privacy gate (GDPR Art. 9): the level monitor opens a
@@ -306,9 +335,18 @@ export function useMicrophoneLevelMonitor({
 		// active ("Already monitoring" — a backend no-op) and run 2's
 		// own cleanup owns the real unmount stop.
 		let startedHere = false;
+		// Sequence token of the start issuance THIS run last made
+		// (0 = none yet — hidden-deferred path, consent gate). Read by the
+		// start's ``.then`` and the cleanup to match a stop against the
+		// exact issuance it owns.
+		let issuedStartSeq = 0;
 		let deferredVisibleCleanup: (() => void) | null = null;
 
 		const startMonitor = (): void => {
+			// Stamp THIS issuance so the resolution path can tell whether a
+			// later effect run has since issued its own start (which then
+			// owns the shared backend stream).
+			issuedStartSeq = ++monitorStartIssuedSeq;
 			callRef
 				.current<{ success: boolean }>("level_monitor_start", {
 					mic_id: micId,
@@ -319,7 +357,26 @@ export function useMicrophoneLevelMonitor({
 					// (or a real unmount) that ran while the IPC was in
 					// flight sets `cancelled`, so the cleanup must NOT stop
 					// a monitor the NEW effect run is about to take over.
-					if (!cancelled) startedHere = true;
+					if (!cancelled) {
+						startedHere = true;
+						return;
+					}
+					// Teardown raced the in-flight start: this run was
+					// cancelled before its start resolved, so the cleanup ran
+					// with `startedHere` still false and skipped the stop. If
+					// no later run has issued its own start — which would then
+					// own the shared stream — this run's stream is now
+					// ownerless and MUST be stopped here: the OS mic indicator
+					// would otherwise stay lit with no page active. The stop
+					// is deliberately issued from here, after the start has
+					// settled, rather than from the cleanup: a stop sent while
+					// the start IPC was still in flight could not know whether
+					// the backend stream would actually open. A later run's
+					// start (the seq moved on) suppresses this stop — that run
+					// owns the stream and its own teardown stops it.
+					if (monitorStartIssuedSeq === issuedStartSeq) {
+						sendStopClaiming(issuedStartSeq);
+					}
 				})
 				.catch((err) => {
 					// The backend's ``client.consent_required`` envelope
@@ -355,10 +412,66 @@ export function useMicrophoneLevelMonitor({
 					}
 				});
 		};
+		// One-shot fallback poll (shared by both start paths). The backend's
+		// ``mic_level`` push is coalesced at ≤30 Hz, so the first frame may
+		// take up to ~33 ms to arrive after ``level_monitor_start``. We issue
+		// a single ``microphone_test_get_level`` call to seed the UI
+		// immediately; subsequent updates come from the push event
+		// subscription below. The fallback is a no-op if the push event
+		// arrives first (the setState calls are idempotent — last write wins).
+		//
+		// The one-shot poll still calls ``setLevel`` / ``setPeak`` because it
+		// runs ONCE per start — a single React re-render is fine (and
+		// desirable, so the initial state isn't stale). The high-frequency
+		// ``mic_level`` push handler below is the path that must avoid
+		// setState, and it does.
+		const runOneShotLevelPoll = (): void => {
+			void (async () => {
+				if (
+					typeof document !== "undefined" &&
+					document.visibilityState !== "visible"
+				)
+					return;
+				if (playingRef.current) return;
+				try {
+					const levelData = await callRef.current<{
+						level: number;
+						peak: number;
+						active: boolean;
+					}>("microphone_test_get_level");
+					if (levelData && typeof levelData.level === "number") {
+						levelRef.current = levelData.level;
+						setLevel(levelData.level);
+					}
+					if (levelData && typeof levelData.peak === "number") {
+						peakRef.current = levelData.peak;
+						setPeak(levelData.peak);
+					}
+					if (levelData && typeof levelData.active === "boolean") {
+						setMicMonitoring(levelData.active);
+					}
+				} catch (e) {
+					// Non-fatal — the push event subscription will still
+					// deliver updates once the backend starts publishing.
+					console.warn(
+						"[renderer:useMicrophoneLevelMonitor] one-shot level poll failed:",
+						e,
+					);
+				}
+			})();
+		};
 		// If the document is hidden at mount (background/autostart), defer
 		// the start until the page becomes visible. This prevents the OS
 		// mic indicator from appearing while the window is still hidden in
 		// the background due to restored persisted navigation.
+		//
+		// NOTE: this branch must NOT early-return its own listener-only
+		// cleanup — the deferred start must fall through to the shared
+		// ``startedHere``-guarding cleanup below so the monitor started on
+		// visibility is stopped on unmount. A separate cleanup that only
+		// removes the listener would leak the InputStream (the OS mic
+		// indicator would stay lit after navigating away with no page
+		// active).
 		if (isHiddenAtStart) {
 			setMicMonitoring(false);
 			const onVisible = () => {
@@ -372,99 +485,20 @@ export function useMicrophoneLevelMonitor({
 						deferredVisibleCleanup = null;
 					}
 					startMonitor();
-					// Trigger one-shot poll now that we're visible
-					void (async () => {
-						if (playingRef.current) return;
-						try {
-							const levelData = await callRef.current<{
-								level: number;
-								peak: number;
-								active: boolean;
-							}>("microphone_test_get_level");
-							if (levelData && typeof levelData.level === "number") {
-								levelRef.current = levelData.level;
-								setLevel(levelData.level);
-							}
-							if (levelData && typeof levelData.peak === "number") {
-								peakRef.current = levelData.peak;
-								setPeak(levelData.peak);
-							}
-							if (levelData && typeof levelData.active === "boolean") {
-								setMicMonitoring(levelData.active);
-							}
-						} catch (e) {
-							console.warn(
-								"[renderer:useMicrophoneLevelMonitor] one-shot level poll failed:",
-								e,
-							);
-						}
-					})();
+					// Trigger one-shot poll now that we're visible.
+					runOneShotLevelPoll();
 				}
 			};
 			document.addEventListener("visibilitychange", onVisible);
 			deferredVisibleCleanup = () =>
 				document.removeEventListener("visibilitychange", onVisible);
-			return () => {
-				cancelled = true;
-				if (retryTimer !== null) {
-					clearTimeout(retryTimer);
-					retryTimer = null;
-				}
-				if (deferredVisibleCleanup) {
-					deferredVisibleCleanup();
-					deferredVisibleCleanup = null;
-				}
-			};
+		} else {
+			startMonitor();
+			// One-shot fallback poll to seed the UI immediately (shared
+			// helper above). The deferred branch runs the same poll from
+			// ``onVisible`` once it actually becomes visible.
+			runOneShotLevelPoll();
 		}
-
-		startMonitor();
-
-		// one-shot fallback poll. The backend's ``mic_level`` push
-		// is coalesced at ≤30 Hz, so the first frame may take up to ~33 ms
-		// to arrive after ``level_monitor_start``. We issue a single
-		// ``microphone_test_get_level`` call to seed the UI immediately;
-		// subsequent updates come from the push event subscription below.
-		// The fallback is a no-op if the push event arrives first (the
-		// setState calls are idempotent — last write wins).
-		//
-		//  the one-shot poll still calls ``setLevel`` / ``setPeak``
-		// because it runs ONCE on mount — a single React re-render is
-		// fine (and desirable, so the initial state isn't stale). The
-		// high-frequency ``mic_level`` push handler below is the path
-		// that must avoid setState, and it does.
-		void (async () => {
-			if (
-				typeof document !== "undefined" &&
-				document.visibilityState !== "visible"
-			)
-				return;
-			if (playingRef.current) return;
-			try {
-				const levelData = await callRef.current<{
-					level: number;
-					peak: number;
-					active: boolean;
-				}>("microphone_test_get_level");
-				if (levelData && typeof levelData.level === "number") {
-					levelRef.current = levelData.level;
-					setLevel(levelData.level);
-				}
-				if (levelData && typeof levelData.peak === "number") {
-					peakRef.current = levelData.peak;
-					setPeak(levelData.peak);
-				}
-				if (levelData && typeof levelData.active === "boolean") {
-					setMicMonitoring(levelData.active);
-				}
-			} catch (e) {
-				// Non-fatal — the push event subscription will still
-				// deliver updates once the backend starts publishing.
-				console.warn(
-					"[renderer:useMicrophoneLevelMonitor] one-shot level poll failed:",
-					e,
-				);
-			}
-		})();
 
 		return () => {
 			cancelled = true;
@@ -484,16 +518,11 @@ export function useMicrophoneLevelMonitor({
 			// active ("Already monitoring") instead of stopping then
 			// restarting it. On a real unmount (or a dep change), the
 			// start has already resolved with startedHere=true, so the
-			// stop is sent correctly.
+			// stop is sent correctly. An unmount that beats the
+			// in-flight start (startedHere still false) is handled by
+			// the start's own resolution-time teardown above.
 			if (startedHere) {
-				callRef
-					.current("level_monitor_stop")
-					.catch((err) =>
-						console.warn(
-							"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
-							err,
-						),
-					);
+				sendStopClaiming(issuedStartSeq);
 			}
 		};
 	}, [

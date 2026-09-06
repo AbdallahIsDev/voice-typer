@@ -19,10 +19,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
-
 import {
 	loadTemplatesFromBackend,
 	loadTemplatesFromLocalStorage,
@@ -31,7 +31,6 @@ import {
 } from "../lib/storage";
 import { rowsToTemplates, sortTemplateRows, toRows } from "../lib/transform";
 import type { Template, TemplateRow, TemplateSortOrder } from "../lib/types";
-import { useLatestRef } from "@/hooks/useLatestRef";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
@@ -147,6 +146,7 @@ export function useTemplates({
 	// localStorage fallback is also empty, surface a load error so the
 	// user can retry instead of being presented with the
 	// "create your first template" empty state.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const loadRows = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState

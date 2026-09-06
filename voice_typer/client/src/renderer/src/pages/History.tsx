@@ -7,8 +7,7 @@ import {
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
@@ -21,14 +20,17 @@ import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { Button } from "@/components/ui/button";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import { showUndoableToast } from "@/hooks/useSnackbar";
+import { usePython } from "@/hooks/usePython";
 import { getLocale, t } from "@/i18n/i18n";
 import {
 	HISTORY_PAGE_SIZE,
 	useHistoryCache,
 } from "./history/hooks/useHistoryCache";
+import { useHistoryClearAll } from "./history/hooks/useHistoryClearAll";
+import { useHistoryEventRefresh } from "./history/hooks/useHistoryEventRefresh";
 import { useHistoryExport } from "./history/hooks/useHistoryExport";
+import { useHistoryRecordActions } from "./history/hooks/useHistoryRecordActions";
+import { useHistorySearchReload } from "./history/hooks/useHistorySearchReload";
 import {
 	type HistorySortOrder,
 	sortRecords,
@@ -80,25 +82,6 @@ export default function HistoryPage() {
 	// off by the render cap below and the click would look like a
 	// dead-zone no-op. Reset to one page whenever a fresh load runs.
 	const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
-	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// Guards the debounced-load effect so the initial mount load
-	// (handled by the separate mount effect) is not re-fired when the
-	// global query starts at "" — only query CHANGES trigger a reload.
-	const isFirstRenderRef = useRef(true);
-	const [showClearConfirm, setShowClearConfirm] = useState(false);
-	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const [refreshing, setRefreshing] = useState(false);
-
-	// stale-data flag. Set to `true` when a `transcription_final`
-	// or `history_changed` event arrives while the window is hidden
-	// (document.visibilityState !== "visible"). The visibilitychange
-	// listener below checks this flag on focus and triggers a single
-	// debounced refresh — so background events don't fire IPC calls
-	// while the user isn't looking at the page. The next focus
-	// collapses the backlog into ONE fetch (per-page; only the visible
-	// page's listener actually runs because only the mounted page
-	// subscribes).
-	const staleRef = useRef(false);
 
 	// Keep the cache hook's filter refs in sync with the page state.
 	setFilter(searchQuery, favoritesOnly);
@@ -116,100 +99,23 @@ export default function HistoryPage() {
 		[load],
 	);
 
-	const handleManualRefresh = useCallback(async () => {
-		setRefreshing(true);
-		try {
-			await runLoad();
-		} finally {
-			setRefreshing(false);
-		}
-	}, [runLoad]);
-
-	// R7-F13: extracted `debouncedRefreshFromEvent` via useCallback.
-	// Wraps `refreshFromEvent` (owned by useHistoryCache) in a 500ms
-	// debounce so rapid transcription_final / history_changed events
-	// coalesce into a single backend fetch.
-	const debouncedRefreshFromEvent = useCallback(():
-		| (() => void)
-		| undefined => {
-		// skip the IPC round-trips when the window is hidden.
-		// The visibilitychange listener below will trigger a single
-		// refresh when the user returns to the page.
-		if (
-			typeof document !== "undefined" &&
-			document.visibilityState !== "visible"
-		) {
-			staleRef.current = true;
-			return undefined;
-		}
-		if (refreshTimer.current) clearTimeout(refreshTimer.current);
-		refreshTimer.current = setTimeout(async () => {
-			try {
-				await refreshFromEvent();
-			} catch (e) {
-				console.warn("[renderer:History] background refresh failed:", e);
-			}
-		}, 500);
-		return undefined;
-	}, [refreshFromEvent]);
-
-	// refresh on focus when stale. When the window regains
-	// visibility AND a stale flag was set by a background event, fire
-	// a single debounced refresh.
-	useEffect(() => {
-		const onVisibility = () => {
-			if (document.visibilityState === "visible" && staleRef.current) {
-				staleRef.current = false;
-				debouncedRefreshFromEvent();
-			}
-		};
-		document.addEventListener("visibilitychange", onVisibility);
-		return () => {
-			document.removeEventListener("visibilitychange", onVisibility);
-		};
-	}, [debouncedRefreshFromEvent]);
-
-	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
-	// F11-FIX: invalidate cache on external history_changed events.
-	usePythonEvent("history_changed", debouncedRefreshFromEvent);
-
-	// Clean up pending refresh + search timers on unmount.
-	useEffect(() => {
-		return () => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			// clear searchTimer to prevent load()
-			// firing on an unmounted component.
-			if (searchTimer.current) {
-				clearTimeout(searchTimer.current);
-				searchTimer.current = null;
-			}
-		};
-	}, []);
+	// Background-event refresh pipeline — the 500ms-debounced
+	// transcription_final / history_changed handler, the hidden-window
+	// stale flag, the visibilitychange one-shot refresh, and the manual
+	// refresh wrapper (see useHistoryEventRefresh).
+	const { handleManualRefresh, refreshing } = useHistoryEventRefresh({
+		refreshFromEvent,
+		runLoad,
+	});
 
 	useEffect(() => {
 		runLoad();
 	}, [runLoad]);
 
-	// Debounced reload driven by the GLOBAL search store. The query now
-	// lives in the title bar's global search bar; when it changes this
-	// effect schedules a 200ms-delayed runLoad with the new query. The
-	// first-render guard keeps the mount load from double-firing.
-	useEffect(() => {
-		if (isFirstRenderRef.current) {
-			isFirstRenderRef.current = false;
-			return;
-		}
-		if (searchTimer.current) clearTimeout(searchTimer.current);
-		searchTimer.current = setTimeout(() => {
-			runLoad(searchQuery, favoritesOnly);
-		}, 200);
-		return () => {
-			if (searchTimer.current) {
-				clearTimeout(searchTimer.current);
-				searchTimer.current = null;
-			}
-		};
-	}, [searchQuery, runLoad, favoritesOnly]);
+	// Debounced reload driven by the GLOBAL search store — a 200ms-
+	// delayed fresh load whenever the query (or the favorites filter)
+	// changes, with the first-render guard (see useHistorySearchReload).
+	useHistorySearchReload({ searchQuery, favoritesOnly, runLoad });
 
 	const toggleFavorites = useCallback(() => {
 		const next = !favoritesOnly;
@@ -217,85 +123,31 @@ export default function HistoryPage() {
 		runLoad(searchQuery, next);
 	}, [favoritesOnly, runLoad, searchQuery]);
 
-	const handleDelete = useCallback(
-		async (id: number) => {
-			//capture the record before delete for Undo.
-			const deleted = records.find((r) => r.id === id);
-			try {
-				await call("delete_history", { id });
-				setRecords((prev) => prev.filter((r) => r.id !== id));
-				if (deleted) {
-					showUndoableToast(
-						t("history.entryDeleted"),
-						async () => {
-							try {
-								await call("restore_history", { record: deleted });
-								load();
-								toast.success(t("history.entryRestored"));
-							} catch {
-								toast.error(t("history.restoreFailed"));
-							}
-						},
-						{
-							undoLabel: t("history.undo"),
-							type: "warning",
-							timeoutMs: 6000,
-						},
-					);
-				}
-			} catch {
-				toast.error(t("history.deleteFailed"));
-			}
-		},
-		[call, records, load, setRecords],
-	);
+	// Per-row record actions — delete-with-undo, favorite toggle, and
+	// the lazy full-text fetch for expandable rows (see
+	// useHistoryRecordActions).
+	const { handleDelete, handleToggleFavorite, handleFetchFullText } =
+		useHistoryRecordActions({ call, records, load, setRecords });
 
-	const handleToggleFavorite = useCallback(
-		async (id: number) => {
-			try {
-				const res = await call<{ favorite: number }>("toggle_favorite", { id });
-				setRecords((prev) =>
-					prev.map((r) => (r.id === id ? { ...r, favorite: res.favorite } : r)),
-				);
-			} catch {
-				toast.error(t("history.favoriteFailed"));
-			}
-		},
-		[call, setRecords],
-	);
-
-	//Clear All is ambiguous under an active filter (the visible
-	// list is a subset of ALL history).  When a filter is active:
-	// - Skip the `records.length === 0` short-circuit using the cached
-	// stats count instead (visible list may be empty while total is not).
-	// - Show a different confirmation message that makes it clear ALL
-	// history (including hidden entries) will be deleted.
-	const filterActive = searchQuery.trim() !== "" || favoritesOnly;
-
-	const handleClearAll = useCallback(() => {
-		const totalCount = stats?.count ?? records.length;
-		if (filterActive) {
-			if (totalCount === 0) return;
-		} else {
-			if (records.length === 0) return;
-		}
-		setShowClearConfirm(true);
-	}, [records.length, stats, filterActive]);
-
-	const confirmClearAll = useCallback(async () => {
-		try {
-			await call("clear_history");
-			const emptyStats = { count: 0, chars: 0, word_count: 0, duration: 0 };
-			setRecords([]);
-			setStats(emptyStats);
-			setHasMore(false);
-			toast.success(t("history.historyCleared"));
-		} catch {
-			toast.error(t("history.clearFailed"));
-		} finally {
-			setShowClearConfirm(false);
-		}
-	}, [call, setRecords, setStats, setHasMore]);
+	// Clear-all flow — the filter-aware short-circuit guards, the
+	// confirmation-dialog state, and the destructive apply (see
+	// useHistoryClearAll).
+	const {
+		showClearConfirm,
+		setShowClearConfirm,
+		filterActive,
+		handleClearAll,
+		confirmClearAll,
+	} = useHistoryClearAll({
+		call,
+		records,
+		stats,
+		searchQuery,
+		favoritesOnly,
+		setRecords,
+		setStats,
+		setHasMore,
+	});
 
 	//doExport (filter-aware paging loop) extracted to
 	//useHistoryExport.  : the hook branches on
@@ -321,26 +173,6 @@ export default function HistoryPage() {
 	// chronologically — grouping an alphabetical sort would interleave
 	// date headers between A→Z entries and break the reading order.
 	const groupByDate = sortOrder === "newest" || sortOrder === "oldest";
-
-	// Full-text fetch for expandable rows. The list payload carries a
-	// 500-char preview; the row calls this lazily on first expansion.
-	// Resolves with the full text, or ``null`` when the row is gone /
-	// the backend failed (the row surfaces a toast instead of expanding
-	// to a clipped preview).
-	const handleFetchFullText = useCallback(
-		async (id: number): Promise<string | null> => {
-			try {
-				const data = await call<{ id: number; text: string }>(
-					"get_transcription_text",
-					{ id },
-				);
-				return data?.text ?? null;
-			} catch {
-				return null;
-			}
-		},
-		[call],
-	);
 
 	return (
 		<>
@@ -418,19 +250,19 @@ export default function HistoryPage() {
 				</div>
 
 				{/* The label row and the content below it form ONE section:
-				    the wrapper's tight gap (matching the list's own
-				    header rhythm on Home) keeps the "Recent Activity"
-				    header glued to its card instead of floating at the
-				    page container's wide gap-6 rhythm. */}
+                                    the wrapper's tight gap (matching the list's own
+                                    header rhythm on Home) keeps the "Recent Activity"
+                                    header glued to its card instead of floating at the
+                                    page container's wide gap-6 rhythm. */}
 				<div className="flex w-full flex-col gap-2.5">
 					{/* Section label + freshness share ONE row: "Recent Activity"
-					    on the left, "Last updated … ago" + refresh on the right
-					    (justify-between). The indicator previously lived in its
-					    own full-width right-aligned row, leaving a large empty
-					    gap on the left; anchoring it to the list header gives
-					    the refresh control a logical home next to the list it
-					    refreshes. Label styling matches the list header row on
-					    Home (`text-[12px] font-semibold`). */}
+                                            on the left, "Last updated … ago" + refresh on the right
+                                            (justify-between). The indicator previously lived in its
+                                            own full-width right-aligned row, leaving a large empty
+                                            gap on the left; anchoring it to the list header gives
+                                            the refresh control a logical home next to the list it
+                                            refreshes. Label styling matches the list header row on
+                                            Home (`text-[12px] font-semibold`). */}
 					<div className="flex w-full items-center justify-between">
 						<span className="text-[12px] font-semibold text-(--text-primary)">
 							{t("home.recentActivity")}
@@ -559,9 +391,9 @@ export default function HistoryPage() {
 			</div>
 
 			{/* ConfirmDialog for Clear All. variant="destructive" is
-			    explicit to match the Vocabulary Clear-All dialog — the
-			    confirm button carries the destructive treatment for an
-			    irreversible, privacy-adjacent wipe. */}
+                            explicit to match the Vocabulary Clear-All dialog — the
+                            confirm button carries the destructive treatment for an
+                            irreversible, privacy-adjacent wipe. */}
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("history.clearAllHistory")}
