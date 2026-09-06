@@ -406,6 +406,16 @@ def main() -> int:
         sys.stdout.write("\n")
         return 0
 
+    # Master plan §3.4 gate: for the worker target, the budget verdict
+    # must drive the EXIT CODE. Previously main() returned 0
+    # unconditionally, so a first_run above the 600 ms target printed
+    # "FAIL" but the bench (and any CI wrapper trusting its exit code)
+    # still reported success — the perf-ratchet baseline (913.4 ms)
+    # passed while the product budget was missed. The perf-ratchet
+    # remains the relative-regression guard; this gate is the ABSOLUTE
+    # budget. Non-worker targets carry no absolute budget and keep
+    # returning 0.
+
     print("=" * 60)
     print("Voice Typer — Worker Startup & Model Size Benchmark")
     print("=" * 60)
@@ -456,6 +466,16 @@ def main() -> int:
     for name, mb in sizes.items():
         if mb > 0:
             print(f"  - {name} model: {mb} MB")
+
+    target_ms = stats.get("target_ms")
+    if target_ms is not None:
+        assert isinstance(target_ms, (int, float))
+        if stats["first_run_ms"] > target_ms:  # type: ignore[typeddict-item]
+            print(
+                f"\nGATE FAIL: first_run {stats['first_run_ms']:.0f} ms exceeds "
+                f"the §3.4 budget of {target_ms:.0f} ms — exiting non-zero."
+            )
+            return 1
     return 0
 
 

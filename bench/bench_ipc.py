@@ -24,9 +24,16 @@ control plane:
    ``_RateLimiter.allow`` ops/sec at the burst ceiling (200/s).  A
    regression here means a flood attack can starve the dispatcher.
 
+5. **Real TCP loopback round-trip** — a genuine localhost socket hop
+   (kernel TCP stack, not the in-process event bus) carrying the same
+   newline-JSON wire shape the renderer↔sidecar control plane uses.
+   This is the transport-level floor under every dispatch: framing,
+   buffering, or Nagle-style regressions surface here first.
+
 The bench is deterministic (seeded RNG, fixed subscriber counts, no
-network I/O) so two runs on the same machine produce identical
-distributions modulo OS scheduler noise.
+external network I/O — the TCP bench uses the kernel loopback only) so
+two runs on the same machine produce identical distributions modulo OS
+scheduler noise.
 
 Usage:
     python bench/bench_ipc.py
@@ -51,6 +58,7 @@ DEFAULT_HANDSHAKE_ITERS = 2000
 DEFAULT_PUSH_ITERS = 5000
 DEFAULT_ROUND_TRIP_ITERS = 1000
 DEFAULT_RATE_LIMIT_ITERS = 100_000
+DEFAULT_LOOPBACK_ITERS = 2000
 
 
 def _percentile(sorted_vals: list[float], pct: float) -> float:
@@ -154,9 +162,7 @@ def bench_push_throughput(subscriber_counts: tuple[int, ...], iterations: int) -
                 "subscribers": n,
                 "iterations": iterations,
                 "publish_latency": _stats(latencies),
-                "throughput_ops_per_s": round(
-                    iterations / (sum(latencies) / 1e6) if latencies else 0.0, 1
-                ),
+                "throughput_ops_per_s": round(iterations / (sum(latencies) / 1e6) if latencies else 0.0, 1),
             }
         )
     return {
@@ -278,6 +284,84 @@ def bench_rate_limiter_saturation(iterations: int) -> dict:
     }
 
 
+def bench_tcp_loopback_round_trip(iterations: int) -> dict:
+    """Measure a REAL localhost TCP round-trip with the production wire shape.
+
+    The in-process benches above measure dispatch/validation cost with
+    zero transport. This one opens a genuine loopback TCP connection
+    (``socket.socketpair`` — a real 127.0.0.1 kernel socket pair on all
+    three platforms), runs a peer thread that echoes newline-terminated
+    JSON lines, and measures send→full-response wall-clock. That is the
+    transport-level floor under the renderer↔sidecar TCP/WS control
+    plane: a framing, buffering, or Nagle-style regression in the
+    socket layer shows up here before it shows up in the app.
+    """
+    import socket
+    import threading
+
+    payload = json.dumps({"type": "get_status", "id": "bench-loopback", "data": {}}).encode() + b"\n"
+
+    def _recv_line(sock) -> bytes:
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        return buf
+
+    server_sock, client_sock = socket.socketpair()
+    for sock in (server_sock, client_sock):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.settimeout(10.0)
+
+    stop = threading.Event()
+
+    def _echo() -> None:
+        while not stop.is_set():
+            try:
+                line = server_sock.recv(65536)
+            except OSError:
+                return
+            if not line:
+                return
+            try:
+                server_sock.sendall(line)
+            except OSError:
+                return
+
+    echo_thread = threading.Thread(target=_echo, name="bench-tcp-loopback-echo", daemon=True)
+    echo_thread.start()
+
+    latencies_us: list[float] = []
+    try:
+        # Untimed warm-up: the first sends pay loopback route setup and
+        # thread-scheduling ramp-up.
+        for _ in range(20):
+            client_sock.sendall(payload)
+            _recv_line(client_sock)
+        for _ in range(iterations):
+            t0 = time.perf_counter_ns()
+            client_sock.sendall(payload)
+            _recv_line(client_sock)
+            latencies_us.append((time.perf_counter_ns() - t0) / 1000.0)
+    finally:
+        stop.set()
+        import contextlib
+
+        for sock in (server_sock, client_sock):
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+            sock.close()
+        echo_thread.join(timeout=2.0)
+
+    return {
+        "iterations": iterations,
+        "payload_bytes": len(payload),
+        "latency": _stats(latencies_us),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="IPC subsystem benchmark")
     parser.add_argument(
@@ -310,6 +394,12 @@ def main() -> int:
         default=DEFAULT_RATE_LIMIT_ITERS,
         help=f"Iterations for the rate-limiter bench (default: {DEFAULT_RATE_LIMIT_ITERS}).",
     )
+    parser.add_argument(
+        "--loopback-iters",
+        type=int,
+        default=DEFAULT_LOOPBACK_ITERS,
+        help=f"Iterations for the TCP loopback round-trip bench (default: {DEFAULT_LOOPBACK_ITERS}).",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of human-readable")
     args = parser.parse_args()
 
@@ -320,6 +410,7 @@ def main() -> int:
         "push_throughput": bench_push_throughput(subscriber_counts, args.push_iters),
         "streaming_round_trip": bench_streaming_round_trip(args.round_trip_iters),
         "rate_limiter_saturation": bench_rate_limiter_saturation(args.rate_limit_iters),
+        "tcp_loopback_round_trip": bench_tcp_loopback_round_trip(args.loopback_iters),
     }
 
     if args.json:
@@ -354,6 +445,10 @@ def main() -> int:
     print("\n## Rate Limiter Saturation")
     print(f"  heartbeat (bypass)  : p50={rl['heartbeat_allow']['p50_us']} p99={rl['heartbeat_allow']['p99_us']} µs")
     print(f"  set_config (cost=2) : p50={rl['set_config_allow']['p50_us']} p99={rl['set_config_allow']['p99_us']} µs")
+
+    lb = results["tcp_loopback_round_trip"]
+    print(f"\n## TCP Loopback Round-Trip ({lb['iterations']} iters, {lb['payload_bytes']} B payload)")
+    print(f"  p50 / p99 / max: {lb['latency']['p50_us']} / {lb['latency']['p99_us']} / {lb['latency']['max_us']} µs")
     return 0
 
 

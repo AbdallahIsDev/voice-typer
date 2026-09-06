@@ -51,6 +51,16 @@ DEFAULT_RATE = 16000
 DEFAULT_DURATION_S = 5.0
 
 
+def _rnnoise_available() -> bool:
+    """True when the rnnoise package is importable (skip-if-unavailable)."""
+    try:
+        import rnnoise  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _make_config(noise_suppression: str = "none") -> object:
     """Build a config object with all chain filters enabled.
 
@@ -193,11 +203,23 @@ def bench_filter_chain(
 
     n_chunks = max(1, total_samples // chunk_samples - 10)
     per_chunk_us: list[float] = []
+    last_output: np.ndarray | None = None
     for i in range(n_chunks):
         chunk[:] = audio[(10 + i) * chunk_samples : (10 + i + 1) * chunk_samples]
         t0 = time.perf_counter_ns()
-        chain.process(chunk, sample_rate)
+        result = chain.process(chunk, sample_rate)
         per_chunk_us.append((time.perf_counter_ns() - t0) / 1000.0)
+        if isinstance(result, np.ndarray):
+            last_output = result
+    # Non-finite-output gate: a filter that emits NaN/Inf (a failure
+    # mode reproduced 3/3 runs by the float32 b/a high-pass before the
+    # SOS rewrite) is CORRUPTING audio while its timing may look fine.
+    # The bench must fail loudly instead of printing PASS over garbage
+    # output.
+    if last_output is not None and not np.isfinite(last_output).all():
+        raise SystemExit(
+            "FAIL: filter chain produced non-finite (NaN/Inf) output — audio corruption in the chain under benchmark."
+        )
 
     per_chunk_us.sort()
     chunk_duration_us = chunk_samples / sample_rate * 1e6
@@ -216,6 +238,7 @@ def bench_filter_chain(
         "chunk_duration_us": round(chunk_duration_us, 1),
         "n_chunks": n_chunks,
         "filter_names": list(chain.filter_names),
+        "noise_suppression": noise_suppression,
         "total_latency_ms": round(chain.total_latency_ms, 3),
         "is_degraded": chain.is_degraded,
         "degraded_reasons": list(chain.degraded_reasons),
@@ -257,11 +280,28 @@ def main() -> int:
     args = parser.parse_args()
 
     rates = [args.rate] if args.rate is not None else [16000, 48000]
-    results = [bench_filter_chain(rate, args.duration, args.chunk_samples, args.noise_suppression) for rate in rates]
+    # Tracked noise-suppression variant: the default run exercises the
+    # ``none`` chain (always available) AND the ``rnnoise`` chain when
+    # the rnnoise package is importable (skip-if-unavailable — RNNoise
+    # is a declared dependency so CI runners have it; minimal sandboxes
+    # may not). Rows are APPENDED after the base scenarios so the perf
+    # ratchet's positional indices (``…0`` / ``…1``) stay stable, and
+    # each row carries ``noise_suppression`` so consumers can tell the
+    # scenarios apart.
+    scenarios = [args.noise_suppression]
+    if args.noise_suppression == "none" and _rnnoise_available():
+        scenarios.append("rnnoise")
+    results = [bench_filter_chain(rate, args.duration, args.chunk_samples, ns) for ns in scenarios for rate in rates]
 
+    exit_code = 0
     if args.json:
         json.dump(results, sys.stdout, indent=2)
         sys.stdout.write("\n")
+        # JSON consumers (the CI ratchet) get the same hard gate via
+        # the exit code.
+        for r in results:
+            if r["realtime_margin_pct"] <= 0:
+                return 1
         return 0
 
     print("=" * 72)
@@ -270,6 +310,7 @@ def main() -> int:
     for r in results:
         print()
         print(f"  Sample rate      : {r['sample_rate']} Hz")
+        print(f"  Noise suppression: {r['noise_suppression']}")
         print(f"  Chunk size       : {r['chunk_samples']} samples ({r['chunk_duration_us']:.0f} µs)")
         print(f"  Chunks measured  : {r['n_chunks']}")
         print(f"  Filters          : {', '.join(r['filter_names']) or '(empty)'}")
@@ -287,7 +328,22 @@ def main() -> int:
         # include resample latency (handled by AudioProcessor).
         budget_ok = r["total_latency_ms"] < 15.0 and r["realtime_margin_pct"] > 0
         print(f"  ADR-0009 §11     : {'PASS' if budget_ok else 'FAIL'} (latency<15ms & realtime margin>0)")
-    return 0
+        if not budget_ok:
+            exit_code = 1
+    # Hard gate: a negative realtime margin means per-chunk processing
+    # exceeds the chunk duration — dropouts are INEVITABLE at this
+    # chunk size regardless of what the baseline ratchet tolerates.
+    # This assertion is independent of bench-baseline.json so a ratchet
+    # raised past the budget can never mask an un-runnable chain.
+    for r in results:
+        if r["realtime_margin_pct"] <= 0:
+            print(
+                f"\nGATE FAIL: {r['sample_rate']} Hz realtime margin "
+                f"{r['realtime_margin_pct']}% <= 0 — per-chunk processing exceeds "
+                "the chunk duration (dropouts inevitable). Exiting non-zero."
+            )
+            exit_code = 1
+    return exit_code
 
 
 if __name__ == "__main__":

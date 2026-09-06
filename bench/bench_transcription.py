@@ -48,7 +48,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # the synthetic-audio path is byte-reproducible across runs.
 RNG_SEED = 0xA4A4
 
-DEFAULT_ITERATIONS = 10  # p90 != max requires n >= 10
+DEFAULT_ITERATIONS = 20  # nearest-rank p90 needs N >= 10; 20 gives a real tail + absorbs scheduler noise
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_DURATION_S = 5.0
 DEFAULT_FIXTURE = "tests/fixtures/test_440hz_1s_16k.wav"
@@ -197,9 +197,20 @@ def bench_model_load(model_size: str, device: str) -> dict:
     rss_before = _peak_rss_mb(proc)
     t0 = time.perf_counter()
     _engine = TranscriptionEngine(model_size=model_size, device=device)
+    # The load-deferral refactor made ``__init__`` hollow (model weights
+    # load lazily on first transcribe) — time the explicit ``load()``
+    # too, otherwise this bench measures a no-op constructor and reports
+    # a load cost that never happens in production. A load failure (no
+    # model downloaded) soft-skips with a ``load_error`` note instead of
+    # crashing the bench — mirrors the transcription path's behavior.
+    load_error: str | None = None
+    try:
+        _engine.load()
+    except Exception as exc:  # noqa: BLE001 — model-load failure is a soft skip
+        load_error = f"{type(exc).__name__}: {exc}"
     elapsed = time.perf_counter() - t0
     rss_after = _peak_rss_mb(proc)
-    return {
+    result = {
         "model": model_size,
         "device": device,
         "load_seconds": round(elapsed, 4),
@@ -207,13 +218,26 @@ def bench_model_load(model_size: str, device: str) -> dict:
         "peak_rss_mb_after": rss_after,
         "delta_rss_mb": (rss_after - rss_before) if (rss_before is not None and rss_after is not None) else None,
     }
+    if load_error is not None:
+        result["load_error"] = load_error
+    return result
 
 
 def _percentile(sorted_latencies: list[float], pct: float) -> float:
-    """Percentile helper. ``pct`` in [0, 100]."""
+    """Nearest-rank percentile. ``pct`` in [0, 100].
+
+    Uses the ceil(nearest-rank) definition: p90 of 10 samples is the
+    9th value, not the 10th (the old ``int(N*0.9)`` index made p90
+    equal the MAXIMUM at the default 10 iterations, overstating the
+    tail). For N >= 20 (the new DEFAULT_ITERATIONS) the two definitions
+    converge; the nearest-rank form stays correct at small N.
+    """
+    import math
+
     if not sorted_latencies:
         return 0.0
-    idx = min(len(sorted_latencies) - 1, int(len(sorted_latencies) * pct / 100.0))
+    rank = math.ceil(len(sorted_latencies) * pct / 100.0)
+    idx = min(len(sorted_latencies) - 1, max(0, rank - 1))
     return sorted_latencies[idx]
 
 
@@ -266,6 +290,11 @@ def bench_transcription(
     latencies: list[float] = []
     word_counts: list[int] = []
     rss_after_each: list[int | None] = []
+    # One UNTIMED warm-up iteration: the first call on the CPU path pays
+    # one-time engine warm-up (ctranslate2 allocator growth, thread-pool
+    # spin-up) that is not representative of steady-state latency.
+    # Without it the reported min/median include cold-start cost.
+    engine.transcribe_with_fallback(audio)
     for i in range(iterations):
         t0 = time.perf_counter()
         text = engine.transcribe_with_fallback(audio)

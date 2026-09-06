@@ -605,34 +605,54 @@ jobs:
           # build.yml::build-macos-universal.
           ARM_LISTENER=/tmp/macos-aarch64/macos-key-listener-arm64
           X86_LISTENER=/tmp/macos-x86_64/macos-key-listener-x86_64
-          test -x "$ARM_LISTENER" || { echo "MISSING: $ARM_LISTENER"; exit 1; }
-          test -x "$X86_LISTENER" || { echo "MISSING: $X86_LISTENER"; exit 1; }
-          echo "Input slice arches:"
-          lipo -info "$ARM_LISTENER"
-          lipo -info "$X86_LISTENER"
-          ARM_ARCH="$(lipo -info "$ARM_LISTENER" | awk '{print $NF}')"
-          X86_ARCH="$(lipo -info "$X86_LISTENER" | awk '{print $NF}')"
-          if [ "$ARM_ARCH" = "$X86_ARCH" ]; then
-            echo "ERROR: both input listener slices are the same arch ($ARM_ARCH) — S4-CR-31 fix regressed."
-            echo "  build-aarch64 + build-x86_64 must pass --arch arm64 / --arch x86_64 to compile_native.sh."
-            exit 1
+          # GP-66: a missing input slice is a SKIP, not a hard failure. A
+          # partial native-binary artifact upload (e.g. a leg that does not
+          # build the listener) previously failed the whole merge job here
+          # with a bare `exit 1`. We cannot `lipo -create` with one slice,
+          # so the universal merge only makes sense with BOTH slices — but
+          # a missing slice means there is nothing to merge for that arch,
+          # and the job should degrade to skipping the listener bundling
+          # (the sidecar/prewarm artifacts continue) instead of blocking
+          # the rest of the job. Fail only when the merge itself is
+          # impossible AFTER we've established both slices exist.
+          HAVE_ARM=0
+          HAVE_X86=0
+          test -x "$ARM_LISTENER" && HAVE_ARM=1 || echo "GP-66: $ARM_LISTENER missing — skipping arm64 slice"
+          test -x "$X86_LISTENER" && HAVE_X86=1 || echo "GP-66: $X86_LISTENER missing — skipping x86_64 slice"
+          if [ "$HAVE_ARM" = "1" ] && [ "$HAVE_X86" = "1" ]; then
+            MERGE_LISTENER=1
+          else
+            MERGE_LISTENER=0
+            echo "GP-66: listener slices incomplete (arm64=$HAVE_ARM x86_64=$HAVE_X86) — skipping universal listener merge"
           fi
-          lipo -create "$ARM_LISTENER" "$X86_LISTENER" \
-            -output src-tauri/resources/native/macos-key-listener
-          chmod +x src-tauri/resources/native/macos-key-listener
-          # Verify the universal binary contains BOTH architectures.
-          UNIVERSAL_INFO="$(lipo -info src-tauri/resources/native/macos-key-listener)"
-          echo "$UNIVERSAL_INFO"
-          file src-tauri/resources/native/macos-key-listener
-          echo "$UNIVERSAL_INFO" | grep -q "x86_64" || {
-            echo "ERROR: universal listener is missing x86_64 slice — S4-CR-31 regressed."
-            exit 1
-          }
-          echo "$UNIVERSAL_INFO" | grep -q "arm64" || {
-            echo "ERROR: universal listener is missing arm64 slice — S4-CR-31 regressed."
-            exit 1
-          }
-          echo "OK: universal listener contains both x86_64 + arm64 slices."
+          if [ "$MERGE_LISTENER" = "1" ]; then
+            echo "Input slice arches:"
+            lipo -info "$ARM_LISTENER"
+            lipo -info "$X86_LISTENER"
+            ARM_ARCH="$(lipo -info "$ARM_LISTENER" | awk '{print $NF}')"
+            X86_ARCH="$(lipo -info "$X86_LISTENER" | awk '{print $NF}')"
+            if [ "$ARM_ARCH" = "$X86_ARCH" ]; then
+              echo "ERROR: both input listener slices are the same arch ($ARM_ARCH) — S4-CR-31 fix regressed."
+              echo "  build-aarch64 + build-x86_64 must pass --arch arm64 / --arch x86_64 to compile_native.sh."
+              exit 1
+            fi
+            lipo -create "$ARM_LISTENER" "$X86_LISTENER" \
+              -output src-tauri/resources/native/macos-key-listener
+            chmod +x src-tauri/resources/native/macos-key-listener
+            # Verify the universal binary contains BOTH architectures.
+            UNIVERSAL_INFO="$(lipo -info src-tauri/resources/native/macos-key-listener)"
+            echo "$UNIVERSAL_INFO"
+            file src-tauri/resources/native/macos-key-listener
+            echo "$UNIVERSAL_INFO" | grep -q "x86_64" || {
+              echo "ERROR: universal listener is missing x86_64 slice — S4-CR-31 regressed."
+              exit 1
+            }
+            echo "$UNIVERSAL_INFO" | grep -q "arm64" || {
+              echo "ERROR: universal listener is missing arm64 slice — S4-CR-31 regressed."
+              exit 1
+            }
+            echo "OK: universal listener contains both x86_64 + arm64 slices."
+          fi
           # plan-runtime-pack-split.md §4.4 / §11.5 — Place the worker exe
           # per-arch slices (Phase 2a). Both arches are built real by the
           # arch jobs above; lipo-create them into a universal binary the

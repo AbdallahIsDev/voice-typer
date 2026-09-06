@@ -96,7 +96,8 @@ def run_tauri_icon(logo: Path = LOGO, icons_dir: Path = ICONS_DIR) -> None:
     """Regenerate the full icon set into ``icons_dir`` via ``tauri icon``.
 
     ``tauri icon`` never deletes stale files, so the caller must prune
-    afterwards (see :func:`prune_icons_dir`).
+    afterwards (see :func:`prune_icons_dir`). Output is normalized to
+    the committed container contract (see :func:`_strip_png_metadata`).
     """
     if not logo.is_file():
         sys.exit(f"logo source not found: {logo} — edit this file to change the icon.")
@@ -112,6 +113,48 @@ def run_tauri_icon(logo: Path = LOGO, icons_dir: Path = ICONS_DIR) -> None:
     if result.returncode != 0:
         sys.exit(f"`tauri icon` failed (exit {result.returncode}):\n{result.stdout}\n{result.stderr}")
     print(result.stdout.strip())
+    _strip_png_metadata(icons_dir)
+
+
+def _strip_png_metadata(icons_dir: Path) -> None:
+    """Rewrite every PNG under ``icons_dir`` down to [IHDR, IDAT, IEND].
+
+    The committed-icon container contract (pinned by
+    ``test_committed_pngs_have_real_tauri_icon_container_layout``) is a
+    minimal three-chunk PNG: the original Aug-15 pipeline stripped
+    ancillary chunks such as ``pHYs`` (DPI), and the fingerprint tests
+    + ``--check`` drift gate expect them absent. Newer CLI runs can
+    emit ``pHYs``, so regen strips it here — keeping regeneration
+    deterministic regardless of CLI encoding quirks (same rationale as
+    the ``TAURI_CLI_PIN``).
+    """
+    import struct
+
+    def strip(png: Path) -> None:
+        data = png.read_bytes()
+        if len(data) < 8 or data[:8] != b"\x89PNG\r\n\x1a\n":
+            return
+        chunks: list[bytes] = []
+        off = 8
+        valid = True
+        while off + 8 <= len(data):
+            (length,) = struct.unpack(">I", data[off : off + 4])
+            ctype = data[off + 4 : off + 8]
+            chunk_end = off + 12 + length
+            if chunk_end > len(data):
+                valid = False
+                break
+            if ctype in (b"IHDR", b"IDAT", b"IEND"):
+                chunks.append(data[off:chunk_end])
+            off = chunk_end
+        if not valid or not chunks or chunks[-1][:4] != b"IEND":
+            return
+        out = data[:8] + b"".join(chunks)
+        if out != data:
+            png.write_bytes(out)
+
+    for png in sorted(icons_dir.rglob("*.png")):
+        strip(png)
 
 
 def prune_icons_dir(

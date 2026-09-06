@@ -1507,6 +1507,29 @@ jobs:
         # the mac.extraResources entry that embeds the PyInstaller backend).
         run: npx electron-builder --mac --config electron-builder.yml --publish never
 
+      # GP-70: verify the signing result before the artifact leaves the
+      # job. When MAC_SIGNING_IDENTITY is set, electron-builder signs the
+      # .app (hardenedRuntime + notarize: true drive the full path); a
+      # failed sign previously surfaced only as a broken .dmg or a
+      # Gatekeeper failure on a user machine. codesign --verify --deep
+      # catches a bad/partial signature here, at build time. Skipped when
+      # no identity is configured (unsigned PR builds are expected).
+      # NOTE: the secret is mapped to a STEP-level env on the electron-builder
+      # step only, so it is NOT in this step's env context — re-map it here
+      # explicitly (a step `if:` cannot see another step's env).
+      - name: Verify codesign (GP-70, signed builds only)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$MAC_SIGNING_IDENTITY" ]; then
+            echo "GP-70: MAC_SIGNING_IDENTITY not set — unsigned build, skipping codesign --verify"
+            exit 0
+          fi
+          APP_PATH="voice_typer/dist/voice-typer-backend.app"
+          codesign --verify --deep --strict "$APP_PATH"
+          echo "OK: $APP_PATH passes codesign --verify --deep --strict"
+
       - name: Upload macOS installer artifact
         uses: actions/upload-artifact@v6
         with:

@@ -35,6 +35,30 @@
       "tolerance_pct": 100,
       "notes": "48kHz path p99 per-chunk processing time. Sandbox observed 46-55ms (noisy). ADR-0009 budget: <10.6ms (chunk_duration_us)."
     },
+    "bench_audio_filter_chain.2.p99_per_chunk_us": {
+      "value": 5000.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "TRACKED VARIANT (16kHz, noise_suppression=rnnoise). Appended row — skip-if-unavailable: the rnnoise package is a declared dependency, so CI runners have it; minimal sandboxes record only the two base rows and this metric is then skipped by the ratchet. Initial value is a budget-derived cap pending regeneration from the first CI run (local base 'none' chain measures ~0.2-0.3ms p99; RNNoise adds ~1ms/frame). Fail threshold = 10ms."
+    },
+    "bench_audio_filter_chain.3.p99_per_chunk_us": {
+      "value": 10600.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "TRACKED VARIANT (48kHz, noise_suppression=rnnoise). Initial value = the ADR-0009 48kHz chunk-duration budget; fail threshold = 2x budget (21.2ms) pending regeneration from the first CI run. Regenerate on the canonical CI runner like every other metric."
+    },
+    "bench_ipc.tcp_loopback_round_trip.latency.p99_us": {
+      "value": 200.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "REAL localhost TCP round-trip p99 (kernel loopback socketpair, newline-JSON wire shape, TCP_NODELAY). Local Windows measurement: p50=18.7us, p99=60.0us (2026-09-06). Baseline 200us + 200% tolerance = generous headroom for slower ubuntu-22.04 runners; a regression here means a transport-level (framing/buffering/Nagle) problem under the renderer<->sidecar control plane."
+    },
+    "bench_dictation_e2e.text_pipeline.total.p99_us": {
+      "value": 1000.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "End-to-end dictation TEXT path (cleanup -> vocabulary) p99 per dictation, 3 synthetic transcripts/iteration over an isolated 18-entry temp vocabulary. Local Windows measurement: p50=120.7us, p99=230.7us (2026-09-06). Baseline 1ms + 200% tolerance = generous CI headroom; a regression here is user-perceived dictation lag. Transcription is opt-in (--with-engine) and NOT tracked (model-dependent)."
+    },
     "bench_streaming.0.add_words_p99_us": {
       "value": 20000.0,
       "direction": "lower",
