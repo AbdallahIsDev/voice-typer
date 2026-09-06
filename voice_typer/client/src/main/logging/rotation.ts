@@ -28,11 +28,34 @@ import {
 const _permsVerified = new Set<string>();
 
 /**
+ * Per-directory "directory exists" cache. `appendLogLine` used to run
+ * `fs.mkdirSync(dir, { recursive: true })` on EVERY appended line —
+ * one to three avoidable syscalls stacked onto a ~50-100µs write path.
+ * The cache mirrors the `_permsVerified` Set pattern: the first append
+ * to a directory creates it (and caches it); later appends to log
+ * files in the same directory skip the mkdir entirely.
+ *
+ * Invalidation: if an append fails (e.g. the logs directory was
+ * deleted at runtime — sweep tooling, user action, read-only mount),
+ * the catch site in `appendLogLine` drops the cached entry so the next
+ * append re-runs the mkdir and recovers instead of failing forever.
+ */
+const _dirVerified = new Set<string>();
+
+/**
  * Reset the per-path "perms verified" cache. Exported for tests.
  * @internal
  */
 export function _resetPermsVerifiedForTest(): void {
 	_permsVerified.clear();
+}
+
+/**
+ * Reset the per-directory "directory exists" cache. Exported for tests.
+ * @internal
+ */
+export function _resetDirVerifiedForTest(): void {
+	_dirVerified.clear();
 }
 
 // ─── Logging-health ring buffer ───────────────────────────
@@ -423,7 +446,14 @@ export function appendLogLine(
 		// write earlier — e.g. crash-loop lines before Python boots).
 		// Best-effort; a failure here falls through to the catch below
 		// which surfaces the append failure instead of masking it.
-		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		// The per-directory cache skips the mkdir once the directory
+		// is known to exist (invalidate-on-failure in the catch
+		// below recovers if the directory disappears at runtime).
+		const logDir = path.dirname(filePath);
+		if (!_dirVerified.has(logDir)) {
+			fs.mkdirSync(logDir, { recursive: true });
+			_dirVerified.add(logDir);
+		}
 		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
 		// Skip chmod if already verified for this path.
 		if (!_permsVerified.has(filePath)) {
@@ -446,6 +476,12 @@ export function appendLogLine(
 	} catch (e) {
 		console.warn(`[logging] appendLogLine failed for ${filePath}:`, e);
 		recordLoggingFailure(filePath, "appendLogLine", e);
+		// Invalidate the per-directory cache for this file — a
+		// failed append is the signal that the directory may have
+		// disappeared (ENOENT) or the mount went read-only, so the
+		// next append must re-run the mkdir instead of trusting
+		// the cached "directory exists" entry.
+		_dirVerified.delete(path.dirname(filePath));
 	}
 }
 

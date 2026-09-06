@@ -44,8 +44,8 @@
 import { log } from "../logging";
 import { state } from "../state";
 import { killPythonProcessWithSigkillFallback } from "./kill-python";
-import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
+import { resetTcpBridgeState } from "./tcp-bridge-reset";
 import { clearTcpStartupTimeout } from "./tcp-connect";
 
 export type BackendRestartResult = { ok: boolean; reason?: string };
@@ -84,43 +84,21 @@ export function restartBackend(): BackendRestartResult {
 	// crash-exit handler doesn't fire for this intentional kill.
 	killPythonProcessWithSigkillFallback("dev");
 
-	// ── Reset TCP bridge state (mirrors relaunch-app.ts dev branch) ──
-	try {
-		if (state.tcpSocket) state.tcpSocket.destroy();
-	} catch (e) {
-		log.warn("[RESTART-BACKEND] tcpSocket.destroy failed:", e);
-	}
-	state.tcpSocket = null;
-	//clear per-renderer rate-limit map so destroyed-window entries
-	// don't accumulate across backend restarts.
-	_resetIpcBackpressure();
-	//reset the TCP line buffer so stale partial frames from the old
-	// backend don't bleed into the next connection.
-	state.tcpBuffer = Buffer.alloc(0);
-	state._tcpAuthed = false;
-	state.pythonReady = false;
-	state.pythonExitedEarly = false;
-	state._hadConnectedBefore = false;
-	state._tcpRetryCount = 0;
-	// R6-F6: clear the pending TCP retry timer BEFORE bumping the
-	// generation, so a stale tryConnect closure can't fire once more.
-	if (state._tcpRetryTimer) {
-		clearTimeout(state._tcpRetryTimer);
-		state._tcpRetryTimer = null;
-	}
-	state._tcpRetryGeneration++;
-	//clear the heartbeat interval — the next connect callback will
-	// arm a fresh one.
-	if (state.heartbeatInterval) {
-		clearInterval(state.heartbeatInterval);
-		state.heartbeatInterval = null;
-	}
+	// Release the condemned process reference NOW. The kill helper
+	// stripped the exit listeners and armed its SIGTERM+SIGKILL
+	// escalation, so the old process is untracked and dying — but
+	// until it actually exits, `exitCode`/`signalCode` are still
+	// `null`, which `startPython()`'s live-process guard would read
+	// as "backend already running", skipping the respawn entirely.
+	// The helper's escalation timers hold their own reference to the
+	// old proc, so nulling the state field orphans nothing.
+	state.pythonProcess = null;
 
-	// Reject pending IPC immediately with a clear error.
-	for (const [id, entry] of state.pendingRequests) {
-		state.pendingRequests.delete(id);
-		entry.reject(new Error("Python backend is restarting"));
-	}
+	// Reset the shared TCP-bridge state (same ordered sequence as the
+	// relaunch-app dev branch): destroy socket, reset backpressure,
+	// clear buffers/auth/ready flags, zero retry counters, bump
+	// generation, clear heartbeat, reject pending IPC.
+	resetTcpBridgeState("Python backend is restarting");
 
 	// Spawn a fresh Python. Wrap in try/finally so a spawn-throw can't
 	// leave anything half-cleaned (startPython is synchronous in

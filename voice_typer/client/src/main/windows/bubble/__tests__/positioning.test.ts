@@ -123,13 +123,18 @@ describe("positioning.ts: fullscreen detection", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("isForegroundFullscreen returns false on non-darwin platforms", () => {
+	it("isForegroundFullscreen returns false on non-darwin platforms without any native calls", () => {
 		const platformSpy = vi.spyOn(process, "platform", "get");
 		platformSpy.mockReturnValue("win32");
 		screenSpies.getAllDisplays.mockReturnValue([
 			{ workArea: { x: 0, y: 0, width: 100, height: 100 } },
 		]);
 		expect(isForegroundFullscreen()).toBe(false);
+		// The dead per-display loop is gone — non-darwin detection is
+		// a pure no-op and must not issue any native screen/window
+		// calls (this runs on every bubble show).
+		expect(screenSpies.getAllDisplays).not.toHaveBeenCalled();
+		expect(focusedWindowSpy.getFocusedWindow).not.toHaveBeenCalled();
 	});
 
 	it("isForegroundFullscreen returns true when the focused window is fullscreen on darwin", () => {
@@ -142,18 +147,25 @@ describe("positioning.ts: fullscreen detection", () => {
 		expect(isForegroundFullscreen()).toBe(true);
 	});
 
-	it("isForegroundFullscreen returns false when the focused window is not fullscreen on darwin", () => {
+	it("isForegroundFullscreen returns false when the focused window is not fullscreen on darwin (single native call)", () => {
 		const platformSpy = vi.spyOn(process, "platform", "get");
 		platformSpy.mockReturnValue("darwin");
-		screenSpies.getAllDisplays.mockReturnValue([{ workArea: {} }]);
 		focusedWindowSpy.getFocusedWindow.mockReturnValue({
 			isFullScreen: () => false,
 		});
 		expect(isForegroundFullscreen()).toBe(false);
+		// Exactly ONE getFocusedWindow call — the removed loop used
+		// to issue one native call per connected display.
+		expect(focusedWindowSpy.getFocusedWindow).toHaveBeenCalledTimes(1);
 	});
 
-	it("isForegroundFullscreen logs a warning and returns false when detection throws", () => {
-		screenSpies.getAllDisplays.mockImplementation(() => {
+	it("isForegroundFullscreen logs a warning and returns false when detection throws on darwin", () => {
+		const platformSpy = vi.spyOn(process, "platform", "get");
+		platformSpy.mockReturnValue("darwin");
+		// Detection is darwin-gated on BrowserWindow.getFocusedWindow()
+		// — that is the call that can throw (headless / GPU process
+		// gone). A throw must degrade to `false`, never propagate.
+		focusedWindowSpy.getFocusedWindow.mockImplementation(() => {
 			throw new Error("gpu process gone");
 		});
 		expect(isForegroundFullscreen()).toBe(false);

@@ -132,13 +132,25 @@ describe("ER-29: source-level contracts", () => {
 		expect(src).toContain("createWindows()");
 	});
 
-	it("relaunch-app.ts source clears _tcpRetryTimer in BOTH branches (R6-F6 regression guard)", () => {
-		const src = fs.readFileSync(
+	it("relaunch-app.ts + shared tcp-bridge-reset clear _tcpRetryTimer (R6-F6 regression guard)", () => {
+		// The dev-branch teardown was extracted into the shared
+		// `tcp-bridge-reset.ts` (also used by restart-backend.ts), so
+		// its timer clear lives there; relaunch-app.ts keeps the
+		// production-branch clear. Both restart paths must keep
+		// clearing the timer — count across the two files.
+		const relaunchSrc = fs.readFileSync(
 			path.resolve(__dirname, "../relaunch-app.ts"),
 			"utf-8",
 		);
-		const matches = src.match(/clearTimeout\(state\._tcpRetryTimer\)/g);
-		expect(matches?.length ?? 0).toBeGreaterThanOrEqual(2);
+		const resetSrc = fs.readFileSync(
+			path.resolve(__dirname, "../tcp-bridge-reset.ts"),
+			"utf-8",
+		);
+		const matches = [
+			...relaunchSrc.matchAll(/clearTimeout\(state\._tcpRetryTimer\)/g),
+			...resetSrc.matchAll(/clearTimeout\(state\._tcpRetryTimer\)/g),
+		];
+		expect(matches.length).toBeGreaterThanOrEqual(2);
 	});
 
 	it.skip("relaunchApp() is declared async (ER-26)", () => {
@@ -172,7 +184,6 @@ const mockState: MainState = {
 	sessionNonce: "",
 	bubblePosition: "top",
 	bubbleDraggable: true,
-	_bubblePageReady: false,
 	_hideTimeout: null,
 	_tcpRetryCount: 0,
 	_tcpRetryTimer: null,

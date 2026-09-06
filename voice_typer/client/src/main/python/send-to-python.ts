@@ -68,18 +68,24 @@ interface PendingOutboundEntry {
 	msg: Record<string, unknown>;
 	resolve: (value: unknown) => void;
 	reject: (reason: unknown) => void;
-	// capture the original caller's `senderId` at queue-push
-	// time so the flush can re-invoke `sendToPython` with the SAME
-	// sender identity. Pre-fix, the flush passed `null` unconditionally,
-	// which meant (a) the per-renderer rate limit did not apply to
-	// replayed commands (a renderer that flooded idempotent commands
-	// during a disconnect would bypass its budget on flush), and
-	// (b) the renderer-vs-internal allowlist split lost its renderer
-	// context — though in practice the queue only accepts idempotent
-	// commands (`get_config` / `get_status` / `heartbeat` /
-	// `set_config`), none of which are in `_INTERNAL_ONLY_COMMANDS`,
-	// so the allowlist split was already a no-op for queued entries.
-	// The rate-limit bypass was the real bug.
+	// Capture the original caller's `senderId` at queue-push time so
+	// the flush re-invokes `sendToPython` with the SAME sender
+	// identity. This keeps replay accounting honest:
+	//   (a) the per-renderer rate limit applies to replayed commands
+	//       (a renderer that flooded idempotent commands during a
+	//       disconnect cannot bypass its budget on flush), and
+	//   (b) the renderer-vs-internal allowlist split keeps its
+	//       renderer context — a queued `heartbeat` (idempotent AND
+	//       internal-only) is rejected on replay for a renderer
+	//       sender, exactly as it would have been rejected if the
+	//       socket had been live. Main-process callers (senderId
+	//       null) replay with null and keep internal-command access.
+	// Stale sender ids (window closed while its command sat queued)
+	// are safe: the `_rendererCallTimestamps` entry was already
+	// removed by the window's `closed` handler, the replayed call
+	// would only re-create a single bounded entry, and the whole Map
+	// is cleared by `_resetIpcBackpressure()` on stopPython /
+	// relaunchApp.
 	senderId: number | null;
 	ts: number;
 }
@@ -122,8 +128,13 @@ export function flushPendingOutbound(): void {
 	for (const entry of drained) {
 		// Forward the new promise's result to the original caller.
 		// Use .then(fulfill, reject) so the original resolve/reject
-		// is invoked exactly once.
-		sendToPython(entry.msg, null).then(entry.resolve, entry.reject);
+		// is invoked exactly once. The entry's captured `senderId`
+		// is passed through so replayed commands keep their original
+		// sender identity — the per-renderer rate limit and the
+		// renderer-vs-internal allowlist split both apply to the
+		// replay, matching how the command would have been treated
+		// if the socket had never dropped.
+		sendToPython(entry.msg, entry.senderId).then(entry.resolve, entry.reject);
 	}
 }
 

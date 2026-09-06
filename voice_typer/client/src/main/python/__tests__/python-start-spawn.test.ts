@@ -44,7 +44,6 @@ const mocks = vi.hoisted(() => {
 			sessionNonce: "",
 			bubblePosition: "top" as const,
 			bubbleDraggable: true,
-			_bubblePageReady: false,
 			_hideTimeout: null,
 			_tcpRetryCount: 0,
 			_tcpRetryTimer: null,
@@ -197,5 +196,102 @@ describe("ER-1: startPython() calls createWindows() before tcpConnect()", () => 
 			if (origToken === undefined) delete process.env.VT_IPC_TOKEN;
 			else process.env.VT_IPC_TOKEN = origToken;
 		}
+	});
+});
+
+// ─── Idempotence guard: never double-spawn while the backend is alive ─────
+//
+// The suspend/resume handler calls startPython() on every `resume` event.
+// Node's ChildProcess reports `exitCode: null` while the process runs and
+// `signalCode: null` until it is terminated by a signal, so startPython()
+// must no-op when the previously-spawned backend is still alive. A second
+// spawn cannot acquire the Python-side single-instance mutex, exits early,
+// and the early-exit handler quits the whole app with a misleading
+// "only one instance" dialog — the app killing itself over its own
+// double-spawn.
+
+describe("startPython() idempotence guard (live backend → no-op)", () => {
+	beforeEach(() => {
+		// Clear call history but keep implementations.
+		mocks.createWindows.mockClear();
+		mocks.showMainWindow.mockClear();
+		mocks.tcpConnect.mockClear();
+		mocks.clearTcpStartupTimeout.mockClear();
+		mocks.resetStopPythonFlags.mockClear();
+		mocks.relaunchApp.mockClear();
+		mocks.pythonArgs.mockClear();
+		mocks.spawn.mockClear();
+		mocks.callOrder.length = 0;
+		// Reset state.
+		Object.assign(mocks.state, {
+			pythonProcess: null,
+			tcpSocket: null,
+			mainWindow: null,
+			tcpBuffer: Buffer.alloc(0),
+			pythonReady: false,
+			pythonExitedEarly: false,
+			heartbeatInterval: null,
+			_tcpRetryCount: 0,
+			_tcpRetryTimer: null,
+			_tcpRetryGeneration: 0,
+			_tcpAuthed: false,
+			_hadConnectedBefore: false,
+			_relaunching: false,
+			_restartTriggered: false,
+			_stopPythonCalled: false,
+		});
+		mocks.spawn.mockImplementation(() => makeMockSpawnProc());
+	});
+
+	it("no-ops when the previous backend process is still alive (no spawn, no generation bump)", async () => {
+		// Model a live child exactly as Node does: exitCode/signalCode
+		// stay null from spawn until the process exits or is signalled.
+		const liveProc = makeMockSpawnProc();
+		liveProc.exitCode = null;
+		liveProc.signalCode = null;
+		Object.assign(mocks.state, { pythonProcess: liveProc });
+		mocks.state._tcpRetryGeneration = 7;
+
+		vi.resetModules();
+		const { startPython } = await import("../start-python");
+		startPython();
+
+		expect(mocks.spawn).not.toHaveBeenCalled();
+		// The no-op path must return BEFORE any spawn-side state churn:
+		// the retry generation stays pinned (stale retry loops keep
+		// their epoch) and no stop-flag / startup-timeout resets run.
+		expect(mocks.state._tcpRetryGeneration).toBe(7);
+		expect(mocks.clearTcpStartupTimeout).not.toHaveBeenCalled();
+		expect(mocks.resetStopPythonFlags).not.toHaveBeenCalled();
+		expect(mocks.tcpConnect).not.toHaveBeenCalled();
+	});
+
+	it("proceeds to spawn when the previous process exited cleanly (exitCode 0)", async () => {
+		const deadProc = makeMockSpawnProc();
+		deadProc.exitCode = 0;
+		deadProc.signalCode = null;
+		Object.assign(mocks.state, { pythonProcess: deadProc });
+
+		vi.resetModules();
+		const { startPython } = await import("../start-python");
+		startPython();
+
+		expect(mocks.spawn).toHaveBeenCalledTimes(1);
+		expect(mocks.state.pythonProcess).toBe(mocks.spawn.mock.results[0]?.value);
+		expect(mocks.state._tcpRetryGeneration).toBe(1);
+	});
+
+	it("proceeds to spawn when the previous process was killed by a signal (signalCode set)", async () => {
+		const signalledProc = makeMockSpawnProc();
+		signalledProc.exitCode = null;
+		signalledProc.signalCode = "SIGTERM";
+		Object.assign(mocks.state, { pythonProcess: signalledProc });
+
+		vi.resetModules();
+		const { startPython } = await import("../start-python");
+		startPython();
+
+		expect(mocks.spawn).toHaveBeenCalledTimes(1);
+		expect(mocks.state.pythonProcess).not.toBe(signalledProc);
 	});
 });

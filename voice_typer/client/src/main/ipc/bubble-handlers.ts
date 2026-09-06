@@ -368,12 +368,6 @@ export function registerBubbleHandlers(): void {
 	ipcMain.on(BubbleChannels.ready, (event) => {
 		// SEC-016: only the bubble window signals readiness.
 		if (!assertFromBubble(event, BubbleChannels.ready)) return;
-		//previously set `state._bubblePageReady = true`
-		// here, but `showBubbleWindow()` never consulted the
-		// field — it was dead write-only state. The dead write
-		// is removed here; the field definition in state.ts and
-		// the reset-on-close in bubble-window.ts are owned by
-		// other agents and flagged cross_file_deferred.
 		// The readiness log is kept for diagnostics — operators
 		// can grep the runtime log to confirm the bubble
 		// renderer booted past its React mount.

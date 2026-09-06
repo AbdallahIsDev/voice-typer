@@ -432,4 +432,126 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 		});
 	});
+
+	describe("flush re-sends with the captured senderId", () => {
+		it("applies the renderer-vs-internal allowlist split to the replay (senderId preserved)", async () => {
+			// A renderer-queued `heartbeat` (idempotent AND
+			// internal-only) must be rejected on flush — replaying
+			// it with a null senderId would smuggle a renderer
+			// command past the internal-only gate. This pins that
+			// flush passes the entry's captured senderId, not null.
+			state.tcpSocket = null;
+			state._hadConnectedBefore = true;
+
+			const original = sendToPython({ type: "heartbeat" }, 7);
+			const onRejected = vi.fn();
+			original.catch(onRejected);
+			expect(_pendingOutboundLengthForTest()).toBe(1);
+
+			// Restore the socket and flush — the replay carries
+			// senderId 7, so the internal-only gate rejects it.
+			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
+			state.tcpSocket = { write: mocks.socketWrite } as any;
+			flushPendingOutbound();
+
+			await vi.waitFor(() => expect(onRejected).toHaveBeenCalledTimes(1));
+			expect(
+				(onRejected.mock.calls[0]?.[0] as Error | undefined)?.message,
+			).toMatch(/Disallowed IPC command: heartbeat/);
+			// The replay was rejected BEFORE any socket write.
+			expect(mocks.socketWrite).not.toHaveBeenCalled();
+		});
+
+		it("counts the replay against the original sender's rate-limit budget", async () => {
+			// RATE_LIMIT_MAX_CALLS is mocked to 5 in this file.
+			// Exhaust sender 9's budget while connected, then
+			// queue a command while disconnected and flush — the
+			// replay must be rate-limited like a live call would
+			// be (a null-sender replay would bypass the budget).
+			// 5 accepted calls fill the budget (then drain their
+			// replies to keep the pending map clean).
+			for (let i = 0; i < 5; i++) {
+				sendToPython({ type: "get_config" }, 9).then(
+					(v) => v,
+					() => {
+						/* no rejection expected here */
+					},
+				);
+			}
+			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
+			for (let i = 0; i < 5; i++) {
+				replyToNextPending({ ok: true });
+			}
+			expect(state.pendingRequests.size).toBe(0);
+
+			// A 6th live call from sender 9 is rate-limited —
+			// proves the budget is exhausted.
+			await expect(sendToPython({ type: "get_config" }, 9)).rejects.toThrow(
+				/Rate limit exceeded/,
+			);
+			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
+
+			// Queue the same command while disconnected, then
+			// flush — the replay re-uses sender 9's identity and
+			// is rejected by the SAME budget instead of writing.
+			state.tcpSocket = null;
+			state._hadConnectedBefore = true;
+			const queued = sendToPython({ type: "get_config" }, 9);
+			const onRejected = vi.fn();
+			queued.catch(onRejected);
+			expect(_pendingOutboundLengthForTest()).toBe(1);
+
+			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
+			state.tcpSocket = { write: mocks.socketWrite } as any;
+			flushPendingOutbound();
+
+			await vi.waitFor(() => expect(onRejected).toHaveBeenCalledTimes(1));
+			expect(
+				(onRejected.mock.calls[0]?.[0] as Error | undefined)?.message,
+			).toMatch(/Rate limit exceeded/);
+			// No additional write — the replay never reached the socket.
+			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
+		});
+
+		it("still replays null-sender (main-process) entries when a renderer budget is exhausted", async () => {
+			// Exhaust sender 9's budget with live, successful calls so the
+			// budget is provably gone, then prove a further live call is
+			// rate-limited.
+			for (let i = 0; i < 5; i++) {
+				sendToPython({ type: "get_config" }, 9).then(
+					() => {},
+					() => {},
+				);
+			}
+			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
+			for (let i = 0; i < 5; i++) {
+				replyToNextPending({ ok: true });
+			}
+			expect(state.pendingRequests.size).toBe(0);
+			await expect(sendToPython({ type: "get_config" }, 9)).rejects.toThrow(
+				/Rate limit exceeded/,
+			);
+
+			// Main-process callers pass senderId null and must keep
+			// bypassing the per-renderer rate limit on replay: the queued
+			// null-sender entry still writes even though sender 9's budget
+			// is exhausted.
+			state.tcpSocket = null;
+			state._hadConnectedBefore = true;
+			const queued = sendToPython({ type: "get_config" });
+			expect(_pendingOutboundLengthForTest()).toBe(1);
+
+			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
+			state.tcpSocket = { write: mocks.socketWrite } as any;
+			flushPendingOutbound();
+
+			expect(mocks.socketWrite).toHaveBeenCalledTimes(6);
+			const parsed = JSON.parse(mocks.socketWrite.mock.calls[5]?.[0] ?? "{}");
+			expect(parsed.type).toBe("get_config");
+			// Settle the replayed call so no pending request leaks into
+			// the next test.
+			replyToNextPending({ ok: true });
+			void queued;
+		});
+	});
 });

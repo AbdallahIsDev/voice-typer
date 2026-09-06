@@ -291,15 +291,6 @@ export function createBubbleWindow(): BrowserWindow {
 		//routine lifecycle event — log.info.
 		log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} closed`);
 		if (state.bubbleWindow === win) state.bubbleWindow = null;
-		// the previous `state._bubblePageReady = false`
-		// write here was dead — the matching read was never
-		// implemented in `showBubbleWindow()`, and the write in
-		// the `bubble:ready` IPC handler was already removed
-		// (see `bubble-handlers.ts`). The field declaration in
-		// `state.ts` remains for now (owned by another agent);
-		// removing the write here is the lockstep half owned by
-		// this module. Once `state.ts` drops the declaration,
-		// `MainState` will no longer carry the field at all.
 		// Clean up the tracked `display-removed` listener (by reference) so
 		// the bubble never leaks listeners after teardown.
 		detachDisplayRemovedHandler();

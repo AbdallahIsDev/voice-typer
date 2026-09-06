@@ -42,9 +42,10 @@
  * can fire during app teardown when `state.pythonProcess` is already
  * null. `stopPython()` and `startPython()` are both idempotent (see
  * `stop-python.ts`'s `isStopping`/`isStopped` guard and
- * `start-python.ts`'s `if (state.pythonProcess) return` early-exit),
- * so calling them when the backend is already stopped / already
- * running is a safe no-op.
+ * `start-python.ts`'s live-process early-exit — it returns without
+ * spawning while `state.pythonProcess` is set and its
+ * `exitCode`/`signalCode` are both still `null`), so calling them when
+ * the backend is already stopped / already running is a safe no-op.
  *
  * C-DATA-1: powerMonitor is a local OS event (no network) — the
  * `suspend` / `resume` / `on-battery` events come from the OS power
@@ -170,8 +171,10 @@ function registerPowerMonitorHandlersInner(): void {
 	// user can immediately dictate again. `startPython()` is
 	// idempotent — if the backend somehow survived the suspend
 	// (rare: desktop on AC power with `systemctl suspend`
-	// inhibited by another app), the early-exit guard makes this
-	// a no-op.
+	// inhibited by another app), its live-process early-exit guard
+	// (a non-null `state.pythonProcess` whose `exitCode` and
+	// `signalCode` are both still `null`) makes this a no-op
+	// instead of double-spawning into the single-instance mutex.
 	powerMonitor.on("resume", () => {
 		log.info("[power] resume — re-arming Python backend + heartbeats");
 		try {

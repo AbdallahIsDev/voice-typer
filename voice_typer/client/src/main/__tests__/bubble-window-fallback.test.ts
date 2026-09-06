@@ -55,7 +55,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		sessionNonce: "",
 		bubblePosition: "bottom",
 		bubbleDraggable: true,
-		_bubblePageReady: false,
 		_hideTimeout: null,
 		_tcpRetryCount: 0,
 		_tcpRetryTimer: null,

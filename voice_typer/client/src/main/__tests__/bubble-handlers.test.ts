@@ -62,7 +62,6 @@ vi.mock("../state", () => ({
 		bubbleWindow: null,
 		bubbleDraggable: true,
 		bubblePosition: "top",
-		_bubblePageReady: false,
 	},
 }));
 

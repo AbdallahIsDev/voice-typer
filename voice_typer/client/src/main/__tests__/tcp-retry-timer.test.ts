@@ -45,7 +45,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		sessionNonce: "",
 		bubblePosition: "top",
 		bubbleDraggable: true,
-		_bubblePageReady: false,
 		_hideTimeout: null,
 		_tcpRetryCount: 0,
 		_tcpRetryTimer: null,
@@ -99,14 +98,26 @@ describe("R6-F6: source-level contract for start-python.ts timer cleanup", () =>
 		expect(src).toContain("state._tcpRetryTimer = null");
 	});
 
-	it("relaunch-app.ts source clears _tcpRetryTimer in BOTH branches", () => {
-		const src = fs.readFileSync(
+	it("relaunch-app.ts (prod branch) + the shared tcp-bridge-reset clear _tcpRetryTimer", () => {
+		// The dev-branch teardown was extracted into the shared
+		// `tcp-bridge-reset.ts` (used by relaunchApp dev + restartBackend),
+		// so the dev-branch timer clear lives there now. The production
+		// branch keeps its own inline clear. Combined, both restart
+		// paths must still clear the timer (>= 2 occurrences across
+		// the two files).
+		const relaunchSrc = fs.readFileSync(
 			path.resolve(__dirname, "../python/relaunch-app.ts"),
 			"utf-8",
 		);
-		// Count occurrences — there should be at least 2 (dev + prod).
-		const matches = src.match(/clearTimeout\(state\._tcpRetryTimer\)/g);
-		expect(matches?.length ?? 0).toBeGreaterThanOrEqual(2);
+		const resetSrc = fs.readFileSync(
+			path.resolve(__dirname, "../python/tcp-bridge-reset.ts"),
+			"utf-8",
+		);
+		const matches = [
+			...relaunchSrc.matchAll(/clearTimeout\(state\._tcpRetryTimer\)/g),
+			...resetSrc.matchAll(/clearTimeout\(state\._tcpRetryTimer\)/g),
+		];
+		expect(matches.length).toBeGreaterThanOrEqual(2);
 	});
 
 	it("tcp-connect.ts source stores the timer on state._tcpRetryTimer", () => {

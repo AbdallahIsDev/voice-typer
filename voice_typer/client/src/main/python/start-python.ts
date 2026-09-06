@@ -53,6 +53,34 @@ import { clearTcpStartupTimeout, tcpConnect } from "./tcp-connect";
  * spawns a new one via `startPython()`.
  */
 export function startPython() {
+	// Idempotence guard: if the previously-spawned backend is still
+	// running, do NOT start a second one. Node's ChildProcess reports
+	// `exitCode: null` while the process is running and `signalCode:
+	// null` until it is terminated by a signal — both null means
+	// alive (the same liveness check used by kill-python.ts and
+	// stop-python.ts). Without this guard, a spurious or fast
+	// suspend/resume cycle (powerMonitor `resume` while the old
+	// backend is still alive — e.g. suspend inhibited on AC power, or
+	// resume firing while stopPython's force-kill grace period is
+	// still in flight) would spawn a SECOND backend. The second
+	// backend cannot acquire the Python-side `VoiceTyperSingleInstance`
+	// mutex, exits early, and the early-exit handler tears the whole
+	// app down with a misleading "only one instance" dialog — the app
+	// quitting ITSELF over its own double-spawn. All other spawn
+	// paths are unaffected: `state.pythonProcess` is null on the
+	// initial boot, the dev-mode relaunch awaits the old process's
+	// exit before calling this, and restart-backend releases the
+	// condemned process reference before respawning.
+	if (
+		state.pythonProcess &&
+		state.pythonProcess.exitCode === null &&
+		state.pythonProcess.signalCode === null
+	) {
+		log.info(
+			"[STARTUP] startPython() called while the backend is still running — no-op",
+		);
+		return;
+	}
 	// Increment the retry generation to stop any stale TCP retry loops.
 	// Each tryConnect() closure captures this value at creation time;
 	// after incrementing, all existing close/error handlers will see

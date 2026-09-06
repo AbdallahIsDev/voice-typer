@@ -128,7 +128,6 @@ const mockState: MainState = {
 	sessionNonce: "",
 	bubblePosition: "top",
 	bubbleDraggable: true,
-	_bubblePageReady: false,
 	_hideTimeout: null,
 	_tcpRetryCount: 0,
 	_tcpRetryTimer: null,

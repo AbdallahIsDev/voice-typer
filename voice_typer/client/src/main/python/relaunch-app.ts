@@ -48,6 +48,12 @@ import { atomicWriteFile } from "./atomic-write";
 import { killPythonProcessWithSigkillFallback } from "./kill-python";
 import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
+// Shared ordered TCP-bridge teardown (socket destroy, flag resets,
+// retry-generation bump, heartbeat clear, pending-request rejection) —
+// the dev branch below and `restart-backend.ts` both funnel their
+// bridge reset through this single function so the two restart paths
+// cannot drift.
+import { resetTcpBridgeState } from "./tcp-bridge-reset";
 //clear the TCP startup timeout timer so the 60s deadline
 // doesn't fire AFTER we've torn down Python (which would trip the
 // premature "Python backend failed to start" dialog + `app.quit()`
@@ -274,50 +280,22 @@ export async function relaunchApp(): Promise<void> {
 		);
 
 		// Kill old Python via the shared SIGTERM+SIGKILL-fallback
-		// helper (imported from `./kill-python`). The state-reset
-		// block below is branch-specific (dev mode clears more
-		// state than prod).
+		// helper (imported from `./kill-python`). The TCP-bridge
+		// teardown itself is the shared `resetTcpBridgeState`
+		// sequence (same ordering `restart-backend.ts` uses); the
+		// steps below are the dev-branch extras around it.
 		killPythonProcessWithSigkillFallback("dev");
 
-		// Clean up TCP + state
-		try {
-			if (state.tcpSocket) state.tcpSocket.destroy();
-		} catch (e) {
-			//surface the destroy failure instead of swallowing.
-			log.warn("[RESTART] dev: tcpSocket.destroy failed:", e);
-		}
-		state.tcpSocket = null;
-		//clear the per-renderer rate-limit Map so destroyed-window
-		// entries don't accumulate across dev-mode restarts (each restart
-		// creates a fresh BrowserWindow with a fresh webContents.id; the
-		// old id's entry would otherwise leak forever).
-		_resetIpcBackpressure();
-		//reset the TCP line buffer so stale partial
-		// frames from the previous backend don't bleed into the
-		// next connection.
-		state.tcpBuffer = Buffer.alloc(0);
-		state._tcpAuthed = false;
-		state.pythonReady = false;
-		state.pythonExitedEarly = false;
-		state._hadConnectedBefore = false;
-		state._tcpRetryCount = 0;
-		// R6-F6: clear the pending TCP retry timer BEFORE bumping the
-		// generation, otherwise the stale `tryConnect()` invocation
-		// would fire once more (creating a fresh socket that
-		// immediately hits the generation mismatch and bails — wasted
-		// work + a brief window of "extra" socket churn).
-		if (state._tcpRetryTimer) {
-			clearTimeout(state._tcpRetryTimer);
-			state._tcpRetryTimer = null;
-		}
-		state._tcpRetryGeneration++;
-		//clear the heartbeat interval — the next connect
-		// callback will start a fresh one when the new backend
-		// accepts our TCP connection.
-		if (state.heartbeatInterval) {
-			clearInterval(state.heartbeatInterval);
-			state.heartbeatInterval = null;
-		}
+		// Clean up TCP + state, reject pending IPC. Pending
+		// requests are rejected here (before the exit wait)
+		// because the teardown already closed the socket and reset
+		// `_hadConnectedBefore` — nothing new can join
+		// `pendingRequests` during the wait below, and every
+		// rejected caller would eventually receive this same
+		// "Application is restarting" error anyway (it is the
+		// exact message `sendToPython` rejects with while
+		// `_relaunching` is true).
+		resetTcpBridgeState("Application is restarting");
 
 		// Wait for the OLD backend to actually release the IPC
 		// port before spawning its replacement. All synchronous
@@ -331,11 +309,8 @@ export async function relaunchApp(): Promise<void> {
 			log.info("[RESTART] dev: old Python exited — spawning replacement");
 		}
 
-		// Reject pending IPC, reload renderer, spawn fresh Python
-		for (const [id, entry] of state.pendingRequests) {
-			state.pendingRequests.delete(id);
-			entry.reject(new Error("Application is restarting"));
-		}
+		// Reload renderer, spawn fresh Python. (Pending IPC was
+		// already rejected by `resetTcpBridgeState` above.)
 		try {
 			if (state.mainWindow && !state.mainWindow.isDestroyed()) {
 				if (process.env.ELECTRON_RENDERER_URL) {

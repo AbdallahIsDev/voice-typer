@@ -285,22 +285,24 @@ export function isPositionOnAnyDisplay(pos: { x: number; y: number }): boolean {
 // on the side of NOT painting over fullscreen).
 export function isForegroundFullscreen(): boolean {
 	try {
-		// Electron doesn't expose a direct "is foreground fullscreen" API,
-		// but we can check every screen's workspace for a fullscreen window.
-		const displays = screen.getAllDisplays();
-		for (const _display of displays) {
-			// On macOS, BrowserWindow.getAllWindows() lets us inspect each
-			// window's fullscreen state. On Windows / Linux this is a no-op
-			// (we just return false and let setVisibleOnAllWorkspaces run).
-			if (process.platform === "darwin") {
-				const win = BrowserWindow.getFocusedWindow();
-				if (win?.isFullScreen()) {
-					return true;
-				}
+		// Electron doesn't expose a direct "is foreground fullscreen"
+		// API. On macOS, `BrowserWindow.getFocusedWindow()` inspects
+		// the focused window's fullscreen state — a single call is
+		// sufficient. (An earlier revision looped over
+		// `screen.getAllDisplays()` and issued one native
+		// `getFocusedWindow()` call PER DISPLAY even though the loop
+		// body never used the display — on a multi-display Mac that
+		// was N redundant native round-trips on every bubble show.
+		// On Windows / Linux the detection is a no-op: we return
+		// false and let setVisibleOnAllWorkspaces run.)
+		if (process.platform === "darwin") {
+			const win = BrowserWindow.getFocusedWindow();
+			if (win?.isFullScreen()) {
+				return true;
 			}
 		}
 	} catch (e) {
-		// Best-effort detection — `screen.getAllDisplays()` / `BrowserWindow.getFocusedWindow()`
+		// Best-effort detection — `BrowserWindow.getFocusedWindow()`
 		// can throw in headless test environments or if the GPU process is gone.
 		// Non-fatal: we err on the side of NOT painting over fullscreen apps.
 		//route through structured `log` so the failure

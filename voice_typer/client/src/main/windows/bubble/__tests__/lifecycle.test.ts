@@ -77,7 +77,6 @@ const positioningSpies = vi.hoisted(() => ({
 // lifecycle module because both sides read the same object.
 const mockState = vi.hoisted(() => ({
 	bubbleWindow: null as unknown,
-	_bubblePageReady: false,
 }));
 
 vi.mock("electron", () => ({
@@ -162,7 +161,6 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockState.bubbleWindow = null;
-		mockState._bubblePageReady = false;
 		// Defensive: ensure no tracked handler leaks between tests.
 		detachDisplayRemovedHandler();
 	});
@@ -294,41 +292,11 @@ describe("bubble lifecycle.ts: regressions", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockState.bubbleWindow = null;
-		mockState._bubblePageReady = false;
 		detachDisplayRemovedHandler();
 	});
 
 	afterEach(() => {
 		detachDisplayRemovedHandler();
-	});
-
-	it("win 'closed' handler does NOT reset state._bubblePageReady (dead write removed)", () => {
-		// Mark the field true BEFORE close so the test would fail if
-		// the closed handler still wrote `false` to it.
-		mockState._bubblePageReady = true;
-
-		createBubbleWindow();
-
-		// Find the registered "closed" handler on the win mock.
-		const closedCalls = winSpies.on.mock.calls.filter(
-			(c: unknown[]) => c[0] === "closed",
-		);
-		expect(closedCalls.length).toBe(1);
-		const closedHandler = closedCalls[0]?.[1] as (() => void) | undefined;
-		if (closedHandler === undefined) {
-			throw new Error("expected a registered closed handler");
-		}
-
-		// Invoke the closed handler (simulates the BrowserWindow
-		// emitting "closed" on teardown).
-		closedHandler();
-
-		// The closed handler must NOT have touched the dead
-		// `_bubblePageReady` field — the matching read was never
-		// implemented in `showBubbleWindow()` and the write in the
-		// `bubble:ready` IPC handler was already removed. The
-		// field stays at whatever value the test set (true).
-		expect(mockState._bubblePageReady).toBe(true);
 	});
 
 	it("FZ-64: render-process-gone reload uses RENDER_RELOAD_BACKOFF_MS constant, not literal 2000", () => {
