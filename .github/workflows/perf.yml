@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -215,7 +215,7 @@ jobs:
         # contributors can inspect the exact numbers that triggered the
         # failure. Retained for 14 days (the default for non-release runs).
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bench-current-${{ github.run_id }}
           path: bench-current.json
