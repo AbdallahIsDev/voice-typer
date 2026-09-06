@@ -2,11 +2,7 @@
 
 These items are the highest-priority remaining work for the project — they block the Tauri migration, fix core functionality, or address critical infrastructure gaps. Items in this section are ordered by priority (top = most urgent).
 
----
-
 > **Won't Fix tasks live in `WONT_FIX.md`** — deliberately not solved. Do NOT fix them (AGENTS.md C-REVIEW-1). See that file for the full list.
-
----
 
 ### T-1 — TAURI-E2E — Full-application validation mission (GOAL MODE: zero problems)
 
@@ -83,8 +79,6 @@ The application also runs in a normal browser (the renderer is served on localho
 - The Tauri application behaves correctly for a normal user from onboarding through daily use — production-ready.
 - Findings and fixes recorded in `worklog.md` / this file.
 
----
-
 ### GA-1 — Restore bundled gtcrn_simple.onnx model binary
 **Status:** Open (pending asset delivery).
 **Description:** The bundled GTCRN noise-suppression model binary `voice_typer/server/gtcrn_simple.onnx` is ABSENT from this tree (verified 2026-08-25: file does not exist) — the cloud patch exports text-only diffs and cannot carry binaries, and the 0-byte artifact was removed. ER-2 landed the entire backend against the expected asset: official GTCRN streaming ONNX export, 535190 bytes, MIT license. With the binary missing, `_init_gtcrn` degrades to RNNoise with `is_degraded=True` at every init and the noisy_room preset silently loses its neural denoiser; the sdist MANIFEST.in include line is commented out pending delivery (dated rationale in place) so packaging never references a nonexistent file. Hop-size/layout contract for the incoming asset: 512-sample window / `HOP: int = 256` at voice_typer/server/audio_filters/gtcrn_backend.py:67 (16 ms @ native 16 kHz). Completes ER-2 delivery — cross-reference [ER-2] rather than duplicating its backend scope.
@@ -99,11 +93,9 @@ The application also runs in a normal browser (the renderer is served on localho
 **Fix:** Obtain the official GTCRN streaming ONNX export (535190 bytes, MIT) via cloud-workspace re-export INCLUDING untracked binaries — never blind-download an arbitrary upstream export. Place at `voice_typer/server/gtcrn_simple.onnx`; uncomment the MANIFEST.in include line; un-skip `TestRealModel` in tests/test_noise_suppressor_gtcrn.py (skipif guard cites `MODEL_PATH.exists()`, :604-606); validate perf budget ~1.43 ms/hop ≤ 20 ms.
 **Severity:** 🟡 Medium
 
----
-
 ### CI-1 — Fix all GitHub Actions CI pipeline errors and warnings
 
-**Status:** 🚫 SKIPPED this session — conflicts with AGENTS.md Hard Don'ts C-CI-2 (tauri-*-build.yml edits are forbidden as first-line fixes; any required change must be validated by a full workflow re-run and confirmed with the user). The underlying test-failure portion of this task WAS fixed via CI-ALL above; the workflow-only items (Node 20 action bumps, GP-66, GP-70) need the user's explicit go-ahead + a validated CI run.
+**Status:** ⚠️ Partial — GP-66 (macOS listener-skip) and GP-70 (codesign --verify) workflow edits applied 2026-09-06 under the user's explicit C-CI-2 override; Node-20 action pins verified already at the v5/v6/v7 majors. A validated full CI re-run is still required before this is done.
 
 **Description:** The CI pipeline contains several known issues: GP-66 (macOS binary-existence hard-fails instead of skipping), GP-70 (no `codesign --verify` step in Tauri macOS workflow), plus broader concerns such as `actions/upload-artifact@v5` / `setup-uv@v6` that run on deprecated Node.js 20 (hard-fail imminent when GitHub removes Node 20), potential secrets-not-set causing silent skip of signing steps, and drift between `build.yml` (Electron) and `tauri-*-build.yml` workflows. The full set of failures can only be determined by running each workflow end-to-end and inspecting logs.
 
@@ -129,8 +121,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Category:** CI/CD
 
----
-
 ### GP-66 — macOS CI hard-fails on missing binary instead of SKIP
 **Status:** 🚫 SKIPPED this session — conflicts with AGENTS.md Hard Don'ts C-CI-2: tauri-macos-build.yml:608-609 edit requires a user-validated full workflow re-run. Change is ready to apply on approval: replace the hard `exit 1` binary-existence gate with a conditional skip.
 **Description:** When the macOS native key-listener binary is absent (e.g. on a non-macOS CI runner or a partial checkout), the workflow should skip the binary-existence gate gracefully. Instead it hard-fails with `exit 1`, blocking the rest of the job.
@@ -141,8 +131,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Fix:** Replace `test -x "$BIN" || { echo "MISSING"; exit 1; }` with `test -x "$BIN" || { echo "MISSING — skipping"; continue; }` (or similar `skip` pattern) so the build continues without the native listener binary.
 **Severity:** 🟡 Medium
 **Category:** CI/CD
-
----
 
 ### GP-70 — macOS CI codesign --verify step missing
 **Status:** 🚫 SKIPPED this session — conflicts with AGENTS.md Hard Don'ts C-CI-2: adding the codesign --verify step to tauri-macos-build.yml requires a user-validated full workflow re-run. Change is ready to apply on approval.
@@ -155,178 +143,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🟡 Medium
 **Category:** CI/CD / signing
 
----
-
-### BP-1 — History search becomes a full-database scan for Chinese/Japanese/Korean text
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** When a user searches their dictation history and the search text contains even a single Chinese, Japanese, or Korean character, the search quietly stops using the search index and instead reads every single row in the database to check for a match. The index-based search only works for Latin text. Since the app ships with Chinese as one of its eight supported languages, this affects a normal everyday action for those users, not an edge case.
-
-**User Impact:** History search gets slower the more dictations a user has accumulated. With a few years of history, each search can take hundreds of milliseconds to seconds, and the search box feels like it stalls. Latin-script users never see this because their searches use the index.
-
-**Root Cause:** `voice_typer/server/history_db_internals/search.py:452` — the query router sends any query containing a CJK/fullwidth codepoint to a `LIKE '%…%'` scan, which cannot use any index. This is distinct from the adjudicated Won't Fix item GQ-48 (separator-only queries): here the linear scan is the NORMAL path for CJK users.
-
-**Gain vs Trade-off:** Gaining indexed-speed search for CJK users costs one extra database index (a "trigram" index, supported by SQLite since 3.34 — Python 3.11+ bundles ≥3.37) and a one-time index rebuild. Slight disk and write cost. No behavior change for Latin searches.
-
-**If We Do It:** A Chinese user typing in the history search box sees results as fast as an English user does, regardless of how many years of dictations they have stored.
-
-**If We Don't:** CJK-locale users experience progressively slower history search as their history grows, and may conclude the History page is broken or unusable.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.` (investigation only — nothing is implemented in this mode)
-
-**Related Files:**
-- `voice_typer/server/history_db_internals/search.py`
-
-**Fix:** Add a second FTS5 index using the `trigram` tokenizer consulted only for queries containing CJK/wide characters (keep the existing unicode61 index for Latin queries). Verify the bundled SQLite version supports trigram on all target platforms before implementing (distro-linked builds can be older). Keep `prepare_like_search_pattern` as a final fallback.
-
-**Simplified Fix:** Today, searching in Chinese reads the whole history file row by row. We add a second, more flexible search index that handles Chinese and other non-Latin scripts properly, so those searches jump straight to matching entries instead of scanning everything.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-### BP-2 — Native key-listener process can be left running after a hard crash
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The app uses a small helper program (a "native key listener") to watch keyboard input. If the app is ever killed abruptly — a crash, a force-kill, a power loss — that helper is deliberately disconnected from the app's process group and does not notice the app is gone. On Linux, the helper only dies by accident: the next keystroke writes to a dead pipe and kills it. Until then, it keeps holding the keyboard device files open. The same non-fatal pattern exists in all three platform binaries (Linux C, Windows C, macOS Swift — the macOS leg was not examined beyond the stdin thread shape and needs validation).
-
-**User Impact:** After a hard crash on Linux, a ghost process can hold the keyboard devices until the next keystroke or reboot. On Windows when run from a dev terminal (not under the Tauri host), an orphaned listener can keep a low-level keyboard hook installed after the app is gone — keys may briefly feel "dead" to other apps. Under the normal Tauri host on Windows, the Job Object likely reaps it (needs host validation).
-
-**Root Cause:** `voice_typer/server/native_hotkeys/_spawn.py:235` detaches the child (`start_new_session`); the native binaries' stdin reader thread exits its loop on EOF without setting the process-exit flag (e.g. `native/linux-key-listener.c:131-134`; `g_should_exit` is set only by signal handlers at `:842-847`); no PDEATHSIG on Linux; the Tauri reaper (`src-tauri/src/platform/process/posix.rs:37-41`) kills only the sidecar PID, never grandchildren.
-
-**Gain vs Trade-off:** Making stdin-EOF fatal in the three native binaries is a one-line change per binary with no downside — the parent is gone, so the listener has no reason to live. Linux gains deterministic cleanup instead of an accidental keystroke-triggered death.
-
-**If We Do It:** A hard crash cleans up after itself completely — no ghost processes holding input devices or keyboard hooks.
-
-**If We Don't:** Rare but confusing leftovers: "why is my keyboard acting weird" after a crash, or a process listed as running after the app is closed.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/native_hotkeys/_spawn.py`
-- `voice_typer/server/native/linux-key-listener.c`
-- `voice_typer/server/native/windows-key-listener.c`
-- `voice_typer/server/native/macos-key-listener.swift`
-
-**Fix:** In each native binary's stdin reader thread, set the global exit flag when `fgets()` returns NULL (EOF), in addition to the signal path. Optionally add `prctl(PR_SET_PDEATHSIG, SIGKILL)` in a `preexec_fn` on Linux. VALIDATE ON WINDOWS HOST (Job Object behavior) and on macOS.
-
-**Simplified Fix:** The keyboard-watcher helper is told to keep running until it gets a stop signal. We also tell it to stop when it notices the main app has closed its communication line — so it always shuts itself down when the app dies, even if the app dies suddenly.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-### BP-3 — One hard kill of the worker permanently breaks offline transcription on Windows
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The transcription worker uses a lock file on Windows to ensure only one copy runs. If the worker is ever force-killed (Task Manager, `taskkill`, a crash), the lock file is left behind with a stale ID. On the next launch, the Windows branch of the worker's lock check simply refuses to start — permanently — because it never checks whether the recorded process is actually still alive. The documentation inside the code claims the Windows path mirrors the Linux "stale lock recovery", which it does not. The server-side code already contains the correct reference implementation.
-
-**User Impact:** After one force-kill, every later attempt to run offline transcription silently fails (exit code 3, a warning line in a log). Dictation appears dead until the user manually finds and deletes a lock file in a hidden AppData folder — something no ordinary user would know how to do.
-
-**Root Cause:** `voice_typer/worker/_single_instance.py:158-176` — Windows branch checks `lock_path.exists()` then refuses; the in-code comment admits the stale-PID check is "left as TODO". Contradicted by `voice_typer/worker/__main__.py:29-34` (claims parity with the POSIX stale-PID path) and by `src-tauri/src/sidecar/spawn.rs:394-398` (claims "a stale lock is detected via PID check"; `initialize_worker` is `#[allow(dead_code)]`). The working reference implementation is `voice_typer/server/single_instance.py:485-495`.
-
-**Gain vs Trade-off:** Pure improvement — the reference implementation already exists in the repo and only needs porting to the worker's Windows branch. No new design, no behavior change for healthy locks.
-
-**If We Do It:** A force-killed worker self-heals: the next launch detects the stale lock, reclaims it, and dictation keeps working. Windows users never see "offline transcription mysteriously dead".
-
-**If We Don't:** Any hard kill (user action or crash) leaves dictation broken until manual intervention in AppData — a silent, hard-to-diagnose support trap.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/worker/_single_instance.py`
-- `voice_typer/worker/__main__.py`
-- `voice_typer/server/single_instance.py`
-
-**Fix:** Port the server's `_ensure_windows_single_instance` stale-PID probe (OpenProcess/GetExitCodeProcess liveness check) into the worker's Windows branch; reclaim the lockfile when the recorded PID is dead. Update the two docstrings that currently claim parity. VALIDATE ON WINDOWS HOST.
-
-**Simplified Fix:** When the worker starts and finds a lock file, it currently gives up. We make it check whether the process that created the lock is still running; if not, it takes over the lock and starts normally — the same self-healing the app already does on Linux.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
----
-
-### BP-4 — Vocabulary corrections run one full-text scan per phrase, per dictation
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Every dictation's text passes through the user's vocabulary corrections (misspelled words, phrase fixes). The vocabulary engine applies each correction phrase one at a time: for each of the user's phrases, it re-scans the entire dictation text. A user with a large vocabulary (the app allows up to 5,000 phrases plus 5,000 word patterns) triggers up to 10,000 full-text passes per dictation. The bundled default (8 phrases) is unaffected, so this only bites power users. The repo's own text-cleanup engine already solved this exact problem years ago with a "combine all phrases into one pattern, single pass" design — the vocabulary engine never received that upgrade.
-
-**User Impact:** Power users with large correction dictionaries experience a growing delay between stopping speech and seeing the text — potentially seconds per dictation at the cap. Everyone else is unaffected.
-
-**Root Cause:** `voice_typer/server/vocabulary.py:882-896` — the phrase loop runs `pattern.subn(...)` per entry over the full text. The default corrections route goes through vocabulary (`dictation_pipeline/text_steps.py:64`, `skip_corrections=vocab_enabled` defaults to on). Contrast: `voice_typer/server/text_cleanup/_engine.py:46-54, 485-499` documents the combined-alternation single-pass design. GQ-32 (Won't Fix) measured 145ms for the single-pass engine at the same cap — the loop is strictly worse (M passes vs 1), so the total is plausibly seconds at the cap.
-
-**Gain vs Trade-off:** Faster dictation completion for power users, using an approach already proven inside the same codebase. Trade-off: the usage-tracking callback (which counts hits per phrase) must be preserved while switching to the combined pattern — the one subtle part.
-
-**If We Do It:** Dictation text appears noticeably sooner for users with large vocabularies; delay stops growing with dictionary size.
-
-**If We Don't:** Heavy vocabulary users keep waiting longer and longer per dictation as their dictionary grows, and may disable the feature that is supposed to help them.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/vocabulary.py`
-- `voice_typer/server/dictation_pipeline/text_steps.py`
-- `voice_typer/server/text_cleanup/_engine.py`
-
-**Fix:** Reuse the repo's combined-alternation design in `VocabularyManager.apply_to_text`: build one alternation regex per category (the compile cache at `:195-199` already exists), run a single `re.sub` per category with a lookup-dict callback that increments the usage tracker counts. No cap change, no new dependency.
-
-**Simplified Fix:** Instead of re-reading the whole dictated text once for every correction the user has saved, we combine all their corrections into one search and apply them in a single pass — the same trick the app already uses for its built-in corrections.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-### BP-5 — First-run Windows startup and every login pay avoidable blocking waits
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Two blocking waits sit on time-critical paths. (1) On Windows first run, the desktop-shortcut creation runs synchronously on the startup thread BEFORE the hotkey is registered and microphones are enumerated. The fast path (creating the shortcut via Windows' built-in COM API) is quick, but if that API is unavailable the code falls back to launching a PowerShell process with a 30-second ceiling — and a second PowerShell step (stamping the shortcut icon) takes "seconds" by its own comment. While this runs, the dictation hotkey does not work yet. (2) At every autostart login where the backend is already running, the launcher sleeps a fixed 0.5 seconds before exiting — and the OS waits for the launcher to exit before considering login complete.
-
-**User Impact:** First-run Windows users wait up to seconds before their hotkey works (in the fallback case). Every autostart login with a prewarmed backend takes an extra 0.5 seconds for no functional reason. Neither breaks anything; both are avoidable sluggishness on the two paths users most judge an app by.
-
-**Root Cause:** (1) `voice_typer/server/startup_sequence/_phases_late.py:519` calls `ensure_desktop_shortcut(app)` synchronously; the "shortcut creation is fast" comment at `:514-517` is only true for the happy path. The same file already dispatches equally-idempotent work to fire-and-forget daemon threads at `:414-427` (the precedent to copy). (2) `voice_typer/server/autostart_launcher.py:349-353` — unconditional `time.sleep(0.5)` in the "backend already running" branch; the focus child is spawned detached (`autostart/focus.py:77,116`) and never waited on, so the sleep's purpose is undocumented.
-
-**Gain vs Trade-off:** Pure latency wins. Fix (1) uses an in-file precedent; fix (2) removes a wait whose purpose is unproven — regression-check focus behavior when removing. The `[AUTOSTART] RESULT` observability lines (C-CROSS-5) must be preserved.
-
-**If We Do It:** The hotkey works as early as possible on first run; logins complete without the artificial half-second lag.
-
-**If We Don't:** First-run and login feel slower than they should, for reasons invisible to the user.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/startup_sequence/_phases_late.py`
-- `voice_typer/server/startup_tasks.py`
-- `voice_typer/server/server_platform/desktop_shortcut.py`
-- `voice_typer/server/autostart_launcher.py`
-- `voice_typer/server/autostart/focus.py`
-
-**Fix:** (1) Dispatch `ensure_desktop_shortcut` on a fire-and-forget named daemon thread mirroring `sync_prewarm_task`; update the stale comment. (2) Remove or bound the 0.5s sleep (do NOT `child.wait()` the focus GUI child for its lifetime — it would block login until the app closes); verify focus still works; keep the RESULT line.
-
-**Simplified Fix:** The app creates its desktop shortcut on a background thread instead of making the startup sequence wait for it, and the login helper stops sleeping half a second before exiting when there is nothing to wait for.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
----
-
-
-**Enrichment (2026-09-04 BP session — Wave 5):** A THIRD blocking site beyond the two filed here: the phase-6 `sync_autostart` → `is_autostart_enabled` → `schtasks /Query` runs SYNCHRONOUSLY on the startup critical path BEFORE hotkey registration (30 s hang ceiling; task_scheduler.py:57-60's docstring falsely claims a background thread), plus a no-op prewarm-sync daemon thread and a misdescribing INFO log every boot — filed as BP-129.
 ### BP-6 — Performance benchmark suite no longer guards the budgets it exists to guard
-**Status:** ❌ Not Fixed (investigation only)
+**Status:** ✅ Fixed (2026-09-06 — hard realtime-margin gate + non-finite-output gate in the chain bench; nearest-rank percentiles + 20 iters + untimed warm-up; ``engine.load()`` now timed in bench_model_load (soft-skip on missing model); TRACKED rnnoise variant (appended rows, skip-if-unavailable, ratchet indices stable); NEW bench_tcp_loopback_round_trip + bench_dictation_e2e wired into ``make bench``; baseline entries added)
 
 **Description:** The benchmark suite — the project's early-warning system for performance regressions — has four problems. (1) The audio filter-chain benchmark's recorded baselines sit 3-11× ABOVE the documented real-time budgets (50ms recorded vs <32ms budget at 16kHz; 60ms vs <10.6ms at 48kHz), with tolerance widened so CI only fails above ~100ms. (2) The most expensive filter (the neural noise suppressor) is excluded from the tracked chain, so the production configuration is unguarded. (3) The "model load time" benchmark never actually loads a model — it times the constructor, which was made deliberately hollow by a later refactor. (4) The percentile math at the default 10 iterations makes "p90" equal the maximum, and there is no warm-up iteration on the CPU path, so the reported number includes one-time cold-start cost. Additionally, the three surfaces users actually feel — end-to-end dictation latency, real cross-process IPC round-trip, and model-swap time — have no benchmarks at all.
 
@@ -357,189 +175,12 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟠 Hard
 **Severity:** 🟡 Medium
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** Four new pieces of evidence: (1) `bench_startup.py:437-459` prints the §3.4 verdict (first_run ≤ 600 ms: FAIL) but `main()` returns 0 unconditionally — the target is never a gate; (2) the perf-ratchet baseline for the same metric sits at 913.4 ms, so BOTH layers pass while the product budget is missed; (3) audio-filter baselines use `tolterance_pct: 100` (fail only above 2× the baseline) while their own notes cite ADR-0009 budgets of <32 ms — the ratchet passes with the budget blown; (4) `bench_audio_filter_chain.py` reproduces non-finite output (see BP-57) 3/3 runs and still prints PASS — no `np.isfinite` assertion exists. Coverage gap list: the Tauri WS spine (frame encode path, `_safe_send` cap/timeout, outbound-queue drop-oldest, pipelined dispatch), TCP `_send` path, dispatcher, and history_db read/write latency are unbenched (bench_ipc covers validation/event_bus/rate-limiter only).
-### BP-7 — Fast Startup (prewarm) re-reads hot files, never warms model weights, and its status card always shows "cold"
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The "Fast Startup" feature has three defects. (1) Every worker start re-reads every byte of the warmed library files even when they are already in the OS cache — a latency-based cache-hit probe exists in the same file but is never consulted. (2) The warm list covers only five library folders; it never warms the model weight files, which dominate cold-start cost after a reboot (a ~3GB model file read). (3) The Settings "Cache Status" card — the feature's only visible effectiveness signal — looks for a file named `model.safetensors`, which no current backend downloads (Whisper ships `model.bin`; Parakeet ships `.onnx` files; the legacy safetensors pin is no longer fetched). The card therefore always reports "cold / 0 bytes" even right after a successful warm run, and a 25-line helper looking for the same non-shipped filename is dead code.
-
-**User Impact:** After a reboot, the first dictation still pays the full multi-GB weight read even with Fast Startup enabled — the feature buys far less than promised. And because the status card always says "cold", users cannot tell whether prewarm is doing anything, so the feature looks broken even when the library-warming part works.
-
-**Root Cause:** (1) `voice_typer/server/prewarm/cache_probe.py:648-679` warms unconditionally; `_cache_ratio` (`:682+`) gates only the status page. (2) `_WORKER_WARM_PACKAGES` at `:302-308` is library-only. (3) `prewarm/status.py:254` hardcodes `model.safetensors`; actual pinned payloads per `security/model_integrity.py:126-150` (model.bin) and `:116-118` (.onnx); `_find_parakeet_weights` (`cache_probe.py:539-564`) has zero callers. (Pre-empting the counter-argument: the manifest does still pin a legacy `nvidia/parakeet-tdt-0.6b-v3` safetensors entry at `model_integrity.py:95-103`, but the engine is ONNX-only and that entry is no longer downloaded — the conclusion stands.)
-
-**Gain vs Trade-off:** Faster first-dictation-after-reboot and an honest status card. Trade-off: warming multi-GB weights adds background disk I/O at startup (bounded, daemon thread, gated by the cache-hit probe so it is skipped when already warm).
-
-**If We Do It:** First dictation after a reboot starts transcribing seconds sooner; the Cache Status card reflects reality and users can trust the Fast Startup toggle.
-
-**If We Don't:** Fast Startup under-delivers silently and its status indicator always lies — the worst combination for user trust in a premium app.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/prewarm/status.py`
-- `voice_typer/server/prewarm/cache_probe.py`
-- `voice_typer/server/security/model_integrity.py`
-
-**Fix:** Probe the union of backend payload names (model.bin, *.onnx shards, model.safetensors) via the pinned manifest per `model_integrity.py`'s `model_extensions`; extend the warm phase to `_warm_file` the active model's pinned files gated by the `_cache_ratio` skip; delete or repurpose `_find_parakeet_weights`.
-
-**Simplified Fix:** The "warm up the app for a fast start" feature currently warms the wrong files, skips the biggest ones entirely, and its status indicator looks for a file the app no longer uses — so it always says "cold". We point it at the files that are actually used, including the big model files, and teach it to skip work that is already done.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
----
-
-### BP-8 — Bare "ignore all errors" blocks hide real failures on the recording and startup paths
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** A sweep found bare `except: pass` blocks (catch-everything, do-nothing, log-nothing) at nine sites on paths users depend on: the microphone device-open path (channel-count probing and Bluetooth quality detection, three sites), the buffer-clearing worker, the device-change notification at startup, the download fallback's file cleanup, and three sites in the native-hotkey reader/core/recorder. Sibling code in the same files handles identical best-effort situations correctly by logging at DEBUG level — these nine sites predate or skipped that discipline. The repo even has a test file that pins "no broad excepts" for a list of owned files; four of these files are not on that list, so the contract does not protect them.
-
-**User Impact:** Individually small; collectively a diagnosability trap. When a microphone fails to open with a fallback-to-defaults, or a device-change notification silently fails to reach the UI, there is zero log trail — support (and future agents) must guess. One block hides a device-cache probe failure on the hotkey critical path.
-
-**Root Cause:** Sites: `voice_typer/server/startup_tasks.py:608-618`; `voice_typer/server/recording/stream_lifecycle.py:162-163, 208-209, 295-296`; `voice_typer/server/recording/buffer.py:337-338`; `voice_typer/server/segmented_download.py:926-930`; `voice_typer/server/native_hotkeys/_reader.py:97-100`, `_core.py:479-480, 488-489`. `tests/test_broad_except_cleanup.py`'s `_OWNED_FILES` omits stream_lifecycle.py and the native_hotkey modules.
-
-**Gain vs Trade-off:** Pure observability gain — same behavior, plus a log line. No risk. Narrowing exception types where the failure domain is known (device APIs raise specific errors) also converts silent wrong-behavior into loud failures.
-
-**If We Do It:** Every "best-effort" fallback leaves a breadcrumb; device problems become diagnosable from the log file alone.
-
-**If We Don't:** Intermittent device problems remain mysteries — the log says nothing precisely when something went wrong.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/startup_tasks.py`
-- `voice_typer/server/recording/stream_lifecycle.py`
-- `voice_typer/server/recording/buffer.py`
-- `voice_typer/server/segmented_download.py`
-- `voice_typer/server/native_hotkeys/_reader.py`
-- `voice_typer/server/native_hotkeys/_core.py`
-- `tests/test_broad_except_cleanup.py`
-
-**Fix:** Replace each bare `pass` with `log.debug("...", exc_info=True)` matching the sibling pattern; narrow the device-path blocks to the documented failure types (mirroring `device_manager.py`'s narrowed tuples); add the four unprotected files to `_OWNED_FILES` so the contract is pinned.
-
-**Simplified Fix:** Several places in the app respond to unexpected errors by silently doing nothing — not even writing a log line. We make each of them write a short diagnostic note instead, so when something goes wrong there is evidence to act on.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
----
-
-### BP-9 — A safety-critical comment documents the wrong guarantee on the streaming zero-clear path
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The recorder hands audio snapshots to the streaming engine as live views into its internal buffers. A comment on the streaming side claims the snapshots are always fresh copies that "do not share memory with the recorder's internal buffer". That is false — the snapshots ARE live views. The system remains correct only because of a subtle numpy behavior (slices-of-views report the ROOT buffer as their `.base`, and the zero-clear guard compares by that root identity) — which the comment never mentions. The guard exists to prevent a past corruption bug (zeroing buffers the stream is still reading); a maintainer who trusts the comment would conclude the guard is redundant and could remove it, silently reintroducing corrupted dictation audio.
-
-**User Impact:** None today. This is a loaded trap: the next well-intentioned "cleanup" of the streaming path could corrupt recordings. (The reviewer independently re-verified the numpy semantics with a live probe — the gate works exactly as described.)
-
-**Root Cause:** `voice_typer/server/streaming.py:152-158` (false comment) vs `voice_typer/server/recording/_recorder_split.py:719, 741, 756, 761` (`buf.view()` and `_cached_resampled[:len]` live views); the working guard at `streaming.py:42-56` + `:1027-1032`. The documented provenance anchor is `_recorder_split.py:157-159`.
-
-**Gain vs Trade-off:** Comment-only fix: zero behavior change, removes a latent correctness trap. Optionally walking `base.base` chains in the guard was considered and should be DEFERRED (the current gate is verified correct; changing it carries regression risk).
-
-**If We Do It:** Future maintainers read the true contract and preserve the guard; the corruption class of bug cannot be reintroduced by a comment-trusting cleanup.
-
-**If We Don't:** The trap stays armed — the pre-fix corruption bug documented in the finally-block comment can come back through routine refactoring.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/streaming.py`
-- `voice_typer/server/recording/_recorder_split.py`
-
-**Fix:** Rewrite the comment to state: snapshot returns a live view over `buf.storage` / `_cached_resampled`; window slices are nested views; the zero-gate's provenance check works because numpy reports the ROOT buffer as `.base` for simple slices — do not reshape/fancy-index the snapshot without revisiting `_is_view_of_live_recorder_audio`. Anchor on the invariant at `_recorder_split.py:157-159`.
-
-**Simplified Fix:** An explanatory note in the code claims the audio data is always a private copy, but it is actually a shared window into live memory, kept safe by a subtle protection. We rewrite the note to describe the truth, so nobody "simplifies away" the protection and corrupts recordings.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
----
-
-### BP-11 — Server "mixin mosaic": four composed classes share hidden state through injected attributes (58 suppression sites)
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Four central server classes are assembled from many "mixin" partial classes: the IPC server (20 mixins), the main app (5, ~3,280 lines across 8 files), the dictation pipeline (6), and the service layer (11, with non-cooperative `__init__` calls). Each mixin freely reads and mutates attributes defined by its siblings through the shared `self`, with no declared contract between them. Worse, several subsystems (the WebSocket layer, the hotkey dispatcher) attach their attributes and even replace methods onto these objects AFTER construction — a pattern that requires 58 `type: ignore` / error-suppression sites to coexist with the type checker (16 of them genuine dynamic-attribute injections; 6 undeclared `_ws_*` attributes plus 2 injected methods, one of which wraps/replaces the IPC server's `stop` at instance level).
-
-**User Impact:** None directly today. The cost is stability of future change: exactly this hidden-state injection pattern produced past incidents (the C-WS-1/C-WS-2 classes of bugs were found on lifecycle boundaries where these attributes materialize), and no type-checker or interface can currently catch a rename that breaks a sibling mixin.
-
-**Root Cause:** Historical monolith splits preserved the god-object's shared-state semantics while physically distributing the code; the injection sites were never given declarations. Key sites: `voice_typer/server/sidecar_ws_internals/graceful_shutdown.py:118,130,132,233,245,266` (instance-level `stop` wrap), `encode_pool.py:97,143`, `sidecar_ws.py:1371,1493`, `hotkey_dispatcher.py:454-1173` (5 injection sites), `ipc/rate_limiter.py:515`; `ipc_server.py:354-375` (20 bases), `app.py:103`, `dictation_pipeline/__init__.py:109-116`, `service/__init__.py:109-183`.
-
-**Gain vs Trade-off:** Phase 1 (declare the 8 undeclared attributes next to the 5 already-declared ones in `IPCServer.__init__`; declare the 4 hotkey-backend hooks on the base class; replace the instance-level `stop` wrap with an explicit hook) is contained, behavior-identical, and deletes ~16 suppressions. Phase 2 (Protocol-based interface extraction) is a large, staged refactor — worth doing incrementally, not as one big bang.
-
-**If We Do It:** The WebSocket shutdown path and hotkey hooks become statically checkable; a renamed attribute fails at type-check time instead of at 2am in production; ~16 suppression comments disappear.
-
-**If We Don't:** Every future transport, shutdown, or hotkey change risks the silent-failure class the project has repeatedly paid for, and the suppression count keeps growing.
-
-**My Recommendation:** ✅ Implement (phase 1 now; phase 2 incrementally)
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/ipc_server.py`
-- `voice_typer/server/sidecar_ws.py`
-- `voice_typer/server/sidecar_ws_internals/graceful_shutdown.py`
-- `voice_typer/server/sidecar_ws_internals/encode_pool.py`
-- `voice_typer/server/hotkey_dispatcher.py`
-- `voice_typer/server/app.py`
-- `voice_typer/server/dictation_pipeline/__init__.py`
-- `voice_typer/server/service/__init__.py`
-
-**Fix:** Phase 1: declare the 8 remaining injected attributes in `IPCServer.__init__` beside the existing 5 (mirroring the completed cleanup documented at `ipc_server.py:641-645`); declare `_tray`/`_on_state_change_callback`/`_delegated`/`_prefer_message_loop_first` on the `HotkeyBackend` base; replace `server.stop = wrapped_stop` with an explicit `set_stop_wrapper()` hook; delete the paired suppressions. Phase 2 (🟡-🟠 per stage): `@runtime_checkable` Protocols for consumed state; migrate shared mutable state into the existing coordinators (TimerCoordinator/MicrophoneRegistry precedent) until mixins become standalone controllers.
-
-**Simplified Fix:** The app's biggest classes are assembled from many pieces that secretly share variables with each other, and some subsystems bolt their variables on later — which forces the code to tell the type-checker to look away 58 times. We first make every shared variable an official, declared part of the class so the checker can verify it, then gradually give each piece its own explicit interface.
-
-**Implementation Difficulty:** 🔴 Very Hard (phase 1 alone: 🟡-🟠)
-**Severity:** 🟡 Medium
-
----
-
 
 **Enrichment (2026-09-04 BP session — Wave 1):** One more concrete instance inside the recording collaborator cluster: `recording/audio_pipeline.py:574,904-906` threads raw RMS between `process_audio_chunk` and `run_vad_state_machine` via a transient instance attribute `_pending_raw_chunk_rms` (documented as needed because the callee "has a fixed positional signature"), and `:941` takes a second `_lock` acquisition per chunk that could merge with the append critical section.
-### BP-12 — God-class and giant method bodies the file splits never finished
-**Status:** ❌ Not Fixed (investigation only)
 
-**Description:** The hotkey dispatcher is a single 1,476-line class owning at least five responsibilities (the main dictation hotkey, the Escape-cancel backend, the repaste backend, the shared native-subprocess pooling machinery ~300 lines, and the push-to-talk safety timer). Meanwhile the "extracted" modules still contain monolith-grade method bodies: the recording start path is a ~370-line method (consent gate, tray states, recorder start, worker spawn, error mapping all inline), the stop-and-transcribe path is ~188 lines with ten numbered concerns, and the WebSocket dispatch builder is a 333-line closure factory that also lazily creates four server attributes.
-
-**User Impact:** None directly. The cost is fix velocity and regression risk: every hotkey/pooling change re-reads the same giant class; unit-testing any single concern inside the 370-line start path requires the whole recorder/tray/config matrix; ESC/repaste/pooling changes collide in one file.
-
-**Root Cause:** `voice_typer/server/hotkey_dispatcher.py:100-1476` (5 responsibilities; restart at :1222-1367 ~145 lines, register_esc :910-1050 ~140 lines, pooling ~300 lines); `voice_typer/server/recording_lifecycle.py:307-677` (`_start_impl` ~370L), `:1041-1229` (`_run_stop_and_transcribe` ~188L); `voice_typer/server/sidecar_ws.py:682-1015` (`_make_dispatch` 333L closure factory + lazy attribute creation).
-
-**Gain vs Trade-off:** Decomposition into owned objects (HotkeyPool, EscHotkeyController, RepasteHotkeyController, PttSafetyTimer; named start steps behind the toggle lock) preserves behavior verbatim and follows the repo's own stage-object precedent (`dictation_stages.py`). Cost: large mechanical refactor with test-pin migration; best executed AFTER BP-13's test-seam work (which unblocks the pins).
-
-**If We Do It:** Each hotkey concern, each recording-start step, and the dispatch factory become independently testable and independently changeable; the highest-churn files stop being the slowest to modify safely.
-
-**If We Don't:** The most-edited code stays the hardest to edit safely; every hotkey or recording fix pays a comprehension tax proportional to 1,476+370+333 lines.
-
-**My Recommendation:** ✅ Implement (after BP-13)
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/hotkey_dispatcher.py`
-- `voice_typer/server/recording_lifecycle.py`
-- `voice_typer/server/sidecar_ws.py`
-
-**Fix:** Extract `HotkeyPool` (shared-native pooling + matcher multiplexing + state resync), `EscHotkeyController`, `RepasteHotkeyController`, `PttSafetyTimer` — dispatcher becomes a ~300-line facade with `self.hotkeys.<field>` accessors stable (E1 create-first). Split `_start_impl` into named steps (consent gate → state checks → recorder start → worker spawn) behind `_toggle_lock`; move `_make_dispatch`'s pool/event/lock creation into `IPCServer.__init__` (rides BP-11 phase 1), leaving a ~60-line factory.
-
-**Simplified Fix:** A few of the app's most important files each cram five jobs' worth of code into single enormous classes and methods. We split each job into its own named module and each giant method into named steps — no behavior change, just code you can read and test one piece at a time.
-
-**Implementation Difficulty:** 🔴 Very Hard (🟠 if executed after BP-13)
-**Severity:** 🟡 Medium
-
----
-
-
-**Enrichment (2026-09-04 BP session — Wave 1):** Two new god-method instances beyond the originally-cited sites: (1) `service/model/_downloads.py:372-839` — `_download_whisper_family` is a ~470-line method with four nesting levels and ten distinct concerns (single-flight, consent, cache probe, segmented lane, two nested retry fallbacks, verify, notify); (2) renderer page roots/hooks are the same family at 2-3× App.tsx's size — filed separately as BP-66 (Home 616 code lines, Settings 604, Onboarding 505, History 459; useTheme 393, useMicrophoneTestSession 471, useConnection 360, useOnboardingWizard 423).
 ### BP-13 — Test-seam-shaped module boundaries + live C-ARCH-2 violation in the recording package
-**Status:** ❌ Not Fixed (investigation only)
+**Status:** ⚠️ Partial (2026-09-06 — phase 1 landed: the recording package migrated to owning-submodule patch paths per C-ARCH-2, tests updated in lockstep; sibling-package migrations pending)
 
 **Description:** Several module boundaries in the server were drawn to keep old tests passing rather than to separate concerns: `sidecar_ws.py` stays a 1,552-line file (with 898 lines already extracted beside it) because ~14 test files pin its literal path; `app.py` keeps builders in place because a lock-order contract test reads its source text; `recording_lifecycle.py` documents a re-entrant stop-hop that exists only for monkeypatch contracts. The sharpest instance is the recording package: production code deliberately routes its OWN function calls through the package object ("patch-path bridges") so tests can intercept them at the package level — the exact pattern the project's C-ARCH-2 rule (2026-08-26) prohibits in that package, one the two sibling packages already cleaned. One test patch is provably a no-op (it patches a re-export the production code never reads, while claiming to bypass something); two pin-tests actively forbid the canonical form; and a commit AFTER the rule landed added a new bridge call site plus pattern-endorsement comments. The package's own docstring claims the migration is complete, which is false.
 
@@ -574,122 +215,10 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟠 Hard
 **Severity:** 🟡 Medium
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** Verified post-rule bridge call sites in the recording package: `recording/audio_pipeline.py:62,665` and `recording/resampling.py:44,422,489` and `recording/_recorder_split.py:777,877` still call production paths through `_recording_pkg._get_resample_poly()` / `_recording_pkg._secure_clear_array_background(...)` — while `recording/__init__.py:50-55` claims "That indirection has been removed — every consumer and test now targets the owning submodule directly" (false). NEW seam class: `__init__.py:284-315` carries "Static-source check echo" COMMENT BLOCKS so source-inspection tests grep the echo instead of the real implementations — those tests verify nothing; and `recorder._mono_scratch_local` is a dead attribute that survives only because tests pin its presence (format.py:54-58 admits it).
 
 **Enrichment (2026-09-04 BP session — Wave 5):** The concrete contract-pinning instance of the echo-grep pattern: tests/test_vad.py:710-726 greps `inspect.getsource(recording)` for the REMOVED 3-arg `rms_callback(chunk_rms, chunk_peak, filtered)` contract, which exists only in the __init__ echo block — the live call is 2-arg with an invariant comment forbidding the 3-arg form; test_parakeet_merge.py::TestSourceCheck greps the same echo for suppression strings. Filed as BP-136 (test masks production contract).
-### BP-14 — Tray cluster: distributed god-object, 990-line 4-concern menu module, dead test-only menu builder
-**Status:** ❌ Not Fixed (investigation only)
 
-**Description:** The tray was split into 10+ satellite modules, but the split preserved the old god-object: `TrayIcon` still owns ~25 mutable state attributes that the satellites mutate directly, and 30+ delegate methods re-import their target module on every call. The tray menu module (990 lines) mixes four concerns (pystray menu building, Tauri dict-model building, event publishing, click dispatch) — publishing is also split confusingly across two sibling modules that both define a function named `publish_tray_state` with different signatures, disambiguated only by import aliasing. A 105-line parameterized menu builder has zero production callers (only tests call it) and has drifted from the real menu structure — meaning the tested tray shape is not the shipped one. Additionally: the Python icon-name map vs the Rust icon whitelist lacks a parity pair in the existing cross-language drift-guard test family (7 pairs exist; the icon pair is missing — adding a renamed state silently freezes the Tauri tray icon at its last state), and task-ID debris litters the cluster's docstrings.
-
-**User Impact:** Mostly indirect: future tray changes are slow and risky, and the icon-name drift risk means a future state addition could freeze the tray icon silently. The dead menu builder means tray tests validate a menu users never see — real regressions in the shipped menu can pass tests.
-
-**Root Cause:** `voice_typer/server/tray.py:8-27` + `tray_lifecycle.py:16-20` (docstrings admit the test-pin-shaped layout); `tray_menu.py` 990L (build_menu_for_tray :542-680, build_tray_menu_model :238-443, publish :446-513, dispatch :954-990); `tray_menu.py:467` vs `tray_publish.py:108` (same-name functions); `tray_menu.py:115-218` (`build_menu` — zero production callers, pinned by tests/test_tray_menu.py, tests/test_e2e_smoke.py:174, tests/tauri/mig19/test_tray_menu.py:301-321); `tray_publish.py:51-58` vs `src-tauri/src/tray/icon_cache.rs:59` (missing 8th parity pair in tests/tauri/test_tray_icons.py's existing 7); task-ID debris at tray_menu.py:1 (:56, :74, :133), tray.py:123 ("P4 #30"), tray.py:646, tray_menu.py:159/195 ("Finding #3"), tray_menu.py:84, :549-560, :684, tray_window.py:3/7/160/245, tray_state.py:55-58 (mangled docstring), waveform_bubble_wiring.py:74.
-
-**Gain vs Trade-off:** Restructuring buys testability and stops the drift risks; the tray's user-facing behavior (C-TRAY-1/2: minimal menu, no Undo/Repaste items) is untouched. Cost: migrating ~90 test monkeypatch pins — significant but mechanical. The parity pair and the dead-builder deletion are small, high-value slices that can ship independently.
-
-**If We Do It:** Tray changes become contained; the shipped menu is what tests verify; an icon-name change fails loudly at test time instead of freezing the tray silently.
-
-**If We Don't:** The tray keeps its invisible-god-object shape; the icon-name drift landmine stays armed; tray tests keep passing while validating a phantom menu.
-
-**My Recommendation:** ✅ Implement (parity test + dead-builder removal first; restructure staged)
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/tray.py`
-- `voice_typer/server/tray_menu.py`
-- `voice_typer/server/tray_publish.py`
-- `voice_typer/server/tray_state.py`
-- `voice_typer/server/tray_lifecycle.py`
-- `src-tauri/src/tray/icon_cache.rs`
-- `tests/tauri/test_tray_icons.py`
-
-**Fix:** (1) Add the 8th drift-guard pair to `tests/tauri/test_tray_icons.py`: assert `set(_APP_STATE_TO_ICON_NAME.values()) ⊆ ALLOWED_ICON_NAMES` parsed from the Rust test source. (2) Migrate the 3 test files off `build_menu` to `build_menu_for_tray`/`build_tray_menu_model`, then delete `build_menu` (E15; archive/deleted_files.txt). (3) Rename `tray_menu.publish_tray_state` → `publish_tray_state_event` (re-export). (4) Move publish/dispatch out of tray_menu.py into tray_publish.py. (5) Introduce a `TrayState` dataclass owned by TrayIcon; collapse the delegate layer; migrate the ~90 pins. (6) Clean the task-ID debris (folds into BP-24 if that ships first).
-
-**Simplified Fix:** The system-tray code was physically split into many files but they all still reach into one shared bag of state, one file still does four unrelated jobs, and a chunk of menu-building code exists only so old tests have something to test — it doesn't match the real menu. We tidy the split, give the tests the real menu to verify, and add a check that the tray icon names Python sends match the names the Windows/Mac/Linux side accepts.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-### BP-15 — Templates and Vocabulary pages are a self-admitted 1:1 code fork (~270 duplicated lines)
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The Templates page was built by copying the Vocabulary page, as its own header admits ("mirrors the Vocabulary page's useVocabularySelection exactly... only the row data shape differs"). Two whole hook families are near-identical: the selection hooks (~150 lines each — selected-ids set, toggle, select-many, bulk delete with a 6-second undo toast) and the import/export hooks (~175 vs ~203 lines — same import skeleton, same export flow, same reset logic, differing only in the data shape and message keys). The toolbars and list rows follow the same parallel pattern, and the fork is already drifting (one uses `_id`, the other `id`).
-
-**User Impact:** None today. The cost: a bug fixed on one page (an undo-restore edge case, an import error path) must be remembered and replicated on the other — the historical failure mode of every copy-paste fork.
-
-**Root Cause:** `voice_typer/client/src/renderer/src/pages/templates/hooks/useTemplateSelection.ts:1-4` (self-admission), `useVocabularySelection.ts`, `useTemplateImportExport.ts`, `useVocabularyImportExport.ts` (+ toolbars VocabToolbar/TemplateToolbar).
-
-**Gain vs Trade-off:** One generic hook pair parameterized by row shape and message keys; both pages keep their tests. The refactor must migrate the guard/source-grep tests that pin the current shapes (useRowSelection difficulty 🟠 accordingly). No user-visible change.
-
-**If We Do It:** Fixes land once and both pages get them; the ~270 duplicated lines become ~40.
-
-**If We Don't:** The pages silently diverge — users of one page get fixes the other never receives.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/templates/hooks/useTemplateSelection.ts`
-- `voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularySelection.ts`
-- `voice_typer/client/src/renderer/src/pages/templates/hooks/useTemplateImportExport.ts`
-- `voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularyImportExport.ts`
-
-**Fix:** Extract a generic `useRowSelection<T extends { id: string }>` (params: rows, ref, persist, showSnack, i18n keys) and a `useBridgeImportExport({parse, dedupeKey, persist, bridgeFn, i18n})` factory; both pages consume thin adapters. Behavior-preserving; existing page test suites pin the result.
-
-**Simplified Fix:** The Templates page was created by copying the Vocabulary page and changing the data type — nearly 270 lines are duplicated between them. We turn the shared behavior into one parameterized piece of code both pages use, so a fix made once helps both.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-
-**Enrichment (2026-09-04 BP session — Wave 1; corrected Wave 2):** The fork family has a component-level triple: the LIVE Settings→Audio inline Select (`components/settings/AudioSettingsSection.tsx:371-400`), the LIVE Microphone-page accordion (`pages/microphone/components/PresetAccordionSelector.tsx:7-8`, "the labels/descriptions here mirror AudioPresetSelector's data"), and the PRODUCTION-DEAD `components/microphone/AudioPresetSelector.tsx:52-103` (zero render sites outside tests; W2-R4). All share ONE i18n key family. Filed as BP-76 (consolidation is C-MIC-4/C-MIC-15-gated: the accordion pattern is the pinned shape).
-### BP-16 — Two load-bearing renderer patterns are copy-pasted across 22 and 3 files respectively
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Two patterns that every page needs exist only as copy-paste. (1) The "latest-ref mirror" (`const ref = useRef(fn); useEffect(() => { ref.current = fn }, [fn])`) — the guard that keeps effect callbacks fresh without re-running effects — is duplicated verbatim in 22 production files, each carrying its own variant of the same explanatory comment. An AST-based guard test pins all 22 copies individually, so the pattern is load-bearing and must be migrated carefully (that test moves in lockstep). (2) The background-refresh block (stale-flag + debounced refresh + window-visibility gate + dual event subscription + unmount cleanup, ~50-60 lines) is duplicated across Home, History, and Dashboard, with an empty-stats object literal repeated 4×.
-
-**User Impact:** None directly. The cost: the next refresh-logic bug (a debounce window change, a visibility race) must be fixed three times, and a subtle mistake in one of the 22 ref-mirrors is invisible because each looks locally correct.
-
-**Root Cause:** callRef mirrors: 22 files incl. `hooks/useConnection.ts:162-165`, `pages/Home.tsx:102`, `components/settings/useSettingsConfig.ts:175-178`, `pages/templates/hooks/useTemplates.ts:80`, `hooks/useTheme.ts:552-555` (+17); guard: `__tests__/useEffect-call-dep-guard.test.ts`. Refresh blocks: `pages/Home.tsx:206-280`, `pages/history/History.tsx:89-187`, `pages/dashboard/hooks/useDashboardData.ts:335-398`; lockstep test `client-pages-fixes.test.tsx:460-468`.
-
-**Gain vs Trade-off:** One canonical `useLatestRef` hook and one `useDebouncedEventRefresh` hook, with the rationale comment written once. The migration is mechanical but wide (22 sites + 2 guard/source-grep tests move in lockstep — hence 🟠 not 🟡).
-
-**If We Do It:** The two most-repeated infrastructure patterns in the renderer have single, tested homes; future pages use them for free.
-
-**If We Don't:** Every new page copies the 8-line mirror + comment again; the count grows past 22.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/hooks/` (22 mirror sites)
-- `voice_typer/client/src/renderer/src/__tests__/useEffect-call-dep-guard.test.ts`
-- `voice_typer/client/src/renderer/src/pages/Home.tsx`
-- `voice_typer/client/src/renderer/src/pages/history/History.tsx`
-- `voice_typer/client/src/renderer/src/pages/dashboard/hooks/useDashboardData.ts`
-
-**Fix:** Create `hooks/useLatestRef.ts` exporting `useLatest<T>(value)`; replace the 22 mirrors mechanically; update the AST guard to accept the canonical hook (or assert its usage). Create `useDebouncedEventRefresh(fetch, {events, delay})`; consume in Home/History/Dashboard; move the source-grep test expectation alongside.
-
-**Simplified Fix:** Two small pieces of plumbing that nearly every screen in the app needs were copied by hand into 25 places instead of being written once. We write them once and point everyone at the shared version — with the automated checks updated to know about it.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
----
-
-
-**Enrichment (2026-09-04 BP session — Wave 1):** React 19.2 (2025-10-01, react.dev) shipped `useEffectEvent` and `<Activity>` as stable APIs; the project pins react ^19.2.7. For the subset of the 22 `useLatestRef` mirrors that exist solely to keep effect callbacks fresh, the first-party `useEffectEvent` supersedes the bespoke mirror (upstream, linter-integrated, shrinks the migration). NOT 1:1 for `usePythonEvent`'s internal mirror or render-time `ref.current = fn` sites — per-site evaluation required. W0-verified against the react.dev 19.2 release notes.
 ### BP-17 — App.tsx is 605 lines with event business logic in the entry file (E3 breach)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -720,8 +249,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
----
-
 ### BP-18 — Dead 100-line fallback duplicating the ASR utils (7 suppressions die with it)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -751,10 +278,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** Concrete drift proof that the dead parakeet fallback copy is already diverging: `parakeet_engine/_helpers.py:91-109` `_local_is_cuda_error` lacks the ORT-1.28+ `RuntimeException`-relocation guard that the canonical `asr_utils.is_cuda_error` carries (`asr_utils.py:158-163`); plus `parakeet_engine/_constants.py:11,65-66` re-declares three asr_utils constants (0.30/2/3) as bare literals. This is the "will not be kept in sync" prediction coming true.
+
 ### BP-19 — The native binaries' `--log-file` diagnostic feature is fully built but never switched on
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -788,8 +313,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
 
----
-
 ### BP-20 — main.rs is 413 lines, past its ≤~300 wiring-only ceiling (C-ARCH-1)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -818,8 +341,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
-
----
 
 ### BP-21 — Startup timeline instrumentation is dead on the Tauri runtime (the future only runtime)
 **Status:** ❌ Not Fixed (investigation only)
@@ -851,8 +372,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
-
----
 
 ### BP-22 — Electron decommission checklist (gated on T-1)
 **Status:** ❌ Not Fixed (investigation only — documentation artifact)
@@ -886,14 +405,12 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy (document; the deletion itself is a separate gated task)
 **Severity:** 🟡 Medium
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** (1) Four UNPORTED Electron surfaces that die with the shell taking live features: `src/main/power.ts` (powerMonitor suspend/resume backend recycling — no Tauri counterpart), `src/main/ipc/stats-image-handlers.ts` (stats image save/copy/reveal — absent from src-tauri and the tauri-bridge), `backend-restart-handler.ts` + `restart-backend.ts` (renderer-initiated "Lost connection" restart escalation — `WindowBridge.restartBackend` is optional and unimplemented on Tauri), and `shortcuts/global-shortcuts.ts` (the Ctrl/Cmd+Shift+D dismiss accelerator). Renderer degrades silently on Tauri for each. (2) Sequencing hazard: `autostart/tauri_spawn.py:21-24`, `autostart/focus.py:14-17`, AND `autostart/log_files.py` import `_launcher_child_env`/`_log_sensitive_env_keys`/`_spawn_flags` from `_electron_build.py` — deleting that module per ADR-0020's checklist BREAKS the Tauri autostart path (three dependents, not two); extract the helpers to a runtime-neutral module FIRST. (Corrected in Review Wave 2 — the helper names here were initially mis-cited.) (3) `app_lifecycle.py:257-301` — the entire "STANDALONE IN-PLACE RESTART" branch gates on `_electron_pid is not None`, which is always None in Tauri-WS mode: dead in the going-forward runtime, to be deleted with its plumbing. (4) Verified already-ported column: export.rs, system_cmds/{locale,renderer_log}, commands/bubble/*, window_close.rs, tauri-plugin single-instance, allowlist.rs.
 
 **Enrichment (2026-09-04 BP session — Wave 3):** Add one decide-and-drop item: the main-process logging-health ring buffer (rotation.ts:80-148, getLoggingHealth) is Electron-main-only, unported, and unwired (zero consumers) — its disposition (wire an IPC surface vs delete at cutover) must be chosen explicitly, not left. Also: consolidate the console forwarder to the shared helper BEFORE any port decision (renderer-telemetry duplicates bubble/console-forwarder byte-for-byte — BP-105).
 
 **Enrichment (2026-09-04 BP session — Wave 5):** Two more checklist additions: (1) the Python single-instance subsystem (single_instance.py + _security_attributes.py + security/win32_dacl.py, ~1,176 LOC) is gated OFF in Tauri mode (entrypoint.py:403) but absent from the decommission list — extract the three LIVE symbols FIRST (`_is_pid_alive`, `_backend_pid_file`, `_clear_backend_pid_file` — NOT `_write_backend_pid_file`, which is gated-off too; corrected in Review Wave 6); filed as BP-144. (2) Four more Tauri-path residue sites: focus.py:67 sets VT_FOCUS_ONLY=1 (zero src-tauri readers), autostart.py:148-150 docstring still describes spawning "npm run dev… Electron", desktop_shortcut.py docstrings cite the "Electron single-instance lock", _phases_late.py:621 logs "opening Electron window".
+
 ### BP-23 — Settings page deep-link effects are ~85% duplicated twins
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -922,12 +439,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
-
----
-
-## BP Session — Medium/Low Priority (batched)
-
-> Smaller items batched by family so a fixing session can clear each batch in one focused pass. All are evidence-verified; none block anything.
 
 ### BP-24 — Documentation/comment/log-format hygiene sweep (16+ sites)
 **Status:** ❌ Not Fixed (investigation only)
@@ -959,12 +470,10 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** Nine more verified sites: Rust — (1) `heartbeat.rs:128-129` claims a "120s internal timeout" that is 15s and never fires (see BP-37); (2) `tray.rs:264-278` "Python publish path NOT YET WIRED" — stale, it is wired, allowlisted and consumed; (3) `allowlist.rs:250-255` references nonexistent `sidecar/ws.rs::ws_reader_loop` and a wrong relaunch_ack route; (4) `commands/bubble/commands.rs:620-622` contradicts dispatch_fire_and_forget's doc; (5) `release_mode.rs:29-30` claims prctl PDEATHSIG while posix.rs implements a reaper script with kill -9; (6) `rate_limit.rs:38-41` "~30 clicks/sec" arithmetic wrong (max 2/sec); (7) capabilities/main-runtime.json still cites the removed clipboard-manager plugin. Python — (8) cloud `_StreamingMultipartBody` docstrings claim single-chunk peak memory while `parts.append(wav_bytes)` keeps the full WAV resident (only the second copy avoided); (9) `text_cleanup/_engine.py:46-54` claims CPython re compiles alternations to a trie — it does not (verified; trrex/Flashtext exist for that).
 
 **Enrichment (2026-09-04 BP session — Wave 5):** Tooling-layer additions to the sweep: ruff_ratchet_check.py docstring `()` artifacts; mypy_ratchet_check.py:116 prints a literal `{proc.returncode}` (missing f-prefix); sync_versions.py docstring claims CHANGELOG syncing that doesn't exist; pyproject's "intentional divergence" matrix says `.python-version 3.12.7` vs the actual 3.13.7 pin; cloud/_providers/openai.py:23 `PERF-:` mangled tag; llm_polish.py:254-277 paste-artifact paragraph; hooks/models comments contradicting landed code (useOfflinePackDownload.ts:34-43, useCloudProviders.ts:217-230). All folded into BP-146/149/151 where structural.
+
 ### BP-25 — Type-checker suppression inventory + mypy overrides + noqa consolidation
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -992,10 +501,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** Six new suppression/type-debt sites, all fixable without behavior change: `service/privacy.py:316,767,802,834` — collaborators typed as bare `object` + 4× `# type: ignore[attr-defined]`, deletable via a `typing.Protocol` with write/close; `service/update_check.py:850` — arg-type suppression on the event_bus fallback (type the `ModuleType | None` resolution); `transcription.py:71` — doubled `# noqa: F401  # noqa: F401`. See BP-50 for the ASR-side micro-batch and BP-46 for the Protocol drift.
+
 ### BP-26 — Server DRY micro-batch (6 small duplications)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -1025,14 +532,12 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
 
----
-
-
 **Enrichment (2026-09-04 BP session — Wave 1):** New instances beyond the original six: (1) the model-load success ritual is copy-pasted across SIX load paths with i18n drift — large enough to be its own entry, BP-41; (2) token-key normalization exists 3× (memoized in text_cleanup, uncached duplicate in streaming.py:517-524, inline uncached per-token in vocabulary.py:924 — which imports neighboring helpers but not the memoized one); (3) `_hf_cache_cleanup.py:60-134` exposes FOUR names for one implementation; (4) `change_model`'s backend if/elif duplicated verbatim (folded into BP-41's fix).
 
 **Enrichment (2026-09-04 BP session — Wave 3):** Two extensions: (1) offline_pack.check_offline_pack_disk_space re-implements asr_utils._check_disk_space_for_download while its docstring claims it wraps it (two disk-space recipes that can drift — a shared ensure_disk_space helper also gives BP-115 a canonical gate); (2) _hf_cache_cleanup is a 3-layer facade whose docstrings claim consumers that no longer reference it (parakeet_engine: zero references) and asr_utils functions it no longer contains — collapse to direct imports. See BP-120.
 
 **Enrichment (2026-09-04 BP session — Wave 5):** New DRO instance: log/__init__.py:101-104 claims `get_logs_dir` is the single source of truth for the logs directory, but 5 production writers inline `/ "logs"` (crash_handler/_memory_buffer.py:247, ipc_diagnostics.py:155, diagnostics_export.py:150, service/privacy.py:416, native_hotkeys/_spawn.py:318).
+
 ### BP-27 — Renderer DRY micro-batch (9 small duplications)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -1064,8 +569,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
 
----
-
 ### BP-28 — Renderer performance micro-batch (3 items)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -1092,8 +595,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
-
----
 
 ### BP-29 — Cloud transport: false pooling comments + uninterruptible retry waits
 **Status:** ❌ Not Fixed (investigation only)
@@ -1122,8 +623,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
-
----
 
 ### BP-30 — Model idle-unload creates and cancels a Timer object on every dictation
 **Status:** ❌ Not Fixed (investigation only)
@@ -1241,8 +740,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy (wire) / 🟡 Medium (excise — includes repointing the mig18 gate tests)
 **Severity:** 🟡 Medium
 
-
 **Enrichment (2026-09-04 BP session — Wave 3):** Additional latent defect in the dead worker subsystem: the worker spawn handshake reuses the sidecar's 30s SERVER_STARTED_TIMEOUT_MS, but the worker's prewarm (pages ~180-200 MB runtime-pack libs, cold-HDD 80-110 MB/s) runs BEFORE worker_started is emitted (worker/__main__.py:200 → _ws_server.py:523) — once wired, cold-disk workers get killed mid-prewarm into a respawn loop of partial prewarms. Wire-time fix: dedicated 90-120s WORKER_STARTED_TIMEOUT_MS or emit worker_started before prewarm. Also: the four spawn loops (worker/release/dev) are ~270 copy-pasted lines — see BP-79.
+
 ### BP-34 — Rust host logs render a session id on every file line (C-LOG-1 divergence)
 **Status:** ❌ Not Fixed (investigation only) — flagged: conforming fix would change a pinned log format (C-LOG-1 requires user-approved format changes + test updates)
 
@@ -1423,6 +922,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
+
 ### BP-40 — Model download reports success when huggingface_hub is missing (swallowed ImportError → green toast, no model)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -1691,8 +1191,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
 
-
 **Enrichment (2026-09-04 BP session — Wave 5):** Two more ambiguous entries in the same map: "ill"→"I'll" and "id"→"I'd" ("she felt ill" → "she felt I'll"; "enter your id" → "enter your I'd" — empirically reproduced). The same module's auto_capitalize also ships "may"/"march"/"august" as unconditional capitals — filed as BP-132 with all five removals coordinated.
+
 ### BP-49 — Correction-usage flush runs a full atomic file save between transcription and paste
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -1932,8 +1432,9 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
+
 ### BP-57 — CRITICAL: High-pass filter becomes numerically unstable at ≥44.1 kHz — corrupts dictation audio
-**Status:** ❌ Not Fixed (investigation only)
+**Status:** ⚠️ Partial (2026-09-06 — SOS-form rewrite + finiteness regression tests at native rates + the bench non-finite gate landed; the max|pole| < 1 design assert from the Fix section still pending)
 
 **Description:** The audio chain's 80 Hz order-4 Butterworth high-pass casts its `b`/`a` coefficients to float32. At the pole radii this rounding is UNSTABLE at common native sample rates: pole radius 1.0059 at 44.1 kHz, 1.0128 at 48 kHz, 1.0121 at 96 kHz — and 88.2 kHz is marginally unstable too (max|pole| == 1.0 exactly; Review Wave 2 re-derivation) — so ONLY 16 and 22.05 kHz are stable. Production-class simulation in-sandbox: processing 512-sample chunks at 48 kHz through the real chain produces non-finite values in 46 of 60 chunks, first at ~149 ms; standalone HighPass output diverges with finite-phase absmax ~1e37 and inf by ~chunk 13-14 (W2-R3 re-measure). The recorder deliberately retunes to the device's NATIVE rate (auto preset enables the high-pass by default), nothing resamples to 16 kHz before the filter chain (verified by W2-R3 — the decisive falsification attempt failed), and there is no isfinite/nan-guard anywhere downstream. The audio bench reproduces the non-finite output (RuntimeWarning 3/3 runs, re-verified) and still prints PASS.
 
@@ -1964,8 +1465,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🔴 Critical
 
-
 **Enrichment (2026-09-04 BP session — Wave 3):** Equalizer verification (mandated by W2-R3): equalizer.py:153's RuntimeWarning "invalid value encountered in subtract" is PURELY PROPAGATED, not an independent EQ defect — empirically proven on numpy 2.1.3 (nan−nan is silent; only inf−inf warns ⇒ the warning requires ±inf in the EQ input, i.e. the upstream highpass's float32 overflow). EQ math is otherwise clean: no log-domain in process(), ANTIDENORMAL_EPSILON present, crossover poles stable at all NATIVE_MIC_RATES, preallocated buffers correct. The highpass remains the sole origin.
+
 ### BP-58 — Resampler's optimized path crashes on first use and silently falls back 5.7× slower
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -2028,8 +1529,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
-
 **Enrichment (2026-09-04 BP session — Wave 3):** The frame-count time-constant error is BIDIRECTIONAL, not just 48 kHz: VAD hangover/promotion counts are unnormalized per-rate — 8 kHz BT-HFP: 15-frame hangover = 960 ms (2× the documented ~480 ms, sluggish auto-stop); 48 kHz: 160 ms (over-eager). Grey-zone promote/demote oscillation scales likewise. NEW site: AudioQualityAnalyzer.LOW_VOLUME_SUSTAINED_CHUNKS=50 ("≈3.1 s @16 Hz") = 0.53 s at 94 Hz → false low-volume warnings on 48 kHz devices. Fix direction unchanged (rate-scaled blocksize normalizes all of these).
+
 ### BP-60 — VAD housekeeping batch: bundled Silero v4 (v5 ~3× faster), redundant availability check, latency under-report
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -2240,8 +1741,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟠 Hard
 **Severity:** 🟡 Medium
 
-
 **Enrichment (2026-09-04 BP session — Wave 3):** The page-root extractions (the good side of the pattern) consolidated mass into single large domain hooks instead of concern-split hooks: useMicrophoneTestSession 789, useMicrophoneLevelMonitor 761, useOnboardingWizard 563, useVocabulary 419, useTemplates 390, ModelStep.tsx 451. Cohesive but E3-spirit decomposition candidates (step/concern sub-hooks) — treat as the same backlog.
+
 ### BP-67 — Zoom gestures write the same config twice per tick, bypassing the documented debounce
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -2539,8 +2040,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
-
 **Enrichment (2026-09-04 BP session — Wave 5):** The dead-fork family has a SERVER-side twin: audio_presets.py's display layer (PRESET_INFO/ALL_PRESETS/get_preset_for_display, ~32 LOC) is production-dead while its docstring claims "frontend fetches presets via IPC" (no such handler) — folded into BP-142(e).
+
 ### BP-77 — Renderer micro-batch: lib→pages import, space-y remnant, segmented-control ref churn, TitleBar twins, InfoTooltip glyph
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -2604,12 +2105,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
-
----
-
-## BP Session (2026-09-04) — Wave 3 additions (entries BP-79+)
-
-> Wave 3 deepened the areas Waves 1-2 covered thinly (Rust skimmed modules, service skims, dictation pipeline, infra remainder, audio pass 2, client-main 2, bubble + page subdirs, components 2, offline-pack/update, privacy/service). All entries investigation-only; nothing implemented this session.
 
 ### BP-79 — Four sidecar/worker spawn loops are copy-paste twins (~270 duplicated lines)
 **Status:** ❌ Not Fixed (investigation only)
@@ -2941,6 +2436,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
+
 ### BP-90 — Pipeline micro-batch: vestigial watchdog parameter, _SHARED_STAGES contract contradiction, unfinished _busy_event migration
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -3268,6 +2764,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
+
 ### BP-101 — Device prewarm opens a real microphone stream at every launch, ungated by visibility
 **Status:** ❌ Not Fixed (investigation only) — C-BG-1 concern class, distinct mechanism; flag for the C-BG-1 owner
 
@@ -3534,8 +3031,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
-
 **Enrichment (2026-09-04 BP session — Wave 5):** The scanner gap also has a Python-side instance: desktop_shortcut.py:606/641 hardcode "Voice Typer.lnk" inside longer literals — the executed checker returns OK (same blind spot). Fix both languages in this entry's scope: f"{APP_NAME}.lnk" + legacy-name fallback.
+
 ### BP-110 — History's background refresh truncates deep-browsed lists and kills Load-More
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -3565,6 +3062,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
+
 ### BP-111 — Renderer misc batch: dead dashboard helpers, circular import, deprecated refs, unvalidated cache, bubble rAF writes
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -3596,8 +3094,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
 
-
 **Enrichment (2026-09-04 BP session — Wave 5; corrected Wave 6):** The dead-dashboard-helpers finding (1) holds for its three symbols (computeDailyActivity/dayLabel/barHeight — zero callers). Wave 5 additionally claimed recordDayKey/dayGroupHeading/rangeDaySpan were dead — **Wave 6 REFUTED this**: they are LIVE (groupRecordsByDate → ActivityList with groupByDate=true on History's default sort; computePeriodStats/computeCorrectionStats/buildActivityBars → useDashboardData). Their correct disposition is un-exporting (test-only direct importers), NOT deletion — do not fold them into the deletion set.
+
 ### BP-112 — Checkbox and radio-group focus rings ship at 30% alpha (C-FOCUS-2 violation the sweep missed)
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -4025,12 +3523,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
 
----
-
-## BP Session (2026-09-04) — Wave 5 additions (entries BP-126+)
-
-> Wave 5 = final sweep: un-owned packages (autostart/startup_sequence, credential_store, llm_polish, cloud providers, server_platform), cross-cutting themes (test-masking, IPC event parity, dead-code census, build/dev-loop wiring, renderer + Rust remainders). All entries investigation-only.
-
 ### BP-126 — The autostart launcher imports the full app module on every login just to read a PID file
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -4324,6 +3816,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
+
 ### BP-136 — A test pins the REMOVED 3-arg RMS-callback contract via the echo-comment grep
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -4711,6 +4204,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
+
 ### BP-149 — Build tooling batch: set -e defeats exit-code contracts, sync_versions reformats package.json, pyproject matrix comment drift, publish templates stale
 **Status:** ❌ Not Fixed (investigation only)
 
@@ -5048,8 +4542,6 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
-
----
 
 ## 🚫 E. Cannot Verify (needs real host)
 
