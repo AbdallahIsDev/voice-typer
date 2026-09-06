@@ -1,21 +1,13 @@
-// Selection state + bulk operations for the Templates page — mirrors
-// the Vocabulary page's useVocabularySelection exactly (the Templates
-// UI is a 1:1 copy of the Vocabulary UI; only the row data shape
-// differs).
+// Selection state + bulk operations for the Templates page.
 //
-// Owns:
-//   - `selectedIds` (Set of row `id`s) + toggle / select-all / clear
-//   - `bulkDeleteSelected` — instant removal + 6s Undo toast that
-//     restores every deleted row at its original position (mirrors the
-//     single-row `instantDeleteTemplate` pattern in useTemplates)
-//
-// Kept in its own hook (rather than inside useTemplates) so the
-// selection Set churn doesn't re-render unrelated consumers.
+// Thin feature wrapper over the shared :func:`useRowSelection` hook —
+// supplies the Templates row shape (`id` id field), the persist
+// callback, and the templates message keys. All selection/undo logic
+// lives in the shared hook (formerly a 1:1 copy of this page's logic,
+// which itself mirrored the Vocabulary page).
 
-import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
-import { showUndoableToast } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { useCallback } from "react";
+import { useRowSelection } from "@/hooks/useRowSelection";
 import type { TemplateRow } from "../lib/types";
 
 interface UseTemplateSelectionArgs {
@@ -39,6 +31,7 @@ interface UseTemplateSelectionResult {
 	clearSelection: () => void;
 	bulkDeleteSelected: () => Promise<void>;
 }
+
 export function useTemplateSelection({
 	templates,
 	setTemplates,
@@ -46,107 +39,21 @@ export function useTemplateSelection({
 	saveTemplatesList,
 	showSnack,
 }: UseTemplateSelectionArgs): UseTemplateSelectionResult {
-	const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
-
-	const selectedCount = selectedIds.size;
-	const selectedRows = useMemo(
-		() => templates.filter((e) => selectedIds.has(e.id)),
-		[templates, selectedIds],
-	);
-
-	const toggleSelect = useCallback((id: string) => {
-		setSelectedIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) {
-				next.delete(id);
-			} else {
-				next.add(id);
-			}
-			return next;
-		});
-	}, []);
-
-	const setSelectMany = useCallback((ids: string[], selected: boolean) => {
-		setSelectedIds((prev) => {
-			const next = new Set(prev);
-			for (const id of ids) {
-				if (selected) {
-					next.add(id);
-				} else {
-					next.delete(id);
-				}
-			}
-			return next;
-		});
-	}, []);
-
-	const clearSelection = useCallback(() => {
-		setSelectedIds(new Set());
-	}, []);
-
-	const bulkDeleteSelected = useCallback(async () => {
-		const rows = templatesRef.current.filter((e) => selectedIds.has(e.id));
-		if (rows.length === 0) return;
-		const byId = new Map(rows.map((e) => [e.id, e]));
-		// Capture each deleted row's original index so Undo restores the
-		// list exactly (mirrors instantDeleteTemplate's index capture).
-		const originalIndexes = new Map(
-			rows.map((e) => [e.id, templatesRef.current.indexOf(e)]),
-		);
-		try {
-			const updated = templatesRef.current.filter(
-				(e) => !selectedIds.has(e.id),
-			);
-			setTemplates(updated);
-			// Keep the selection consistent — the deleted ids are gone.
-			clearSelection();
-			await saveTemplatesList(updated);
-			showUndoableToast(
-				t("templates.bulkDeleteToast", { count: String(rows.length) }),
-				async () => {
-					try {
-						const latest = templatesRef.current.filter((e) => !byId.has(e.id));
-						const restored = [...latest];
-						for (const row of rows) {
-							const insertAt = Math.min(
-								originalIndexes.get(row.id) ?? restored.length,
-								restored.length,
-							);
-							restored.splice(insertAt, 0, row);
-						}
-						await saveTemplatesList(restored);
-						setTemplates(restored);
-						toast.success(t("templates.restoredTemplate"));
-					} catch {
-						toast.error(t("templates.restoreFailed"));
-					}
-				},
-				{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
-			);
-		} catch {
-			// Restore the pre-delete list on failure (templatesRef still
-			// holds the original list — saveTemplatesList threw first).
-			setTemplates(templatesRef.current);
-			showSnack(t("templates.deleteFailed"), "error");
-		}
-	}, [
-		templatesRef,
-		selectedIds,
-		setTemplates,
-		saveTemplatesList,
-		showSnack,
-		clearSelection,
-	]);
-
-	return {
-		selectedIds,
-		selectedCount,
-		selectedRows,
-		toggleSelect,
-		setSelectMany,
-		clearSelection,
-		bulkDeleteSelected,
+	const getRowId = useCallback((row: TemplateRow) => row.id, []);
+	const messages = {
+		bulkDeleteToast: "templates.bulkDeleteToast",
+		rowRestored: "templates.restoredTemplate",
+		restoreFailed: "templates.restoreFailed",
+		deleteFailed: "templates.deleteFailed",
 	};
+
+	return useRowSelection<TemplateRow>({
+		rows: templates,
+		setRows: setTemplates,
+		rowsRef: templatesRef,
+		persist: saveTemplatesList,
+		showSnack,
+		getRowId,
+		messages,
+	});
 }

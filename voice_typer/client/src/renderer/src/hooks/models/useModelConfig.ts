@@ -39,6 +39,7 @@ import {
 } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -85,10 +86,7 @@ export function useModelConfig({
 	// identity churn would re-fire the mount-load effect (loadConfig →
 	// setModels/setConfig → re-render → new call → loop → worker OOM).
 	// Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const markUpdatedRef = useRef(markUpdated);
 	useEffect(() => {
 		markUpdatedRef.current = markUpdated;

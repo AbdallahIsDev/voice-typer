@@ -25,7 +25,7 @@ import {
 	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -34,6 +34,7 @@ import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 import type { IsVisibleFn } from "./types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 interface TroubleshootingSettingsSectionProps {
 	/** Search-filter predicate — same shape as the page-level helper. */
@@ -68,10 +69,7 @@ export const TroubleshootingSettingsSection = memo(
 		// effect dep on it would re-fire the probe (check_accessibility →
 		// setStaleResetCommand → re-render → new call → loop). Same
 		// pattern as useVocabulary.ts.
-		const callRef = useRef(call);
-		useEffect(() => {
-			callRef.current = call;
-		}, [call]);
+		const callRef = useLatestRef(call);
 
 		// Resolve translated strings once per render so the search-visible
 		// predicate and the rendered labels share the same values.

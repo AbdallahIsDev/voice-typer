@@ -42,6 +42,7 @@ import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-cache keys for the SWR seed (see lib/ipcCache.ts). Only the
 // FIRST page + stats are cached — that's what a revisit renders
@@ -124,10 +125,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// identity churn would re-create `load` every render and re-fire the
 	// page's mount-load effect (fetch → setRecords → re-render → new
 	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const markUpdatedRef = useRef(markUpdated);
 	useEffect(() => {
 		markUpdatedRef.current = markUpdated;

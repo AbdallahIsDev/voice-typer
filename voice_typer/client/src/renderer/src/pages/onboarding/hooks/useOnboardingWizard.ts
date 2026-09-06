@@ -11,6 +11,7 @@ import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // The six consent flags surfaced on the consolidated Consent step
 // (voice biometric, HuggingFace, OpenAI / Groq / Deepgram cloud ASR,
@@ -101,10 +102,7 @@ export function useOnboardingWizard(
 	// effect dep on it re-fires init() (onboarding_start/get_config/… →
 	// setState → re-render → new call → loop → worker OOM). Same
 	// pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	const [loading, setLoading] = useState(true);
 	const [initError, setInitError] = useState<string | null>(null);

@@ -77,6 +77,7 @@ import {
 	LAST_TEXT_AUTO_CLEAR_MS,
 	STATUS_COLORS,
 } from "./home/lib/constants";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import {
 	normalizeHotkey,
 	statusKeyFor,
@@ -99,10 +100,7 @@ export default function Home() {
 	// re-fires the initial load (get_config/get_today_stats/get_history
 	// → setState → re-render → new call → loop → worker OOM). Same
 	// pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const celebrateFirstRecording = useFirstRecordingCelebration(call);
 
 	const [hotkey, setHotkey] = useState("F2");

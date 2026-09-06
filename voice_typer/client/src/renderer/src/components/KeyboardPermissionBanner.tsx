@@ -33,6 +33,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePython } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import type { PermissionsResult } from "@/types/ipc";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Refresh interval: every 60s. The macOS Accessibility permission can
 // be granted at any time in System Settings; the banner should disappear
@@ -63,10 +64,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 	// 60s interval) on every render: probe → setResult → re-render →
 	// new call → effect re-fires → infinite loop. Same pattern as
 	// useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Track the in-flight promise + interval id so cleanup is
 	// deterministic (mirrors the `cancelled` flag pattern in

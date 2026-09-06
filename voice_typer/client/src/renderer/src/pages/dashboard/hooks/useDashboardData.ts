@@ -50,6 +50,7 @@ import {
 	type PeriodStats,
 	type RangeId,
 } from "../lib/streaks";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /** History sample size for the dashboard's derived stats. */
 export const DASHBOARD_SAMPLE_LIMIT = 500;
@@ -116,10 +117,7 @@ export function useDashboardData({
 	// mocks return a FRESH call per render — an identity churn would
 	// re-fire the mount-load effect (refreshData → setData → re-render
 	// → new call → loop → worker OOM). Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	const [data, setData] = useState<DashboardData | null>(
 		() => peekIpcCache<DashboardData>(DASHBOARD_CACHE_KEY) ?? null,

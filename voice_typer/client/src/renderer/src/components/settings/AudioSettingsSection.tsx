@@ -9,7 +9,7 @@
 // status fetch (now done via this section's own `usePython` call so the
 // parent doesn't need to know about it).
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
@@ -30,6 +30,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export const AudioSettingsSection = memo(function AudioSettingsSection({
 	config,
@@ -70,10 +71,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	// effect every render (get_volume_backend_status → setState →
 	// re-render → new call → loop → worker OOM). The mirror keeps the
 	// ref fresh; the effect deps stay identity-free.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Best-effort: if the call fails we leave `volumeBackend` as null and
 	// the toggle stays enabled-but-server-validated (the Python side also

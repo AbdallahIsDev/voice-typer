@@ -56,6 +56,7 @@ import type {
 	TestResultQuality,
 	TestStopResult,
 } from "../lib/types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * Fixed microphone-test recording duration, in seconds. The test is
@@ -259,10 +260,7 @@ export function useMicrophoneTestSession({
 	// effect below must not depend on the `call` identity — a test mock
 	// handing out a fresh `call` per render would re-fire it (OOM loop
 	// class). ``callRef.current`` is read at cleanup time instead.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
 	// used directly here — preset / config-change handlers live in

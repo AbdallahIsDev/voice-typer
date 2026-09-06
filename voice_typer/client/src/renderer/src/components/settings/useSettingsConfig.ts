@@ -44,6 +44,7 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-level cache — persists across page navigations so settings
 // render instantly on re-visit instead of showing a loading spinner.
@@ -172,10 +173,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// mock handing out a FRESH `call` per render would re-trigger the
 	// mount effect (get_config → setConfig → re-render → new call →
 	// loop → worker OOM). The mirror keeps the ref fresh.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Per-instance cancelled flag. Set to `true` on unmount so any
 	// in-flight `loadConfig` fetch (whether triggered by the Settings

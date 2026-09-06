@@ -27,7 +27,6 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
-	useRef,
 	useState,
 } from "react";
 import { APP_NAME } from "@/branding";
@@ -48,6 +47,7 @@ import type { ModelStatusMap } from "@/types/ipc";
 // it stays in sync with the single source of truth.
 import pkg from "../../../../../package.json";
 import type { IsVisibleFn } from "./types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 const APP_VERSION = pkg.version as string;
 
@@ -172,10 +172,7 @@ export const DiagnosticsSettingsSection = memo(
 		// callRef mirror (Home.tsx pattern): the mount probe effect reads
 		// `callRef.current` so its deps stay identity-free — a test mock
 		// handing out a fresh `call` per render must not re-fire the probe.
-		const callRef = useRef(call);
-		useEffect(() => {
-			callRef.current = call;
-		}, [call]);
+		const callRef = useLatestRef(call);
 		const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
 		// empty string = still probing / unresolved; renders "—" fallback.
 		const [configDir, setConfigDir] = useState<string>("");

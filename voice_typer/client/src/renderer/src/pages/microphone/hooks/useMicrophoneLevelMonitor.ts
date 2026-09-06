@@ -78,6 +78,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import {
 	CONSENT_REQUIRED_CODE,
@@ -193,10 +194,7 @@ export function useMicrophoneLevelMonitor({
 	// per render — an effect dep on it re-fires level_monitor_start +
 	// the one-shot poll (→ setLevel → re-render → new call → loop). Same
 	// pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	const [level, setLevel] = useState(0);
 	const [peak, setPeak] = useState(0);

@@ -69,11 +69,12 @@
  * store + resets the ``initOnce`` flag so a test can mount a fresh
  * ``useTheme`` consumer deterministically.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { usePythonEvent } from "@/hooks/usePython";
 import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import {
 	LS_CUSTOM_THEME,
 	LS_TEXT_SIZE,
@@ -549,10 +550,7 @@ export function useTheme(
 	// a test mock handing out a fresh `call` per render would re-fire
 	// it every render (OOM loop class). The mirror keeps the ref fresh;
 	// ``ensureThemeSideEffects``'s initOnce guard makes re-runs no-ops.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// ── Read state from the singleton store ────────────────────────
 	//

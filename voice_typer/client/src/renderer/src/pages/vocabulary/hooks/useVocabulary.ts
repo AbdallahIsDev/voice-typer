@@ -34,6 +34,7 @@ import {
 	type VocabRow,
 	withEntryIds,
 } from "../lib/transform";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /** Per-entry usage from the server's `get_correction_usage` snapshot. */
 export interface EntryUsage {
@@ -161,10 +162,7 @@ export function useVocabulary({
 	// made loadVocabulary change identity per render → the effect
 	// re-fired forever, re-fetching + re-rendering until the worker
 	// OOM'd (FATAL ERROR: heap limit, killed the whole axe-core suite).
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Per-correction usage snapshot (``get_correction_usage``) — powers
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary

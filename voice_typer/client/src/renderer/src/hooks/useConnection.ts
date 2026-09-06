@@ -5,6 +5,7 @@ import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, RecordingState } from "@/types/ipc";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 //runtime validator for the RecordingState string-literal
 // union.  The backend emits status values as plain strings over IPC;
@@ -159,10 +160,7 @@ export function useConnection({
 	// OOM). Same pattern as useVocabulary.ts. Event-handler callbacks
 	// (usePythonEvent) are unaffected — their identity churn is already
 	// absorbed by the handlerRef indirection.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// ── Connection lifecycle ──────────────────────────────────────
 

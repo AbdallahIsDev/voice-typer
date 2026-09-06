@@ -74,6 +74,7 @@ export {
 	IN_APP_BINDINGS,
 	IN_APP_SHORTCUTS,
 } from "@/components/hotkey/shortcuts";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 /**
  * The renderer-side half of each modifier profile declared in the
@@ -124,10 +125,7 @@ export function useGlobalKeyboardShortcuts({
 	// re-register on every render when a test mock returns a fresh
 	// `call` per render. The listener body reads the latest `call` via
 	// the ref. Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Ref mirror of `textSize` (same pattern as callRef above) so the
 	// listener effect doesn't re-install on every text-size change and

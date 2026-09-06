@@ -31,6 +31,7 @@ import {
 } from "../lib/storage";
 import { rowsToTemplates, sortTemplateRows, toRows } from "../lib/transform";
 import type { Template, TemplateRow, TemplateSortOrder } from "../lib/types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
@@ -77,10 +78,7 @@ export function useTemplates({
 	// return a FRESH call per render — an identity churn would re-fire
 	// the mount-load effect (loadRows → setTemplates → re-render → new
 	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 
 	// Ref mirror of `markUpdated` (same stability rationale as `call` —
 	// the page passes it down so the "Last updated" indicator bumps on

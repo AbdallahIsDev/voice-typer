@@ -42,6 +42,7 @@ import {
 	MODEL_DEFAULT,
 	STEP_TITLE_KEY,
 } from "./onboarding/lib/constants";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export default function OnboardingPage({
 	onComplete,
@@ -118,10 +119,7 @@ export default function OnboardingPage({
 	// must not depend on the `call` identity — a test mock handing out a
 	// fresh `call` per render would re-fire the get_config probe on every
 	// render (OOM loop class). ``callRef.current`` is read instead.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const [consentAccepted, setConsentAccepted] = useState(false);
 	const [consentPersisting, setConsentPersisting] = useState(false);
 

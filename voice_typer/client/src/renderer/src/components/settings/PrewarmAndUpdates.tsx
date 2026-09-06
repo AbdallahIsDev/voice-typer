@@ -36,7 +36,7 @@
 
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 // Reuse the byte/relative-time formatters exported by the diagnostics
@@ -52,6 +52,7 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import pkg from "../../../../../package.json";
 import type { IsVisibleFn } from "./types";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 const APP_VERSION = pkg.version as string;
 
@@ -159,10 +160,7 @@ export default function PrewarmAndUpdates({
 	// Test mocks may return a fresh `call` per render — depending on it
 	// would re-fire the load (get_prewarm_status → setPrewarmStatus →
 	// re-render → new call → loop). Same pattern as useVocabulary.ts.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const { showSnack } = useSnackbar();
 
 	// ADR-0009 Issue 3: prewarm cache status. null = not fetched yet.

@@ -35,7 +35,7 @@ import {
 	VoiceIdIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
 import { Logo } from "@/components/layout/Logo";
@@ -44,6 +44,7 @@ import { usePython } from "@/hooks/usePython";
 import { t, useT } from "@/i18n/i18n";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import pkg from "../../../../package.json";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // App version — read directly from package.json (see VERSION-SOURCE-FIX
 // comment at the top of the file) so this never drifts from the
@@ -99,8 +100,7 @@ export default function AboutAndPrivacyPage() {
 	// and the mount-time configDir probe — so neither goes stale across
 	// renders and a test mock handing out a fresh `call` per render can
 	// never re-fire the probe.
-	const callRef = useRef(call);
-	callRef.current = call;
+	const callRef = useLatestRef(call);
 
 	// Runtime-pack update check — user-initiated only. No fetch on
 	// mount: the check hits the GitHub Releases manifest (C-DATA-1

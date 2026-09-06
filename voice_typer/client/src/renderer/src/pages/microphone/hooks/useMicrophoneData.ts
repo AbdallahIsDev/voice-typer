@@ -32,6 +32,7 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 // Module-level cache — persists across page navigations so microphone
 // settings render instantly on re-visit instead of showing a loading
@@ -124,10 +125,7 @@ export function useMicrophoneData({
 	// them re-fires the mount load (get_microphones/get_config →
 	// setState → re-render → new call → loop → worker OOM). The mirrors
 	// keep the refs fresh; the effect deps stay identity-free.
-	const callRef = useRef(call);
-	useEffect(() => {
-		callRef.current = call;
-	}, [call]);
+	const callRef = useLatestRef(call);
 	const showSnackRef = useRef(showSnack);
 	useEffect(() => {
 		showSnackRef.current = showSnack;
