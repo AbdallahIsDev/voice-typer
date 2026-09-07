@@ -226,11 +226,13 @@ def _make_service(tmp_config_dir):
 
 class TestSingleFlightGuard:
     """A second download_model IPC while one is active (possibly paused)
-    must be REFUSED, never started: the shared pause/abort events are
-    module-level, and recycling them under a live download would wake the
-    parked gate and run two concurrent transfers."""
+    must NOT start a second transfer — the shared pause/abort events
+    are module-level, and recycling them under a live download would
+    wake the parked gate and run two concurrent transfers. The second
+    request is QUEUED (serialized, not refused) — the single-flight
+    serialization is unchanged."""
 
-    def test_whisper_branch_refuses_second_download(self, tmp_config_dir, monkeypatch):
+    def test_whisper_branch_queues_second_download(self, tmp_config_dir, monkeypatch):
         from unittest.mock import MagicMock
 
         import voice_typer.server.asr_setup as asr
@@ -242,18 +244,20 @@ class TestSingleFlightGuard:
                 lambda *a, **k: (_ for _ in ()).throw(AssertionError("second download must not reach HuggingFace")),
             )
             svc = _make_service(tmp_config_dir)
+            monkeypatch.setattr(svc, "_require_huggingface_consent", lambda name: None)
             meta = MagicMock()
             meta.repo_id = "org/target"
             meta.backend = "whisper"
             meta.download_size_mb = 1
             outcome = svc._download_whisper_family("tiny", meta)
-            assert outcome.get("download_already_active") is True
-            assert outcome["success"] is False
+            assert outcome["queued"] is True
+            assert outcome["success"] is True
             assert outcome["model"] == "tiny"
+            assert svc._download_queue == ["tiny"]
         finally:
             asr.clear_download_pause_state()
 
-    def test_parakeet_branch_refuses_second_download(self, tmp_config_dir, monkeypatch):
+    def test_parakeet_branch_queues_second_download(self, tmp_config_dir, monkeypatch):
         import voice_typer.server.asr_setup as asr
 
         asr.reset_download_pause_state()
@@ -267,9 +271,10 @@ class TestSingleFlightGuard:
             svc = _make_service(tmp_config_dir)
             monkeypatch.setattr(svc, "_require_huggingface_consent", lambda name: None)
             outcome = svc._download_parakeet("parakeet")
-            assert outcome.get("download_already_active") is True
-            assert outcome["success"] is False
+            assert outcome["queued"] is True
+            assert outcome["success"] is True
             assert outcome["model"] == "parakeet"
+            assert svc._download_queue == ["parakeet"]
         finally:
             asr.clear_download_pause_state()
 

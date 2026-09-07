@@ -54,6 +54,15 @@ class DownloadStateMixin:
         self._download_cancel_events: dict[str, threading.Event] = {}
         self._download_cancel_lock = threading.Lock()
         self._active_download_id: str | None = None
+        # FIFO of model NAMES awaiting their turn behind the active
+        # gateable download (queue-instead-of-refuse: a second
+        # concurrent download request waits instead of erroring).
+        # Unbounded by design (it holds short strings; the UI caps
+        # display, not storage). Mutated only under
+        # ``_download_cancel_lock``; the enqueue / cancel / drain logic
+        # lives in ``_downloads.py`` (DownloadsMixin) next to its only
+        # callers.
+        self._download_queue: list[str] = []
         self._model_status_cache: dict[str, object] | None = None
         self._model_status_cache_ts: float = 0.0
         self._model_status_cache_lock = threading.Lock()

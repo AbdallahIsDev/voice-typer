@@ -312,6 +312,9 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # full model catalog (rich metadata for the
     # Models page: VRAM, languages, speed/accuracy ratings).
     "get_model_catalog": "_handle_get_model_catalog",
+    # Pending download FIFO queue snapshot (hydrates the renderer's
+    # queue chips on mount; live updates flow via download_progress).
+    "get_download_queue": "_handle_get_download_queue",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
     # macOS troubleshooting (finding #127 part b): reset the stale

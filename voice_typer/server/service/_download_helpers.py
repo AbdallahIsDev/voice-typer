@@ -64,8 +64,15 @@ class DownloadOutcome(TypedDict, total=False):
     path ().
     * ``reason`` — present on the parakeet failure path ().
     * ``download_already_active`` — present on the single-flight guard
-      refusal (a second download while one is in flight, e.g. Retry
-      after the renderer's promise timed out during a long pause).
+      path. Superseded by the queue (the guard now enqueues instead of
+      refusing), but retained in the type so legacy consumers tolerate
+      old payloads.
+    * ``queued`` — present when the request was accepted into the
+      pending download queue instead of starting immediately (a
+      gateable download is already in flight).
+    * ``queue_position`` — 1-based FIFO position of the queued model.
+      Travelled on ``download_progress`` events so the renderer can
+      render queue state from the existing event stream.
     """
 
     success: bool
@@ -76,6 +83,8 @@ class DownloadOutcome(TypedDict, total=False):
     consent_required: bool
     reason: str
     download_already_active: NotRequired[bool]
+    queued: NotRequired[bool]
+    queue_position: NotRequired[int]
 
 
 def push_progress(
@@ -90,6 +99,7 @@ def push_progress(
     eta_seconds: float | None = None,
     paused: bool | None = None,
     resumed: bool | None = None,
+    queue_position: int | None = None,
 ) -> None:
     """Push a ``download_progress`` event with rich metadata.
 
@@ -103,6 +113,11 @@ def push_progress(
     present (backward compat with  tests).  The remaining fields
         are optional and only included when meaningful (e.g. during active
         transfer, not for "cached" or "cancelled" events).
+
+        ``queue_position`` (1-based) is present only while the model is
+        waiting in the pending download queue — an event WITHOUT the
+        field means "not queued" (active transfer or terminal state),
+        which is the renderer-side queue-state contract.
     """
     data: dict = {
         "model": model_name,
@@ -121,6 +136,8 @@ def push_progress(
         data["paused"] = bool(paused)
     if resumed is not None:
         data["resumed"] = bool(resumed)
+    if queue_position is not None:
+        data["queue_position"] = int(queue_position)
     event_bus.publish({"type": "download_progress", "data": data})
 
 

@@ -1,4 +1,4 @@
-"""LRU eviction, idle-unload timer, watchdog escalation."""
+"""LRU eviction, idle-unload scheduler (persistent deadline thread), watchdog escalation."""
 
 from __future__ import annotations
 
@@ -12,6 +12,22 @@ log = logging.getLogger("voice_typer.server.model_manager")
 
 
 class LifecycleMixin:
+    # Persistent idle-unload scheduler state (RACE-013 pattern, mirroring
+    # the transcription watchdog). Annotations only — no values — so no
+    # runtime attribute is created and the composed ModelManager's MRO is
+    # unaffected (same pattern as ``LoadingMixin``'s members in
+    # ``_loading.py``). All three are created lazily under
+    # ``_idle_unload_lock`` by ``_schedule_idle_unload_timer`` (the
+    # scheduler does not exist until the feature is first armed):
+    #   * ``_idle_unload_deadline`` — monotonic timestamp the scheduler
+    #     fires at (``None`` = disarmed / parked).
+    #   * ``_idle_unload_wakeup``   — Event set whenever the deadline
+    #     changes (touch / cancel) so the loop recomputes its wait.
+    #   * ``_idle_unload_thread``   — the ONE persistent daemon thread.
+    _idle_unload_deadline: float | None
+    _idle_unload_wakeup: threading.Event
+    _idle_unload_thread: threading.Thread | None
+
     def _evict_lru_model(self) -> None:
         """PERF-015: Evict the least recently used model if too many are loaded.
 
@@ -123,19 +139,19 @@ class LifecycleMixin:
 
         if the touched backend is the ACTIVE backend AND
         ``model_idle_unload_minutes > 0``, (re)arm the idle-unload
-        timer. Touching an inactive backend (e.g. via ``touch_model``
+        deadline. Touching an inactive backend (e.g. via ``touch_model``
         on a non-active name during a load path) does NOT arm the
-        timer — the timer is only for the active backend.
+        deadline — the scheduler is only for the active backend.
         """
         import time
 
         with self._model_lru_lock:
             self._model_access_times[backend_name] = time.monotonic()
-        # arm the idle-unload timer only when the touched
-        # backend is the active one (the timer exists to release the
+        # arm the idle-unload deadline only when the touched
+        # backend is the active one (the scheduler exists to release the
         # ACTIVE backend's VRAM after inactivity). Touching a non-active
         # backend (e.g. during a registry-level pre-warm) is harmless
-        # but should not arm the timer.
+        # but should not arm the scheduler.
         try:
             active_name = self._registry.active_name
         except Exception:
@@ -162,10 +178,10 @@ class LifecycleMixin:
         no-op for unknown backend names (it just records the timestamp;
         eviction only considers names that were touched).
 
-        also (re)arms the idle-unload timer via the
+        also (re)arms the idle-unload deadline via the
         ``touch_model`` → ``_schedule_idle_unload_timer`` path when the
         active backend is touched (i.e. after every successful
-        transcribe the timer is pushed out by N minutes).
+        transcribe the deadline is pushed out by N minutes).
         """
         try:
             self.touch_model(self._registry.active_name)
@@ -175,58 +191,63 @@ class LifecycleMixin:
                 exc_info=True,
             )
 
-    # ── : idle-unload timer ───────────────────────────────────────
+    # ── : idle-unload scheduler (persistent deadline thread) ─────────
 
     def cancel_idle_unload_timer(self) -> None:
-        """cancel any pending idle-unload timer (idempotent).
+        """disarm the idle-unload deadline (idempotent).
 
-        Safe to call when no timer is armed (no-op). Called from:
+        Safe to call when nothing is armed (no-op). Called from:
         - ``ensure_active_engine_loaded`` (user pressed toggle_dictation)
         - ``change_model`` / ``set_active_backend`` (model swap)
-        - ``_schedule_idle_unload_timer`` (reschedule-on-touch)
-        - ``app.shutdown`` paths (best-effort via the registry's
-          stop_event — the daemon Timer is killed implicitly by
-          process exit too).
+        - ``_schedule_idle_unload_timer`` (feature disabled at runtime)
+        - ``app.shutdown`` paths (best-effort — the daemon scheduler
+          thread is killed implicitly by process exit too).
+
+        The persistent scheduler thread is NOT torn down here — it
+        parks on the wake Event until the next arm. Tearing it down per
+        cancel would re-create a thread on every dictation cycle
+        (``ensure_active_engine_loaded`` cancels on toggle_dictation,
+        ``touch_active_model`` re-arms after every transcribe) — exactly
+        the per-dictation Timer churn this mechanism replaced.
 
         Defensive against test fixtures that construct
         ``ModelManager.__new__(ModelManager)`` and bypass ``__init__``
-        (so ``_idle_unload_lock`` / ``_idle_unload_timer`` may not be
-        set). In that case the method is a no-op (there is no timer to
-        cancel — the fixture never armed one).
+        (so ``_idle_unload_lock`` may not be set). In that case the
+        method is a no-op (there is no deadline to disarm — the fixture
+        never armed one).
         """
         lock = getattr(self, "_idle_unload_lock", None)
         if lock is None:
             return
         with lock:
-            timer = self._idle_unload_timer
-            self._idle_unload_timer = None
-        if timer is not None:
-            try:
-                timer.cancel()
-            except Exception:
-                log.debug(
-                    "[MODEL] timer.cancel() failed (non-fatal)",
-                    exc_info=True,
-                )
+            self._idle_unload_deadline = None
+            wake = getattr(self, "_idle_unload_wakeup", None)
+        if wake is not None:
+            # Wake the parked/waiting loop so it observes the disarmed
+            # deadline immediately instead of sleeping out its stale
+            # timeout.
+            wake.set()
 
     def _schedule_idle_unload_timer(self) -> None:
-        """arm (or re-arm) the idle-unload timer.
+        """arm (or re-arm) the idle-unload deadline.
 
         Reads ``app.config.model_idle_unload_minutes``:
-        - ``0`` (default) → feature disabled; cancel any existing timer
-          and return (current behaviour preserved exactly).
-        - ``N > 0`` → cancel any existing timer, then arm a new
-          ``threading.Timer(N * 60.0, _on_idle_unload_fire)``.
+        - ``0`` (or non-numeric / non-positive) → feature disabled;
+          disarm any pending deadline and return.
+        - ``N > 0`` → set the deadline to ``time.monotonic() + N * 60``
+          and wake the persistent scheduler thread.
 
-        Each call cancels the previous timer so the deadline is pushed
-        out to N minutes after the most recent touch (the "use it or
-        lose it" pattern). The timer is a daemon thread so it never
-        blocks process exit.
+        RACE-013 pattern (mirrors the transcription watchdog): ONE
+        persistent daemon thread owns the firing decision. A touch just
+        moves the monotonic deadline and sets the wake Event — no
+        ``threading.Timer`` (and no timer thread) is created per
+        dictation, no CPython-internals ``timer.function`` mutation, and
+        the old timer-identity race guard is replaced by a deadline
+        re-confirmation under the lock at expiry (a touch that moved the
+        deadline always wins over the firing).
 
         Defensive against test fixtures that bypass ``__init__`` — if
-        ``_idle_unload_lock`` is missing, the method is a no-op (the
-        fixture never set ``model_idle_unload_minutes`` either, so the
-        feature would be disabled anyway).
+        ``_idle_unload_lock`` is missing, the method is a no-op.
         """
         lock = getattr(self, "_idle_unload_lock", None)
         if lock is None:
@@ -236,64 +257,91 @@ class LifecycleMixin:
         except Exception:
             minutes = 0
         if not isinstance(minutes, int | float) or minutes <= 0:
-            # Feature disabled — cancel any existing timer and return.
+            # Feature disabled — disarm any pending deadline.
             self.cancel_idle_unload_timer()
             return
-        # Cancel any existing timer first so the deadline is pushed out
-        # to N minutes after THIS touch (not the previous one).
-        self.cancel_idle_unload_timer()
         delay = float(minutes) * 60.0
-        # Create the Timer with a placeholder callback, then override
-        # ``timer.function`` with a closure that captures ``timer`` so
-        # ``_on_idle_unload_fire`` can do the identity check (only the
-        # CURRENT timer's callback actually unloads — a cancelled /
-        # rescheduled timer's callback aborts).
-        timer = threading.Timer(delay, lambda: None)
-        timer.daemon = True
-        timer.name = "model-idle-unload"
-
-        def _fire() -> None:
-            self._on_idle_unload_fire(timer)
-
-        # Override the Timer's stored function so the run() method
-        # invokes our closure (which captures ``timer`` for the
-        # identity check). The default ``timer.function`` is the
-        # ``lambda: None`` placeholder above; replacing it post-init is
-        # safe because ``Timer.run`` reads ``self.function`` at fire
-        # time, not at construction.
-        timer.function = _fire
         with lock:
-            self._idle_unload_timer = timer
-        timer.start()
+            # Push the deadline out to N minutes after THIS touch (not
+            # the previous one) — the "use it or lose it" pattern.
+            self._idle_unload_deadline = time.monotonic() + delay
+            wake = getattr(self, "_idle_unload_wakeup", None)
+            if wake is None:
+                wake = threading.Event()
+                self._idle_unload_wakeup = wake
+            # Read-check-create-start under the lock (mirrors the
+            # watchdog's ``start_thread``) so two concurrent arms can
+            # never spawn two scheduler threads.
+            thread = getattr(self, "_idle_unload_thread", None)
+            if thread is None or not thread.is_alive():
+                thread = threading.Thread(
+                    target=self._idle_unload_loop,
+                    name="model-idle-unload",
+                    daemon=True,
+                )
+                self._idle_unload_thread = thread
+                thread.start()
+            wake.set()
 
-    def _on_idle_unload_fire(self, timer: threading.Timer) -> None:
-        """timer callback — identity-check then delegate to ``_do_idle_unload``.
+    def _idle_unload_loop(self) -> None:
+        """persistent idle-unload scheduler loop (daemon thread).
 
-        The identity check ensures only the CURRENT timer's callback
-        actually unloads. If the timer was cancelled or rescheduled
-        (replaced by a new Timer) before this callback ran, the check
-        fails and the callback returns without unloading. This prevents
-        the race where an old timer fires after a new one was scheduled
-        (which would unload the model right after the user started a
-        new dictation).
+        Mirrors the transcription watchdog's RACE-013 persistent-thread
+        pattern: wait on the wake Event with a timeout recomputed from
+        the monotonic deadline (``max(0, deadline - now)``), fire
+        ``_do_idle_unload`` when the deadline expires, and park while
+        disarmed. The thread lives for the process lifetime once
+        started; it never needs re-creating.
+
+        Ordering note: the Event is cleared BEFORE the deadline is read
+        under the lock, so a wake signal raised between the two is
+        either already visible via the set event on the next wait or via
+        the freshly-read deadline — no lost wakeup.
         """
-        with self._idle_unload_lock:
-            current = self._idle_unload_timer
-        if current is not timer:
-            log.debug("[MODEL] idle-unload timer callback aborted (timer no longer current)")
-            return
-        self._do_idle_unload()
-        # Clear the timer reference (the callback has run; the timer is
-        # dead). The next ``touch_active_model`` will arm a fresh timer.
-        with self._idle_unload_lock:
-            if self._idle_unload_timer is timer:
-                self._idle_unload_timer = None
+        wake = self._idle_unload_wakeup
+        lock = self._idle_unload_lock
+        while True:
+            wake.clear()
+            with lock:
+                deadline = self._idle_unload_deadline
+            if deadline is None:
+                # Disarmed — park until the next arm/cancel wakes us.
+                wake.wait()
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining > 0 and wake.wait(timeout=remaining):
+                # Woken early — a touch or cancel moved the deadline;
+                # loop back and recompute the wait from the new value.
+                continue
+            # Deadline reached (or already past). Re-confirm under the
+            # lock so a concurrent touch/cancel wins over this expiry —
+            # this replaces the old timer-identity race guard.
+            with lock:
+                deadline_now = self._idle_unload_deadline
+                if deadline_now is None or deadline_now > time.monotonic():
+                    continue
+                # Disarm BEFORE unloading so the parked state stays
+                # consistent even if the unload itself raises.
+                self._idle_unload_deadline = None
+            try:
+                self._do_idle_unload()
+            except Exception:
+                # The loop must survive an unload failure — a dead
+                # scheduler thread would silently disable the idle-unload
+                # feature for the rest of the process. (``_do_idle_unload``
+                # defends itself internally; this guards its callers'
+                # bookkeeping, e.g. ``_mark_deliberately_unloaded``.)
+                log.error(
+                    "[MODEL] idle-unload raised — scheduler continues",
+                    exc_info=True,
+                )
+            # Loop back: deadline is None → park until the next touch.
 
     def _do_idle_unload(self) -> None:
         """unload the active backend + release GPU memory.
 
-        Called from ``_on_idle_unload_fire`` (the timer's callback) and
-        directly from tests. Skips the unload if:
+        Called from the persistent idle-unload scheduler thread when the
+        deadline expires, and directly from tests. Skips the unload if:
         - ``app._shutting_down`` is True (avoids racing with teardown).
         - the active engine is already unloaded (no double-unload).
 

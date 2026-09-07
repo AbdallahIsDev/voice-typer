@@ -84,11 +84,33 @@ class ModelHandlersMixin(HandlerBase):
         )
 
     def _handle_cancel_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``cancel_model_download`` IPC command."""
+        """Handle the ``cancel_model_download`` IPC command.
+
+        cancel an in-progress HuggingFace download, or remove a QUEUED
+        request from the pending download queue.
+
+        ``data`` may carry ``{"model": "<name>"}`` — the name of the
+        model to cancel. With a valid string name the service's
+        cancel-anywhere path runs: a model waiting in the pending
+        download queue is removed without touching the active transfer;
+        the ACTIVE model is cancelled when named. Without a valid string
+        name (missing / non-str / empty), the legacy active-only cancel
+        runs (the pending queue is untouched and drains on).
+
+        The payload is validated at this boundary (input validation
+        posture): a non-str ``model`` value is rejected to ``None``
+        rather than forwarded, so an malformed payload can never reach
+        the service layer.
+        """
         # cancel an in-progress HuggingFace download.
         try:
-            log.info("[IPC] cancel_model_download called")
-            result = self.service.cancel_model_download()
+            model = data.get("model") if isinstance(data, dict) else None
+            model_name = model if isinstance(model, str) and model else None
+            if model_name:
+                log.info("[IPC] cancel_model_download called for '%s'", model_name)
+            else:
+                log.info("[IPC] cancel_model_download called")
+            result = self.service.cancel_model_download(model_name)
             resp["type"] = "ack"
             resp["data"] = result
         except Exception as exc:
@@ -127,6 +149,23 @@ class ModelHandlersMixin(HandlerBase):
         except Exception as exc:
             # generic WS-path envelope.
             self._respond_with_error(resp, exc, "resume_model_download")
+        return resp
+
+    def _handle_get_download_queue(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
+        """Handle the ``get_download_queue`` IPC command.
+
+        Return the pending download FIFO queue (model names, front
+        first) so the renderer can hydrate its queue chips on mount.
+        Read-only snapshot — no arguments, no state change.
+        """
+        try:
+            log.debug("[IPC] get_download_queue called")
+            result = self.service.get_download_queue()
+            resp["type"] = "ack"
+            resp["data"] = result
+        except Exception as exc:
+            # generic WS-path envelope.
+            self._respond_with_error(resp, exc, "get_download_queue")
         return resp
 
     def _handle_get_model_catalog(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:

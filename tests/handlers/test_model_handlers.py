@@ -56,14 +56,18 @@ class TestDownloadModel:
 
 
 class TestCancelModelDownload:
-    """``_handle_cancel_model_download`` — cancels an in-progress download."""
+    """``_handle_cancel_model_download`` — cancels an in-progress
+    download (legacy no-name payload) or removes a QUEUED request
+    (``{"model": "<name>"}`` payload)."""
 
     def test_happy_path_returns_ack_with_result(self, ipc_server, fake_service):
         fake_service.cancel_model_download.return_value = {"cancelled": True}
         resp = ipc_server._handle_cancel_model_download({}, {})
         assert resp["type"] == "ack"
         assert resp["data"] == {"cancelled": True}
-        fake_service.cancel_model_download.assert_called_once_with()
+        # An empty payload carries no model name — the handler forwards
+        # ``None`` (the legacy active-only cancel).
+        fake_service.cancel_model_download.assert_called_once_with(None)
 
     def test_service_raises_returns_error(self, ipc_server, fake_service):
         fake_service.cancel_model_download.side_effect = RuntimeError("no download in progress")
@@ -72,6 +76,40 @@ class TestCancelModelDownload:
         # + : generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
+
+    def test_model_name_in_payload_is_forwarded_to_service(self, ipc_server, fake_service):
+        """A valid string ``model`` in the payload is forwarded so the
+        renderer can cancel a QUEUED download (cancel-anywhere)."""
+        fake_service.cancel_model_download.return_value = {
+            "cancelled": True,
+            "model": "tiny",
+            "removed_from_queue": True,
+        }
+        resp = ipc_server._handle_cancel_model_download({"model": "tiny"}, {})
+        assert resp["type"] == "ack"
+        assert resp["data"]["removed_from_queue"] is True
+        fake_service.cancel_model_download.assert_called_once_with("tiny")
+
+    def test_non_string_model_is_rejected_to_none(self, ipc_server, fake_service):
+        """Input validation at the IPC boundary: a non-str ``model``
+        value must NOT be forwarded — the handler degrades to the legacy
+        active-only cancel (``None``)."""
+        fake_service.cancel_model_download.return_value = {"cancelled": False}
+        for bad_payload in ({"model": 42}, {"model": ["tiny"]}, {"model": {"name": "tiny"}}, {"model": None}):
+            resp = ipc_server._handle_cancel_model_download(bad_payload, {})
+            assert resp["type"] == "ack"
+            fake_service.cancel_model_download.assert_called_once_with(None)
+            fake_service.cancel_model_download.reset_mock()
+
+    def test_non_dict_payload_degrades_to_legacy_cancel(self, ipc_server, fake_service):
+        """A non-dict ``data`` (None / list / str) has no ``model`` field
+        — the handler must treat it as the legacy cancel, not crash."""
+        fake_service.cancel_model_download.return_value = {"cancelled": True}
+        for bad_data in (None, ["tiny"], "tiny"):
+            resp = ipc_server._handle_cancel_model_download(bad_data, {})
+            assert resp["type"] == "ack"
+            fake_service.cancel_model_download.assert_called_once_with(None)
+            fake_service.cancel_model_download.reset_mock()
 
 
 class TestPauseAndResumeModelDownload:
@@ -195,6 +233,25 @@ class TestDeleteModel:
     def test_service_raises_returns_error(self, ipc_server, fake_service):
         fake_service.delete_model.side_effect = RuntimeError("model in use")
         resp = ipc_server._handle_delete_model({"model": "small.en"}, {})
+        assert resp["type"] == "error"
+        # + : generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
+
+
+class TestGetDownloadQueue:
+    """``_handle_get_download_queue`` — read-only queue snapshot."""
+
+    def test_happy_path_returns_ack_with_queue(self, ipc_server, fake_service):
+        fake_service.get_download_queue.return_value = {"queue": ["tiny", "base"]}
+        resp = ipc_server._handle_get_download_queue({}, {})
+        assert resp["type"] == "ack"
+        assert resp["data"] == {"queue": ["tiny", "base"]}
+        fake_service.get_download_queue.assert_called_once_with()
+
+    def test_service_raises_returns_error(self, ipc_server, fake_service):
+        fake_service.get_download_queue.side_effect = RuntimeError("lock poisoned")
+        resp = ipc_server._handle_get_download_queue({}, {})
         assert resp["type"] == "error"
         # + : generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"

@@ -177,24 +177,24 @@ class ModelManagerCore:
         # caller further up the stack acquired it.
         self._model_change_lock = threading.RLock()
 
-        # idle-unload timer. When ``model_idle_unload_minutes > 0``,
-        # each ``touch_active_model()`` (called after every successful
-        # transcribe) arms a ``threading.Timer`` that fires after N
-        # minutes of inactivity. When the timer fires, the active
-        # backend is unloaded + ``release_gpu_memory()`` is called so
-        # the ~2.4 GB of VRAM (Parakeet fp16) + CUDA caching allocator
+        # idle-unload. When ``model_idle_unload_minutes > 0``, the
+        # persistent idle-unload scheduler thread (a single daemon parked
+        # on ``Event.wait`` — see ``_lifecycle.py``) re-arms its deadline
+        # to N minutes after every ``touch_active_model()`` (called after
+        # each successful transcribe). When the deadline expires, the
+        # active backend is unloaded + ``release_gpu_memory()`` is called
+        # so the ~2.4 GB of VRAM (Parakeet fp16) + CUDA caching allocator
         # blocks are returned to the OS. The model is reloaded on the
         # next ``toggle_dictation`` via ``ensure_active_engine_loaded``'s
         # reload-after-idle-unload path. ``model_idle_unload_minutes = 0``
         # (the default) disables the feature — current behaviour is
         # preserved exactly.
         #
-        # The lock guards the ``_idle_unload_timer`` reference so the
-        # identity check in ``_on_idle_unload_fire`` (which prevents a
-        # cancelled / rescheduled timer's callback from unloading) is
-        # race-free against concurrent ``cancel_idle_unload_timer`` /
-        # ``_schedule_idle_unload_timer`` calls.
-        self._idle_unload_timer: threading.Timer | None = None
+        # The lock guards the persistent idle-unload scheduler's
+        # deadline/stop state (the former ``threading.Timer`` reference
+        # was removed with the create/cancel-per-touch mechanism — the
+        # scheduler is a single daemon thread parked on
+        # ``Event.wait``, see ``_lifecycle.py``).
         self._idle_unload_lock = threading.Lock()
 
     # ── Registry access ────────────────────────────────────────────────
