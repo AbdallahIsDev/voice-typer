@@ -100,96 +100,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🔴 High
 **Category:** CI/CD
 
-### BP-30 — Model idle-unload creates and cancels a Timer object on every dictation
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** With idle-unload enabled, every successful transcription re-arms the idle-unload deadline by cancelling the previous `threading.Timer` and constructing and starting a new one — one Timer object + thread per dictation. The repo's own watchdog module documents and uses the better pattern (a persistent thread looping on `Event.wait(timeout)` recomputed from a last-touch timestamp) after an explicit race fix adopted it. Two divergent timer patterns thus coexist in one codebase. (Distinct from the Won't Fix GQ-L58, which defers an eviction-refactor; this is the idle-unload timer mechanism.)
-
-**User Impact:** None measurable (µs-scale per call). The cost is pattern discipline: the identity-check race guard the current code needs (:247-267) exists only because of the create/cancel pattern.
-
-**Root Cause:** `voice_typer/server/model_manager/_lifecycle.py:241-275` (`touch_model` → `_schedule_idle_unload_timer`); contrast `voice_typer/server/transcription_watchdog.py:182-193` (RACE-013 persistent-thread pattern).
-
-**Gain vs Trade-off:** One persistent daemon thread + monotonic deadline; the timer-identity race guard becomes unnecessary. Contained change with tests already covering idle-unload behavior.
-
-**My Recommendation:** ✅ Implement
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/model_manager/_lifecycle.py`
-
-**Fix:** Mirror the watchdog: one persistent daemon thread; on touch, update `last_touch = time.monotonic()` and set the wake Event; the loop waits `Event.wait(timeout=max(0, deadline - now))` and unloads on expiry. Existing idle-unload tests pin behavior.
-
-**Simplified Fix:** After each dictation, the app throws away its "unload the model after N idle minutes" timer and builds a new one. It already knows the better way — one persistent timer that just gets its deadline nudged — and uses it elsewhere. We switch this spot to that way too.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-**Enrichment (2026-09-04 BP session — Wave 1):** Additional evidence: `_lifecycle.py:241-267` constructs `threading.Timer(delay, lambda: None)` then overrides `timer.function = _fire` post-construction — relying on CPython internals (Timer.run reads self.function at fire time; verified against the local 3.12.14 interpreter source). The internals-dependent mutation AND the identity-check race guard both disappear under the persistent-deadline-thread fix already proposed here.
-
-### BP-31 — Concurrent model download requests are refused rather than queued
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The download manager deliberately allows only one gateable model download at a time (the single-flight guard is what makes pause/cancel reliable) — but a second download request arriving while one is active is outright REFUSED with an error toast ("Another model download is already in progress") rather than queued. Downloading several models from the Models page means clicking, getting an error, and manually retrying after each completes. The refusal is documented in-code as deliberate; the queue is the missing UX layer.
-
-**User Impact:** Multi-model setup requires manual sequential retries with an error toast between each — feels broken for a first-session user downloading 2-3 models.
-
-**Root Cause:** `voice_typer/server/service/model/_downloads.py:386-404` (single-flight guard; refusal response), :882-884.
-
-**Gain vs Trade-off:** A one-slot pending queue (next-request-wins) or a UI-level "queued" state. Constraint: keep the shared transfer gate (per-download gates would be the bigger refactor and risk the pause/cancel reliability the gate provides). Alternatively a renderer-side "queue the click, auto-retry when the current finishes" preserves the backend contract entirely.
-
-**My Recommendation:** ✅ Implement — backend FIFO queue, serialized transfers (user decision 2026-09-08; supersedes the renderer-first slice below)
-
-**Progress:** `Decision recorded 2026-09-08 — awaiting implementation.`
-
-**Related Files:**
-- `voice_typer/server/service/model/_downloads.py`
-- `voice_typer/client/src/renderer/src/components/models/` (queue UI)
-
-**Fix:** Decided solution (2026-09-08) — backend FIFO queue, serialized transfers (NOT true parallel):
-- User clicks Download on N models → each shows a "queued" state; transfers run one at a time through the existing single-flight gate, which stays untouched (true parallel would require per-download pause/abort gates — the bigger refactor that risks the pause/cancel reliability the shared gate provides — for no real wall-time win on split bandwidth).
-- Backend over renderer-side: the queue survives navigation/reload, is the single source of truth, and works for non-renderer triggers too. Renderer renders queue position from existing progress events plus one new `queue_position` field.
-- Queue holds model names only, so unbounded depth is fine (cap display, not storage). Cancel-anywhere must remove from the queue, not just the active transfer — the main edge to test (E6 test mandatory).
-- Fallback slice if a try-and-revert is wanted first: renderer keeps a one-deep local queue and auto-fires on the download-complete event; backend unchanged.
-
-**Simplified Fix:** If you try to download a second speech model while the first is still downloading, the app shows an error and makes you click again later. We make that second request wait its turn automatically instead.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-### BP-32 — App restart hard-kills the Python backend, skipping the graceful shutdown machinery
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** When the user picks tray Restart (or a relaunch fires), the Rust host calls `app.restart()` without ever sending the shutdown frame or calling `begin_shutdown()`. Note: on the LOCKED tauri 2.11.5, `App::restart()` DOES trigger `RunEvent::ExitRequested` + `RunEvent::Exit` and waits for Exit delivery (issue #12310 was fixed in tauri 2.4.0 — an earlier version of this entry overstated this; corrected in Review Wave 2). The residual defects are real but narrower: (a) `on_host_exit`'s ~35s-bounded cooperative teardown runs on a DETACHED std::thread that races process exit after Exit delivery — nothing joins it before the restart; (b) `on_relaunch_app` never calls `begin_shutdown()`/notify, so the supervisor and sidecar are not told a restart is coming; (c) the pre-restart flush delay is 10ms (`PRE_RESTART_FLUSH_DELAY_MS`) while the sidecar's own graceful cleanup takes 3-4s — the restart path structurally cannot wait for it; (d) on the supervisor-exhaustion leg the sidecar is already dead, so "mid-cleanup kill" applies only to the tray-Restart leg — where the OS-level reaper (POSIX: unconditional `kill -9`; Windows: job-object TerminateProcess) is what actually ends a still-alive backend.
-
-**User Impact:** After a manual "Restart" from the tray, a still-alive backend can be hard-killed mid-cleanup — exactly when it may be checkpointing the history database, flushing crash-recovery entries, or tearing down the native hotkey listener. The restart path also never tells the backend a restart is coming (no shutdown frame), so it cannot prioritize its own cleanup. In the worst case a restart the user initiated to "fix" the app leaves stale state behind.
-
-**Root Cause:** `lifecycle.rs::on_relaunch_app` (production branch) and the supervisor exhaustion arm invoke `app.restart()` without cooperative teardown: no shutdown frame, no `begin_shutdown()`, and the detached-thread teardown races the restart. Verified against tauri 2.11.5 semantics (W2-R1: tauri v2.4.0 release notes — restart waits for RunEvent::Exit; the detached-thread race is the live defect, not the event emission).
-
-**Gain vs Trade-off:** Gain: every exit path runs the same cooperative teardown, eliminating a designed-safety-stage skip. Trade-off: restart latency grows by up to the bounded graceful-wait budget (seconds, capped) — acceptable for a user-visible restart.
-
-**If We Do It:** Tray Restart and crash-exhaustion relaunch wait (bounded) for the backend to flush and exit cleanly before the app process restarts.
-
-**If We Don't:** Restarts keep hard-killing the backend; WAL resilience mostly hides it, until one day it doesn't (corrupt recovery entries, orphaned hotkey process on slow teardown).
-
-**My Recommendation:** ✅ Implement — closes a real safety-stage gap with bounded latency cost.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/sidecar/supervisor.rs:776-790` (exhaustion path)
-- `src-tauri/src/sidecar/lifecycle.rs:51-93` (relaunch path)
-- `src-tauri/src/platform/process/posix.rs:41` (unconditional kill -9 reaper)
-
-**Fix:** In `on_relaunch_app` (production branch, before `app.restart()`): call `state.begin_shutdown()`, send the `{"type":"shutdown"}` frame, and run a short-budget bounded wait (reuse `shutdown_sidecar_for_exit` or a short sibling — the 10ms `PRE_RESTART_FLUSH_DELAY_MS` cannot cover the sidecar's 3-4s cleanup; pick an honest bound or make the wait configurable). Consider joining/awaiting the detached teardown thread before restart. Add a supervisor/lifecycle test asserting the shutdown frame + begin_shutdown are attempted before the restart call. Co-implement with BP-35 (same function). (Exhaustion arm: sidecar already dead — only begin_shutdown matters there.)
-
-**Simplified Fix:** Make the app tell the background engine "we're restarting, please finish saving" and give it a brief, honest moment to do so — instead of killing it without warning and hoping for the best.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
 ### BP-33 — Runtime-pack worker subsystem is fully built but never wired (~590 dead LOC, 10 suppressions)
-**Status:** ❌ Not Fixed (investigation only)
+**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-33 — both implementation branches would downgrade the project (AGENTS.md E12): wiring today spawns an unused ~450 MB worker while the sidecar still bundles the full ML stack (docs/plan-runtime-pack-split.md status block: slim-core BUILD BLOCKED — server imports ML in 10 files; transcribe_offline forwarding is a stub) and would trip the documented cold-prewarm respawn loop without the enrichment's timeout fix; excising destroys a planned, contract-pinned subsystem mid-migration. The entry's own My Recommendation: 🟡 Defer (product decision). Requires USER adjudication on the runtime-pack timeline.
 
 **Description:** The runtime-pack worker (`WorkerState` in state.rs, `spawn/worker.rs`, the worker section of `spawn.rs`, `platform/worker_path.rs`) is complete, tested code that nothing ever calls: `main.rs` never manages `WorkerState`, and `initialize_worker` has zero production callers. Eleven `#[allow(dead_code)]` Phase-2c suppressions carry "wired when … Phase 2c" comments (state.rs×7, worker.rs×2, spawn.rs×2) — Phase 2c never arrived. Size: ~492 comment-stripped LOC (~984 raw) plus ~700 lines of associated tests.
 
@@ -223,7 +135,7 @@ The application also runs in a normal browser (the renderer is served on localho
 **Enrichment (2026-09-04 BP session — Wave 3):** Additional latent defect in the dead worker subsystem: the worker spawn handshake reuses the sidecar's 30s SERVER_STARTED_TIMEOUT_MS, but the worker's prewarm (pages ~180-200 MB runtime-pack libs, cold-HDD 80-110 MB/s) runs BEFORE worker_started is emitted (worker/__main__.py:200 → _ws_server.py:523) — once wired, cold-disk workers get killed mid-prewarm into a respawn loop of partial prewarms. Wire-time fix: dedicated 90-120s WORKER_STARTED_TIMEOUT_MS or emit worker_started before prewarm. Also: the four spawn loops (worker/release/dev) are ~270 copy-pasted lines — see BP-79.
 
 ### BP-34 — Rust host logs render a session id on every file line (C-LOG-1 divergence)
-**Status:** ❌ Not Fixed (investigation only) — flagged: conforming fix would change a pinned log format (C-LOG-1 requires user-approved format changes + test updates)
+**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-34 — conflicts with AGENTS.md `Hard "Don'ts"`: C-LOG-1 (pinned canonical log-line format; the rule's own change protocol requires USER APPROVAL before any format change + test updates; no user approval exists this session). Revisit after user sign-off.
 
 **Description:** The canonical log line rule says no per-line session id, with the only sanctioned occurrence being the first-line banner. Python complies. The Rust `CombinedLogger` prints `[sid a3f1b2c4]` on EVERY file log line (`combined.rs:125-131`), and the Rust side has no first-line banner equivalent at all.
 
@@ -252,370 +164,8 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟡 Medium
 
-### BP-35 — Tray Restart leaves the tripped sidecar breaker armed: next single crash shows "Please reinstall"
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** A helper (`clear_restart_counter_for_user_restart`) was written specifically so the tray "Restart" menu item clears the persisted sidecar crash-loop counter — it is dead code with zero callers ("the caller is owned by a different lane and will be added separately" — never added). After the breaker trips (3 relaunches in 10 minutes), a user-initiated Restart produces a fresh app process, but `restart_counter.json` still holds count 3, so the FIRST sidecar crash in the new session immediately emits the "Please reinstall" failure instead of getting the normal 3-attempt budget.
-
-**User Impact:** The user restarts the app to recover from a bad patch of crashes; the app then treats the very next hiccup as fatal and tells them to reinstall. Recovery UX degrades exactly when the user is already troubleshooting.
-
-**Root Cause:** `on_relaunch_app` never calls the documented counter-clear helper (supervisor.rs:219-227 dead; only respawn-success and cold-start paths touch the counter).
-
-**Gain vs Trade-off:** Pure improvement — the helper already exists, is tested, and its documented contract is exactly this call site; no behavior is lost.
-
-**If We Do It:** After tray Restart, a fresh session gets a clean 3-attempt budget again.
-
-**If We Don't:** Restart after a flap remains a false "one more crash = reinstall" trap.
-
-**My Recommendation:** ✅ Implement — one-line wiring of an existing, tested helper.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/sidecar/supervisor.rs:219-227`
-- `src-tauri/src/sidecar/lifecycle.rs:51-93`
-
-**Fix:** Call `clear_restart_counter_for_user_restart` in `on_relaunch_app` before `app.restart()` (production branch; dev branch before early return). Add/extend the lifecycle test asserting the counter file resets on user-initiated relaunch.
-
-**Simplified Fix:** When the user chooses Restart from the tray menu, also reset the "how many times has it crashed recently" counter, so the restarted app gets a fresh chance.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
-### BP-36 — Restart-counter write blocks a Tokio worker on the respawn-success path
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The supervisor's own documentation says restart-counter disk I/O must run on `spawn_blocking` (a prior inline read could exceed 100ms under AV-scan/disk contention), and the exhaustion path bundles read+write into `spawn_blocking` correctly — but the SUCCESS path calls `write_restart_counter(0)` inline on the async worker (an atomic temp-file write + fsync + rename).
-
-**User Impact:** None visible per occurrence; a Tokio worker thread (shared with the WS reader, heartbeat, and dispatches) stalls for the fsync duration right at the most sensitive moment — the fresh reconnect after a respawn.
-
-**Root Cause:** Inconsistent application of the file's own blocking-I/O rule.
-
-**Gain vs Trade-off:** Pure improvement; no behavior change, just moving one call onto the blocking pool.
-
-**If We Do It:** The reconnect window never stalls the async runtime on disk I/O.
-
-**If We Don't:** Occasional sub-100ms stalls exactly during recovery — invisible but real.
-
-**My Recommendation:** ✅ Implement — mirrors an existing pattern in the same file.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/sidecar/supervisor.rs:621` (inline write) vs `:280-290` (the rule) and `:736-749` (correct pattern)
-
-**Fix:** Move `write_restart_counter(0)` into `tauri::async_runtime::spawn_blocking`, or fold it into the existing reconnect-success sequence that already runs off-thread. Keep the counter semantics identical.
-
-**Simplified Fix:** Move one disk write off the event-handling thread so time-critical reconnect work never waits on the hard drive.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-37 — Heartbeat timeout cancels dispatch cleanup; pending entries leak until reader drain (and the mitigation comment is wrong)
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `heartbeat` wraps `dispatch_inner` in a 15s `tokio::time::timeout`; on timeout the inner future is DROPPED, so `dispatch_frame`'s own cleanup (removing the pending-map entry) never runs. An in-code comment claims "dispatch_frame's internal 120s timeout eventually removes the entry" — both the value (it's 15s, not 120s) and the mechanism (the inner timer never fires once dropped) are wrong. The file already documents a promised-but-never-implemented Drop guard for exactly this.
-
-**User Impact:** None visible — a bounded handful of stale pending-map entries per hang episode, cleared on respawn/reader drain (PENDING_MAX caps growth). The real cost is the misleading comment steering future maintainers away from the actual leak.
-
-**Root Cause:** tokio timeout cancellation drops the inner future before its cleanup; the documented Drop guard was never added.
-
-**Gain vs Trade-off:** Pure improvement — makes every cancellation path self-cleaning and the comments truthful.
-
-**If We Do It:** Cancelled dispatches clean up their own bookkeeping immediately, on every path.
-
-**If We Don't:** Harmless-but-real bounded leak persists with a comment that actively misleads.
-
-**My Recommendation:** ✅ Implement — small, surgical, already half-designed in the code's own comments.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/sidecar/ws/heartbeat.rs:121-133,199-207`
-- `src-tauri/src/commands/sidecar_cmds/dispatch.rs:400-476`
-
-**Fix:** Add the Drop guard the file already documents: a small struct holding `state` + `id` whose `Drop` removes the pending-map entry; construct it in `dispatch_frame` around the await. Fix the two wrong comments while there.
-
-**Simplified Fix:** When a request is cancelled mid-flight, make it remove itself from the "waiting for reply" list automatically, and correct the explanatory note that currently describes the wrong behavior.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-38 — shutdown_sidecar command bypasses the canonical begin_shutdown contract
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `state.rs` defines `begin_shutdown()` (swap + notify_one, "keep any future call site on THIS method, never re-order the two steps") and names the production callers. The renderer-invocable `shutdown_sidecar` command does a raw `shutting_down.swap(true, SeqCst)` with no `notify_one()` — a supervisor mid-backoff (up to 8s) is not woken and only notices after its current sleep.
-
-**User Impact:** A shutdown requested through the command path can lag up to the current backoff step (~seconds) before the supervisor reacts. Correctness is preserved (all pre-spawn re-checks still prevent zombies); it's the contract and the responsiveness that are broken.
-
-**Root Cause:** The command path predates/was never migrated to the canonical method.
-
-**Gain vs Trade-off:** Pure improvement — one-line replacement, no semantics lost.
-
-**If We Do It:** Every shutdown path wakes the supervisor immediately.
-
-**If We Don't:** Documented contract keeps being silently violated; delayed observability on this one path.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/commands/sidecar_cmds/shutdown.rs:47-53`
-- `src-tauri/src/state.rs:216-247`
-
-**Fix:** Replace the raw swap with `state.begin_shutdown()` (use its return value for the duplicate-call short-circuit). Extend the state test to pin that the command path routes through begin_shutdown.
-
-**Simplified Fix:** Route the shutdown button through the same official "shut down now" function every other path uses, so the background supervisor reacts immediately.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-70 — Home's download progress bar can freeze at "100%" forever
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Home sets `downloadPct` from ANY `download_progress` event — including model downloads started on the Models page — but clears it only when `recordingState` changes. No completion event is subscribed on Home. The progress bar renders whenever `downloadPct !== null`.
-
-**User Impact:** Start a model download on Models, navigate Home, watch it hit 100%... and the "Downloading model" bar stays there indefinitely (until navigation or a recording-state flip). Reads as a stuck download.
-
-**Root Cause:** Progress state lifecycle tied to the wrong clearing signal.
-
-**Gain vs Trade-off:** Pure improvement — clear on the right events.
-
-**If We Do It:** The bar appears exactly while a download is in flight.
-
-**If We Don't:** Occasional "stuck at 100%" confusion.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/Home.tsx:436-448,700-714`
-
-**Fix:** Gate the handler on `recordingState === "loading"` (the state it exists for) or subscribe to the download-complete/state event and clear there. (Inferred from code+event topology — no live GUI in sandbox; verify during implementation.)
-
-**Simplified Fix:** The home page shows a download bar that never dismisses after a download finishes elsewhere — clear it when the download completes, not only when recording state changes.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-71 — History footer renders a literal "N+" placeholder instead of a real count
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `t("history.showingCap", { shown: "200", total: "N+" })` — every locale's template interpolates `{total}` ("Showing {shown} of {total} — use search to find older"), but the call site passes the literal string "N+", and hardcodes "200" instead of the display-cap constant. Result: every locale renders "Showing 200 of N+".
-
-**User Impact:** Users see a placeholder that reads like a broken value, in every language.
-
-**Root Cause:** Call-site placeholder never wired to real data (the endpoint exists — get_history_count is already used by the Analytics page).
-
-**Gain vs Trade-off:** Pure improvement — real total via an existing endpoint; locale files unchanged.
-
-**If We Do It:** "Showing 200 of 1,482 — use search to find older."
-
-**If We Don't:** The footer keeps reading "of N+".
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/History.tsx:526`
-
-**Fix:** Wire the real total via `get_history_count` (already consumed by useDashboardData) and `String(HISTORY_DISPLAY_CAP)` for shown. No locale file changes needed.
-
-**Simplified Fix:** The history page footer says "Showing 200 of N+" — show the actual total, which the app already knows how to fetch.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-72 — Microphone test renders a raw i18n key in the no-model state
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `TestReviewPanel` calls `t("microphoneTest.qualityNotApplicable")` — but the key exists (in all 8 locales, correctly translated) only at `microphoneTest.qualityFeedback.qualityNotApplicable`. The call site is missing one path level. The t() fallback chain renders the literal key string when no map has it; the only detector is a dev-only console.warn.
-
-**User Impact:** Users without a speech model installed — fresh installs, exactly the population C-MIC-20's N/A state was built for — see bold text reading "microphoneTest.qualityNotApplicable" in the "Estimated Transcription Quality" row, in every locale.
-
-**Root Cause:** Typo'd key path; no compile-time key validation (see BP-73 — the systemic fix).
-
-**Gain vs Trade-off:** Pure improvement — one-line fix, translations already exist everywhere.
-
-**If We Do It:** The row reads "N/A — transcription unavailable" as designed.
-
-**If We Don't:** Fresh installs see a raw key in the mic test — first-impression polish failure.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/microphone/TestReviewPanel.tsx:250`
-
-**Fix:** `t("microphoneTest.qualityFeedback.qualityNotApplicable")`. Add a regression assertion for the row's no-model state. (Systemic guard: BP-73.)
-
-**Simplified Fix:** A missing dot in a translation key name makes the microphone test show the key itself instead of the words "N/A — transcription unavailable" — add the missing dot.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🔴 High
-
-### BP-73 — t() accepts any string: key typos ship raw keys to production UI
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The i18n `t(key: string)` surface is untyped: ~1,134 unique static keys across ~1,900 call sites, zero compile-time validation, and the production fallback intentionally renders the raw key. This exact bug class just shipped (BP-72). Locale-parity tests compare locale↔locale, never call-site↔catalog. `resolveJsonModule` is already on, so a keyof-derived key union is available with no new dependency; a strict+loose overload pattern for dynamic keys already exists in this codebase (PythonCall).
-
-**User Impact:** Any key rename or typo at a call site renders the raw key in production, in all locales, until someone happens to notice the string on screen.
-
-**Root Cause:** No type contract between call sites and the catalog.
-
-**Gain vs Trade-off:** Gain: the bug class becomes a compile error. Trade-off: migration effort for dynamic keys (small — documented loose overload) and a generated/derived union to maintain.
-
-**If We Do It:** Key typos fail typecheck instead of shipping.
-
-**If We Don't:** The next key edit can silently regress the UI.
-
-**My Recommendation:** ✅ Implement — proven pattern, proven need.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/i18n/translate.ts:131`
-- `voice_typer/client/src/renderer/src/i18n/translations/en.json` (catalog source)
-- `voice_typer/client/tsconfig.web.json:14` (resolveJsonModule)
-
-**Fix:** Derive a flat key union from en.json (recursive mapped/template-literal type or generated flat-keys module); type `t()`/`tChoice()`/`useT()` with a strict overload + a documented loose overload for dynamic keys (mirror lib/python-bridge/usePython.ts:40-48). Add a CI-side call-site↔catalog completeness check for the dynamic-key escape hatch.
-
-**Simplified Fix:** Translation lookups accept any text as a key, so a typo shows up in the app as the key name itself; make the compiler check key names against the English dictionary.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-### BP-74 — Side effects inside setState updaters (theme draft + config merge) — StrictMode double-fires saves
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `setCustomDraft((prev) => { ...applyThemeVars(...); cache delete; saveDraftToLS(updated); updateConfigDebounced(...); return updated; })` — DOM writes, cache mutation, localStorage write, and an IPC-save arming all INSIDE the state updater. Same pattern in useSettingsConfig (`_cachedConfig` mutation inside setConfig's updater). React requires updaters to be pure; StrictMode (enabled) double-invokes them in dev, so each custom-color edit double-fires the LS write + save arming; in production, an interrupted/replayed render can re-invoke an updater with a different base state (double IPC save / stale LS write).
-
-**User Impact:** Dev: doubled saves per edit. Production: latent hazard of a double `set_config` or stale local draft under render interruption — low probability, real cost when it fires.
-
-**Root Cause:** Updater used as a convenient "compute + apply" block; purity contract violated.
-
-**Gain vs Trade-off:** Pure improvement — the code already maintains `customDraftRef` outside the updater (the fix is mostly relocation); behavior-preserving.
-
-**If We Do It:** React contract restored; dev double-fire gone; the latent production hazard closed.
-
-**If We Don't:** The pattern stays as a landmine for the next React upgrade or replay behavior.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/settings/useThemeSettings.ts:574-603,430-433`
-- `voice_typer/client/src/renderer/src/components/settings/useSettingsConfig.ts:451-457`
-
-**Fix:** Compute `updated` from `customDraftRef.current` OUTSIDE the updater; `setCustomDraft(() => updated)` pure; then apply vars/cache/LS/debounced-save after. For mergeExternalConfig: mutate `_cachedConfig` after a plain (non-updater) `setConfig(merged)`.
-
-**Simplified Fix:** Two settings hooks tuck file-saving and screen-painting work inside a function React may call more than once — move that work outside so it runs exactly once.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-### BP-75 — PrivacySettingsSection consent rows are 9 hand-written copies (data-driven fix)
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** PrivacySettingsSection (638 lines) contains 9 verbatim-shaped `(checked) => updateConfig({key: checked})` handlers, ~20 label/info local variables repeated per row, two visibility arrays, and an Agree-to-All literal duplicating the row set (6 keys). Adding consent #7 (a new cloud provider) requires ~7 coordinated edits in one file.
-
-**User Impact:** None directly — the cost is drift risk and maintenance friction exactly where new providers get added.
-
-**Root Cause:** Rows hand-rolled instead of data-driven (the settingsSections.ts registry precedent exists in the same tree).
-
-**Gain vs Trade-off:** Pure refactor, behavior-preserving; matches an established in-repo pattern.
-
-**If We Do It:** Adding a consent becomes a one-array-entry change.
-
-**If We Don't:** Each new provider multiplies the hand-sync surface.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/settings/PrivacySettingsSection.tsx:98-125,148-210`
-
-**Fix:** Data-drive the rows: one `CONSENT_FIELDS: {configKey, labelKey, infoKey, ariaKey}[]` array → map to SettingRow+Switch; one handler factory; Agree-to-All and the granted-count computed from the same array. i18n keys unchanged (C-I18N-1 respected).
-
-**Simplified Fix:** The privacy page repeats the same switch-row recipe nine times by hand — describe the rows once in a list and generate them.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
-### BP-76 — Microphone quality preset surface is forked three ways — one fork is production-dead code
-**Status:** ❌ Not Fixed (investigation only — corrected in Review Wave 2)
-
-**Description:** The 5-preset audio-quality surface (auto/studio/noisy_room/off/custom) exists in THREE implementations: (1) an inline Select in `components/settings/AudioSettingsSection.tsx:371-400` (the LIVE Settings→Audio surface), (2) the accordion+RadioGroup on the Microphone page (`pages/microphone/components/PresetAccordionSelector.tsx` — whose comment admits "the labels/descriptions here mirror AudioPresetSelector's data"), and (3) `components/microphone/AudioPresetSelector.tsx` — which is PRODUCTION-DEAD: zero render sites outside its own tests (W2-R4 verified: no value imports outside tests; kept alive only by feature-friction.test.tsx renders and 4 stale comments claiming it's live). The preset label/description data is duplicated between the live pair (correction from Review Wave 2: ALL surfaces share ONE i18n key family, `settings.audioEnhancement.preset*` — there is no second key family; the fork is in the component/data layer, not the translations). The shared `AudioPreset` type IS correctly single-sourced (imported from AudioPresetSelector — the one thing keeping the dead file alive).
-
-**User Impact:** Adding or renaming a preset requires edits in two live components (plus one dead file to keep compiling); the two live surfaces can drift in labels and behavior; the dead component misleads every reader (comments claim it is the live surface).
-
-**Root Cause:** Presentation fork carried the data fork with it (E7); BP-15 filed the page-level fork — this is the component-level family. A refactor removed the render sites of AudioPresetSelector without deleting the file.
-
-**Gain vs Trade-off:** Gain: one data source for preset values/labels/descriptions + ~100 dead LOC removed (E15). Trade-off: consolidation must NOT take the dropdown form on the Microphone page (C-MIC-4 forbids a dropdown there; C-MIC-15 pins the accordion's compact header) — the shared base must be the accordion pattern or a preset-data registry module consumed by both presentations.
-
-**If We Do It:** Preset changes propagate to both live surfaces from one source; the dead file is gone; its stale comments stop misleading.
-
-**If We Don't:** Drift risk stays double and the dead-file confusion persists.
-
-**My Recommendation:** ✅ Implement — extract a shared preset-data module (one key family already exists); delete or fold the dead AudioPresetSelector (re-pointing its type import and its test renders). Related: BP-15.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/settings/AudioSettingsSection.tsx:371-400` (live Select)
-- `voice_typer/client/src/renderer/src/pages/microphone/components/PresetAccordionSelector.tsx:7-8` (live accordion)
-- `voice_typer/client/src/renderer/src/components/microphone/AudioPresetSelector.tsx:52-103` (production-dead; type source + tests only)
-
-**Fix:** Extract a preset-data module (values, label keys, description keys); feed both live presentations from it; consolidate presentation on the pinned accordion+RadioGroup pattern for the Microphone page. For the dead file: either delete it and move the `AudioPreset` type to the data module (re-point PresetAccordionSelector/TestReviewPanel imports, delete/adjust feature-friction.test.tsx renders, record in archive/deleted_files.txt) — or fold it into the data module. C-MIC-4/C-MIC-15 constrain the shape.
-
-**Simplified Fix:** The microphone-quality options are defined three times — two live (settings page + microphone page) and one leftover that nothing displays anymore — define them once, share, and delete the leftover.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-**Enrichment (2026-09-04 BP session — Wave 5):** The dead-fork family has a SERVER-side twin: audio_presets.py's display layer (PRESET_INFO/ALL_PRESETS/get_preset_for_display, ~32 LOC) is production-dead while its docstring claims "frontend fetches presets via IPC" (no such handler) — folded into BP-142(e).
-
-### BP-77 — Renderer micro-batch: lib→pages import, space-y remnant, segmented-control ref churn, TitleBar twins, InfoTooltip glyph
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Five verified small items: (1) `lib/utils/models.ts` imports `MODEL_DEFAULT` from `@/pages/onboarding/lib/constants` — the only lib→pages import in the tree (inverted layering; 20 consumers); (2) PrivacySettingsSection still uses `space-y-0.5` for `<li>` spacing — the single production C-UI-10 remnant (gap on the parent is the contract); (3) segmented-control creates a new ref-callback identity per option per render (2N ref attach/detach + Map churn per re-render) and re-observes the container per value change — the file's own comment documents this thrash class as fixed for the container; (4) TitleBar's four toolbar buttons repeat a ~10-class stack with Back/Forward as ~33-line near-twins; (5) InfoTooltip hand-rolls a 12×12 `?` SVG while the app's icon system is hugeicons everywhere — two visually distinct info glyphs coexist.
-
-**User Impact:** Individually invisible; collectively drift surface + micro render/observer churn on shared controls (segmented control is used by Settings tabs, Analytics range, recording-mode toggles, Models).
-
-**Root Cause:** Leftover refactor remnants + mechanical duplication.
-
-**Gain vs Trade-off:** Pure improvement (items 2-5); item 1 is a create-first move + compat re-export per E1.
-
-**If We Do It:** One dependency direction, one spacing idiom, stable refs, ~90 lines saved in TitleBar, one icon language.
-
-**If We Don't:** The micro-debt accumulates where every future edit lands.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/utils/models.ts:16`
-- `voice_typer/client/src/renderer/src/components/settings/PrivacySettingsSection.tsx:273`
-- `voice_typer/client/src/renderer/src/components/ui/segmented-control.tsx:210-215,255-265,369-371,417`
-- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:452-596`
-- `voice_typer/client/src/renderer/src/components/feedback/InfoTooltip.tsx:115-133`
-
-**Fix:** (1) move MODEL_DEFAULT to lib/utils/models.ts, re-export from the onboarding constants for compat; (2) `flex list-disc flex-col gap-0.5 ps-4 text-xs`; (3) per-option stable callbacks in a ref-held Map + decouple setContainerRef from updateIndicator (read value from a ref inside the observer callback); (4) extract ToolbarButton + NavChevron; (5) render a hugeicons help glyph in InfoTooltip.
-
-**Simplified Fix:** Five small front-end tidy-ups: fix an upside-down import, one leftover old spacing style, avoid needless re-attachments in a shared control, merge four near-identical toolbar buttons, and use the app's standard question-mark icon.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
 ### BP-78 — Rule-text drift: C-MODELS-2 and C-MIC-12 no longer describe the shipped code (user adjudication)
-**Status:** ❌ Not Fixed (investigation only) — REQUIRES USER ACTION (agents may not edit AGENTS.md)
+**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-78 — conflicts with AGENTS.md `Hard "Don'ts"`: "The user is the only one who can edit these rules" (entry itself: REQUIRES USER ACTION). Recommendation carried to the Final Report: user should update C-MODELS-2 token values (w-24/gap-2/text-xs, h-3 w-3) and either refresh C-MIC-12's text to the binary-recolor contract or order a revert to the ⚠-glyph contract.
 
 **Description:** Two AGENTS.md Hard "Don'ts" have drifted from the code they pin: (1) C-MODELS-2 pins download-button tokens `w-[88px]`/`h-3.5 w-3.5`, but the code ships `w-24`/`h-3 w-3` with a dated 2026-08-28 rationale comment — a deliberate later user decision whose rule text was never updated; (2) C-MIC-12 pins "clipping signaled by the ⚠ glyph and aria tier text, never by recoloring the fill", but the evolved design (documented in code) removed the glyph and DOES recolor the fill (bg-primary → bg-destructive) — the rAF-writes-only-transform invariant IS preserved.
 
@@ -3080,6 +2630,24 @@ The application also runs in a normal browser (the renderer is served on localho
 **Simplified Fix:** When a dictation finishes, the dashboard fetches just the new row instead of re-downloading the whole history, settings, and model state — the heavy fetch only runs when something heavy actually changed.
 
 **Implementation Difficulty:** 🟢 Easy
+**Severity:** 🟡 Medium
+
+### BP-160 - Tray-click window restore takes ~15s after 1-2h idle despite live background process
+**Status:** ❌ Not Fixed (user-reported 2026-09-08 — documented verbatim from the user's report, NO investigation performed; the fixing agent must investigate the cause itself)
+
+**Description:** (User's report, unedited) When the machine boots, autostart launches the application automatically and Electron runs in the background. Clicking the tray icon is supposed to bring Electron up fully visible, including a taskbar entry — and that normally works with no problem. BUT: if the machine sits for a long time (about an hour or two) without the tray icon being clicked, then clicking the tray icon to show the Electron application takes a long time — around 15 seconds, possibly more — before the window becomes fully visible. The user explicitly verified beforehand (without clicking the tray icon) via Task Manager that the Electron process IS running in the background (present as a background process, absent from the taskbar) — so the window should appear immediately on click, not behave like a cold start. The tray icon itself works fine the whole time. Cause unknown.
+
+**User Impact:** After any long idle period, the first tray-click restore feels frozen for ~15s+ even though the app is already running — the most common "return to the app" path feels broken exactly when the user comes back to the machine.
+
+**Root Cause:** Unknown — NOT investigated (per the reporter's instruction). The fixing agent must reproduce (autostart → boot → leave 1-2h idle → tray-click restore, confirming via Task Manager first that the process is alive in the background) and trace the tray-click → window-show path to find why the restore stalls. Unverified hypotheses only, NOT claims: renderer reload on show, backend reconnect wait, OS-suspended process, window-show sequencing.
+
+**Related Files:** TBD by the fixing agent (the Electron tray-click → window-show path plus anything it waits on before showing).
+
+**Fix:** TBD by the fixing agent after investigation. Expected behavior: with the background process alive, a tray click restores the fully-visible window (plus taskbar entry) promptly, regardless of how long the app has been idle.
+
+**Simplified Fix:** Clicking the tray icon after the app sat in the background for an hour or two should show the window instantly — today it hangs ~15 seconds first.
+
+**Implementation Difficulty:** ❓ Unknown (pending investigation)
 **Severity:** 🟡 Medium
 
 ## 🚫 E. Cannot Verify (needs real host)
