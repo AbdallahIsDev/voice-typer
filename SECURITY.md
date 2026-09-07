@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **72** commands listed in
+cannot invoke arbitrary commands — only the **73** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -45,12 +45,12 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
 > `voice_typer/server/ipc/registry.py` (re-exported by
-> `ipc_server.py`) registers **74** handlers. Two of
+> `ipc_server.py`) registers **75** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
 > `tray_click` (a Rust-only command routed via `dispatch_inner` — the
 > tray handler invokes it directly, bypassing the allowlist gate) and
 > `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
-> directly, NOT via the generic dispatch path). The remaining **72**
+> directly, NOT via the generic dispatch path). The remaining **73**
 > handlers are renderer-callable. The +2 host-only delta is asserted by
 > the `_HOST_ONLY_COMMANDS` frozenset in
 > `tests/test_security_doc_command_count.py`. (reconciliation
@@ -60,8 +60,8 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > stale entries were deleted from all three sources of truth — the
 > Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
 > Rust `allowed_commands()` literal — in lockstep during, so
-> they no longer exist in any layer. The current counts are 74 Python
-> ↔ 72 TS ↔ 70 Rust, with the +2 host-only delta as the only
+> they no longer exist in any layer. The current counts are 75 Python
+> ↔ 73 TS ↔ 71 Rust, with the +2 host-only delta as the only
 > intentional divergence. `check_accessibility` was re-added on
 > 2026-08-10 (finding #919 part b) — the Settings → Troubleshooting
 > UI now invokes it on macOS to surface the stale-grant `tccutil`
@@ -91,7 +91,7 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > 72/70/68. `get_correction_usage` was added on 2026-08-16
 > (server-side per-correction usage tracking powering the Vocabulary
 > page's "used N×" and the Analytics corrections-applied rate) —
-> bringing the counts to 73/71/69.)
+> bringing the counts to 73/71/69. `microphone_test_read_audio` was added (mic-test chunked WAV transport under the 1 MiB IPC frame cap), bringing the counts to 74/72/70. `get_download_queue` was added on 2026-09-08 (Models download-queue mount hydration, read-only snapshot), bringing the counts to 75/73/71.)
 
 > **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
 > in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the

@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (74 total — 72 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (75 total — 73 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -115,6 +115,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `cancel_model_download` | `_handle_cancel_model_download` | ✓ | NEW-PRIV-011: allows cancel_model_download so the renderer can cancel an in-progress download. |
 | `delete_model` | `_handle_delete_model` | ✓ | NEW-UX-005: allows delete_model so the renderer can actually delete model files from disk. |
 | `download_model` | `_handle_download_model` | ✓ |  |
+| `get_download_queue` | `_handle_get_download_queue` | ✓ | Models page: read-only pending-download FIFO snapshot (model names, front first) for mount hydration of the queue chips. |
 | `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings. |
 | `get_model_status` | `_handle_get_model_status` | ✓ |  |
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
