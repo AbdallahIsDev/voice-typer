@@ -142,3 +142,7 @@ worklog.md
 SUMMARY.md
 sub-worklog-*.md
 changes/
+
+# Session evidence artifacts (browser-mode walkthrough) — working
+# files, not deliverables; referenced from worklog.md by path.
+.tmp-evidence/

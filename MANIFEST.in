@@ -52,7 +52,11 @@ include voice_typer/server/silero_vad.onnx
 # beside silero_vad.onnx and the frozen bundle's
 # --include-package-data=voice_typer.server picks it up (C-CI-9).
 # 2026-08-25 local verification: model binary absent from this tree — the cloud patch exports text-only diffs and cannot carry binaries (expected size 535190 bytes, MIT streaming export). Restored via review entry GA-1; re-enable this line when the asset lands.
-# include voice_typer/server/gtcrn_simple.onnx
+# 2026-09-07: asset delivered (GA-1) — official export fetched from the upstream
+# repo (Xiaobin-Rong/gtcrn, stream/onnx_models/gtcrn_simple.onnx), size verified
+# 535190 bytes, MIT license, I/O contract verified against gtcrn_backend.py
+# (mix[1,257,1,2] in, enh + 3 recurrent caches out). Line re-enabled.
+include voice_typer/server/gtcrn_simple.onnx
 
 # Corrections data + reserved-hotkey table + model integrity hashes.
 # All three JSON files are read by voice_typer/server/ modules at

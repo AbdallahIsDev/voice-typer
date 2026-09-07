@@ -113,7 +113,7 @@ def run_mypy() -> str:
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=600)
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode not in (0, 1):
-        print("ERROR: mypy failed to run (exit {proc.returncode}):")
+        print(f"ERROR: mypy failed to run (exit {proc.returncode}):")
         print(out)
         sys.exit(2)
     return out

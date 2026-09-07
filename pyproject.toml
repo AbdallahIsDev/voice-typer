@@ -695,7 +695,7 @@ filterwarnings = [
 #
 #   Tool / file            | Python level | Why
 #   -----------------------+--------------+-------------------------------
-#   `.python-version`      | 3.12.7       | The interpreter `uv` installs
+#   `.python-version`      | 3.13.7       | The interpreter `uv` installs
 #                          |              | for local dev + CI. Matches the
 #                          |              | `python-build-standalone`
 #                          |              | release used by the Nuitka
@@ -857,6 +857,19 @@ module = [
     "win32com.*",
     "dbus",
     "pyatspi",
+    # ERR-ERR-006 verification (PyPI, 2026-09-07): no stub packages
+    # exist for onnxruntime (types-onnxruntime / onnxruntime-stubs /
+    # onnxruntime-types all 404) or faster-whisper (types-faster-whisper /
+    # faster-whisper-stubs 404), and neither distribution ships a
+    # py.typed marker — the import-untyped errors are genuine.
+    # `faster_whisper.*` (alongside the exact-module entry above)
+    # covers submodule imports such as
+    # `faster_whisper.feature_extractor` that the exact entry alone
+    # does not match. onnx-asr and tokenizers are deliberately NOT
+    # listed: both installed distributions ship py.typed markers, so
+    # they resolve as typed modules and need no override.
+    "onnxruntime",
+    "faster_whisper.*",
 ]
 ignore_missing_imports = true
 

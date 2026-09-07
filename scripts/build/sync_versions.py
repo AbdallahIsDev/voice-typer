@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Synchronize the version string across all project files.
 
-NEW-DOC-019: ``pyproject.toml`` is the single source of truth for the
-project version.  This script reads the version from ``pyproject.toml``
+``pyproject.toml`` is the single source of truth for the project
+version.  This script reads the version from ``pyproject.toml``
 and writes the same value into every other file that hardcodes a
 version string:
 
   - ``voice_typer/client/package.json`` (Electron app version).
-  - ``voice_typer/client/electron-builder.yml`` (installer version).
-  - ``CHANGELOG.md`` (most-recent Unreleased → version bump).
+  - ``voice_typer/client/electron-builder.yml`` (installer version,
+    only when an explicit ``version:`` field already exists).
+  - ``src-tauri/tauri.conf.json`` (Tauri host app version).
+  - ``src-tauri/Cargo.toml`` (crate ``[package] version``).
+  - ``tauri-binaries.json`` (per-binary integrity-manifest versions).
+
+``CHANGELOG.md`` is intentionally NOT touched: it is maintained by
+hand and its "Unreleased → versioned" edits are a human review step,
+not a string substitution a bump script can perform safely.
 
 Usage::
 
