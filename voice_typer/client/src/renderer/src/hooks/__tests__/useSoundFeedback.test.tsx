@@ -150,6 +150,72 @@ describe("useSoundFeedback", () => {
 	});
 });
 
+describe("useSoundFeedback — runtime sound_feedback_enabled toggle (config_changed)", () => {
+	it("closes the AudioContext when config_changed disables sound feedback", async () => {
+		const { closeAudioContext, initAudioContext } = await import(
+			"@/lib/sound-manager"
+		);
+		await renderWithHook();
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "config_changed", data: { sound_feedback_enabled: false } });
+		});
+		expect(closeAudioContext).toHaveBeenCalledTimes(1);
+		// No redundant re-init on the disable path.
+		expect(initAudioContext).toHaveBeenCalledTimes(1); // mount only
+	});
+
+	it("re-inits the AudioContext when config_changed enables sound feedback", async () => {
+		const { initAudioContext, closeAudioContext } = await import(
+			"@/lib/sound-manager"
+		);
+		await renderWithHook();
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "config_changed", data: { sound_feedback_enabled: true } });
+		});
+		expect(initAudioContext).toHaveBeenCalledTimes(2); // mount + flip
+		expect(closeAudioContext).not.toHaveBeenCalled();
+	});
+
+	it("ignores config_changed pushes that don't carry sound_feedback_enabled", async () => {
+		const { closeAudioContext, initAudioContext } = await import(
+			"@/lib/sound-manager"
+		);
+		await renderWithHook();
+
+		act(() => {
+			for (const cb of capturedEventCallbacks) {
+				cb({ type: "config_changed", data: { theme_mode: "dark" } });
+				cb({ type: "config_changed" });
+				cb({ type: "audio_level", data: { level: 0.5 } });
+			}
+		});
+		expect(initAudioContext).toHaveBeenCalledTimes(1); // mount only
+		expect(closeAudioContext).not.toHaveBeenCalled();
+	});
+
+	it("closes then re-inits across an off→on toggle sequence", async () => {
+		const { closeAudioContext, initAudioContext } = await import(
+			"@/lib/sound-manager"
+		);
+		await renderWithHook();
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "config_changed", data: { sound_feedback_enabled: false } });
+		});
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "config_changed", data: { sound_feedback_enabled: true } });
+		});
+		expect(closeAudioContext).toHaveBeenCalledTimes(1);
+		expect(initAudioContext).toHaveBeenCalledTimes(2);
+	});
+});
+
 describe("useSoundFeedback — ZU-34 onVisualCue callback (deaf mirror)", () => {
 	it("invokes onVisualCue('start') on recording_started", async () => {
 		const { playSoundCue } = await import("@/lib/sound-manager");

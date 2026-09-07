@@ -25,11 +25,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { StatusChangeEvent } from "@/types/ipc";
 import { FORCE_CANCEL_DELAY_MS } from "../lib/constants";
-import type { CallFn } from "./useFirstRecordingCelebration";
 
 /** Payload shape of the `status_change` push event's `data`. */
 type StatusChangeData = StatusChangeEvent["data"];
@@ -42,7 +42,7 @@ type StatusChangeData = StatusChangeEvent["data"];
  *
  * @param call the Python bridge `call` function (from `usePython()`).
  */
-export function useForceCancel(call: CallFn) {
+export function useForceCancel(call: PythonCall) {
 	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
 		null,
 	);

@@ -31,6 +31,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type {
@@ -38,7 +39,6 @@ import type {
 	TranscriptionQualitySummary,
 } from "@/types/ipc";
 import { LAST_TEXT_AUTO_CLEAR_MS } from "../lib/constants";
-import type { CallFn } from "./useFirstRecordingCelebration";
 
 /** Payload shape of the `transcription_final` push event's `data`. */
 type TranscriptionFinalData = TranscriptionFinalEvent["data"];
@@ -53,7 +53,7 @@ type TranscriptionFinalData = TranscriptionFinalEvent["data"];
  *   `transcription_final` payload is accepted, exactly as before.
  */
 export function useLastTranscriptionPreview(
-	call: CallFn,
+	call: PythonCall,
 	celebrateFirstRecording: () => void,
 ) {
 	const [lastText, setLastText] = useState("");

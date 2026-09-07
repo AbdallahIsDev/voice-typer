@@ -41,7 +41,9 @@
  * `saveApiKey`'s unchanged-guard can compare the in-memory input
  * value against the persisted (redacted-or-not) config field.
  */
+
 import { useCallback, useState } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, getProviderLabel } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -58,7 +60,6 @@ export interface ApiTestResult {
 
 // Type alias for the IPC `call` function (matches the pattern used by
 // useModelConfig, useModelFolder, useModelDownload, etc.).
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
 interface UseCloudProvidersArgs {
 	showSnack: (
@@ -69,7 +70,7 @@ interface UseCloudProvidersArgs {
 	config: VoiceTyperConfig | null;
 	apiKeys: Record<string, string>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
-	call: CallFn;
+	call: PythonCall;
 }
 
 export interface UseCloudProvidersResult {

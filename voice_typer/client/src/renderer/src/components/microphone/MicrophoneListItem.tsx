@@ -1,6 +1,9 @@
 import { Mic02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { MouseEvent } from "react";
+import {
+	RADIO_GROUP_ITEM_SELECTOR,
+	SelectableRow,
+} from "@/components/common/SelectableRow";
 import { RadioGroupItem } from "@/components/ui/radio-group";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -27,30 +30,22 @@ export function MicrophoneListItem({
 }: MicrophoneListItemProps) {
 	const micId = mic.id ?? String(mic.index);
 
-	const handleRowClick = (event: MouseEvent<HTMLDivElement>) => {
-		// Clicks that originate on the radio control itself are handled by
-		// Radix (onValueChange); handling them here too would fire the
-		// selection IPC twice for one click.
-		if (
-			(event.target as HTMLElement).closest('[data-slot="radio-group-item"]')
-		) {
-			return;
-		}
-		if (disabled || checked) return;
-		onSelect();
-	};
-
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: the nested RadioGroupItem is the accessible control (role=radio); the row click is pointer convenience.
-		// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection.
-		<div
+		// The a11y pair (nested radio is the accessible control; row
+		// click is pointer-only convenience) + the skip-nested-control
+		// click gating live in the shared SelectableRow wrapper.
+		<SelectableRow
+			ignoreClicksFrom={[RADIO_GROUP_ITEM_SELECTOR]}
+			onRowSelect={() => {
+				if (disabled || checked) return;
+				onSelect();
+			}}
 			className={cn(
 				"flex items-center gap-3 px-4 py-2 transition-colors",
 				disabled || checked
 					? "cursor-default"
 					: "cursor-pointer hover:bg-foreground/5",
 			)}
-			onClick={handleRowClick}
 		>
 			<HugeiconsIcon
 				icon={Mic02Icon}
@@ -78,6 +73,6 @@ export function MicrophoneListItem({
 				</div>
 			</div>
 			<RadioGroupItem value={micId} disabled={disabled} aria-label={mic.name} />
-		</div>
+		</SelectableRow>
 	);
 }

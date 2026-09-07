@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { safeApiKey } from "@/hooks/models/useCloudProviders";
 import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePythonEvent } from "@/hooks/usePython";
+import { type PythonCall, usePythonEvent } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import {
 	applyActiveState,
@@ -43,13 +43,11 @@ import type { ModelStatusMap } from "@/types/ipc";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 // Module-cache key for the SWR seed (see lib/ipcCache.ts).
 const MODELS_CONFIG_CACHE_KEY = "models.config";
 
 interface UseModelConfigArgs {
-	call: CallFn;
+	call: PythonCall;
 	markUpdated: () => void;
 }
 

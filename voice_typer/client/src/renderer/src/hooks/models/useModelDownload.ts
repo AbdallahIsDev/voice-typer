@@ -56,7 +56,7 @@
  * pattern leaks into consumers).
  */
 import { useCallback, useRef, useState } from "react";
-import { usePythonEvent } from "@/hooks/usePython";
+import { type PythonCall, usePythonEvent } from "@/hooks/usePython";
 import type { ShowSnackOptions } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
@@ -64,15 +64,13 @@ import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 export interface FailedDownload {
 	modelName: string;
 	error: string;
 }
 
 interface UseModelDownloadArgs {
-	call: CallFn;
+	call: PythonCall;
 	showSnack: (
 		message: string,
 		kind: "success" | "error" | "warning" | "info",

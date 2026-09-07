@@ -15,14 +15,16 @@
  * debounced save timer fires against the LATEST bridge and the flush
  * path works even when the registering consumer has since unmounted.
  */
+import type { PythonCall } from "@/hooks/usePython";
 import type { VoiceTyperConfig } from "@/types/config";
 
 /** Type alias for the public ``call`` function shape accepted by
- * ``useTheme``. Used to type the module-level ``activeCall`` slot. */
-export type ThemeCallFn = <T = unknown>(
-	type: string,
-	data?: Record<string, unknown>,
-) => Promise<T>;
+ * ``useTheme``. The canonical declaration is the bridge's
+ * ``PythonCall`` (``lib/python-bridge/usePython.ts``) — single-sourced
+ * here instead of re-declared structurally, so the slot typing can
+ * never drift from the real bridge contract. Used to type the
+ * module-level ``activeCall`` slot. */
+export type ThemeCallFn = PythonCall;
 
 /** The ``mergeConfig`` action shape (from the appStore) used to merge
  * backend-pushed config partials into the app-level config cache. */

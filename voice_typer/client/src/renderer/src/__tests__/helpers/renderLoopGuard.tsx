@@ -32,7 +32,15 @@
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Profiler } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type Mock,
+	vi,
+} from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export interface GuardCommand {
@@ -112,7 +120,10 @@ vi.mock("next-themes", async () => {
  *  must settle anyway: hooks hold `call` behind a ref. `activeCounters`
  *  tracks the real IPC volume regardless of which wrapper instance the
  *  page happens to be holding. */
-export function unstableUsePythonMock() {
+export function unstableUsePythonMock(): {
+	usePython: () => { call: Mock; pythonPort: number };
+	usePythonEvent: Mock;
+} {
 	return {
 		usePython: () => ({
 			call: vi.fn(async (cmd: unknown) => {
@@ -131,14 +142,23 @@ export function unstableUsePythonMock() {
 	};
 }
 
-export function snackbarMock() {
+export function snackbarMock(): {
+	useSnackbar: () => { showSnack: Mock };
+	showUndoableToast: Mock;
+} {
 	return {
 		useSnackbar: () => ({ showSnack: vi.fn() }),
 		showUndoableToast: vi.fn(),
 	};
 }
 
-export function navigationMock() {
+export function navigationMock(): {
+	useNavigation: () => {
+		navigate: Mock;
+		pendingConsentField: null;
+		consumeConsentField: Mock<() => string | null>;
+	};
+} {
 	return {
 		useNavigation: () => ({
 			navigate: vi.fn(),
@@ -171,7 +191,16 @@ export async function hugeiconsCoreMock() {
 	return createHugeiconsMock();
 }
 
-export function sonnerMock() {
+export function sonnerMock(): {
+	toast: {
+		success: Mock;
+		error: Mock;
+		warning: Mock;
+		info: Mock;
+		dismiss: Mock;
+	};
+	Toaster: () => null;
+} {
 	return {
 		toast: {
 			success: vi.fn(),

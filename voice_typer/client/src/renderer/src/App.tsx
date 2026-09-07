@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { APP_NAME } from "@/branding";
+import { useCallback, useEffect } from "react";
 import { A11yLiveRegions } from "@/components/common/A11yLiveRegions";
 import ConsentGateDialog from "@/components/consent/ConsentGateDialog";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
@@ -7,45 +6,41 @@ import { configHotkeyLabels } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
-import {
-	isSettingsSurface,
-	SECTION_TITLE_BY_PAGE,
-} from "@/components/settings/settingsSections";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAsrBackendDisabledToast } from "@/hooks/useAsrBackendDisabledToast";
+import { useConnectingProgress } from "@/hooks/useConnectingProgress";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
+import { useConsentRequiredEvent } from "@/hooks/useConsentRequiredEvent";
 import { useDeviceLostToast } from "@/hooks/useDeviceLostToast";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
 import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
 import { useLastResortUnloadedToast } from "@/hooks/useLastResortUnloadedToast";
+import { useLinuxWindowButtons } from "@/hooks/useLinuxWindowButtons";
 import { useLlmPolishFailedToast } from "@/hooks/useLlmPolishFailedToast";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useNavigateEvent } from "@/hooks/useNavigateEvent";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useNetworkOnline } from "@/hooks/useNetworkOnline";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
+import { useOnboardingRouteGuard } from "@/hooks/useOnboardingRouteGuard";
 import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { usePython } from "@/hooks/usePython";
+import { useRouteChangeFocus } from "@/hooks/useRouteChangeFocus";
+import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { useWindowMaximized } from "@/hooks/useWindowMaximized";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
-import {
-	consentBodyKey,
-	isConsentField,
-	openConsentGate,
-} from "@/lib/consentGate";
 import { cn } from "@/lib/utils";
-import { resolveLinuxWindowButtons } from "@/lib/utils/windowButtons";
 // Route→component mapping + per-route code splitting live in
 // router/PageSwitch.tsx (Home eager, the other 9 pages lazy). App
 // stays pure wiring: hooks, overlays, layout.
 import { PageSwitch } from "@/router/PageSwitch";
 import { prefetchRouteChunks } from "@/router/prefetch";
-import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
-import type { Page, WindowBridge } from "@/types/ipc";
+import type { WindowBridge } from "@/types/ipc";
 
 export default function App() {
 	const t = useT();
@@ -60,12 +55,6 @@ export default function App() {
 	useNetworkOnline();
 
 	// ── Routing (extracted to useNavigation) ──────────────────────
-	// `replace` mirrors `history.replaceState` — it swaps
-	// the current history entry without pushing a new one. Used by the
-	// onboarding-completed route guard below so the wizard entry is
-	// replaced (not stacked on top of) by the home entry, preventing
-	// the user from pressing Back to land back in the wizard they
-	// just finished.
 	const {
 		currentPage,
 		navigate,
@@ -76,37 +65,14 @@ export default function App() {
 		canGoForward,
 	} = useNavigation();
 
-	// ── Route guard: protect onboarding from completed users ─────
-	// Field-level selectors (vs subscribing to the whole `config` object)
-	// so a settings change to ANY other config field (theme_mode, hotkey,
-	// audio preset, etc.) doesn't re-render <App /> and re-fire this
-	// effect. `mergeConfig` always allocates a new top-level config
-	// object reference, so a single-field selector is the only way to
-	// avoid re-render storms on every keystroke in Settings.
-	const onboardingCompleted = useAppStore(
-		(s) => s.config?.onboarding_completed === true,
-	);
+	// Route guard: protect onboarding from completed users —
+	// extracted to `useOnboardingRouteGuard` (the `replace`
+	// history-swap semantics and the field-level `config`
+	// selector live there).
+	useOnboardingRouteGuard({ currentPage, replace });
+
 	const hotkeyFromConfig = useAppStore((s) => s.config?.hotkey);
 	const repasteHotkeyFromConfig = useAppStore((s) => s.config?.repaste_hotkey);
-	// Linux window-button layout sources (config setting + the sidecar's
-	// read-only system snapshot). Field-level selectors like the ones above
-	// so unrelated config writes don't re-resolve the layout.
-	const linuxWindowButtonsConfig = useAppStore(
-		(s) => s.config?.linux_window_buttons,
-	);
-	const linuxWindowButtonsSystem = useAppStore(
-		(s) => s.config?.linux_window_buttons_system,
-	);
-	useEffect(() => {
-		if (currentPage === "onboarding" && onboardingCompleted) {
-			// Use `replace` instead of `navigate` so the
-			// "onboarding" entry is swapped for "home" in the history
-			// stack. With `navigate`, the stack would become
-			// [..., "onboarding", "home"] and pressing Back would return
-			// the user to the wizard they just completed — confusing.
-			replace("home");
-		}
-	}, [currentPage, onboardingCompleted, replace]);
 
 	// Privacy: when the app starts hidden in the background (autostart
 	// with VT_START_HIDDEN=1), the renderer still boots and restores the
@@ -151,24 +117,10 @@ export default function App() {
 	}, [currentPage, replace]);
 
 	// a11y / WCAG 2.4.2 Page Titled: keep `document.title` in sync
-	// with the active route so screen-reader users (who announce the window
-	// title to orient) and OS taskbar users can tell which page is active
-	// without reading into main content. The title is composed as
-	// `t("nav.<page>") — APP_NAME` so it localises with the rest of the
-	// UI. Settings surfaces pull their title from the SECTION REGISTRY
-	// (settingsSections.ts) instead of `nav.*` duplicates — the hub row,
-	// the nested page's card heading, and this window title all read the
-	// SAME key, so they can never drift. Runs on mount AND whenever
-	// `currentPage` or `t` (i.e. the active locale) changes — a locale
-	// switch re-titles the window.
-	useEffect(() => {
-		const pageTitle = isSettingsSurface(currentPage)
-			? currentPage === "settings"
-				? t("settings.title")
-				: t(SECTION_TITLE_BY_PAGE[currentPage])
-			: t(`nav.${currentPage}`);
-		document.title = `${pageTitle} — ${APP_NAME}`;
-	}, [currentPage, t]);
+	// with the active route — extracted to `useDocumentTitle` (the
+	// settings-section registry keys and the locale re-title live
+	// there).
+	useDocumentTitle({ currentPage, t });
 
 	// One-time startup hook to propagate the restored locale (read
 	// from localStorage at i18n module-init time) to BOTH the
@@ -198,24 +150,10 @@ export default function App() {
 	// a11y / focus management on route change: move keyboard focus
 	// to `<main id="main-content">` whenever `currentPage` changes so screen
 	// reader + keyboard users aren't stranded on the previously-focused
-	// nav item after a route transition. The skip link + `tabIndex={-1}`
-	// plumbing was already in place; this is the missing focus call.
-	// `skipFirstRun` suppresses the focus call on the initial mount (the
-	// user hasn't navigated yet, so stealing focus from whatever they were
-	// doing would be rude — e.g. if they opened the app and immediately
-	// focused the URL bar or a bookmark).
-	const skipFirstRun = useRef(true);
-	// The effect must re-run on every route change to move focus to the
-	// main landmark — `currentPage` is the intentional reactive trigger
-	// and is deliberately NOT read in the body.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: currentPage is the reactive trigger, not a body value
-	useEffect(() => {
-		if (skipFirstRun.current) {
-			skipFirstRun.current = false;
-			return;
-		}
-		document.getElementById("main-content")?.focus();
-	}, [currentPage]);
+	// nav item after a route transition. Extracted to
+	// `useRouteChangeFocus` (the skip link + `tabIndex={-1}` plumbing
+	// stays in the App shell; the skip-first-run guard lives there).
+	useRouteChangeFocus(currentPage);
 
 	useSoundFeedback();
 
@@ -225,28 +163,11 @@ export default function App() {
 	const { showHelpOverlay, openHelp, closeHelp } = useHelpOverlayShortcut();
 
 	// ── Window-chrome state ───────────────────────────────────────
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-	// Auto-collapse the sidebar when the window narrows
-	// below the `640px` breakpoint. Only the wide→narrow TRANSITION (and
-	// the initial narrow mount) forces a collapse — once collapsed, the
-	// user's manual expand (Ctrl+B or TitleBar toggle) is respected until
-	// the next wide→narrow transition. Narrow→wide transitions do NOT
-	// auto-expand (the user may have intentionally collapsed the sidebar
-	// on a wide window).
-	const isNarrowViewport = useMediaQuery("(max-width: 640px)");
-	const prevNarrowRef = useRef<boolean | null>(null);
-	useEffect(() => {
-		const prev = prevNarrowRef.current;
-		// `prev !== true` covers BOTH the initial mount (prev === null)
-		// and the wide→narrow transition (prev === false). On the
-		// narrow→wide transition and on re-renders while narrow, prev
-		// === true and we no-op so the user's manual toggle wins.
-		if (isNarrowViewport && prev !== true) {
-			setSidebarCollapsed(true);
-		}
-		prevNarrowRef.current = isNarrowViewport;
-	}, [isNarrowViewport]);
+	// Sidebar collapse state + the narrow-viewport auto-collapse rule
+	// (only the wide→narrow transition and the initial narrow mount
+	// force a collapse; the user's manual toggle wins otherwise) are
+	// extracted to `useSidebarAutoCollapse`.
+	const { sidebarCollapsed, setSidebarCollapsed } = useSidebarAutoCollapse();
 
 	const { call } = usePython();
 
@@ -294,54 +215,11 @@ export default function App() {
 	});
 
 	// ── Listen for navigate events from Python ────────────────────
-	// Page validation uses the single route table in
-	// `router/routes.ts` via `isKnownPage`. Previously this had a
-	// hand-maintained `pageMap` that had drifted out of sync with the
-	// `Page` union — it was missing `onboarding`, so a backend
-	// `navigate` event with `path: "onboarding"` (e.g. from the tray
-	// menu's "Open onboarding" item) hit the else branch and was
-	// silently dropped with a spurious console warning. Routing through
-	// `isKnownPage` makes the route table the single source of truth:
-	// any page in the `Page` union that has a `ROUTES` entry is
-	// reachable here automatically.
-	usePythonEvent("navigate", (data): (() => void) | undefined => {
-		const navData = (data ?? {}) as Record<string, unknown>;
-		const path = typeof navData.path === "string" ? navData.path : undefined;
-		if (path) {
-			const page = path.replace(/^\//, "");
-			if (isKnownPage(page)) {
-				// consent_field — deep-link to a specific Settings consent
-				// row (used by CLICKABLE OS notifications: the main
-				// process broadcasts navigate {path: "/settings",
-				// consent_field} when the user clicks the toast; Settings
-				// consumes the ``consentField`` option and scrolls to /
-				// highlights the exact toggle).
-				//
-				// When the legacy "settings" parent literal is sent
-				// WITH a consent_field, the deep-link must land on the
-				// Privacy sub-page (where the consent toggles live), not
-				// the General default. The useNavigation.navigate action
-				// redirects bare "settings" to "settingsGeneral" — so we
-				// override the target here to "settingsPrivacy" when a
-				// consent_field is present (the user's intent is "open the
-				// consent row", not "open Settings General"). The
-				// pendingConsentField transient field carries the row
-				// hint to the Privacy sub-page via the same navigate call.
-				const consentField =
-					typeof navData.consent_field === "string"
-						? navData.consent_field
-						: undefined;
-				const targetPage: Page =
-					consentField && page === "settings"
-						? "settingsPrivacy"
-						: (page as Page);
-				navigate(targetPage, consentField ? { consentField } : undefined);
-			} else {
-				console.warn(`[renderer:App] ignoring unknown page path: "${page}"`);
-			}
-		}
-		return undefined;
-	});
+	// Page validation (route-table `isKnownPage`), the consent-field
+	// Settings deep-link, and the legacy-literal → Privacy override
+	// are extracted to `useNavigateEvent` — the entry file stays
+	// wiring-only.
+	useNavigateEvent({ navigate });
 
 	// paste_failed toast — extracted to `usePasteFailedToast`.
 	usePasteFailedToast(t);
@@ -369,91 +247,33 @@ export default function App() {
 	useLastResortUnloadedToast(t, () => navigate("models"));
 
 	// consent_required — unified point-of-use consent gate (GDPR
-	// Art. 9 etc.). The backend publishes this event when a consent-
-	// gated action is refused: dictation start without
-	// ``voice_biometric_consent`` (recording_lifecycle.py — the path
-	// for entry points the renderer can't gate client-side: F2 hotkey,
-	// tray click action, sandboxed bubble window), cloud-provider
-	// consents, the LLM-polish consent (enhancement_steps.py), the
-	// offline-pack consent (update_check.py), etc. Every consent field
-	// opens the SAME in-app dialog — "Allow? [Allow / Cancel]" — with
-	// the exact toggle deep-link as the secondary action. Dictation
-	// refusals are retried after granting (Allow → toggle_dictation),
-	// so the user never leaves the flow to dig through Settings.
-	// The HuggingFace ``{provider, model}`` shape (no consent_field)
-	// is handled by the model-download flow, not here.
-	usePythonEvent("consent_required", (data): (() => void) | undefined => {
-		const payload = (data ?? {}) as {
-			consent_field?: string;
-		};
-		const field = payload.consent_field;
-		if (!field || !isConsentField(field)) {
-			return undefined;
-		}
-		// Dictation-start refusals can be retried after granting: the
-		// dialog's Allow handler re-invokes toggle_dictation (start is
-		// the only consent-gated direction). Other consent gates have
-		// no re-runnable action from here — granting the consent is
-		// enough; the user retries the action themselves.
-		const dictationField =
-			field === "voice_biometric_consent" ||
-			field === "cloud_openai_consent" ||
-			field === "cloud_groq_consent" ||
-			field === "cloud_deepgram_consent";
-		openConsentGate({
-			consentField: field,
-			bodyKey: consentBodyKey(field),
-			onAllow: dictationField ? () => call("toggle_dictation") : undefined,
-		});
-		return undefined;
-	});
+	// Art. 9 etc.): the backend publishes this event when a
+	// consent-gated action is refused (dictation start, cloud
+	// providers, LLM polish, offline pack). Every consent field
+	// opens the SAME in-app dialog — "Allow? [Allow / Cancel]" —
+	// with the exact toggle deep-link as the secondary action;
+	// dictation refusals are retried after granting (Allow →
+	// toggle_dictation) so the user never leaves the flow.
+	// Extracted to `useConsentRequiredEvent` (the dictation-retry
+	// field set comes from `lib/consentGate`'s registry-derived
+	// `DICTATION_RETRY_CONSENT_FIELDS`).
+	useConsentRequiredEvent({ call });
 
-	// Connecting progress
-	const [connectingProgress, setConnectingProgress] = useState<number | null>(
-		null,
-	);
-	// `connectingProgress` is ONLY consumed by
-	// `<ConnectionStatusScreen>`, which App renders exclusively when
-	// `connectionStatus !== "connected"`. Updating `connectingProgress`
-	// while connected is therefore wasted work — it triggers an App
-	// re-render for a state value nobody reads. We mirror
-	// `connectionStatus` into a ref and short-circuit the handler when
-	// connected. (We can't conditionally call `usePythonEvent` — that
-	// would violate the rules of hooks — so the dispatcher-level
-	// subscriber stays registered, but the actual `setConnectingProgress`
-	// call is gated. The dispatcher fan-out for an unmatched type is a
-	// single Map lookup + early return, so the residual cost is
-	// negligible.)
-	const connectionStatusRef = useRef(connectionStatus);
-	connectionStatusRef.current = connectionStatus;
-	usePythonEvent("download_progress", (data): (() => void) | undefined => {
-		// Skip the state update while connected —
-		// ConnectionStatusScreen isn't rendered, so the value would
-		// never be read and the re-render would be wasted.
-		if (connectionStatusRef.current === "connected") return undefined;
-		const progress = (data as Record<string, unknown> | undefined)?.progress;
-		if (typeof progress === "number") setConnectingProgress(progress);
-		return undefined;
-	});
-
-	// Clear the connecting progress value whenever we leave the
-	// "connecting" state. Without this, a stale progress percentage
-	// (e.g. 73%) would persist across a brief disconnect/reconnect
-	// flap and mislead the user into thinking the download was still
-	// ongoing after the backend had already reconnected. The next
-	// "connecting" phase re-seeds the value via the download_progress
-	// handler above.
-	useEffect(() => {
-		if (connectionStatus !== "connecting") {
-			setConnectingProgress(null);
-		}
-	}, [connectionStatus]);
+	// Connecting progress — backend `download_progress` events,
+	// ref-gated so the update is skipped while connected (the screen
+	// that reads the value is not rendered then). Extracted to
+	// `useConnectingProgress`, which also clears the value on any
+	// transition away from "connecting".
+	const connectingProgress = useConnectingProgress(connectionStatus);
 
 	// Stable callbacks so React.memo on <TitleBar>/<HelpOverlay> can
-	// short-circuit when their other props haven't changed.
+	// short-circuit when their other props haven't changed. The
+	// `setSidebarCollapsed` dep is the useState setter returned by
+	// `useSidebarAutoCollapse` — referentially stable, so the callback
+	// identity is stable too.
 	const handleToggleSidebar = useCallback(
 		() => setSidebarCollapsed((c) => !c),
-		[],
+		[setSidebarCollapsed],
 	);
 	// open/close callbacks come from `useHelpOverlayShortcut` —
 	// they are already stable (memoized with empty deps).
@@ -471,17 +291,11 @@ export default function App() {
 		repaste_hotkey: repasteHotkeyFromConfig,
 	});
 
-	// Linux window-button layout — resolved once per config/system change
-	// and passed to the (memoized) TitleBar as a single stable prop.
-	// No-op on Windows/macOS (TitleBar ignores the prop there).
-	const linuxWindowButtons = useMemo(
-		() =>
-			resolveLinuxWindowButtons(
-				linuxWindowButtonsConfig,
-				linuxWindowButtonsSystem,
-			),
-		[linuxWindowButtonsConfig, linuxWindowButtonsSystem],
-	);
+	// Linux window-button layout — resolved by `useLinuxWindowButtons`
+	// (field-level config/system selectors + a single memo) and passed
+	// to the (memoized) TitleBar as one stable prop. No-op on
+	// Windows/macOS (TitleBar ignores the prop there).
+	const linuxWindowButtons = useLinuxWindowButtons();
 
 	// ── Render ────────────────────────────────────────────────────
 	// ErrorBoundary wrap was removed from here — `main.tsx` already

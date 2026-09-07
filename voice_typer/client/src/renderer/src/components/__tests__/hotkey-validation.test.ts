@@ -20,7 +20,7 @@
  * you add a shortcut here, add it there too (and update the existing
  * invariant tests in hotkey-utils.test.ts if appropriate).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	detectPlatform,
 	isReserved,
@@ -343,16 +343,16 @@ describe("detectPlatform", () => {
 	});
 
 	it("returns 'unknown' when navigator is undefined", () => {
-		// Save the original navigator so we can restore it after
-		// stubbing it. jsdom provides a navigator by default.
-		const originalNavigator = globalThis.navigator;
-		// @ts-expect-error — deliberately assigning undefined to
-		// navigator to simulate an environment without it (SSR).
-		globalThis.navigator = undefined;
+		// Vitest 5 propagates globalThis assignments to the
+		// underlying jsdom window, whose `navigator` is a
+		// getter-only accessor — a plain assignment throws
+		// TypeError. vi.stubGlobal defines an own property
+		// instead and unstubAllGlobals restores the original.
+		vi.stubGlobal("navigator", undefined);
 		try {
 			expect(detectPlatform()).toBe("unknown");
 		} finally {
-			globalThis.navigator = originalNavigator;
+			vi.unstubAllGlobals();
 		}
 	});
 });

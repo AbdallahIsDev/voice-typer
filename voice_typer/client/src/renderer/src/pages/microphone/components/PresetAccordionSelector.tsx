@@ -23,9 +23,9 @@
 
 import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { MouseEvent } from "react";
 import { useMemo } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
+import { SelectableRow } from "@/components/common/SelectableRow";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import {
@@ -90,28 +90,6 @@ function getPresetOptions(): PresetOption[] {
 }
 
 const ACCORDION_ITEM_VALUE = "microphone-quality";
-
-/**
- * Row-click handler for a preset option. Clicks originating on any
- * native <button> inside the row are left alone: the Radix radio
- * control handles selection itself via onValueChange (handling it here
- * too would apply the preset twice for one click), and the row's
- * InfoTooltip trigger opens the description tooltip — it must never
- * change the preset as a side effect.
- */
-function makeOptionClickHandler(
-	preset: AudioPreset,
-	onPresetChange: (preset: AudioPreset) => void,
-	value: AudioPreset,
-): (event: MouseEvent<HTMLDivElement>) => void {
-	return (event) => {
-		if ((event.target as HTMLElement).closest("button")) {
-			return;
-		}
-		if (preset === value) return;
-		onPresetChange(value);
-	};
-}
 
 export function PresetAccordionSelector({
 	preset,
@@ -207,20 +185,24 @@ export function PresetAccordionSelector({
 							data-testid="mic-preset-radio-group"
 						>
 							{presetOptions.map((option) => (
-								// biome-ignore lint/a11y/noStaticElementInteractions: the nested RadioGroupItem is the accessible control (role=radio); the row click is pointer convenience.
-								// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection.
-								<div
+								// The a11y pair (nested RadioGroupItem is the accessible
+								// control; row click is pointer-only convenience) + the
+								// skip-nested-button click gating (the radio AND the row's
+								// InfoTooltip trigger are <button>s — clicking either must
+								// never change the preset as a side effect) live in the
+								// shared SelectableRow wrapper.
+								<SelectableRow
 									key={option.value}
 									className={cn(
 										"flex items-center gap-3 rounded-lg p-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
 										option.value === preset && "bg-foreground/5",
 									)}
 									data-testid={`mic-preset-option-${option.value}`}
-									onClick={makeOptionClickHandler(
-										preset,
-										onPresetChange,
-										option.value,
-									)}
+									ignoreClicksFrom={["button"]}
+									onRowSelect={() => {
+										if (preset === option.value) return;
+										onPresetChange(option.value);
+									}}
 								>
 									{/* Explicit aria-label keeps the radio's accessible
 								    name to the preset LABEL — an implicit-label
@@ -252,7 +234,7 @@ export function PresetAccordionSelector({
 											contextLabel={option.label}
 										/>
 									</span>
-								</div>
+								</SelectableRow>
 							))}
 						</RadioGroup>
 					</div>

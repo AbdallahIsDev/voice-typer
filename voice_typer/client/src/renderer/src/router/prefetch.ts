@@ -1,6 +1,6 @@
 // Route-chunk prefetching (vercel-react-best-practices: bundle-preload).
 //
-// The 8 secondary routes are React.lazy chunks (see PageSwitch.tsx).
+// The 9 secondary routes are React.lazy chunks (see PageSwitch.tsx).
 // Without prefetching, the FIRST navigation to each page waits on a
 // dynamic import before anything renders. This module closes that gap:
 //
@@ -19,21 +19,7 @@
 
 import type { Page } from "@/types/ipc";
 
-// Same dynamic imports PageSwitch lazily uses — Vite emits one chunk
-// per page module and both call sites resolve to the same chunks.
-const PAGE_LOADERS: Partial<Record<Page, () => Promise<unknown>>> = {
-	aboutAndPrivacy: () => import("@/pages/AboutAndPrivacy"),
-	analytics: () => import("@/pages/Dashboard"),
-	history: () => import("@/pages/History"),
-	microphone: () => import("@/pages/Microphone"),
-	models: () => import("@/pages/Models"),
-	onboarding: () => import("@/pages/Onboarding"),
-	// The settings hub and ALL section-page literals resolve to the SAME
-	// Settings chunk — one entry covers them.
-	settings: () => import("@/pages/Settings"),
-	templates: () => import("@/pages/Templates"),
-	vocabulary: () => import("@/pages/Vocabulary"),
-};
+import { PAGE_LOADERS, routeChunkLoader } from "./pageLoaders";
 
 let idlePrefetchStarted = false;
 
@@ -70,7 +56,7 @@ export function prefetchRouteChunks(): void {
  * pages without a lazy chunk (home is eager).
  */
 export function prefetchPage(page: Page): void {
-	PAGE_LOADERS[page]?.().catch(() => {
+	routeChunkLoader(page)?.().catch(() => {
 		// Swallow: the real navigation's lazy import retries.
 	});
 }

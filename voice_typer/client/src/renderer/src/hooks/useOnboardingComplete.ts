@@ -14,12 +14,13 @@
  * Returns a stable memoized callback suitable for passing to the
  * Onboarding page's ``onComplete`` prop.
  */
+
 import { useCallback } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc/enums";
 
 /** Shape of the ``call`` function from usePython(). */
-type CallFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 /** Shape of the theme reload from useTheme(). */
 type ReloadThemeFn = () => Promise<void>;
@@ -28,7 +29,7 @@ interface UseOnboardingCompleteArgs {
 	/** Navigate to a page (used to land on home after the wizard). */
 	navigate: (page: Page) => void;
 	/** The ``call`` from usePython() — used to re-fetch config. */
-	call: CallFn;
+	call: PythonCall;
 	/** Re-apply the saved theme from config (from useTheme()). */
 	reloadThemeFromConfig: ReloadThemeFn;
 }

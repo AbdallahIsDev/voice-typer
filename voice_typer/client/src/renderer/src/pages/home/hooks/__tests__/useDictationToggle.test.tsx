@@ -13,12 +13,12 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PythonCall } from "@/hooks/usePython";
 import { useDictationToggle } from "@/pages/home/hooks/useDictationToggle";
-import type { CallFn } from "@/pages/home/hooks/useFirstRecordingCelebration";
 import type { VoiceTyperConfig } from "@/types/config";
 
-// Bridge-call test double shaped as CallFn (no real bridge in unit tests).
-const mockCall = vi.fn() as unknown as CallFn & Mock;
+// Bridge-call test double shaped as PythonCall (no real bridge in unit tests).
+const mockCall = vi.fn() as unknown as PythonCall & Mock;
 const openConsentGate = vi.fn();
 
 vi.mock("@/i18n/i18n", () => ({

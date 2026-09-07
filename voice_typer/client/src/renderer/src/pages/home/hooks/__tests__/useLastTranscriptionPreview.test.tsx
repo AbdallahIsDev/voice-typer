@@ -11,15 +11,15 @@ import { act, renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CallFn } from "@/pages/home/hooks/useFirstRecordingCelebration";
+import type { PythonCall } from "@/hooks/usePython";
 import { useLastTranscriptionPreview } from "@/pages/home/hooks/useLastTranscriptionPreview";
 import { LAST_TEXT_AUTO_CLEAR_MS } from "@/pages/home/lib/constants";
 import type { TranscriptionQualitySummary } from "@/types/ipc";
 
 // Capture the handler usePythonEvent registers so we can fire it.
 const registered = new Map<string, (data?: unknown) => unknown>();
-// Bridge-call test double shaped as CallFn (no real bridge in unit tests).
-const mockCall = vi.fn() as unknown as CallFn & Mock;
+// Bridge-call test double shaped as PythonCall (no real bridge in unit tests).
+const mockCall = vi.fn() as unknown as PythonCall & Mock;
 const celebrate = vi.fn();
 
 vi.mock("@/hooks/usePython", () => ({

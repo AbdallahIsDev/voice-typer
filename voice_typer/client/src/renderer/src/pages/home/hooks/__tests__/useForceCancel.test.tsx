@@ -13,13 +13,13 @@ import { act, renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CallFn } from "@/pages/home/hooks/useFirstRecordingCelebration";
+import type { PythonCall } from "@/hooks/usePython";
 import { useForceCancel } from "@/pages/home/hooks/useForceCancel";
 import { FORCE_CANCEL_DELAY_MS } from "@/pages/home/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 
-// Bridge-call test double shaped as CallFn (no real bridge in unit tests).
-const mockCall = vi.fn() as unknown as CallFn & Mock;
+// Bridge-call test double shaped as PythonCall (no real bridge in unit tests).
+const mockCall = vi.fn() as unknown as PythonCall & Mock;
 
 vi.mock("@/i18n/i18n", () => ({
 	t: (key: string) => key,

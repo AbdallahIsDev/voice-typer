@@ -22,19 +22,30 @@
 
 import { useCallback } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 import type { ExportFormat } from "../../../../../shared/export-format";
-
+import { deriveHistoryCursor } from "../utils/cursor";
 import { type HistorySortOrder, sortRecords } from "../utils/historySort";
-
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
 // Page size for the export paging loop. Smaller than the cache page
 // size so the loop yields to the event loop more often (the export
 // can pull thousands of rows; we don't want to block the UI thread
 // on a single 1000-row JSON.parse).
 const EXPORT_PAGE_SIZE = 100;
+
+// Keyset cursor for the export paging loop — the shared derivation
+// (utils/cursor.ts) anchors each page to the (timestamp, id) of the
+// LAST row of the accumulated export, so each subsequent page asks the
+// backend for rows strictly older than it. O(log N) per page via the
+// timestamp index instead of the O(N) OFFSET skip the export loop
+// previously paid on every page (O(pages × offset) overall for a
+// large export). When the last row lacks a usable timestamp/id the
+// shared derivation returns undefined — the backend then falls back
+// to the OFFSET path (the payload always carries limit + offset, same
+// defensive fallback as the page cache's loadMore).
+const deriveExportCursor = deriveHistoryCursor;
 
 // Hard cap on total rows exported in a single doExport call. Matches
 // the backend's frame cap (200 rows per page) × a reasonable upper
@@ -43,7 +54,7 @@ const EXPORT_PAGE_SIZE = 100;
 const EXPORT_MAX_ROWS = 10000;
 
 interface UseHistoryExportParams {
-	call: CallFn;
+	call: PythonCall;
 	records: HistoryRecord[];
 	sortOrder: HistorySortOrder;
 	searchQuery: string;
@@ -80,7 +91,13 @@ export function useHistoryExport({
 			try {
 				// Page through the matching endpoint until the backend
 				// returns an empty page (or a partial page — no more rows)
-				// or we hit the EXPORT_MAX_ROWS cap.
+				// or we hit the EXPORT_MAX_ROWS cap. Each page after the
+				// first carries keyset cursor params (before_timestamp +
+				// before_id, derived from the last accumulated row) so the
+				// backend walks the timestamp index instead of skipping
+				// past all previous rows — the same pagination strategy
+				// useHistoryCache's loadMore already uses. limit + offset
+				// stay in the payload as the defensive fallback.
 				allRecords = [];
 				let offset = 0;
 				// The `eslint-disable-next-line no-constant-condition`
@@ -90,23 +107,25 @@ export function useHistoryExport({
 				// intentional page-until-exhausted loop with explicit
 				// `break`s on empty page / row cap.
 				while (true) {
+					const cursor = deriveExportCursor(allRecords);
+					const payload: Record<string, unknown> = {
+						limit: EXPORT_PAGE_SIZE,
+						offset,
+					};
+					if (cursor) {
+						payload.before_timestamp = cursor.before_timestamp;
+						payload.before_id = cursor.before_id;
+					}
 					let page: HistoryRecord[];
 					if (favoritesOnly) {
-						page = await call<HistoryRecord[]>("get_favorites", {
-							limit: EXPORT_PAGE_SIZE,
-							offset,
-						});
+						page = await call<HistoryRecord[]>("get_favorites", payload);
 					} else if (searchQuery.trim() !== "") {
 						page = await call<HistoryRecord[]>("search_history", {
 							query: searchQuery,
-							limit: EXPORT_PAGE_SIZE,
-							offset,
+							...payload,
 						});
 					} else {
-						page = await call<HistoryRecord[]>("get_history", {
-							limit: EXPORT_PAGE_SIZE,
-							offset,
-						});
+						page = await call<HistoryRecord[]>("get_history", payload);
 					}
 					const safePage = Array.isArray(page) ? page : [];
 					if (safePage.length === 0) break;

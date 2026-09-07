@@ -27,11 +27,11 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { CallFn } from "./useFirstRecordingCelebration";
 
 /**
  * Own the consent-gated dictation toggle. Call once at the top level
@@ -43,7 +43,10 @@ import type { CallFn } from "./useFirstRecordingCelebration";
  *   skips the gate exactly as before (the backend backstop still
  *   enforces consent for hotkey/tray dictation).
  */
-export function useDictationToggle(call: CallFn, cfg: VoiceTyperConfig | null) {
+export function useDictationToggle(
+	call: PythonCall,
+	cfg: VoiceTyperConfig | null,
+) {
 	const [toggling, setToggling] = useState(false);
 	const [hasAttemptedDictation, setHasAttemptedDictation] = useState(false);
 

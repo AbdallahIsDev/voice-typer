@@ -14,16 +14,15 @@
 // every keystroke doesn't re-run the templates-list memo.
 
 import { useState } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 
 import { saveTemplates } from "../lib/storage";
 import { rowsToTemplates } from "../lib/transform";
 import type { Template, TemplateRow } from "../lib/types";
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 interface UseTemplateDialogArgs {
-	call: CallFn;
+	call: PythonCall;
 	showSnack: (
 		message: string,
 		kind: "success" | "error" | "warning" | "info",

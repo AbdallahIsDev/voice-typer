@@ -57,12 +57,15 @@
  *      (module-level mutable cache bindings + repeated raw reads) must
  *      stay gone.
  *
- *  (e) Route switching (router/PageSwitch.tsx) — secondary pages are
- *      `React.lazy(() => import(...))` for route-level code splitting
- *      while `Home` stays eager (default landing page), and the routed
- *      content renders inside `<Suspense>` with a real fallback
- *      component so first-time navigation shows a spinner instead of a
- *      blank frame.
+ *  (e) Route switching — the secondary pages' lazy-import registry
+ *      lives in ONE shared module (router/pageLoaders.ts: the
+ *      `PAGE_LOADERS` loaders + `LAZY_PAGES` components consumed by
+ *      both router/PageSwitch.tsx and router/prefetch.ts). Secondary
+ *      pages are `React.lazy(() => import(...))` for route-level code
+ *      splitting while `Home` stays eager (default landing page), and
+ *      the routed content renders inside `<Suspense>` with a real
+ *      fallback component so first-time navigation shows a spinner
+ *      instead of a blank frame.
  *
  *  (f) Dashboard — the derived render values (period stats, activity
  *      chart bars, correction stats) are computed inside `useMemo`s in
@@ -339,14 +342,22 @@ describe("Home initialLoading initializer dedupes localStorage reads through ref
 // ── Route switching: code splitting with a Suspense fallback ─────────
 
 describe("Route switching lazy-loads secondary pages behind a Suspense fallback", () => {
-	// The lazy-route table + Suspense wrapper live in the extracted
-	// router/PageSwitch.tsx (App.tsx composes it).
+	// The lazy-route components + Suspense wrapper live in the extracted
+	// router/PageSwitch.tsx (App.tsx composes it); the lazy-import
+	// REGISTRY (PAGE_LOADERS + LAZY_PAGES) lives in the shared
+	// router/pageLoaders.ts consumed by PageSwitch AND prefetch.ts.
 	const ROUTE_SRC_PATH = "router/PageSwitch.tsx";
+	const LOADERS_SRC_PATH = "router/pageLoaders.ts";
 
-	it("imports lazy and Suspense from react", () => {
+	it("imports Suspense from react (PageSwitch) and lazy from react (pageLoaders)", () => {
 		const src = readSrc(ROUTE_SRC_PATH);
-		expect(src).toMatch(/import\s+\{[^}]*\blazy\b[^}]*\}\s+from\s+"react"/);
 		expect(src).toMatch(/import\s+\{[^}]*\bSuspense\b[^}]*\}\s+from\s+"react"/);
+		// The React.lazy() calls moved to the shared registry module
+		// (router/pageLoaders.ts) — `lazy` itself is imported there.
+		const registrySrc = readSrc(LOADERS_SRC_PATH);
+		expect(registrySrc).toMatch(
+			/import\s+\{[^}]*\blazy\b[^}]*\}\s+from\s+"react"/,
+		);
 	});
 
 	it("keeps Home as an eager (static) import — default landing page", () => {
@@ -365,28 +376,38 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 	});
 
 	it.each([
-		["AboutAndPrivacyPage", "@/pages/AboutAndPrivacy"],
-		["DashboardPage", "@/pages/Dashboard"],
-		["HistoryPage", "@/pages/History"],
-		["MicrophonePage", "@/pages/Microphone"],
-		["ModelsPage", "@/pages/Models"],
-		["OnboardingPage", "@/pages/Onboarding"],
-		["SettingsPage", "@/pages/Settings"],
-		["TemplatesPage", "@/pages/Templates"],
-		["VocabularyPage", "@/pages/Vocabulary"],
+		["aboutAndPrivacy", "@/pages/AboutAndPrivacy"],
+		["analytics", "@/pages/Dashboard"],
+		["history", "@/pages/History"],
+		["microphone", "@/pages/Microphone"],
+		["models", "@/pages/Models"],
+		["onboarding", "@/pages/Onboarding"],
+		["settings", "@/pages/Settings"],
+		["templates", "@/pages/Templates"],
+		["vocabulary", "@/pages/Vocabulary"],
 	] as const)(
-		"converts %s to React.lazy(() => import(%s))",
-		(varName: string, importPath: string) => {
-			const src = readSrc(ROUTE_SRC_PATH);
+		"registers %s as a lazy chunk importing %s",
+		(loaderKey: string, importPath: string) => {
+			const src = readSrc(LOADERS_SRC_PATH);
 			// Escape the import path for use in a regex (paths with
 			// slashes are safe in JS regex but be defensive).
 			const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-			const pattern = new RegExp(
-				`const\\s+${varName}\\s*=\\s*lazy\\(\\s*\\(\\)\\s*=>\\s*import\\(["']${escaped}["']\\)\\s*\\)`,
+			// DYNAMIC import of the page module (parenthesis immediately
+			// after `import`, NOT a static `import X from` statement).
+			const dynamicPattern = new RegExp(`import\\(["']${escaped}["']\\)`);
+			expect(
+				dynamicPattern.test(src),
+				`Expected: import("${importPath}") in ${LOADERS_SRC_PATH}`,
+			).toBe(true);
+			// The lazy component is created ONCE at module scope from
+			// the SAME loaders map (single registry — no second copy of
+			// the import specifiers).
+			const lazyPattern = new RegExp(
+				`lazy\\(\\s*PAGE_LOADERS\\.${loaderKey}\\s*\\)`,
 			);
 			expect(
-				pattern.test(src),
-				`Expected: const ${varName} = lazy(() => import("${importPath}"))`,
+				lazyPattern.test(src),
+				`Expected: lazy(PAGE_LOADERS.${loaderKey}) in ${LOADERS_SRC_PATH}`,
 			).toBe(true);
 		},
 	);

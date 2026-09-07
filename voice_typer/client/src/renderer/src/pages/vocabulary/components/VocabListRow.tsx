@@ -30,6 +30,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useState } from "react";
+import { SelectableRow } from "@/components/common/SelectableRow";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -112,18 +113,17 @@ export const VocabListRow = memo(function VocabListRow({
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.
 	return (
-		// The row click is a mouse-only convenience for bulk
-		// selection — keyboard/SR users toggle via the nested
-		// Checkbox (a real role="checkbox" button). Making the row
-		// itself keyboard-activatable would double-toggle with the
-		// Checkbox's own handler.
-		// biome-ignore lint/a11y/noStaticElementInteractions: the nested Checkbox is the accessible control.
-		// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation would double-toggle with the nested Checkbox; the Checkbox provides the keyboard path.
-		<div
+		// The a11y pair (nested Checkbox is the accessible control; row
+		// click is pointer-only convenience) lives in the shared
+		// SelectableRow wrapper. No `ignoreClicksFrom` selectors: the
+		// checkbox, the Retry button, and the three action buttons stop
+		// propagation themselves, so their clicks never reach the row
+		// handler.
+		<SelectableRow
 			key={entry._id}
 			data-testid="vocab-list-row"
 			data-selected={selected ? "true" : "false"}
-			onClick={() => onToggleSelect(entry._id)}
+			onRowSelect={() => onToggleSelect(entry._id)}
 			className={cn(
 				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
 				selected && "bg-accent/10 hover:bg-accent/10",
@@ -301,6 +301,6 @@ export const VocabListRow = memo(function VocabListRow({
 					)}
 				</div>
 			)}
-		</div>
+		</SelectableRow>
 	);
 });

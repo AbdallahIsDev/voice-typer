@@ -41,6 +41,7 @@
  * Backend write failures are handled (logged) by the debounced save's own
  * catch — the shortcut layer has no error surface of its own.
  */
+
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type {
@@ -48,16 +49,11 @@ import type {
 	InAppShortcutId,
 } from "@/components/hotkey/shortcuts";
 import { IN_APP_BINDINGS } from "@/components/hotkey/shortcuts";
+import type { PythonCall } from "@/hooks/usePython";
 import type { Page } from "@/types/ipc";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
-
-/** Minimal `call` function type matching usePython's signature. */
-type CallFn = <T = unknown>(
-	type: string,
-	data?: Record<string, unknown>,
-) => Promise<T>;
 
 // NOTE: these are re-exported for the hook's public type surface; the
 // LOCAL bindings above (`import type`) are what the implementation uses
@@ -113,7 +109,7 @@ interface UseGlobalKeyboardShortcutsArgs {
 	/** Setter for text size (from useTheme). */
 	setTextSize: (size: number) => void;
 	/** Python bridge call function (from usePython). */
-	call: CallFn;
+	call: PythonCall;
 	/** i18n translate function (from useT). */
 	t: TFn;
 	/** Setter for sidebar collapsed state (from useState in App.tsx). */

@@ -19,7 +19,7 @@
 // bursts never re-render the Home page; the LevelBar fill animates via
 // its own 75 ms `transform: scaleX` transition, which smooths between
 // the throttled updates.
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { usePythonEvent } from "@/hooks/usePython";
 
@@ -44,11 +44,6 @@ export function RecordingLevelBar() {
 		}
 		return undefined;
 	});
-
-	// The server mirrors a final rms=0 `recording_level` when the level
-	// worker drains its shutdown frame; `level` state starts at 0 on
-	// every mount, so a remount can never inherit a stale value.
-	useEffect(() => () => setLevel(0), []);
 
 	return (
 		<div className="w-40" data-testid="recording-level-bar">

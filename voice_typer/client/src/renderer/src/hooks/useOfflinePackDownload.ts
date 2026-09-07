@@ -31,16 +31,19 @@
 //   10. `worker_crashed`          — worker exited unexpectedly
 //   11. `worker_unloaded`         — slim-core asked worker to unload (RAM)
 //
-// NOTE on type-safety: the 11 event names are NOT yet in the
-// `PythonPushEvent` union in `types/ipc/push_events.ts` — that file is
-// owned by Sub-agent 8. We pass the event names as plain `string`
-// literals, which falls through to the second overload of
-// `usePythonEvent` (the forward-compat overload that accepts any
-// string). A dev-time `console.warn` from `KNOWN_EVENT_TYPES` will
-// surface until Sub-agent 8 adds the 11 literals to the union AND to
-// `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`. The runtime behaviour is
-// correct either way — `usePythonEvent`'s dispatcher fans out by
-// `event.type` regardless of union membership.
+// NOTE on type-safety: the 11 event names ARE in the
+// `PythonPushEvent` union in `types/ipc/push_events.ts` AND in the
+// runtime `KNOWN_EVENT_TYPES` mirror that backs the dev-time typo
+// warning (`lib/python-bridge/known-event-types.ts`, re-exported via
+// `@/hooks/usePython`), so every `usePythonEvent` call below hits the
+// FIRST overload (the typed one — no "unknown event" console.warn).
+// The handlers keep their explicit
+// `(data?: Record<string, unknown>)` params — every per-event `data`
+// shape in the union is an object literal, and function-param
+// contravariance makes a wider-accepting handler assignable to the
+// narrowed overload. The runtime behaviour is the same either way —
+// `usePythonEvent`'s dispatcher fans out by `event.type` regardless
+// of union membership.
 //
 // ── Transport-agnostic ───────────────────────────────────────────────
 //

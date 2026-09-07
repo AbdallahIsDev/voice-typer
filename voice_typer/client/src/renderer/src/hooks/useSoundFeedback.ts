@@ -138,14 +138,11 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 	//     AudioContext + detach gesture listeners (the cleanup runs when
 	//     the App root unmounts, which is rare, but the close is still
 	//     correct behavior — a re-mount will re-init if still enabled).
-	//
-	// Note: if the user toggles sound feedback at runtime via Settings,
-	// ``setSoundFeedbackEnabled`` writes the flag to localStorage but
-	// does NOT itself close/re-init the AudioContext. The next App
-	// re-mount (or a manual ``closeAudioContext()`` call) is what
-	// releases the context. This is a known limitation — fully
-	// reactive enable/disable would require a settings-change
-	//subscription here, which is out of scope for the  fix.
+	//   - At RUNTIME (see the ``config_changed`` subscription below):
+	//     a ``sound_feedback_enabled`` flip closes / re-inits the
+	//     AudioContext immediately, so turning the feature off no longer
+	//     leaves an idle audio context (and its audio thread) held until
+	//     app restart.
 	useEffect(() => {
 		if (isSoundFeedbackEnabled()) {
 			initAudioContext();
@@ -157,6 +154,33 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 			closeAudioContext();
 		};
 	}, []);
+
+	// Runtime toggle: the backend broadcasts ``config_changed`` for
+	// every config write (Settings → Recording's toggle, config
+	// import, CLI tool). When the payload carries
+	// ``sound_feedback_enabled``, close / re-init the AudioContext
+	// right away — previously toggling the feature off at runtime
+	// kept the already-alive AudioContext (and its audio thread)
+	// held until the next app restart (a documented limitation,
+	// now fixed). Reading the flag from the PAYLOAD (not
+	// localStorage) makes the handler independent of the
+	// themeSync → setSoundFeedbackEnabled write ordering.
+	usePythonEvent("config_changed", (data): (() => void) | undefined => {
+		const payload = (data ?? {}) as {
+			sound_feedback_enabled?: unknown;
+		};
+		if (typeof payload.sound_feedback_enabled !== "boolean") {
+			return undefined;
+		}
+		if (payload.sound_feedback_enabled) {
+			// Safe when already initialized — initAudioContext
+			// short-circuits on a live context.
+			initAudioContext();
+		} else {
+			closeAudioContext();
+		}
+		return undefined;
+	});
 
 	usePythonEvent("recording_started", (): (() => void) | undefined => {
 		playSoundCue("start");

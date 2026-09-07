@@ -16,7 +16,10 @@
 
 import { Mic02Icon, MicOff01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { MouseEvent } from "react";
+import {
+	RADIO_GROUP_ITEM_SELECTOR,
+	SelectableRow,
+} from "@/components/common/SelectableRow";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -40,25 +43,6 @@ export interface AvailableMicrophonesListProps {
 	testRunning: boolean;
 	/** Selection handler — receives ``null`` for "use system default". */
 	onSelectMicrophone: (micId: string | null) => void;
-}
-
-function rowClickHandler(
-	onSelect: () => void,
-	disabled: boolean,
-	isActive: boolean,
-): (event: MouseEvent<HTMLDivElement>) => void {
-	return (event) => {
-		// Clicks that originate on the radio control itself are handled by
-		// Radix (onValueChange); handling them here too would fire the
-		// selection IPC twice for one click.
-		if (
-			(event.target as HTMLElement).closest('[data-slot="radio-group-item"]')
-		) {
-			return;
-		}
-		if (disabled || isActive) return;
-		onSelect();
-	};
 }
 
 export function AvailableMicrophonesList({
@@ -105,20 +89,23 @@ export function AvailableMicrophonesList({
 				    themselves (biome's noRedundantRoles + ARIA-in-HTML agree). */}
 				<ul className="divide-y divide-border/5">
 					<li className={testRunning ? "opacity-50" : undefined}>
-						{/* biome-ignore lint/a11y/noStaticElementInteractions: the nested RadioGroupItem is the accessible control (role=radio); the row click is pointer convenience. */}
-						{/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection. */}
-						<div
+						{/* The a11y pair (nested RadioGroupItem is the accessible
+						    control; row click is pointer-only convenience) + the
+						    skip-nested-radio click gating live in the shared
+						    SelectableRow wrapper — same contract as the device rows
+						    in MicrophoneListItem. */}
+						<SelectableRow
 							className={
 								"flex items-center gap-3 px-4 py-2 transition-colors" +
 								(testRunning || activeMicId === null
 									? ""
 									: " cursor-pointer hover:bg-foreground/5")
 							}
-							onClick={rowClickHandler(
-								() => onSelectMicrophone(null),
-								testRunning,
-								activeMicId === null,
-							)}
+							ignoreClicksFrom={[RADIO_GROUP_ITEM_SELECTOR]}
+							onRowSelect={() => {
+								if (testRunning || activeMicId === null) return;
+								onSelectMicrophone(null);
+							}}
 							data-testid="system-default-row"
 						>
 							<HugeiconsIcon
@@ -139,7 +126,7 @@ export function AvailableMicrophonesList({
 								disabled={testRunning}
 								aria-label={t("microphone.systemDefault")}
 							/>
-						</div>
+						</SelectableRow>
 					</li>
 					{sorted.map((mic) => (
 						// Dim device rows during a test to match the

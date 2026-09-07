@@ -7,6 +7,13 @@
 // max-lifetime safety net — was the page's largest cohesive EFFECT
 // block. It lives here so the page root stays layout + wiring.
 //
+// The two scroll effects share ONE parameterized helper
+// (`pages/settings/lib/scrollToRowWithHighlight.ts`) — the bounded
+// retry loop, the one-shot guard, the scrollIntoView call, and the
+// ring-lifetime timer live there once; each effect supplies only its
+// row matcher and how the ring is applied (consent: state-driven,
+// consumed by PrivacySettingsSection; search: imperative ring classes).
+//
 // IMPORTANT: the effects inside this hook must run in the ORIGINAL page
 // order (consume → consume → scroll → scroll → safety net) relative to
 // the page's surface-scroll restore effect — the consent consumption
@@ -16,6 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
+import { scrollToRowWithHighlight } from "@/pages/settings/lib/scrollToRowWithHighlight";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
@@ -116,111 +124,82 @@ export function useSettingsDeepLinks({
 	// Scroll the deep-linked consent row into view once it's rendered
 	// (Privacy section page active + config loaded). The row is rendered
 	// by PrivacySettingsSection with a ``data-consent-field`` attribute;
-	// retry until found (bounded) in case the lazy page / config fetch
-	// is still settling. The scroll is ONE-SHOT per deep-link target
-	// (``scrolledTargetRef``) so a config identity change — e.g. the
+	// the shared scrollToRowWithHighlight helper retries until found
+	// (bounded) in case the lazy page / config fetch is still settling.
+	// The scroll is ONE-SHOT per deep-link target (the helper's shared
+	// ``scrolledTargetRef`` guard) so a config identity change — e.g. the
 	// user toggling the just-highlighted consent — doesn't re-trigger a
 	// smooth re-center. The highlight ring's lifetime starts when the
 	// row is actually found, so a slow ``get_config`` can't clear the
-	// ring before the row renders.
+	// ring before the row renders. The ring itself is state-driven:
+	// PrivacySettingsSection rings the row whose field matches
+	// ``focusedConsentField``, so expiring just clears the state.
 	useEffect(() => {
 		if (!focusedConsentField || !config || page !== "settingsPrivacy") return;
-		if (scrolledTargetRef.current === focusedConsentField) return;
-		let attempts = 0;
-		let cancelled = false;
-		const tryScroll = () => {
-			if (cancelled) return;
+		return scrollToRowWithHighlight({
+			shared: {
+				scrolledTarget: scrolledTargetRef,
+				highlightTimer: highlightTimerRef,
+			},
+			target: focusedConsentField,
 			// Match by attribute VALUE rather than interpolating the
 			// field into a selector — the field comes from the backend
 			// envelope, and value-filtering avoids any selector
 			// injection edge.
-			const el = Array.from(
-				document.querySelectorAll<HTMLElement>("[data-consent-field]"),
-			).find(
-				(node) =>
-					node.getAttribute("data-consent-field") === focusedConsentField,
-			);
-			if (el) {
-				scrolledTargetRef.current = focusedConsentField;
-				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
-				// Ring lifetime starts now (row actually visible).
-				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-				highlightTimerRef.current = setTimeout(() => {
-					setFocusedConsentField(null);
-					scrolledTargetRef.current = null;
-				}, 2600);
-				return;
-			}
-			// Bounded retry (~3s) — a stale target can't spin forever.
-			if (attempts < 60) {
-				attempts += 1;
-				setTimeout(tryScroll, 50);
-			}
-		};
-		const timer = setTimeout(tryScroll, 0);
-		return () => {
-			cancelled = true;
-			clearTimeout(timer);
-		};
+			matchFn: () =>
+				Array.from(
+					document.querySelectorAll<HTMLElement>("[data-consent-field]"),
+				).find(
+					(node) =>
+						node.getAttribute("data-consent-field") === focusedConsentField,
+				),
+			onExpire: () => setFocusedConsentField(null),
+		});
 	}, [focusedConsentField, config, page]);
 
 	// Cross-page Settings search deep-link scroll + highlight. Mirrors
-	// the consent-deep-link scroll logic but matches by VISIBLE TEXT
-	// (the rowHint string) rather than by attribute value — the search
-	// deep-link carries the matched label text (translated at the
-	// moment the user typed), so we walk rendered SettingRow elements
-	// and pick the first whose label text contains the hint. The match
-	// is intentionally substring + case-insensitive so a partial hint
-	// (e.g. trailing whitespace) still resolves.
+	// the consent-deep-link scroll via the SAME shared helper but
+	// matches by VISIBLE TEXT (the rowHint string) rather than by
+	// attribute value — the search deep-link carries the matched label
+	// text (translated at the moment the user typed), so we walk
+	// rendered SettingRow elements and pick the first whose label text
+	// contains the hint. The match is intentionally substring +
+	// case-insensitive so a partial hint (e.g. trailing whitespace)
+	// still resolves. The ring is applied imperatively (ring classes on
+	// the matched element) rather than via state.
 	useEffect(() => {
 		if (!searchScrollHint || !config) return;
-		if (scrolledTargetRef.current === searchScrollHint) return;
-		let attempts = 0;
-		let cancelled = false;
-		const tryScroll = () => {
-			if (cancelled) return;
-			const hint = searchScrollHint.toLowerCase();
-			// SettingRow renders the row label inside a <span> with class
-			// `text-(--text-primary)`. We walk all rows on the page and
-			// pick the first whose label text contains the hint.
-			const candidates = Array.from(
-				document.querySelectorAll<HTMLElement>("[data-settings-row-label]"),
-			);
-			const el = candidates.find((node) =>
-				(node.textContent ?? "").toLowerCase().includes(hint),
-			);
-			if (el) {
-				scrolledTargetRef.current = searchScrollHint;
-				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+		const hint = searchScrollHint.toLowerCase();
+		return scrollToRowWithHighlight({
+			shared: {
+				scrolledTarget: scrolledTargetRef,
+				highlightTimer: highlightTimerRef,
+			},
+			target: searchScrollHint,
+			matchFn: () =>
+				// SettingRow renders the row label inside a <span> with class
+				// `text-(--text-primary)`. We walk all rows on the page and
+				// pick the first whose label text contains the hint.
+				Array.from(
+					document.querySelectorAll<HTMLElement>("[data-settings-row-label]"),
+				).find((node) => (node.textContent ?? "").toLowerCase().includes(hint)),
+			onFound: (el) =>
 				el.classList.add(
 					"ring-2",
 					"ring-ring",
 					"ring-offset-2",
 					"ring-offset-background",
+				),
+			onExpire: (el) => {
+				setSearchScrollHint(null);
+				el.classList.remove(
+					"ring-2",
+					"ring-ring",
+					"ring-offset-2",
+					"ring-offset-background",
 				);
-				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-				highlightTimerRef.current = setTimeout(() => {
-					setSearchScrollHint(null);
-					scrolledTargetRef.current = null;
-					el.classList.remove(
-						"ring-2",
-						"ring-ring",
-						"ring-offset-2",
-						"ring-offset-background",
-					);
-				}, 2600);
-				return;
-			}
-			if (attempts < 60) {
-				attempts += 1;
-				setTimeout(tryScroll, 50);
-			}
-		};
-		const timer = setTimeout(tryScroll, 0);
-		return () => {
-			cancelled = true;
-			clearTimeout(timer);
-		};
+			},
+		});
 	}, [searchScrollHint, config]);
 
 	// Max-lifetime safety net: even if the target row never renders

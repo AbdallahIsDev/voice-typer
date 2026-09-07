@@ -19,6 +19,7 @@
 
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 import type { ExportFormat } from "../../../../../shared/export-format";
@@ -27,10 +28,8 @@ import { parseImportedVocabulary } from "../lib/importExport";
 import { flattenEntries, type VocabRow, withEntryIds } from "../lib/transform";
 import { isDuplicateEntryError } from "./useVocabularyQuickAdd";
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 interface UseVocabularyImportExportArgs {
-	call: CallFn;
+	call: PythonCall;
 	entriesRef: React.RefObject<VocabRow[]>;
 	persistVocabulary: (updated: VocabRow[]) => Promise<void>;
 	setEntries: (entries: VocabRow[]) => void;

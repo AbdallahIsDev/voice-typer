@@ -44,6 +44,10 @@ import { usePython } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
+import { deriveHistoryCursor, type HistoryCursor } from "../utils/cursor";
+
+export type { HistoryCursor };
+
 // Module-cache keys for the SWR seed (see lib/ipcCache.ts). Only the
 // FIRST page + stats are cached — that's what a revisit renders
 // instantly; `load` always revalidates fresh data over it.
@@ -61,23 +65,6 @@ export const HISTORY_PAGE_SIZE = 50;
 // at once. The backend enforces a frame cap of its own; this is a
 // second line of defense against unbounded growth in the UI.
 const HISTORY_MAX_ROWS = 5000;
-
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
-// Cursor params for keyset pagination. When both fields are present,
-// the backend restricts the result to rows strictly older than
-// ``(before_timestamp, before_id)`` in ``(timestamp DESC, id DESC)``
-// order. When either is absent, the backend falls back to the OFFSET
-// path (backward-compat with the pre-cursor contract).
-interface HistoryCursor {
-	before_timestamp?: string;
-	before_id?: number;
-}
-
-// Unused at runtime now that the hook calls ``usePython()`` directly, but
-// kept as the documented contract for the underlying ``call`` shape (and
-// referenced by ``useHistoryExport`` which still accepts a ``call`` arg).
-export type { CallFn };
 
 export interface UseHistoryCacheReturn {
 	records: HistoryRecord[];
@@ -160,20 +147,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	 * older rows written before the ``id`` column existed can't be
 	 * cursor-anchored, so the caller falls back to the OFFSET path).
 	 */
-	const deriveCursor = useCallback(
-		(rows: HistoryRecord[]): HistoryCursor | undefined => {
-			const last = rows[rows.length - 1];
-			if (!last) return undefined;
-			if (typeof last.timestamp !== "string" || last.timestamp.length === 0) {
-				return undefined;
-			}
-			if (typeof last.id !== "number" || !Number.isFinite(last.id)) {
-				return undefined;
-			}
-			return { before_timestamp: last.timestamp, before_id: last.id };
-		},
-		[],
-	);
+	const deriveCursor = useCallback(deriveHistoryCursor, []);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	const fetchPage = useCallback(

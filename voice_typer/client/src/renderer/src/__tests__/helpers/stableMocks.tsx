@@ -49,14 +49,38 @@
  * singletons are initialized before the page's mocked deps are first
  * imported.
  */
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
 /**
  * The assertable vi.fn() singletons — the ONLY objects the factories
  * wire into the mocked modules, so `expect(stableMocks.mockCall)` always
  * observes what the page called, across resets and re-imports.
+ *
+ * The fields are explicitly typed as the public `Mock` type: since
+ * vitest 5 the inferred bare-`vi.fn()` type references an internal
+ * helper that declaration emit cannot name (TS2883), so inference
+ * alone no longer compiles here. `Mock` (no type args) stays maximally
+ * permissive — any args, any return — matching bare `vi.fn()`.
  */
-export const stableMocks = {
+type StableMockFns = {
+	mockCall: Mock;
+	mockPythonEvent: Mock;
+	showSnack: Mock;
+	markUpdated: Mock;
+	mockNavigate: Mock;
+	mockToastError: Mock;
+	mockPendingConsentField: Mock<() => string | null>;
+	mockConsumeConsentField: Mock<() => string | null>;
+	mockPendingSettingsScrollTarget: Mock<() => { rowHint?: string } | null>;
+	mockConsumeSettingsScrollTarget: Mock<() => { rowHint?: string } | null>;
+	pythonEventHandlers: Record<string, (data: unknown) => void>;
+	toastSuccess: Mock;
+	toastError: Mock;
+	toastWarning: Mock;
+	toastInfo: Mock;
+	toastDismiss: Mock;
+};
+export const stableMocks: StableMockFns = {
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
 	showSnack: vi.fn(),
@@ -135,7 +159,12 @@ export function pythonMock(
 /** `@/hooks/useSnackbar`. `routeToSonner` → showSnack delegates to the
  *  toast singletons by type (Vocabulary page tests assert the sonner
  *  module received the call, mirroring the real useSnackbar). */
-export function snackbarMock(opts: { routeToSonner?: boolean } = {}) {
+export function snackbarMock(opts: { routeToSonner?: boolean } = {}): {
+	useSnackbar: () => {
+		showSnack: Mock | ((message: string, type?: string) => void);
+	};
+	showUndoableToast: Mock;
+} {
 	return {
 		useSnackbar: () => ({
 			showSnack: opts.routeToSonner

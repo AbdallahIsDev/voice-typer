@@ -44,6 +44,19 @@ function cloudApiKeyField(provider: string): string {
 	return "deepgram_api_key";
 }
 
+/** Extract the fulfilled value of a settled content-fetch result,
+ *  re-throwing the rejection reason. The three content fetches
+ *  (microphones / hotkey presets / model options) are fatal — a
+ *  rejection surfaces as ``initError`` via the init effect's outer
+ *  catch, exactly like the pre-parallel sequential code. Only the
+ *  ``get_config`` probe is non-fatal by design (its own inline
+ *  ``.catch`` resolves to ``null``), so it never travels through
+ *  here. */
+function unwrapContent<T>(outcome: PromiseSettledResult<T>): T {
+	if (outcome.status === "rejected") throw outcome.reason;
+	return outcome.value;
+}
+
 export interface UseOnboardingWizardResult {
 	loading: boolean;
 	initError: string | null;
@@ -214,39 +227,90 @@ export function useOnboardingWizard(
 				// no way for the renderer to prefer them. The default
 				// values (HOTKEY_DEFAULT / MODEL_DEFAULT / "") are still
 				// used when config.json has no saved value.
-				try {
-					const cfg = await callRef.current<VoiceTyperConfig>("get_config");
-					if (cancelled) return;
-					if (cfg) {
-						const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
-						if (cfgHotkey) setSelectedHotkey(cfgHotkey);
-						const cfgModel = cfg.model_size ?? MODEL_DEFAULT;
-						if (cfgModel) setSelectedModel(cfgModel);
-						setSelectedMic(cfg.microphone ?? "");
-						setHfConsent(cfg.huggingface_consent === true);
-						const cfgConsent = cfg.cloud_openai_consent === true;
-						setCloudConsent(cfgConsent);
-						// Pre-fill the consolidated consent step from the
-						// saved config (re-run / already-granted users).
-						const savedConsents: Record<string, boolean> = {};
-						for (const f of CONSENT_FIELDS) {
-							// `CONSENT_FIELDS` is `as const` — every literal is a
-							// real VoiceTyperConfig boolean field, so index it
-							// directly (no unsafe Record cast).
-							savedConsents[f] = cfg[f] === true;
-						}
-						setConsents(savedConsents);
-					}
-				} catch (e) {
-					console.warn(
-						"[renderer:useOnboardingWizard] get_config probe failed:",
-						e,
-					);
-				}
-				const mics = await callRef.current<{
-					microphones: MicrophoneOption[];
-				}>("onboarding_get_microphones");
+				// Fetch the four content payloads in PARALLEL (the
+				// Dashboard pattern — same as
+				// pages/dashboard/hooks/useDashboardData.ts):
+				// previously these were five SEQUENTIAL round-trips,
+				// so the wizard's first-run content waited for the
+				// SUM of all five latencies. `onboarding_start`
+				// stays sequential (it creates the backend
+				// onboarding session the other commands read
+				// from). `get_config` keeps its non-fatal
+				// semantics: a failed probe resolves to `null`
+				// and the wizard continues without prefill
+				// (the original inner try/catch, preserved).
+				//
+				// The batch settles via `Promise.allSettled`
+				// (not `Promise.all`) so the CONFIG PREFILL is
+				// applied on its own success even when a
+				// content fetch rejects — `Promise.all`
+				// discarded an already-fetched config the
+				// moment a sibling fetch failed, so the error
+				// screen lost the prefill state (the
+				// pre-parallel sequential code applied the
+				// prefill BEFORE a later fetch could fail; the
+				// parallel switch regressed that). The first
+				// content-fetch rejection still surfaces as
+				// `initError` exactly as before: each result
+				// is unwrapped in the original apply order
+				// below, re-throwing its reason into the outer
+				// catch.
+				const [cfgOutcome, micsOutcome, presetsOutcome, modelsOutcome] =
+					await Promise.allSettled([
+						callRef.current<VoiceTyperConfig>("get_config").catch((e) => {
+							console.warn(
+								"[renderer:useOnboardingWizard] get_config probe failed:",
+								e,
+							);
+							return null;
+						}),
+						callRef.current<{
+							microphones: MicrophoneOption[];
+						}>("onboarding_get_microphones"),
+						callRef.current<{ presets: string[] }>(
+							"onboarding_get_hotkey_presets",
+						),
+						callRef.current<{ models: ModelOption[] }>(
+							"onboarding_get_model_options",
+						),
+					]);
 				if (cancelled) return;
+				// `get_config` never rejects (its inline .catch
+				// resolves to `null`) — the ternary only
+				// narrows the allSettled result type.
+				const cfg = cfgOutcome.status === "fulfilled" ? cfgOutcome.value : null;
+				// Apply in the ORIGINAL sequential order — the
+				// config prefill BEFORE the mic reconciliation so
+				// the reconciliation's "keep prev" check sees the
+				// config-restored selection.
+				if (cfg) {
+					const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
+					if (cfgHotkey) setSelectedHotkey(cfgHotkey);
+					const cfgModel = cfg.model_size ?? MODEL_DEFAULT;
+					if (cfgModel) setSelectedModel(cfgModel);
+					setSelectedMic(cfg.microphone ?? "");
+					setHfConsent(cfg.huggingface_consent === true);
+					const cfgConsent = cfg.cloud_openai_consent === true;
+					setCloudConsent(cfgConsent);
+					// Pre-fill the consolidated consent step from the
+					// saved config (re-run / already-granted users).
+					const savedConsents: Record<string, boolean> = {};
+					for (const f of CONSENT_FIELDS) {
+						// `CONSENT_FIELDS` is `as const` — every literal is a
+						// real VoiceTyperConfig boolean field, so index it
+						// directly (no unsafe Record cast).
+						savedConsents[f] = cfg[f] === true;
+					}
+					setConsents(savedConsents);
+				}
+				// Unwrap each content result in the original
+				// apply order, re-throwing the first rejection
+				// reason so it surfaces as initError via the
+				// outer catch — a failure AFTER the prefill
+				// block no longer discards the prefill (state
+				// applied before the throw stays applied,
+				// exactly like the old sequential code).
+				const mics = unwrapContent(micsOutcome);
 				setMicrophones(mics.microphones || []);
 				if (mics.microphones?.length > 0) {
 					setSelectedMic((prev) => {
@@ -263,15 +327,9 @@ export function useOnboardingWizard(
 						return (defaultMic ?? fallback)?.id ?? prev;
 					});
 				}
-				const presets = await callRef.current<{ presets: string[] }>(
-					"onboarding_get_hotkey_presets",
-				);
-				if (cancelled) return;
+				const presets = unwrapContent(presetsOutcome);
 				setHotkeyPresets(presets.presets || []);
-				const models = await callRef.current<{ models: ModelOption[] }>(
-					"onboarding_get_model_options",
-				);
-				if (cancelled) return;
+				const models = unwrapContent(modelsOutcome);
 				setModelOptions(models.models || []);
 			} catch (err) {
 				if (cancelled) return;

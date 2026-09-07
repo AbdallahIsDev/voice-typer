@@ -16,16 +16,15 @@
 
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../../../shared/export-format";
 import { saveTemplates } from "../lib/storage";
 import { parseImportedTemplates, rowsToTemplates } from "../lib/transform";
 import type { Template, TemplateRow } from "../lib/types";
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 interface UseTemplateImportExportArgs {
-	call: CallFn;
+	call: PythonCall;
 	loadRows: () => Promise<void>;
 	templatesRef: React.RefObject<TemplateRow[]>;
 }
@@ -73,7 +72,7 @@ export function useTemplateImportExport({
 				const items = rowsToTemplates(rows ?? templatesRef.current);
 				const bridge = window.window_;
 				if (!bridge?.exportTemplates) {
-					toast.error(t("vocabulary.exportNotAvailable"));
+					toast.error(t("templates.exportNotAvailable"));
 					return;
 				}
 				//pass ``format`` to the IPC bridge so the
@@ -87,16 +86,16 @@ export function useTemplateImportExport({
 				if (result.success) {
 					const path = result.path ?? "";
 					const filename = path.split(/[\\/]/).pop() || "untitled";
-					toast.success(t("history.exportSaved", { filename }));
+					toast.success(t("templates.exportSaved", { filename }));
 				} else {
-					toast.error(result.error || t("history.exportFailed"));
+					toast.error(result.error || t("templates.exportFailed"));
 				}
 			} catch (err) {
 				console.error(
 					"[renderer:useTemplateImportExport] Templates export failed:",
 					err,
 				);
-				toast.error(t("history.exportFailed"));
+				toast.error(t("templates.exportFailed"));
 			}
 		},
 		[templatesRef],

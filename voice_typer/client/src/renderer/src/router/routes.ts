@@ -25,8 +25,10 @@ import type { Page } from "../types/ipc";
  *   2. Add a `RouteDef` entry to `ROUTES` below (the compiler will
  *      error if you forget — `Record<Page, RouteDef>` requires every
  *      `Page` literal to have an entry).
- *   3. Add a `case` to `renderPage()` in `App.tsx` (component wiring —
- *      legitimate routing logic, not registry duplication).
+ *   3. Add a `case` to `PageSwitch`'s switch in `router/PageSwitch.tsx`
+ *      and, if the page gets its own chunk, an entry to the shared
+ *      `PAGE_LOADERS` registry in `router/pageLoaders.ts` (component
+ *      wiring — legitimate routing logic, not registry duplication).
  */
 export interface RouteDef {
 	page: Page;

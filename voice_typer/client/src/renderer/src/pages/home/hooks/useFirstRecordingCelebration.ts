@@ -1,18 +1,9 @@
 import { useCallback } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 import { FIRST_RECORD_CELEBRATED_KEY } from "../lib/constants";
-
-/**
- * The shape of the `call` function provided by `usePython()`. Declared
- * locally so the hook can be unit-tested without pulling in the full
- * `usePython` dependency graph.
- */
-export type CallFn = <T = unknown>(
-	type: string,
-	data?: Record<string, unknown>,
-) => Promise<T>;
 
 /**
  * Previously used `get_today_stats` and checked `count === 1`
@@ -21,8 +12,10 @@ export type CallFn = <T = unknown>(
  * only when the user has exactly one historical record (this just-added
  * one). The flag is persisted to localStorage so we never celebrate twice.
  *
- *  / : extracted from Home.tsx so the page file stays a
- * thin composition root. Behaviour is preserved byte-for-byte.
+ * Extracted from Home.tsx (as part of the page's hook split) so the
+ * page file stays a thin composition root. Behaviour is preserved
+ * byte-for-byte. Consumers type the ``call`` argument with the
+ * canonical ``PythonCall`` from ``@/hooks/usePython``.
  *
  * The previous catch block exited the ENTIRE callback via `return`,
  * which suppressed the first-recording celebration in environments where
@@ -34,7 +27,7 @@ export type CallFn = <T = unknown>(
  * in its own try/catch).
  */
 
-export function useFirstRecordingCelebration(call: CallFn) {
+export function useFirstRecordingCelebration(call: PythonCall) {
 	const { showSnack } = useSnackbar();
 	return useCallback(async () => {
 		let alreadyCelebrated = false;

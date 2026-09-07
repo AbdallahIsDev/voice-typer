@@ -7,10 +7,7 @@
 // removed; the per-row Test action covers the same need with one
 // click.)
 
-export type VocabCallFn = <T>(
-	cmd: string,
-	data?: Record<string, unknown>,
-) => Promise<T>;
+import type { PythonCall } from "@/hooks/usePython";
 
 export interface ServerCorrectionResult {
 	/** Corrected output from the live engine. */
@@ -32,7 +29,7 @@ export type EntryTestResult =
  * error (per-entry row action).
  */
 export async function testPhraseOnServer(
-	call: VocabCallFn,
+	call: PythonCall,
 	text: string,
 ): Promise<ServerCorrectionResult> {
 	const data = await call<{ output?: unknown; applied?: unknown }>(

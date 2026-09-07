@@ -10,6 +10,7 @@ import { Delete01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
 
+import { SelectableRow } from "@/components/common/SelectableRow";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { t } from "@/i18n/i18n";
@@ -63,26 +64,23 @@ export const TemplateListRow = memo(function TemplateListRow({
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.
 	return (
-		// The row click is a mouse-only convenience for bulk
-		// selection — keyboard/SR users toggle via the nested
-		// Checkbox (a real role="checkbox" button). Making the row
-		// itself keyboard-activatable would double-toggle with the
-		// Checkbox's own handler.
-		// biome-ignore lint/a11y/noStaticElementInteractions: the nested Checkbox is the accessible control.
-		// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation would double-toggle with the nested Checkbox; the Checkbox provides the keyboard path.
-		<div
+		// The a11y pair (nested Checkbox is the accessible control; row
+		// click is pointer-only convenience) lives in the shared
+		// SelectableRow wrapper. No `ignoreClicksFrom` selectors: the
+		// checkbox and the action buttons stop propagation themselves.
+		<SelectableRow
 			key={row.id}
 			data-testid="template-list-row"
 			data-selected={selected ? "true" : "false"}
-			onClick={() => onToggleSelect(row.id)}
+			onRowSelect={() => onToggleSelect(row.id)}
 			className={cn(
 				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>
 			{/* Checkbox (col 1) — bulk selection. Its own click already
-			    toggles selection; the onClick stops propagation so the
-			    row's click-to-toggle handler doesn't double-toggle. */}
+                            toggles selection; the onClick stops propagation so the
+                            row's click-to-toggle handler doesn't double-toggle. */}
 			<Checkbox
 				checked={selected}
 				onCheckedChange={() => onToggleSelect(row.id)}
@@ -91,7 +89,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 				className="self-start pt-0.5 sm:self-center sm:pt-0"
 			/>
 			{/* Trigger (col 2) — the phrase that fires the template, with
-			    the match-mode label right beside it. */}
+                            the match-mode label right beside it. */}
 			<div className="flex min-w-0 flex-col items-start gap-1">
 				<span
 					title={row.trigger}
@@ -114,19 +112,19 @@ export const TemplateListRow = memo(function TemplateListRow({
 				</output>
 			</div>
 			{/* Expansion (col 3 on sm+; row 2 on mobile) — the body the
-			    trigger expands to. */}
+                            trigger expands to. */}
 			<div className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<p className="min-w-0 truncate text-xs text-(--text-muted)">
 					{row.expansion}
 				</p>
 			</div>
 			{/* Actions (col 4 on sm+; col 3 on mobile, same row as the
-			    checkbox): Delete — Edit — the app-wide action-icon
-			    convention puts the edit pencil RIGHTMOST in the group
-			    (same rule as the Vocabulary rows) so the edit affordance
-			    sits consistently at the far edge of every row across
-			    pages. Buttons stop propagation so they don't toggle
-			    selection. */}
+                            checkbox): Delete — Edit — the app-wide action-icon
+                            convention puts the edit pencil RIGHTMOST in the group
+                            (same rule as the Vocabulary rows) so the edit affordance
+                            sits consistently at the far edge of every row across
+                            pages. Buttons stop propagation so they don't toggle
+                            selection. */}
 			<div className="flex shrink-0 items-center justify-self-end gap-0.5">
 				<Button
 					variant="ghost"
@@ -163,6 +161,6 @@ export const TemplateListRow = memo(function TemplateListRow({
 					/>
 				</Button>
 			</div>
-		</div>
+		</SelectableRow>
 	);
 });

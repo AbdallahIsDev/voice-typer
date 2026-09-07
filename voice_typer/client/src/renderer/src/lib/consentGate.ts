@@ -88,6 +88,29 @@ export const CONSENT_FIELD_NAMES = [
 
 export type ConsentFieldName = (typeof CONSENT_FIELD_NAMES)[number];
 
+/**
+ * Consent fields whose point-of-use gate should RETRY the dictation
+ * toggle after the user grants consent (Allow → ``toggle_dictation``).
+ *
+ * Dictation START is the only consent-gated direction, so these are the
+ * fields whose refusal leaves an action that can be automatically
+ * re-run from the dialog; every other gate has no re-runnable action
+ * (granting the consent is enough — the user retries themselves).
+ *
+ * DERIVED from {@link CONSENT_FIELD_NAMES} (single source of truth, no
+ * parallel hand-maintained list): a newly added cloud provider's
+ * ``cloud_*_consent`` field automatically gains the retry behavior.
+ * Previously this set was inlined in the App-level ``consent_required``
+ * handler, where a fifth cloud provider would have silently lost the
+ * "retry dictation after Allow" behavior.
+ */
+export const DICTATION_RETRY_CONSENT_FIELDS: readonly ConsentFieldName[] =
+	CONSENT_FIELD_NAMES.filter(
+		(field) =>
+			field === "voice_biometric_consent" ||
+			(field.startsWith("cloud_") && field.endsWith("_consent")),
+	);
+
 /** True when `field` is a consent field the unified gate can grant. */
 export function isConsentField(field: string): field is ConsentFieldName {
 	return (CONSENT_FIELD_NAMES as readonly string[]).includes(field);

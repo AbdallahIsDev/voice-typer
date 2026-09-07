@@ -39,16 +39,16 @@
  *     folder" button's onClick prop); since the button is never
  *     rendered, the no-op is never invoked.
  */
+
 import { useCallback, useState } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { type DiskInfo, formatErrorMessage } from "@/lib/utils/models";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 interface UseModelFolderArgs {
-	call: CallFn;
+	call: PythonCall;
 	showSnack: (
 		message: string,
 		kind: "success" | "error" | "warning" | "info",

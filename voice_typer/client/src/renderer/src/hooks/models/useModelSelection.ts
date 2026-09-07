@@ -26,17 +26,17 @@
  *   • `confirmDelete` — fires the `delete_model` IPC, updates local
  *     state, and surfaces success / failure via snackbar.
  */
+
 import { useCallback, useState } from "react";
+import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
 interface UseModelSelectionArgs {
-	call: CallFn;
+	call: PythonCall;
 	showSnack: (
 		message: string,
 		kind: "success" | "error" | "warning" | "info",
