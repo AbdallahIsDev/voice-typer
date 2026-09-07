@@ -35,6 +35,8 @@ pub(crate) use shutdown::{send_fire_and_forget_frame, shutdown_sidecar_for_exit}
 // file twice, once as a child of `sidecar`, breaking every `super::*`
 // lookup.
 #[cfg(test)]
+mod lifecycle_tests;
+#[cfg(test)]
 mod supervisor_tests;
 #[cfg(test)]
 mod ws_tests;

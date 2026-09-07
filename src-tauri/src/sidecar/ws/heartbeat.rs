@@ -73,7 +73,9 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 /// loop, blocking C call) that keep the WS socket open but don't
 /// respond to dispatches. Without this, the supervisor only
 /// triggers on WS-close/process exit, so a hung sidecar leaves the
-/// UI frozen for the full 120s dispatch timeout on EVERY
+/// UI frozen for the full per-command dispatch timeout (15s short /
+/// 120s model-lifecycle / 1h download — see `dispatch_timeout_for`
+/// in `commands/sidecar_cmds/dispatch.rs`) on EVERY
 /// `invoke('dispatch', ...)` call.
 ///
 /// Every 10s we send a `heartbeat` dispatch (the Python sidecar's
@@ -88,12 +90,13 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 /// be awaited from a `tokio::spawn` directly).
 ///
 /// The 15s outer timeout cancels `dispatch_inner` by dropping its
-/// future, which leaks the pending entry: `dispatch_frame`'s own 15s
-/// timeout branch never gets to run (the future is dropped at the
-/// same deadline, before the branch can fire). The supervisor
-/// respawn triggered at miss #3 kills the sidecar, which drops
-/// the TCP socket, which makes the WS reader's drain loop clear all
-/// pending entries. So the leak is bounded and self-healing.
+/// future mid-await; `dispatch_frame`'s pending-entry Drop guard
+/// (`PendingEntryGuard` in `commands/sidecar_cmds/dispatch.rs`)
+/// removes the pending-map entry on that drop, so a cancelled
+/// liveness probe leaves no stale entry. The reader's exit drain
+/// and the miss-#3 respawn remain as belt-and-braces, not as the
+/// primary cleanup.
+///
 /// This function is `async fn` (was `fn` calling
 /// `blocking_lock()`). The caller `reconnect_ws` is already `async`,
 /// so the change is local — we can hold the `AsyncMutex` guard across
@@ -124,21 +127,16 @@ pub(super) async fn spawn_heartbeat_task(
     // `dispatch_inner` (in `dispatch_frame`,
     // `commands/sidecar_cmds/dispatch.rs`), so the heartbeat task
     // here does NOT know the id and can't manually remove the
-    // pending entry from `state.pending` on the 15s timeout.
-    // Mitigation (existing behavior, preserved):
-    // - On miss #3, supervisor respawn kills the sidecar → WS socket
-    // drops → WS reader's drain loop clears ALL pending entries.
-    // - On miss #1/#2, the leaked entry is cleared when the sidecar
-    // eventually responds (the reader removes the id on ANY
-    // id-bearing response) or at miss #3. `dispatch_frame`'s own
-    // 15s timeout never fires here — the outer 15s wrapper drops
-    // the whole dispatch future at the same deadline, before the
-    // internal timeout branch can run.
-    // Known limitation: no Drop guard exists on the dispatch path,
-    // so the pending entry is NOT removed when the dispatch future is
-    // dropped (which happens when the 15s outer timeout cancels
-    // `dispatch_inner`); it lingers until a late response or the
-    // miss-#3 respawn clears it.
+    // pending entry from `state.pending` on the 15s timeout — and it
+    // doesn't need to: `dispatch_frame` constructs a pending-entry
+    // Drop guard (`PendingEntryGuard`) immediately after inserting
+    // the entry, and the guard's Drop removes it when the 15s outer
+    // timeout cancels `dispatch_inner` mid-await (the removal is
+    // submitted to the Tauri async runtime from Drop — see the
+    // C-TOKIO-1 note on the guard in dispatch.rs). The reader's
+    // response-side removal (on ANY id-bearing response) and the
+    // miss-#3 respawn's exit drain remain as belt-and-braces, not as
+    // the primary cleanup.
     // Clone the Arc BEFORE moving it into the async closure. The closure
     // below (async move { ... }) takes ownership of `heartbeat_state_for_
     // task`; the original `heartbeat_state` is still referenced inside the

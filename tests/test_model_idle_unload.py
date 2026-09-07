@@ -16,9 +16,18 @@ Constraint summary (from the fix sub-agent task description):
    explicitly opt out). The default is 30 minutes — keeps the model
    warm for short conversational gaps while still reclaiming VRAM
    for genuinely long idle periods.
-2. The idle-unload timer must be cancellable — when toggle_dictation
-   is pressed, the timer must be cancelled and the model reloaded.
-   Race conditions handled via a lock.
+2. The idle-unload deadline must be cancellable — when toggle_dictation
+   is pressed, the deadline must be cancelled and the model reloaded.
+   Race conditions handled via a lock + a deadline re-confirmation at
+   expiry (a touch always wins over the firing).
+
+Mechanism note: the scheduler is ONE persistent daemon thread looping
+on ``Event.wait(timeout=max(0, deadline - now))`` recomputed from a
+monotonic deadline (the same RACE-013 pattern the transcription
+watchdog uses). Per-touch ``threading.Timer`` create/cancel churn —
+and the CPython-internals ``timer.function`` mutation the old
+implementation relied on — are gone; a touch just moves the deadline
+and sets the wake Event.
 3. ``release_gpu_memory()`` must be called after ``unload()``.
 4. Tray state transition: "Idle — model unloaded" → "Loading
    model..." → "Ready" (emit via the existing ``set_state``
@@ -39,7 +48,6 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 from voice_typer.server.model_manager import ModelManager
 
 
@@ -108,7 +116,7 @@ def _make_mm_with_mock_backend(
     return mm, app, engine, mock_registry
 
 
-# ─── Constraint #1: model_idle_unload_minutes = 0 disables the feature (default is 30) ──
+# ─── Constraint #1: model_idle_unload_minutes = 0 disables the feature ──
 
 
 class TestIdleUnloadZeroDisables:
@@ -122,14 +130,21 @@ class TestIdleUnloadZeroDisables:
     Users with abundant VRAM who want the model resident for the
     lifetime of the process can set this to 0."""
 
-    def test_zero_config_never_starts_timer(self):
+    def test_zero_config_never_arms_deadline_or_thread(self):
         """When ``model_idle_unload_minutes == 0``, calling
-        ``touch_active_model()`` MUST NOT arm any timer."""
+        ``touch_active_model()`` MUST NOT arm any deadline and MUST NOT
+        start the scheduler thread."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=0)
-        assert mm._idle_unload_timer is None
+        # Lazy state: the scheduler attributes do not exist until the
+        # feature is first armed — "no deadline" is the absence (or None).
+        assert getattr(mm, "_idle_unload_deadline", None) is None
+        assert getattr(mm, "_idle_unload_thread", None) is None
         mm.touch_active_model()
-        assert mm._idle_unload_timer is None, (
-            "TY-11: model_idle_unload_minutes=0 must NOT arm the idle-unload timer (current behaviour preserved)."
+        assert getattr(mm, "_idle_unload_deadline", None) is None, (
+            "TY-11: model_idle_unload_minutes=0 must NOT arm the idle-unload deadline (current behaviour preserved)."
+        )
+        assert getattr(mm, "_idle_unload_thread", None) is None, (
+            "the scheduler thread must not be started while the feature is disabled."
         )
 
     def test_zero_config_does_not_unload_even_after_long_wait(self):
@@ -161,21 +176,22 @@ class TestIdleUnloadZeroDisables:
             "can set it to 0."
         )
 
-    def test_zero_config_setting_to_zero_cancels_existing_timer(self):
+    def test_zero_config_setting_to_zero_cancels_existing_deadline(self):
         """If the user changes the config value from N to 0 via IPC,
-        any previously-armed timer must be cancelled (the next
+        any previously-armed deadline must be cancelled (the next
         ``touch_active_model`` sees minutes=0 and cancels)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=5)
         mm.touch_active_model()
-        assert mm._idle_unload_timer is not None
+        assert mm._idle_unload_deadline is not None
         # User sets it to 0 via IPC.
         app.config.model_idle_unload_minutes = 0
         mm.touch_active_model()
-        assert mm._idle_unload_timer is None, (
+        assert mm._idle_unload_deadline is None, (
             "TY-11: setting model_idle_unload_minutes back to 0 must "
-            "cancel any previously-armed timer (feature can be "
+            "cancel any previously-armed deadline (feature can be "
             "disabled at runtime)."
         )
+        engine.unload.assert_not_called()
 
 
 # ─── Constraint #2: timer must be cancellable ───────────────────────────
@@ -186,27 +202,27 @@ class TestCancelIdleUnloadTimer:
     ``toggle_dictation`` is pressed (or any model-mutation path is
     entered)."""
 
-    def test_cancel_no_op_when_no_timer_armed(self):
-        """``cancel_idle_unload_timer()`` is a no-op when no timer is
+    def test_cancel_no_op_when_nothing_armed(self):
+        """``cancel_idle_unload_timer()`` is a no-op when no deadline is
         armed (safe to call from any path)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
-        # No timer armed yet — cancel must not raise.
+        # Nothing armed yet — cancel must not raise.
         mm.cancel_idle_unload_timer()
-        assert mm._idle_unload_timer is None
+        assert mm._idle_unload_deadline is None
 
-    def test_cancel_armed_timer_prevents_unload(self):
-        """After ``cancel_idle_unload_timer()``, the timer's callback
-        (even if it somehow runs in a race window) must abort without
-        unloading."""
+    def test_cancel_armed_deadline_prevents_unload(self):
+        """After ``cancel_idle_unload_timer()``, the scheduler must not
+        unload even when woken with a (stale) expired deadline — the
+        disarmed state wins."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         mm._schedule_idle_unload_timer()
-        timer = mm._idle_unload_timer
-        assert timer is not None
+        assert mm._idle_unload_deadline is not None
         mm.cancel_idle_unload_timer()
-        assert mm._idle_unload_timer is None
-        # Even if the timer's callback runs (race window), it must
-        # abort because _idle_unload_timer is None.
-        timer.function()
+        assert mm._idle_unload_deadline is None
+        # Simulate the race window: wake the scheduler with the
+        # deadline still disarmed — it must park again, not unload.
+        mm._idle_unload_wakeup.set()
+        time.sleep(0.2)
         mm._registry.unload.assert_not_called()
         engine.unload.assert_not_called()
 
@@ -216,13 +232,13 @@ class TestCancelIdleUnloadTimer:
         else, so the model isn't unloaded mid-dictation."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         mm._schedule_idle_unload_timer()
-        assert mm._idle_unload_timer is not None
-        # Call ensure_active_engine_loaded — should cancel the timer.
+        assert mm._idle_unload_deadline is not None
+        # Call ensure_active_engine_loaded — should cancel the deadline.
         # The mock engine has is_loaded=True, so no reload happens.
         mm.ensure_active_engine_loaded()
-        assert mm._idle_unload_timer is None, (
+        assert mm._idle_unload_deadline is None, (
             "TY-11: ensure_active_engine_loaded must cancel the "
-            "idle-unload timer so the model isn't unloaded mid-dictation."
+            "idle-unload deadline so the model isn't unloaded mid-dictation."
         )
 
     def test_change_model_cancels_timer(self):
@@ -231,7 +247,7 @@ class TestCancelIdleUnloadTimer:
         mid-switch and unload the NEW model."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         mm._schedule_idle_unload_timer()
-        assert mm._idle_unload_timer is not None
+        assert mm._idle_unload_deadline is not None
         # change_model requires app.recorder.recording and
         # app._busy_event.is_set() — set them so the model change is
         # NOT deferred. busy_event.is_set() == True means "not busy"
@@ -255,25 +271,25 @@ class TestCancelIdleUnloadTimer:
         # event_bus subscription window.
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
-        assert mm._idle_unload_timer is None, (
-            "TY-11: change_model must cancel the idle-unload timer before starting the unload/reload cycle."
+        assert mm._idle_unload_deadline is None, (
+            "TY-11: change_model must cancel the idle-unload deadline before starting the unload/reload cycle."
         )
 
-    def test_set_active_backend_cancels_timer(self):
-        """``set_active_backend()`` must cancel the idle-unload timer
+    def test_set_active_backend_cancels_or_replaces_deadline(self):
+        """``set_active_backend()`` must cancel the idle-unload deadline
         before switching backends.
 
         Note: ``set_active_backend`` ends by calling ``touch_model``
-        on the freshly-loaded new backend, which RESCHEDULES a fresh
-        timer. So the assertion is that the OLD timer (captured
-        before the switch) is no longer the current one — proving
-        the cancel-then-reschedule cycle ran. Without the cancel,
-        the OLD timer would still be alive and could fire mid-switch
-        (the race TY-11 guards against)."""
+        on the freshly-loaded new backend, which RE-ARMS a fresh
+        deadline. So the assertion is that the OLD deadline (captured
+        before the switch) is no longer the current one — proving the
+        cancel-then-re-arm cycle ran. Without the cancel, the OLD
+        deadline could fire mid-switch (the race TY-11 guards
+        against)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1, backend_name="whisper")
         mm._schedule_idle_unload_timer()
-        old_timer = mm._idle_unload_timer
-        assert old_timer is not None
+        old_deadline = mm._idle_unload_deadline
+        assert old_deadline is not None
         # Stub out the heavy load phase.
         app.config.save.return_value = True
         mm._change_model_unload_phase = MagicMock()
@@ -287,15 +303,15 @@ class TestCancelIdleUnloadTimer:
         # event_bus subscription window.
         if mm._backend_change_thread is not None:
             mm._backend_change_thread.join(timeout=5.0)
-        # The OLD timer must NO LONGER be the current one — either
-        # cancelled (None) or replaced by a new Timer. Both prove the
-        # cancel ran.
-        assert mm._idle_unload_timer is not old_timer, (
+        # The OLD deadline must NO LONGER be the current one — either
+        # cancelled (None) or replaced by a newer re-armed deadline.
+        # Both prove the cancel ran.
+        assert mm._idle_unload_deadline is not old_deadline, (
             "TY-11: set_active_backend must cancel the OLD idle-unload "
-            "timer before switching backends. The OLD timer is still "
-            "the current one — the cancel did NOT run."
+            "deadline before switching backends. The OLD deadline is "
+            "still the current one — the cancel did NOT run."
         )
-        # Cleanup: cancel any new timer that was rescheduled by the
+        # Cleanup: cancel any deadline that was re-armed by the
         # post-load touch_model.
         mm.cancel_idle_unload_timer()
 
@@ -372,28 +388,28 @@ class TestIdleUnloadFiresAndReleasesGpu:
         mm._do_idle_unload()
         mock_registry.unload.assert_not_called()
 
-    def test_timer_fire_aborts_when_rescheduled_race(self):
-        """If the timer was rescheduled (a new Timer replaced the old
-        one) before the old timer's callback ran, the old callback
-        must abort without unloading.
-
-        This exercises the identity check in ``_on_idle_unload_fire``
-        — the OLD timer's callback runs but ``_idle_unload_timer`` now
-        points at the NEW timer, so the identity check fails and the
-        callback returns without unloading."""
+    def test_touch_at_expiry_wakes_scheduler_without_unloading(self):
+        """A touch that lands while the scheduler is waiting out the
+        old deadline must move the deadline out and prevent the
+        expiry from unloading (the deadline-reconfirmation replaces
+        the old timer-identity race guard)."""
         mm, app, engine, mock_registry = _make_mm_with_mock_backend(idle_minutes=1)
-        # Arm a timer (so _idle_unload_timer is set).
+        # Arm — scheduler waits ~60s on the deadline.
         mm._schedule_idle_unload_timer()
-        first_timer = mm._idle_unload_timer
-        assert first_timer is not None
-        # Reschedule — replaces _idle_unload_timer with a new Timer.
+        old_deadline = mm._idle_unload_deadline
+        assert old_deadline is not None
+        # Touch again BEFORE the deadline can expire — the scheduler
+        # wakes, re-reads the (newer) deadline, and keeps waiting.
+        time.sleep(0.05)
         mm._schedule_idle_unload_timer()
-        assert mm._idle_unload_timer is not first_timer
-        # First timer's callback runs — should abort because
-        # _idle_unload_timer no longer points at it.
-        first_timer.function()
+        assert mm._idle_unload_deadline is not old_deadline
+        assert mm._idle_unload_deadline > old_deadline
+        # Give the woken scheduler a moment to (wrongly) fire — it
+        # must NOT unload: the deadline is in the future again.
+        time.sleep(0.3)
         mock_registry.unload.assert_not_called()
-        # Cleanup: cancel the new timer.
+        engine.unload.assert_not_called()
+        # Cleanup.
         mm.cancel_idle_unload_timer()
 
     def test_timer_fire_logs_unload_at_info_level(self, caplog):
@@ -411,77 +427,192 @@ class TestIdleUnloadFiresAndReleasesGpu:
 # ─── Timer scheduling on touch_active_model ─────────────────────────────
 
 
-class TestTouchReschedulesTimer:
-    """TY-11: each ``touch_active_model()`` call reschedules the timer
-    (cancels the old, starts a new one). The deadline is pushed out
-    to N minutes after the most recent touch."""
+class TestTouchRearmsDeadline:
+    """TY-11: each ``touch_active_model()`` call re-arms the deadline
+    to N minutes after the most recent touch. The persistent
+    scheduler thread is REUSED across touches — no Timer (and no
+    new thread) is created per dictation."""
 
-    def test_touch_active_model_arms_timer_with_correct_delay(self):
-        """``touch_active_model()`` with minutes=1 must arm a
-        ``threading.Timer`` with a 60-second delay."""
+    def test_touch_active_model_arms_deadline_with_correct_delay(self):
+        """``touch_active_model()`` with minutes=1 must arm a deadline
+        ~60 seconds in the future and start the persistent scheduler
+        thread (daemon)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
-        captured_delays: list[float] = []
-        real_timer_cls = threading.Timer
-
-        def _spy_timer(delay, callback, *args, **kwargs):
-            captured_delays.append(delay)
-            # Return a real Timer (with the original delay) so the
-            # caller's .start() works. We cancel it in the finally
-            # block below so the test doesn't actually wait 60s.
-            return real_timer_cls(delay, callback)
-
         try:
-            with patch(
-                "voice_typer.server.model_manager._lifecycle.threading.Timer",
-                side_effect=_spy_timer,
-            ):
-                mm.touch_active_model()
+            before = time.monotonic()
+            mm.touch_active_model()
+            after = time.monotonic()
+            deadline = mm._idle_unload_deadline
+            assert deadline is not None
+            assert before + 60.0 <= deadline <= after + 60.0, (
+                f"TY-11: minutes=1 must produce a 60-second deadline. Got {deadline - before}s after the touch."
+            )
+            thread = mm._idle_unload_thread
+            assert thread is not None and thread.is_alive(), (
+                "arming the deadline must start the persistent scheduler thread."
+            )
+            assert thread.daemon is True, "the scheduler thread must be a daemon (never block process exit)."
         finally:
             mm.cancel_idle_unload_timer()
 
-        assert len(captured_delays) == 1, (
-            f"TY-11: touch_active_model must arm exactly one Timer. Got {len(captured_delays)} Timer() calls."
-        )
-        assert captured_delays[0] == pytest.approx(60.0), (
-            f"TY-11: minutes=1 must produce a 60-second delay. Got {captured_delays[0]}."
-        )
-
-    def test_second_touch_replaces_first_timer(self):
-        """A second ``touch_active_model()`` call must cancel the
-        first timer and start a new one (the deadline is pushed out)."""
+    def test_second_touch_reuses_thread_and_pushes_deadline_out(self):
+        """A second ``touch_active_model()`` call must move the
+        deadline out to N minutes after THAT touch and must REUSE the
+        existing scheduler thread (no per-touch thread churn — the
+        whole point of the persistent scheduler)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         try:
             mm.touch_active_model()
-            first = mm._idle_unload_timer
-            assert first is not None
+            first_thread = mm._idle_unload_thread
+            first_deadline = mm._idle_unload_deadline
+            assert first_thread is not None
+            assert first_deadline is not None
+            time.sleep(0.05)
             mm.touch_active_model()
-            second = mm._idle_unload_timer
-            assert second is not None
-            assert second is not first, "TY-11: second touch must replace the first timer (reschedule)."
-        finally:
-            mm.cancel_idle_unload_timer()
-
-    def test_inactive_backend_touch_does_not_arm_timer(self):
-        """``touch_model(<inactive backend>)`` must NOT arm the timer
-        (the timer is only for the *active* backend)."""
-        mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1, backend_name="parakeet")
-        try:
-            mm.touch_model("whisper")  # different from active (parakeet)
-            assert mm._idle_unload_timer is None, (
-                "TY-11: touching an inactive backend must not arm the idle-unload timer."
+            second_thread = mm._idle_unload_thread
+            second_deadline = mm._idle_unload_deadline
+            assert second_deadline is not None
+            assert second_deadline > first_deadline, "TY-11: second touch must push the deadline out (re-arm from NOW)."
+            assert second_thread is first_thread, (
+                "the scheduler thread must be reused across touches — a per-touch "
+                "thread is the churn the persistent scheduler replaced."
             )
         finally:
             mm.cancel_idle_unload_timer()
 
-    def test_active_backend_touch_arms_timer(self):
+    def test_thread_reused_across_cancel_and_rearm(self):
+        """``cancel_idle_unload_timer`` must PARK the scheduler (not
+        tear it down): the very next re-arm reuses the same thread.
+        Tearing the thread down per cancel would recreate a thread on
+        every dictation cycle (cancel on toggle + re-arm on
+        transcribe) — churn equivalent to the old per-touch Timer."""
+        mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
+        try:
+            mm.touch_active_model()
+            thread = mm._idle_unload_thread
+            assert thread is not None
+            mm.cancel_idle_unload_timer()
+            assert mm._idle_unload_deadline is None
+            assert mm._idle_unload_thread is thread, "cancel must not drop the scheduler thread reference."
+            time.sleep(0.05)
+            mm.touch_active_model()
+            assert mm._idle_unload_thread is thread, (
+                "re-arm after cancel must REUSE the parked scheduler thread (no thread churn per dictation cycle)."
+            )
+        finally:
+            mm.cancel_idle_unload_timer()
+
+    def test_inactive_backend_touch_does_not_arm_deadline(self):
+        """``touch_model(<inactive backend>)`` must NOT arm the deadline
+        (the deadline is only for the *active* backend)."""
+        mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1, backend_name="parakeet")
+        try:
+            mm.touch_model("whisper")  # different from active (parakeet)
+            assert getattr(mm, "_idle_unload_deadline", None) is None, (
+                "TY-11: touching an inactive backend must not arm the idle-unload deadline."
+            )
+            assert getattr(mm, "_idle_unload_thread", None) is None
+        finally:
+            mm.cancel_idle_unload_timer()
+
+    def test_active_backend_touch_arms_deadline(self):
         """``touch_model(<active backend>)`` (called directly, not via
-        touch_active_model) must arm the timer — every load path uses
-        touch_model so the timer is armed after a successful load
-        too."""
+        touch_active_model) must arm the deadline — every load path
+        uses touch_model so the deadline is armed after a successful
+        load too."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         try:
             mm.touch_model("parakeet")  # matches active backend
-            assert mm._idle_unload_timer is not None
+            assert mm._idle_unload_deadline is not None
+        finally:
+            mm.cancel_idle_unload_timer()
+
+
+# ─── Persistent scheduler loop: expiry / disarm / re-arm ────────────────
+
+
+class TestPersistentSchedulerLoop:
+    """The single persistent daemon thread owns the firing decision:
+    it waits on the wake Event with a timeout recomputed from the
+    monotonic deadline and calls ``_do_idle_unload`` when (and only
+    when) the deadline is still expired at the moment of firing."""
+
+    def _forge_expired_deadline(self, mm: ModelManager) -> None:
+        """Move the armed deadline into the past and wake the scheduler
+        (the loop's wait is interrupted and the expiry is confirmed
+        under the lock on the next iteration)."""
+        with mm._idle_unload_lock:
+            mm._idle_unload_deadline = time.monotonic() - 0.001
+        mm._idle_unload_wakeup.set()
+
+    def test_expiry_fires_idle_unload(self):
+        """When the deadline expires, the scheduler thread calls
+        ``_do_idle_unload`` exactly once."""
+        mm, app, engine, mock_registry = _make_mm_with_mock_backend(idle_minutes=1)
+        fired = threading.Event()
+        unload_calls: list[str] = []
+        mm._do_idle_unload = MagicMock(side_effect=lambda: (unload_calls.append("fired"), fired.set()))
+        try:
+            mm._schedule_idle_unload_timer()  # arms + starts the thread
+            assert mm._idle_unload_thread is not None
+            self._forge_expired_deadline(mm)
+            assert fired.wait(timeout=5.0), (
+                "the scheduler thread must call _do_idle_unload within a bounded wait of the expired deadline."
+            )
+            assert unload_calls == ["fired"]
+        finally:
+            mm.cancel_idle_unload_timer()
+
+    def test_after_fire_deadline_disarmed_and_next_touch_rearms(self):
+        """After the expiry fires, the deadline is disarmed (None) —
+        the scheduler parks — and the next touch re-arms a fresh
+        deadline without firing again."""
+        mm, app, engine, mock_registry = _make_mm_with_mock_backend(idle_minutes=1)
+        fired = threading.Event()
+        mm._do_idle_unload = MagicMock(side_effect=lambda: fired.set())
+        try:
+            mm._schedule_idle_unload_timer()
+            self._forge_expired_deadline(mm)
+            assert fired.wait(timeout=5.0)
+            assert mm._idle_unload_deadline is None, (
+                "after firing, the deadline must be disarmed so the scheduler parks (no repeat firing)."
+            )
+            mm.touch_active_model()
+            assert mm._idle_unload_deadline is not None
+            time.sleep(0.2)
+            mm._do_idle_unload.assert_called_once()
+        finally:
+            mm.cancel_idle_unload_timer()
+
+    def test_scheduler_survives_unload_raising(self):
+        """If ``_do_idle_unload`` itself raises, the scheduler thread
+        must survive (log + continue) — a dead scheduler would silently
+        disable the feature for the rest of the process."""
+        mm, app, engine, mock_registry = _make_mm_with_mock_backend(idle_minutes=1)
+        fired_once = threading.Event()
+        raised = threading.Event()
+
+        def _exploding_unload() -> None:
+            if fired_once.is_set():
+                raised.set()
+                return
+            fired_once.set()
+            raise RuntimeError("boom during unload")
+
+        mm._do_idle_unload = MagicMock(side_effect=_exploding_unload)
+        try:
+            mm._schedule_idle_unload_timer()
+            self._forge_expired_deadline(mm)
+            assert fired_once.wait(timeout=5.0)
+            # The thread must still be alive after the raise.
+            thread = mm._idle_unload_thread
+            assert thread is not None
+            assert thread.is_alive(), "the scheduler thread must survive an unload exception."
+            # Re-arm + a second expiry must still fire (the loop
+            # recovered).
+            mm.touch_active_model()
+            self._forge_expired_deadline(mm)
+            assert raised.wait(timeout=5.0), "the scheduler must keep firing after surviving an unload exception."
         finally:
             mm.cancel_idle_unload_timer()
 
@@ -522,15 +653,17 @@ class TestReloadAfterIdleUnload:
             f"TY-11: reload path must end with 'Ready -- ...' message. Got: {msgs}"
         )
 
-    def test_reload_after_idle_unload_reschedules_timer(self):
-        """After the reload, the idle-unload timer must be re-armed
+    def test_reload_after_idle_unload_rearms_deadline(self):
+        """After the reload, the idle-unload deadline must be re-armed
         (so the cycle can repeat on the next idle period)."""
         mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1)
         engine.is_loaded = False
         try:
             mm.ensure_active_engine_loaded()
-            # After reload, touch_model is called → timer re-armed.
-            assert mm._idle_unload_timer is not None, "TY-11: after reload, the idle-unload timer must be re-armed."
+            # After reload, touch_model is called → deadline re-armed.
+            assert mm._idle_unload_deadline is not None, (
+                "TY-11: after reload, the idle-unload deadline must be re-armed."
+            )
         finally:
             mm.cancel_idle_unload_timer()
 

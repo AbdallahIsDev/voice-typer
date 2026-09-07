@@ -178,6 +178,94 @@ pub(crate) fn dispatch_fire_and_forget(
     Ok(())
 }
 
+// ─── pending-entry Drop guard (cancellation cleanup) ───────────────────
+
+/// Drop guard that removes a dispatch's pending-map entry when the
+/// dispatch future goes out of scope — including when the future is
+/// CANCELLED mid-await.
+///
+/// Why this exists: every explicit exit path of `dispatch_frame`
+/// already removes the entry (the WS-send-failure arm below, the
+/// timeout arm below, and the WS reader's response-side removal,
+/// which strips the id from the map on ANY id-bearing response
+/// before fulfilling the oneshot). But a CANCELLED future reaches
+/// none of them: e.g. the heartbeat liveness probe wraps
+/// `dispatch_inner` in a 15s `tokio::time::timeout` (same deadline as
+/// the short `heartbeat` dispatch timeout — the inner branch loses
+/// the race by construction), and on timeout the inner future is
+/// simply DROPPED mid-await. Before this guard, the entry then
+/// lingered until a late response, the reader's exit drain, or the
+/// miss-#3 supervisor respawn cleared it — a bounded but real leak,
+/// and one that `heartbeat.rs` used to document as a "known
+/// limitation".
+///
+/// The guard closes the hole structurally: Rust runs `Drop` on EVERY
+/// path, cancellation included. It is constructed immediately after
+/// `pending.insert(id, tx)` below, so every path from the insert
+/// onward (send failure, response, timeout, cancellation) runs the
+/// guard's `Drop`.
+///
+/// Idempotence: the guard's removal may race with any of the
+/// explicit removals listed above — ids are unique per dispatch
+/// (`next_id.fetch_add`), so a remove of an already-removed id is a
+/// `HashMap` no-op; double-remove is harmless by construction.
+///
+/// C-TOKIO-1 constraint: `state.pending` is a tokio `AsyncMutex`,
+/// but `Drop` is synchronous and can run on a runtime worker thread
+/// (mid-poll cancellation), where `block_on` / `blocking_lock` would
+/// panic ("Cannot start a runtime from within a runtime"). The
+/// sanctioned pattern is `tauri::async_runtime::spawn` — a
+/// SYNCHRONOUS submit of the removal future to the global Tauri
+/// runtime; it never blocks the dropping worker. (Verified against
+/// tauri-2.11.5: `async_runtime::spawn` is a sync `get_or_init` +
+/// `tokio::spawn` under an enter guard — submit-only — and its
+/// `JoinHandle` is not `#[must_use]`, so detaching it is warning-
+/// free.) The removal itself then runs asynchronously as a detached
+/// task; `heartbeat_tests.rs::
+/// test_cancelled_dispatch_removes_its_pending_entry` polls for that
+/// async removal with a bounded deadline.
+struct PendingEntryGuard {
+    state: Arc<SidecarState>,
+    id: u64,
+}
+
+impl PendingEntryGuard {
+    /// Constructed right after `pending.insert(id, tx)` — the entry
+    /// the guard owns. Takes its own `Arc` clone so the guard (and
+    /// the detached removal task it spawns) stays valid even when the
+    /// dispatch future — and the `&Arc<SidecarState>` it borrowed — is
+    /// dropped first.
+    fn new(state: &Arc<SidecarState>, id: u64) -> Self {
+        Self {
+            state: state.clone(),
+            id,
+        }
+    }
+
+    /// Submit the entry removal to the global Tauri async runtime.
+    /// Submit-only (never blocks the caller — C-TOKIO-1); the
+    /// returned `JoinHandle` is intentionally detached.
+    fn remove_pending_async(&self) {
+        let state = self.state.clone();
+        let id = self.id;
+        tauri::async_runtime::spawn(async move {
+            let mut pending = state.pending.lock().await;
+            // Log only when the guard actually removed something (the
+            // cancellation case) — on the normal paths the explicit
+            // removals already ran and this remove is a silent no-op.
+            if pending.remove(&id).is_some() {
+                log::debug!("[dispatch] id={} pending entry removed by Drop guard", id);
+            }
+        });
+    }
+}
+
+impl Drop for PendingEntryGuard {
+    fn drop(&mut self) {
+        self.remove_pending_async();
+    }
+}
+
 /// Shared dispatch body used by both the `dispatch` Tauri command
 /// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
 /// event handler in `tray.rs::on_menu_event` (which previously emitted
@@ -204,18 +292,19 @@ pub(crate) fn dispatch_fire_and_forget(
 /// Bail out early if `state.shutting_down` is set. After
 /// `shutdown_sidecar` sends the shutdown frame the WS may stay alive
 /// briefly (up to `SHUTDOWN_ACK_TIMEOUT_MS`); dispatches initiated in
-/// that window would send the frame but their response hits the
-/// shutdown-suppress branch in the WS reader and is
-/// dropped — the client then awaits its full per-command dispatch
-/// timeout before rejecting. Short-circuit here instead.
+/// that window would send the frame but their response either lands on
+/// a reader that fulfills it late (after the writer/reader tasks begin
+/// tearing down) or is drained when the reader exits — the client then
+/// awaits its full per-command dispatch timeout before rejecting.
+/// Short-circuit here instead.
 ///
-/// Re-check `state.ws_tx` AFTER inserting the pending
-/// entry. A reconnect racing in the window between the outer
-/// `mutex_lock(&state.ws_tx).clone()` and the pending insert could leave
-/// us holding a stale `ws_tx` (the old writer task has exited; the new
-/// reader has no record of this id). Detect by re-checking
-/// `state.ws_tx` under a tight critical section; if it's now `None`,
-/// drop the pending entry and reject.
+/// `ws_tx` is checked ONCE up front (the outer
+/// `mutex_lock(&state.ws_tx).clone()`). The historical second re-check
+/// after the pending insert was removed as redundant: the pending entry
+/// is id-keyed and every removal path (response fulfillment, reader
+/// drain on exit, the `PendingEntryGuard` drop guard) is safe against a
+/// stale `ws_tx` — a reconnect that replaced the writer mid-flight
+/// cannot strand a fulfilled-or-dropped entry.
 ///
 /// Demoted from `pub(crate) async fn` to `async fn` — the
 /// only caller is `dispatch_inner` in this same file (the tray menu
@@ -366,6 +455,14 @@ async fn dispatch_frame(
         }
         pending.insert(id, tx);
     }
+    // From the insert onward, the pending entry is owned by a Drop
+    // guard: if this future is cancelled mid-await (the heartbeat
+    // probe's 15s outer timeout, or any other `select!`/timeout wrapper
+    // dropping it), `PendingEntryGuard::drop` removes the entry — no
+    // explicit arm of this function runs on a dropped future. The
+    // explicit removals below (send failure / timeout) stay as
+    // belt-and-braces; the double remove is an idempotent no-op.
+    let _pending_guard = PendingEntryGuard::new(state, id);
 
     // Optimization: a prior version of this dispatch path took a second
     // `state.ws_tx` lock here (the "needs_cleanup" check) to detect a

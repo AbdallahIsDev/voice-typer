@@ -75,7 +75,23 @@ class TestAudioFilterChainUsesSharedPrimitives:
 
     def test_imports_select(self):
         src = _read_component_source()
-        assert "Select" in src, "F-1: AudioFilterChain must import Select for the noise suppression method dropdown"
+        # The Select primitive (used by the noise-suppression method
+        # dropdown) moved into the shared `FilterRow` child that
+        # AudioFilterChain composes (Select import + <Select> render live
+        # in FilterRow.tsx — the select-type rows are driven by the
+        # descriptor registry). Assert the Select at its real home so the
+        # dropdown keeps using the shared primitive.
+        filter_row_path = COMPONENT_PATH.parent / "FilterRow.tsx"
+        assert filter_row_path.is_file(), "F-1: the shared FilterRow module (Select home) is missing"
+        filter_row_src = filter_row_path.read_text(encoding="utf-8")
+        assert "from " in filter_row_src and "Select" in filter_row_src, (
+            "F-1: the noise suppression method dropdown's Select primitive "
+            "must be imported by the shared FilterRow component"
+        )
+        assert "FilterRow" in src, (
+            "F-1: AudioFilterChain must compose the shared FilterRow "
+            "(which owns the Select primitive for select-type rows)"
+        )
 
     def test_does_not_define_local_toggle_row(self):
         src = _read_component_source()
@@ -165,16 +181,17 @@ class TestAudioFilterChainCallSitesUseIt:
             "noise_filter_highpass — the duplicate filter UI was not removed"
         )
 
-    def test_audio_preset_selector_uses_shared(self):
+    def test_audio_preset_selector_stays_deleted(self):
+        # The production-dead AudioPresetSelector was removed (its preset
+        # data + AudioPreset type moved to lib/utils/audioPresets.ts; both
+        # live surfaces consume that registry). Pin the deletion so a
+        # future change does not silently resurrect the dead fork.
         p = Path("voice_typer/client/src/renderer/src/components/microphone/AudioPresetSelector.tsx")
-        if not p.exists():
-            pytest.skip("AudioPresetSelector.tsx not found")
-        src = p.read_text(encoding="utf-8")
-        assert "AudioFilterChain" in src, "F-1: AudioPresetSelector must import and use AudioFilterChain"
-        count = src.count("noise_filter_highpass")
-        assert count <= 2, (
-            f"F-1: AudioPresetSelector still has {count} references to "
-            "noise_filter_highpass — the duplicate filter UI was not removed"
+        assert not p.exists(), (
+            "AudioPresetSelector.tsx was resurrected — the preset surface is "
+            "the shared lib/utils/audioPresets.ts registry consumed by "
+            "AudioSettingsSection + PresetAccordionSelector; do not "
+            "reintroduce the dead component fork"
         )
 
 

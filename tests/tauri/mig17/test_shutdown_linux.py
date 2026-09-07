@@ -211,11 +211,26 @@ def _shutdown_sidecar_body() -> str:
     source-inspection test for that function so the regex lives in
     one place (if the function signature changes, only this helper
     needs updating).
+
+    The command was split into a thin wrapper + ``shutdown_sidecar_inner``
+    (the same convention as ``dispatch_inner`` — the command body is
+    callable/testable outside a Tauri command invocation), so the
+    cooperative-shutdown control flow now lives in the inner function.
+    Both the wrapper AND the inner function are returned so the
+    assertions below keep pinning the real control flow.
     """
     src = _read_sidecar_cmds_module()
     m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
     assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
-    return m.group(0)
+    body = m.group(0)
+    m_inner = re.search(
+        r"pub(?:\(super\))? async fn shutdown_sidecar_inner\b.*?\n\}",
+        src,
+        re.DOTALL,
+    )
+    if m_inner:
+        body += "\n\n" + m_inner.group(0)
+    return body
 
 
 # ─── Rust source-inspection: shutdown_sidecar command ─────────────────
@@ -240,7 +255,7 @@ class TestShutdownSidecarSource:
         assert _SIDECAR_CMDS_RS.is_file(), f"shutdown_sidecar source missing: {_SIDECAR_CMDS_RS}"
 
     def test_sets_shutting_down_atomic_flag(self):
-        """Step 1: ``state.shutting_down.swap(true, Ordering::SeqCst)``.
+        """Step 1: set ``state.shutting_down`` (atomic flag).
 
         ADR-0020 §10: the flag MUST be set BEFORE sending the shutdown
         frame so the supervisor (which may see the sidecar exit
@@ -250,21 +265,28 @@ class TestShutdownSidecarSource:
         duplicate ``shutdown_sidecar`` invocation can detect the
         already-in-progress shutdown via the returned previous value
         and short-circuit. The regex accepts both ``store`` (pre-PVT-17)
-        and ``swap`` (post-PVT-17) forms.
+        and ``swap`` (post-PVT-17) forms, PLUS the canonical
+        ``state.begin_shutdown()`` routing (the swap + notify_one pair
+        in state.rs — the command path routes through it so a
+        supervisor mid-backoff is woken immediately; the swap semantics
+        are identical and are pinned by state_tests.rs).
         """
         body = _shutdown_sidecar_body()
         flag_match = re.search(
             r"shutting_down\s*\.\s*(?:swap|store)\(true,\s*(?:std::sync::atomic::)?Ordering::SeqCst\)",
             body,
         )
-        assert flag_match is not None, (
+        begin_shutdown_match = re.search(r"state\.begin_shutdown\(\)", body)
+        assert flag_match is not None or begin_shutdown_match is not None, (
             "shutdown_sidecar must set state.shutting_down = true (atomic flag) "
             "via `shutting_down.swap(true, Ordering::SeqCst)` (PVT-17) or "
-            "`shutting_down.store(true, Ordering::SeqCst)` (pre-PVT-17) so "
-            "supervisor doesn't respawn during shutdown"
+            "`shutting_down.store(true, Ordering::SeqCst)` (pre-PVT-17) or the "
+            "canonical `state.begin_shutdown()` routing (swap + notify_one, "
+            "pinned by state_tests.rs) so supervisor doesn't respawn during "
+            "shutdown"
         )
         # The flag set must come BEFORE the WS frame send.
-        idx_flag = flag_match.start()
+        idx_flag = flag_match.start() if flag_match is not None else begin_shutdown_match.start()
         idx_frame = body.index('json!({"type": "shutdown"})')
         assert idx_flag < idx_frame, (
             "shutting_down flag must be set BEFORE the shutdown frame is sent "
@@ -963,22 +985,25 @@ class TestSupervisorSource:
         # Search forward from the log line for `return Ok(())`.
         idx_return = src.index("return Ok(())", idx_log)
         # the gap between the "respawn
-        # succeeded" log and the `return Ok(())` widened across two
-        # refactors —  added a ``write_restart_counter(0)`` call +
+        # succeeded" log and the `return Ok(())` widened across three
+        # refactors — CR-29 added a ``write_restart_counter(0)`` call +
         # a ``supervisor_reconnected`` event emit + a
-        # ``respawn_in_progress.store(false, ...)`` flag clear, and
+        # ``respawn_in_progress.store(false, ...)`` flag clear, CR-13
         # added a 17-line comment block explaining the flag-clear
-        # ordering rationale. Accept a 2000-char gap so the test stays
-        # green across the  +  refactors while still
+        # ordering rationale, and the off-thread counter-write refactor
+        # routed the reset through ``spawn_blocking(write_restart_counter(0))``
+        # with its join-error arm + rationale comments. Accept a 3600-char
+        # gap so the test stays green across those refactors while still
         # asserting the return is in the same match arm (the actual
-        # code-without-comments gap is ~760 chars — well under the
+        # code-without-comments gap is ~860 chars — well under the
         # threshold).
-        assert idx_return - idx_log < 2000, (
+        assert idx_return - idx_log < 3600, (
             f"`return Ok(())` after 'respawn succeeded' log must be in the "
-            f"same match arm (within 2000 chars, widened for CR-29's "
+            f"same match arm (within 3600 chars, widened for CR-29's "
             f"write_restart_counter + supervisor_reconnected emit + "
-            f"respawn_in_progress clear AND CR-13's flag-clear rationale "
-            f"comment block); gap was "
+            f"respawn_in_progress clear, CR-13's flag-clear rationale "
+            f"comment block, AND the spawn_blocking counter-write "
+            f"routing); gap was "
             f"{idx_return - idx_log} chars — the supervisor must return "
             f"immediately on successful reconnect_ws (reset-on-success: the "
             f"loop exits early, the next crash starts a fresh backoff schedule)"

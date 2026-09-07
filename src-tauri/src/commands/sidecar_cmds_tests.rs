@@ -24,6 +24,8 @@
 
 use super::{allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX};
 use serde_json::{json, Value};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[test]
 fn test_allowed_commands_contains_get_status() {
@@ -449,4 +451,105 @@ fn test_pending_full_error_envelope_shape() {
             .and_then(|c| c.as_str()),
         Some("pending_full")
     );
+}
+
+// ── shutdown_sidecar entry contract (canonical begin_shutdown routing) ──
+
+/// The renderer-invocable `shutdown_sidecar` command's body
+/// (`shutdown_sidecar_inner`) must route its shutdown-flag flip through
+/// `SidecarState::begin_shutdown` — the canonical swap + `notify_one`
+/// pair, in that order — so a supervisor coroutine mid-backoff
+/// (awaiting `shutdown_notify.notified()` inside `respawn_inner`'s
+/// `tokio::select!`) is woken sub-ms instead of sleeping out its full
+/// backoff step (500ms–8s) before re-checking `shutting_down`.
+///
+/// Mirrors `state_tests::test_begin_shutdown_swaps_flag_and_wakes_notify_waiter`
+/// but drives the COMMAND body, pinning this path specifically: a
+/// regression back to a raw `shutting_down.swap(true, …)` without the
+/// notify would leave the pre-registered waiter un-woken and this test
+/// would fail.
+#[tokio::test]
+async fn test_shutdown_sidecar_inner_wakes_supervisor_waiter_via_begin_shutdown() {
+    use super::shutdown::shutdown_sidecar_inner;
+    use crate::state::SidecarState;
+
+    let state = Arc::new(SidecarState::new());
+    // Pre-register the supervisor's backoff waiter BEFORE the shutdown
+    // entry fires (mirrors a supervisor task parked in — or about to
+    // enter — `notified()`).
+    let waiter = state.shutdown_notify.notified();
+
+    // Run the command body on a spawned task: after the entry guard it
+    // aborts the heartbeat, best-effort-sends the shutdown frame
+    // (`ws_tx` is None here — skipped), then waits up to 2s for the
+    // graceful exit (the dev-mode `child_exit_rx = None` path sleeps
+    // the deadline). Only the ENTRY contract is asserted here; the
+    // task is aborted once the assertions are done.
+    let state_clone = state.clone();
+    let task = tokio::spawn(async move { shutdown_sidecar_inner(&state_clone).await });
+
+    // The waiter must complete WITHOUT any backoff sleep — the entry
+    // performed swap + notify_one back-to-back.
+    tokio::time::timeout(Duration::from_millis(1000), waiter)
+        .await
+        .expect("shutdown_sidecar body must wake the supervisor waiter (begin_shutdown notify)");
+    assert!(
+        state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "shutdown_sidecar body must set shutting_down"
+    );
+    task.abort();
+}
+
+/// A duplicate `shutdown_sidecar` invocation must short-circuit: it
+/// returns `Ok(())` immediately WITHOUT re-running the teardown (the
+/// duplicate-call path never reaches the heartbeat abort, the shutdown
+/// frame send, or the up-to-2s `child_exit_rx` wait). `begin_shutdown`'s
+/// return value (the previous flag) preserves this semantics — the
+/// second entry reports "already shutting down" and the body returns
+/// early, so a duplicate `invoke('shutdown_sidecar')` cannot freeze the
+/// UI for the 2s ack window.
+#[tokio::test]
+async fn test_shutdown_sidecar_inner_duplicate_call_short_circuits() {
+    use super::shutdown::shutdown_sidecar_inner;
+    use crate::state::SidecarState;
+
+    let state = Arc::new(SidecarState::new());
+    // First invocation: spawned (not awaited to completion) because
+    // after the entry it would sleep the full 2s dev-mode ack window.
+    // Poll until the entry flips `shutting_down` — the guard runs
+    // before any of the body's teardown work.
+    let state_clone = state.clone();
+    let first = tokio::spawn(async move { shutdown_sidecar_inner(&state_clone).await });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if state
+                .shutting_down
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("first shutdown_sidecar_inner call must set shutting_down immediately");
+    first.abort();
+
+    // Second (duplicate) invocation: must resolve Ok within a bound far
+    // below the 2s ack window — the short-circuit skips teardown.
+    let state_clone2 = state.clone();
+    let second = tokio::time::timeout(
+        Duration::from_millis(150),
+        shutdown_sidecar_inner(&state_clone2),
+    )
+    .await;
+    match second {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("duplicate shutdown_sidecar_inner must return Ok, got Err({e})"),
+        Err(_) => panic!(
+            "duplicate shutdown_sidecar_inner must short-circuit immediately (no 2s child_exit_rx wait)"
+        ),
+    }
 }

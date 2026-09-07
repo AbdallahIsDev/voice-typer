@@ -203,20 +203,20 @@ pub(crate) fn write_restart_counter(count: u32) {
 /// circuit breaker: every supervisor-initiated relaunch would reset
 /// the count to 0 and the app could loop forever on a broken install.
 ///
-/// The intended caller is the Tauri command bound to the tray
-/// "Restart" menu item (see `main.rs` / `commands/sidecar_cmds.rs`).
-/// This function is intentionally defined here in `supervisor.rs`
-/// (where the counter lives) but NOT wired into any caller — the
-/// caller is owned by a different lane and will be added separately.
+/// The live caller is the tray-Restart relaunch listener
+/// (`sidecar/lifecycle.rs::on_relaunch_app` — both its production and
+/// dev-mode branches) BEFORE `app.restart()` fires (production) /
+/// before the dev early return, so the relaunched process / respawned
+/// sidecar starts with a clean attempt budget. The call routes the
+/// write through `spawn_blocking` at that call site.
 ///
 /// The `_state` parameter is accepted (and unused) for two reasons:
-/// (1) future-proofing — a caller that already holds `&Arc<SidecarState>`
-///     can pass it without an extra signature change later; and
-/// (2) it documents that this is a user-restart-scoped operation tied
-///     to the same `SidecarState` instance, not a free-floating helper.
-///     The function only writes a disk file; it does not touch the
-///     shared state.
-#[allow(dead_code)] // intended: caller is a different lane, wired separately (see doc above)
+/// (1) call-site ergonomics — the relaunch listener already holds
+/// `&Arc<SidecarState>` and passes it without an extra signature
+/// change; and (2) it documents that this is a user-restart-scoped
+/// operation tied to the same `SidecarState` instance, not a
+/// free-floating helper. The function only writes a disk file; it does
+/// not touch the shared state.
 pub(crate) fn clear_restart_counter_for_user_restart(_state: &Arc<SidecarState>) {
     log::info!(
         "[SUPERVISOR] user-initiated restart requested — clearing persisted restart counter \
@@ -617,8 +617,31 @@ pub(crate) async fn respawn_inner(
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
                         log::info!("[SUPERVISOR] respawn succeeded on attempt {}", attempt + 1);
-                        // reset the restart counter on success.
-                        write_restart_counter(0);
+                        // Reset the restart counter on success — routed
+                        // through `spawn_blocking` so the atomic
+                        // temp-file write + fsync + rename never stalls a
+                        // Tokio worker (this is the reconnect-success
+                        // moment: the fresh WS reader, heartbeat, and
+                        // dispatches all share these workers; a >100ms
+                        // fsync stall under AV-scan/disk contention here
+                        // is exactly what the blocking-I/O rule at the
+                        // top of `respawn` prohibits). The handle is
+                        // AWAITED so the reset-to-0 still completes
+                        // BEFORE the `supervisor_reconnected` emit — the
+                        // same write→emit ordering as the previous
+                        // inline call, just off the async worker. On
+                        // JoinError the counter keeps its prior value
+                        // (best-effort, same semantics as the write
+                        // itself failing).
+                        if let Err(join_err) =
+                            tauri::async_runtime::spawn_blocking(|| write_restart_counter(0)).await
+                        {
+                            log::warn!(
+                                "[SUPERVISOR] spawn_blocking(write_restart_counter(0)) join \
+                                 failed: {} — counter keeps its prior value (best-effort)",
+                                join_err
+                            );
+                        }
                         // Emit a Tauri event so the UI can clear its
                         // "reconnecting…" banner.
                         let _ = app.emit("supervisor_reconnected", json!({}));
@@ -784,6 +807,31 @@ pub(crate) async fn respawn_inner(
             "restart_count": new_count
         }),
     );
+    // Mark host shutdown BEFORE the relaunch. On this exhaustion path
+    // the sidecar is ALREADY dead (every spawn attempt failed and the
+    // last spawned child was killed in the reconnect-failure arm), so
+    // there is no shutdown frame to send and nothing to wait for —
+    // arming the flag is what matters: (a) any respawn that races the
+    // `PRE_RESTART_DELAY_MS` window after the flag clear below aborts
+    // at its own `shutting_down` checks instead of installing a fresh
+    // sidecar into a host that is about to restart out from under it,
+    // and (b) the `RunEvent::Exit` teardown `app.restart()` fires
+    // short-circuits on the already-set flag (idempotency guard)
+    // instead of spawning a detached teardown thread that races
+    // process exit. `begin_shutdown()` returns the PREVIOUS flag
+    // value — `true` means a quit/renderer shutdown is already in
+    // flight (benign: the flag is what we want either way).
+    if state.begin_shutdown() {
+        log::info!(
+            "[SUPERVISOR] host shutdown already in flight — full-app relaunch proceeds \
+             (respawns stay disabled)"
+        );
+    } else {
+        log::info!(
+            "[SUPERVISOR] full-app relaunch — marking host shutdown (respawns disabled \
+             during the restart window)"
+        );
+    }
     // clear the flag immediately before `app.restart()`.
     state.respawn_in_progress.store(false, Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;

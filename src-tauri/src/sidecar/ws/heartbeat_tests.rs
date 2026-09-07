@@ -162,3 +162,89 @@ async fn test_ue8_f10_abort_heartbeat_on_fresh_state_is_noop() {
         "UE-8-F10: abort_heartbeat on fresh state must leave handle as None"
     );
 }
+
+// dispatch cancellation cleans up its pending entry ────────────────────
+
+/// Cancelling an in-flight `dispatch_inner` future — exactly what the
+/// heartbeat task's liveness-probe wrapper does at its response
+/// deadline (`tokio::time::timeout` drops the inner future) — must NOT
+/// leak the dispatch's pending-map entry.
+///
+/// The dispatch's own timeout arm (the pending-map removal in
+/// `dispatch_frame`) runs at the SAME 15s deadline as the heartbeat's
+/// outer wrapper for `cmd="heartbeat"` (both route to the short
+/// timeout), and a dropped future's timeout branch never fires at all:
+/// without a Drop guard on the pending entry, the entry lingered until
+/// a late response, the reader's exit drain, or the miss-#3 supervisor
+/// respawn cleared it. This test pins the self-cleaning contract: the
+/// dropped future removes its own bookkeeping immediately.
+///
+/// Cancellation is driven with `tokio::select!`: the cancel branch
+/// completes only AFTER the pending entry is observable, so the drop
+/// is guaranteed to land while the dispatch is parked on its
+/// unfulfilled response oneshot (never before the insert — the test
+/// cannot pass vacuously). Nothing fulfills the oneshot (the WS-writer
+/// receiver is held but never polled), mirroring a hung sidecar.
+#[tokio::test]
+async fn test_cancelled_dispatch_removes_its_pending_entry() {
+    use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let state = Arc::new(crate::state::SidecarState::new());
+    // Wire a live WS-writer channel so `dispatch_frame` passes its
+    // `ws_tx` Some-check, inserts its pending entry, and parks on the
+    // response await. The receiver stays alive (never polled) so
+    // `try_send` succeeds.
+    let (ws_tx, _ws_rx_keepalive) = tokio::sync::mpsc::channel::<Message>(8);
+    *crate::state::lock(&state.ws_tx) = Some(ws_tx);
+
+    // Mirrors the heartbeat wrapper's cancellation: when this branch
+    // wins, `select!` drops the in-flight dispatch future mid-await.
+    let cancel_after_pending_entry_exists = async {
+        loop {
+            if state.pending.lock().await.len() >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
+
+    let dispatch = dispatch_inner(
+        DispatchArgs {
+            cmd: "heartbeat".to_string(),
+            data: None,
+        },
+        state.clone(),
+    );
+
+    tokio::select! {
+        _ = cancel_after_pending_entry_exists => {
+            // Cancellation fired mid-flight; `select!` drops the
+            // dispatch future at this point.
+        }
+        result = dispatch => {
+            panic!(
+                "dispatch must park on its unfulfilled response oneshot; \
+                 unexpected early completion: {:?}",
+                result
+            );
+        }
+    }
+
+    // The dropped dispatch future must clean up its own pending entry
+    // (Drop guard) instead of leaking it until a late response / the
+    // reader drain / a supervisor respawn. Bounded poll (20ms
+    // interval, matching the polling pattern of the other tests in
+    // this file): the removal runs as a detached task on the global
+    // Tauri runtime, not inline in the drop.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if state.pending.lock().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("cancelled dispatch future must remove its pending-map entry");
+}

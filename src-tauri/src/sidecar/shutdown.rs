@@ -22,11 +22,19 @@ use tokio_tungstenite::tungstenite::Message;
 /// `RunEvent::Exit` from the Tauri event loop, which fires on
 /// `app.exit()` / quit-tray / Ctrl-C / SIGTERM).
 ///
+/// Fixed-budget form: the wait phase uses the canonical exit budget
+/// `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s). Paths that need a different
+/// (e.g. shorter, user-visible-restart) budget call
+/// [`shutdown_sidecar_for_exit_with_budget`] directly — the budget is
+/// the ONLY thing that varies between callers, so the whole sequence
+/// below is shared (no forked twin).
+///
 /// **Idempotent** via `SidecarState::begin_shutdown()` (the canonical
 /// `shutting_down.swap(true, SeqCst)` + supervisor-wakeup
 /// `notify_one()` pair) — returns immediately if a shutdown is already
 /// in flight (either the renderer's `shutdown_sidecar` command, a prior
-/// `ExitRequested`, or tray Quit's `on_quit_app`). This makes it safe
+/// `ExitRequested`, tray Quit's `on_quit_app`, or the pre-restart
+/// teardown in `lifecycle.rs::on_relaunch_app`). This makes it safe
 /// to call from both `ExitRequested` AND `Exit` (which can fire
 /// back-to-back) without double-killing.
 ///
@@ -35,7 +43,7 @@ use tokio_tungstenite::tungstenite::Message;
 ///    (`begin_shutdown()`).
 /// 2. Send the `{"type":"shutdown"}` WS frame (best-effort — skipped
 ///    if the WS is already torn down).
-/// 3. Wait up to `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s) for the sidecar
+/// 3. Wait up to the caller's budget for the sidecar
 ///    to exit gracefully (polling the `CommandEvent` receiver if
 ///    present; bounded sleep for dev-mode). The exit path uses the
 ///    longer 30s budget (vs the renderer-invoked `shutdown_sidecar`
@@ -53,6 +61,22 @@ use tokio_tungstenite::tungstenite::Message;
 /// `tauri::async_runtime::block_on` + `tokio::time::timeout` so the
 /// run loop never hangs on a misbehaving sidecar.
 pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
+    shutdown_sidecar_for_exit_with_budget(state, EXIT_SHUTDOWN_ACK_TIMEOUT_MS).await;
+}
+
+/// Budget-parameterized core of [`shutdown_sidecar_for_exit`] — same
+/// sequence (begin_shutdown → shutdown frame → bounded graceful-exit
+/// wait → force-kill backstop), with the caller choosing how long the
+/// graceful-exit wait may run. The relaunch path in
+/// `lifecycle.rs::on_relaunch_app` passes a much shorter budget: a
+/// user-visible tray Restart must not stall the app for the full 30s
+/// cold-disk worst case — if the sidecar hasn't exited within the
+/// short budget, the force-kill backstop (step 4) reaps the tree the
+/// same way the OS-level exit path would.
+pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
+    state: &Arc<SidecarState>,
+    wait_budget_ms: u64,
+) {
     use std::time::Duration;
 
     // Idempotency guard + supervisor wakeup, as the atomic adjacent pair
@@ -92,13 +116,14 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
         log::info!("[EXIT-SHUTDOWN] no ws_tx — skipping cooperative shutdown frame");
     }
 
-    // Wait up to EXIT_SHUTDOWN_ACK_TIMEOUT_MS (30s) for graceful exit.
-    // The exit path uses a longer budget than the renderer-invoked
-    // `shutdown_sidecar` command (2s) because the host is going away
-    // and the sidecar's cleanup (WAL checkpoint, native hotkey binary
-    // teardown) can legitimately take ~30s on a cold disk.
+    // Wait up to the caller's budget for graceful exit.
+    // The exit path uses the long budget (see fn docs) because the host
+    // is going away and the sidecar's cleanup (WAL checkpoint, native
+    // hotkey binary teardown) can legitimately take ~30s on a cold
+    // disk; the relaunch path passes a short budget so a user-visible
+    // Restart stays snappy and leans on the force-kill backstop below.
     //mirror the `shutdown_sidecar` Tauri command's logging.
-    let deadline = Duration::from_millis(EXIT_SHUTDOWN_ACK_TIMEOUT_MS);
+    let deadline = Duration::from_millis(wait_budget_ms);
     let mut graceful = false;
     // Take the receiver OUT of the shared slot under a brief lock, then
     // DROP the lock guard before awaiting `rx.recv()`. Holding the
@@ -137,14 +162,14 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
             Err(_) => {
                 log::warn!(
                     "[EXIT-SHUTDOWN] sidecar did not exit within {}ms — force-killing",
-                    EXIT_SHUTDOWN_ACK_TIMEOUT_MS
+                    wait_budget_ms
                 );
             }
         }
     } else {
         log::info!(
             "[EXIT-SHUTDOWN] dev-mode sidecar — polling for exit (up to {}ms, 100ms interval) before force-kill",
-            EXIT_SHUTDOWN_ACK_TIMEOUT_MS
+            wait_budget_ms
         );
         // Poll `SidecarHandle::try_wait()` in a bounded loop with a
         // 100ms sleep, breaking early when the dev-mode child has been
@@ -182,7 +207,7 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
                 graceful = true;
                 log::info!(
                     "[EXIT-SHUTDOWN] dev-mode sidecar exited gracefully (reaped within {}ms budget)",
-                    EXIT_SHUTDOWN_ACK_TIMEOUT_MS
+                    wait_budget_ms
                 );
                 break;
             }

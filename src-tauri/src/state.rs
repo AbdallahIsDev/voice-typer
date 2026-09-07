@@ -233,8 +233,13 @@ impl SidecarState {
     /// very next `notified()` call — no lost-wakeup window.
     ///
     /// The production teardown paths call THIS method:
-    /// `sidecar/shutdown.rs::shutdown_sidecar_for_exit` (app-exit path)
-    /// and `sidecar/lifecycle.rs::on_quit_app` (tray Quit) — it is the
+    /// `sidecar/shutdown.rs::shutdown_sidecar_for_exit` (app-exit path),
+    /// `sidecar/lifecycle.rs::on_quit_app` (tray Quit) + the
+    /// pre-restart cooperative teardown in `sidecar/lifecycle.rs::on_relaunch_app`,
+    /// the supervisor-exhaustion relaunch arm in
+    /// `sidecar/supervisor.rs` (sidecar already dead there — flag only),
+    /// and `commands/sidecar_cmds/shutdown.rs::shutdown_sidecar_inner`
+    /// (the renderer-invocable `shutdown_sidecar` command body) — it is the
     /// canonical, unit-tested anchor for the contract (exercised by
     /// `state_tests.rs`, which asserts both the swap semantics and that a
     /// pre-registered `notified()` waiter completes without any sleep).

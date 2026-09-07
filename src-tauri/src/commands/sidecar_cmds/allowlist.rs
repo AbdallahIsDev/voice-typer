@@ -201,6 +201,9 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "resume_model_download",
             "delete_model",
             "get_model_catalog",
+            // Pending download queue snapshot (hydrates the Models page
+            // queue chips on mount; read-only).
+            "get_download_queue",
             "microphone_test_start",
             "microphone_test_stop",
             "microphone_test_read_audio",

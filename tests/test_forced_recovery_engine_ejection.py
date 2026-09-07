@@ -103,7 +103,6 @@ def _make_registry_and_manager(
     mm._model_load_attempted = False
     mm._model_load_thread = None
     mm._idle_unload_lock = threading.Lock()
-    mm._idle_unload_timer = None
     mm.touch_model = MagicMock()
 
     # Wire the manager onto the mock app exactly like VoiceTyperApp does

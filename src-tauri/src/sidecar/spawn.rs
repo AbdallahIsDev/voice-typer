@@ -248,10 +248,9 @@ pub(crate) async fn initialize_sidecar_guarded(app_handle: tauri::AppHandle) {
     let state = state.inner().clone();
     // See the C-TOKIO-1 guard on this function: `catch_unwind` on the
     // AssertUnwindSafe-wrapped future — NEVER a `block_on` bridge.
-    let result =
-        AssertUnwindSafe(initialize_sidecar(&app_handle, state))
-            .catch_unwind()
-            .await;
+    let result = AssertUnwindSafe(initialize_sidecar(&app_handle, state))
+        .catch_unwind()
+        .await;
     if let Err(payload) = result {
         let msg = payload
             .downcast_ref::<&'static str>()

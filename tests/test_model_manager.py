@@ -279,7 +279,6 @@ class TestInitWiring:
         assert mm._pending_dictation is False
         assert mm._pending_model_change is None
         assert mm._pending_backend_change is None
-        assert mm._idle_unload_timer is None
 
 
 class TestFallbackToWhisper:

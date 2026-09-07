@@ -7,6 +7,8 @@
 //! (e.g. `main.rs`'s listener registrations + `RunEvent::Exit` handler)
 //! keep resolving unchanged.
 
+use crate::sidecar::shutdown::shutdown_sidecar_for_exit_with_budget;
+use crate::sidecar::supervisor::clear_restart_counter_for_user_restart;
 use crate::sidecar::{send_fire_and_forget_frame, shutdown_sidecar_for_exit};
 use crate::state::SidecarState;
 use std::sync::Arc;
@@ -35,19 +37,80 @@ use tauri::Manager;
 /// should err on the side of giving the sidecar more time.
 const HOST_SHUTDOWN_GRACE_MS: u64 = 35_000;
 
+/// Wait budget for the COOPERATIVE pre-restart sidecar teardown on the
+/// tray-Restart relaunch path (`on_relaunch_app`).
+///
+/// The sidecar's own graceful cleanup (WAL checkpoint, crash-recovery
+/// flush, native hotkey binary teardown) takes 3-4s, so the old
+/// `PRE_RESTART_FLUSH_DELAY_MS` (10ms) could never cover it — the
+/// restart structurally hard-killed a still-alive backend mid-flush.
+/// 5s = the 3-4s cleanup plus headroom for the WS round-trip; it is
+/// deliberately FAR below the exit path's 30s
+/// `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` / 35s `HOST_SHUTDOWN_GRACE_MS`
+/// because a user-visible Restart must not hang the app on a
+/// cold-disk worst case: if the sidecar hasn't exited within this
+/// budget, the teardown's force-kill backstop reaps the process tree
+/// the same way the OS-level exit path would (and `app.restart()`'s
+/// `RunEvent::Exit` teardown then short-circuits on the already-set
+/// `shutting_down` flag).
+pub(super) const PRE_RESTART_SIDECAR_GRACE_MS: u64 = 5_000;
+
+/// Duration suffix for the pre-restart teardown completion log line
+/// (C-LOG-2: ` 2.3s` / ` 1m 2.3s`, space-separated, returned WITH the
+/// single leading space so the caller splices it with a bare `{}`).
+/// Mirrors Python's `voice_typer/server/duration.py::format_duration`
+/// (the cross-language convention; no Rust-side helper existed yet, so
+/// this local one keeps the formats in lockstep — sub-minute
+/// `{:.1}s`, minutes `{}m {:.1}s`).
+pub(super) fn format_duration_suffix(d: std::time::Duration) -> String {
+    let total_secs = d.as_secs_f64();
+    if total_secs < 60.0 {
+        format!(" {:.1}s", total_secs)
+    } else {
+        let minutes = (total_secs / 60.0).floor() as u64;
+        let seconds = total_secs - 60.0 * minutes as f64;
+        format!(" {}m {:.1}s", minutes, seconds)
+    }
+}
+
 /// `relaunch_app` Tauri event listener body, extracted from
 /// `main.rs`'s inline closure so the host entrypoint stays wiring-only.
 ///
 /// Sends a fire-and-forget `relaunch_ack` WS frame back to the Python
 /// sidecar (so its `_wait_for_relaunch_ack` short-circuits cleanly
-/// instead of blocking for the full 2s timeout), then schedules a
-/// delayed `app.restart()` on the async runtime. The 10ms delay (sourced
-/// from `util::PRE_RESTART_FLUSH_DELAY_MS`) gives the WS writer task
-/// time to flush the ack frame to the socket before `app.restart()`
-/// tears down the process.
+/// instead of blocking for the full 2s timeout), then schedules the
+/// restart sequence on the async runtime:
 ///
-/// The delay is spawned on the async runtime (NOT `tokio::time::sleep`
-/// on the event-loop thread) so the Tauri event loop is not blocked.
+/// 1. Clear the persisted sidecar crash-loop counter (user-initiated
+///    restart = a fresh 3-attempt budget for the relaunched process;
+///    see `clear_restart_counter_for_user_restart`). The write runs on
+///    `spawn_blocking` (atomic temp-file write + fsync + rename —
+///    never on an async worker) and is AWAITED so it is ordered
+///    before the restart: a fire-and-forget write could lose the race
+///    with the exiting process and leave the relaunched instance a
+///    tripped breaker.
+/// 2. Run the cooperative pre-restart sidecar teardown —
+///    `begin_shutdown()` + the `{"type":"shutdown"}` frame + a
+///    bounded graceful-exit wait (`PRE_RESTART_SIDECAR_GRACE_MS`) +
+///    force-kill backstop — so the backend is TOLD the restart is
+///    coming and gets an honest moment to flush (WAL checkpoint,
+///    crash-recovery entries, native hotkey teardown) instead of being
+///    hard-killed mid-cleanup. This also arms `shutting_down` so the
+///    supervisor never races the restart window with a pointless
+///    respawn, and it makes the `RunEvent::Exit` teardown that fires
+///    DURING `app.restart()` short-circuit (idempotency guard) — the
+///    detached `on_host_exit` thread cannot be joined BEFORE the
+///    restart because it only spawns on the Exit event the restart
+///    itself emits; running the teardown inline first turns that
+///    thread into a no-op guard instead of a process-exit race.
+/// 3. `tokio::time::sleep(PRE_RESTART_FLUSH_DELAY_MS)` (10ms, from
+///    `util`) gives the WS writer task time to flush the frames to
+///    the socket before `app.restart()` tears down the process.
+///
+/// The sequence is spawned on the async runtime (NOT `tokio::time::sleep`
+/// on the event-loop thread) so the Tauri event loop is not blocked;
+/// inside it, every wait is `.await`ed (C-TOKIO-1 — no `block_on`
+/// inside a runtime worker) and the disk write is `spawn_blocking`.
 pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Event) {
     use crate::util::PRE_RESTART_FLUSH_DELAY_MS;
 
@@ -76,6 +139,17 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
     // while host + CLI + Vite stay up. Binding rule: AGENTS.md
     // C-TDEV-2.
     if crate::sidecar::spawn::dev_mode::is_dev_mode() {
+        // A user-initiated restart resets the crash-loop counter in dev
+        // too (fresh attempt budget for the supervisor respawn). The
+        // write is fire-and-forget `spawn_blocking` here: no host
+        // restart follows this branch, so nothing needs to be ordered
+        // after the write, and it must not stall the event-loop thread
+        // this listener runs on (the counter write is an atomic
+        // temp-file write + fsync + rename).
+        let dev_clear_state = state_inner.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            clear_restart_counter_for_user_restart(&dev_clear_state);
+        });
         log::info!(
             "[RESTART] dev-mode sidecar (VOICE_TYPER_SIDECAR_DEV=1) — skipping \
              app.restart(); the supervisor will respawn the exiting sidecar \
@@ -85,7 +159,44 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
     }
 
     let restart_for_async = app_handle.clone();
+    let clear_state = state_inner.clone();
     tauri::async_runtime::spawn(async move {
+        // 1. User-restart counter reset — OFF the async worker
+        //    (spawn_blocking: atomic temp-file write + fsync + rename)
+        //    and AWAITED so it is ordered before `app.restart()`. If
+        //    the join fails, the relaunched process inherits the prior
+        //    count — logged, best-effort (same semantics as the write
+        //    itself failing).
+        if let Err(join_err) = tauri::async_runtime::spawn_blocking(move || {
+            clear_restart_counter_for_user_restart(&clear_state);
+        })
+        .await
+        {
+            log::warn!(
+                "[RESTART] spawn_blocking(clear_restart_counter) join failed: {} — \
+                 relaunched process may inherit the prior crash-loop count",
+                join_err
+            );
+        }
+
+        // 2. Cooperative pre-restart teardown (bounded). Arms
+        //    `shutting_down` (begin_shutdown), tells the sidecar via
+        //    the shutdown frame, waits up to the grace budget for a
+        //    graceful exit, and force-kills the tree as backstop.
+        let teardown_started = std::time::Instant::now();
+        log::info!(
+            "[RESTART] beginning cooperative sidecar teardown before app.restart() \
+             (budget {}ms)",
+            PRE_RESTART_SIDECAR_GRACE_MS
+        );
+        shutdown_sidecar_for_exit_with_budget(&state_inner, PRE_RESTART_SIDECAR_GRACE_MS).await;
+        log::info!(
+            "[RESTART] cooperative sidecar teardown settled{} — proceeding to app.restart()",
+            format_duration_suffix(teardown_started.elapsed())
+        );
+
+        // 3. Flush delay for the relaunch_ack + shutdown frames before
+        //    the process goes away.
         tokio::time::sleep(std::time::Duration::from_millis(PRE_RESTART_FLUSH_DELAY_MS)).await;
         log::info!("[RESTART] calling app.restart()");
         restart_for_async.restart();

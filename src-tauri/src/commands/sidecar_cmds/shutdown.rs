@@ -34,7 +34,26 @@ pub async fn shutdown_sidecar(
     // that caller passes `window.clone()` from the `"main"` arm of the
     // `window.label()` match, so this check passes for it too.
     require_main_window(&window)?;
+    let _ = app;
+    shutdown_sidecar_inner(state.inner()).await
+}
 
+/// Cooperative-shutdown body — (was the inline body of the
+/// `shutdown_sidecar` Tauri command).
+///
+/// `state` is taken as `&Arc<SidecarState>` (not `tauri::State`) — the
+/// same convention as `dispatch_inner` in `dispatch.rs` — so the body
+/// is callable from contexts that aren't Tauri command invocations,
+/// and the sibling test module (`sidecar_cmds_tests.rs`, a descendant
+/// of `sidecar_cmds`) can pin the entry contract (canonical
+/// `begin_shutdown` routing + duplicate-call short-circuit) directly:
+/// a `#[tauri::command]` wrapper taking `tauri::AppHandle` /
+/// `tauri::State` / `tauri::Window` cannot be constructed in a unit
+/// test without a live Tauri app. The command wrapper above is a
+/// thin delegate: window guard, then this body.
+pub(super) async fn shutdown_sidecar_inner(
+    state: &Arc<SidecarState>,
+) -> Result<(), VoiceTyperError> {
     // Early-return guard. If a previous `shutdown_sidecar`
     // invocation already flipped `shutting_down` to true, the sidecar
     // is already being torn down (or has been). Re-entering here would
@@ -42,12 +61,14 @@ pub async fn shutdown_sidecar(
     // `state.child_exit_rx` for the full `SHUTDOWN_ACK_TIMEOUT_MS`
     // (2s) — a duplicate `invoke('shutdown_sidecar')` (renderer-
     // invocable via `generate_handler!`) thus freezes the UI for 2s.
-    // `swap` returns the previous value: if it was already `true`,
-    // short-circuit immediately.
-    if state
-        .shutting_down
-        .swap(true, std::sync::atomic::Ordering::SeqCst)
-    {
+    // `begin_shutdown` is the canonical swap + `notify_one` pair (in
+    // that order — see `state.rs`). Using it here (instead of a raw
+    // `shutting_down.swap`) also wakes a supervisor coroutine parked
+    // in `shutdown_notify.notified()` inside its backoff sleep, so
+    // the shutdown is noticed sub-ms instead of after the current
+    // backoff step (up to 8s). It returns the previous flag value:
+    // if it was already `true`, short-circuit immediately.
+    if state.begin_shutdown() {
         log::info!("[SHUTDOWN] already in progress — duplicate call short-circuited");
         return Ok(());
     }
@@ -56,7 +77,9 @@ pub async fn shutdown_sidecar(
     // (~30s) after shutdown. Mirrors `shutdown_sidecar_for_exit` in
     // state.rs — both shutdown paths must abort the heartbeat so the
     // task doesn't outlive the WS connection.
-    crate::sidecar::ws::abort_heartbeat(state.inner()).await;
+    // `state` here is already `&Arc<SidecarState>` (the command wrapper
+    // unwrapped the Tauri State), so it passes directly.
+    crate::sidecar::ws::abort_heartbeat(state).await;
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
     if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
@@ -143,6 +166,5 @@ pub async fn shutdown_sidecar(
         }
     }
     log::info!("[SHUTDOWN] sidecar kill completed (graceful={})", graceful);
-    let _ = app;
     Ok(())
 }

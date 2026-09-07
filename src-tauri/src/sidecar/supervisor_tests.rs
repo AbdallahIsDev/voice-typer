@@ -1062,3 +1062,110 @@ fn test_write_restart_counter_docstring_has_no_cold_start_reset_claim() {
          omit the stale claim)"
     );
 }
+
+// success-path counter reset is off the async worker ───────────
+//
+// The respawn-success path used to call `write_restart_counter(0)`
+// INLINE on the Tokio worker (an atomic temp-file write + fsync +
+// rename) at the most latency-sensitive moment — right after the
+// fresh reconnect. The file's own blocking-I/O rule (the
+// spawn_blocking(read_restart_counter) rationale at the top of
+// `respawn`) and the exhaustion path (:spawn_blocking read+write
+// bundle) both route counter disk I/O through the blocking pool; the
+// success path must too. No mock/AppHandle seam exists for
+// `respawn_inner` (constructing a Tauri runtime in a unit test is not
+// possible without the `test` feature), so the routing is pinned by
+// source inspection — the same pattern the docstring test above uses.
+
+#[test]
+fn test_success_path_counter_reset_routes_through_spawn_blocking() {
+    let src = include_str!("supervisor.rs");
+    let region_start = src
+        .find("respawn succeeded on attempt")
+        .expect("respawn_inner must have a respawn-succeeded success arm");
+    // The region ends at the `supervisor_reconnected` EMIT STATEMENT —
+    // the reset must complete BEFORE the emit fires (the write→emit
+    // ordering the inline form had is preserved; only the thread
+    // changes). Anchored on the emit call, not the bare event name
+    // (the surrounding comments also mention the event name).
+    let emit_offset = src[region_start..]
+        .find("app.emit(\"supervisor_reconnected\"")
+        .expect("the success arm must emit supervisor_reconnected");
+    let region = &src[region_start..region_start + emit_offset];
+
+    assert!(
+        region.contains("tauri::async_runtime::spawn_blocking(|| write_restart_counter(0))"),
+        "the success-path counter reset must be routed through spawn_blocking — \
+         an inline write blocks the Tokio worker for the fsync duration right at \
+         the fresh-reconnect moment (the rule the exhaustion path already \
+         follows)"
+    );
+    // The inline (worker-blocking) STATEMENT form must not reappear in
+    // the success arm — every reset-to-0 there is the spawn_blocking
+    // form (the log message inside the JoinError arm is fine; it is not
+    // a statement).
+    assert!(
+        !region.contains("write_restart_counter(0);"),
+        "the inline `write_restart_counter(0);` statement form must not \
+         reappear in the success arm"
+    );
+}
+
+// exhaustion relaunch arms host shutdown before restarting ──────
+//
+// On the supervisor-exhaustion leg the sidecar is already dead (every
+// spawn attempt failed; the last child was killed), so no shutdown
+// frame or exit wait is needed — arming the host-shutdown flag before
+// `app.restart()` is the fix: it aborts any respawn racing the
+// pre-restart delay window and makes the RunEvent::Exit teardown fire
+// as a short-circuit instead of a detached thread racing process exit.
+
+#[test]
+fn test_exhaustion_relaunch_marks_host_shutdown_before_restart() {
+    let src = include_str!("supervisor.rs");
+    let exhaust = src
+        .find("backoff schedule exhausted")
+        .expect("respawn_inner must have the post-loop exhaustion path");
+    let tail = &src[exhaust..];
+    let begin_shutdown = tail.find("state.begin_shutdown()").expect(
+        "the exhaustion path must arm host shutdown (begin_shutdown) before \
+             app.restart()",
+    );
+    let restart = tail
+        .find("app.restart();")
+        .expect("the exhaustion path must call app.restart()");
+    assert!(
+        begin_shutdown < restart,
+        "the exhaustion arm must mark host shutdown BEFORE app.restart() — the \
+         sidecar is already dead there, so begin_shutdown (respawn abort + \
+         Exit-teardown short-circuit) is the only shutdown work that path needs"
+    );
+}
+
+// clear_restart_counter helper is live, not dead code ───────────
+//
+// The helper existed with `#[allow(dead_code)]` and zero callers: a
+// user-initiated tray Restart left the tripped breaker armed, so the
+// next single sidecar crash showed the reinstall prompt. The live
+// caller is `lifecycle.rs::on_relaunch_app` (its call order is pinned
+// in `lifecycle_tests.rs`; the disk reset-to-0 semantics are pinned by
+// `test_clear_restart_counter_for_user_restart_sets_zero` above). This
+// guard pins the REMOVAL of the suppression.
+
+#[test]
+fn test_clear_restart_counter_helper_is_wired_not_dead_code() {
+    let src = include_str!("supervisor.rs");
+    let fn_idx = src
+        .find("pub(crate) fn clear_restart_counter_for_user_restart")
+        .expect("clear_restart_counter_for_user_restart must exist in supervisor.rs");
+    // An attribute would sit on the lines immediately preceding the fn
+    // signature (after the doc comment).
+    let head = &src[fn_idx.saturating_sub(300)..fn_idx];
+    assert!(
+        !head.contains("#[allow(dead_code)]"),
+        "clear_restart_counter_for_user_restart must not carry #[allow(dead_code)] \
+         — its live caller is the tray-Restart relaunch listener \
+         (lifecycle.rs::on_relaunch_app); a dead helper leaves the tripped \
+         breaker armed across a user-initiated restart"
+    );
+}

@@ -154,7 +154,6 @@ def _make_mm_with_real_registry(
     mm._model_load_attempted = False
     mm._model_load_thread = None
     mm._idle_unload_lock = threading.Lock()
-    mm._idle_unload_timer = None
 
     return mm, app, config, registry
 
