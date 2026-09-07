@@ -121,7 +121,14 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // not in the explicit env list at line 241-244 above), so
         // this dev-only default is the only place the override could
         // previously fire.
-        .env("VOICE_TYPER_DEBUG", "1");
+        .env("VOICE_TYPER_DEBUG", "1")
+        // Launch-timeline markers for the sidecar's startup log
+        // (startup_timeline.py): host boot epoch (recorded once at
+        // host start) + THIS spawn's epoch — read at call time,
+        // immediately before the spawn below, so the measured
+        // "backend init" phase stays honest. Mirrors the release
+        // path's marker set.
+        .envs(crate::startup_timeline::sidecar_timeline_envs());
     if std::env::var_os("RUST_LOG").is_none() {
         cmd.env("RUST_LOG", "debug");
     }

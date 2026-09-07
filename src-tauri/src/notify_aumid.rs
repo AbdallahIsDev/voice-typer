@@ -13,7 +13,9 @@
 //! name + icon and play the default notification sound. Idempotent: the key
 //! is (re)written on each launch so icon path changes self-heal.
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(windows)]
+use tauri::Manager;
 
 /// The registry values written for the AUMID key.
 #[cfg(windows)]

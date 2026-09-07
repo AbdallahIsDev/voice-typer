@@ -26,8 +26,13 @@ use super::handshake::{is_shutting_down, parse_server_started};
 /// `crate::platform::process::register_kill_on_parent_exit(pid)` right
 /// after `cmd.spawn()` below. The platform helper implements the
 /// OS-specific machinery:
-///   - POSIX: `prctl(PR_SET_PDEATHSIG, SIGKILL)` via a `pre_exec`-style
-///     post-spawn syscall on the child's pid.
+///   - POSIX: a "reaper" subprocess spawned via `/bin/sh` (detached
+///     into its own session with `setsid()`) that polls the host pid
+///     once per second with `kill -0` and sends `kill -9` to the
+///     sidecar pid once the host is gone (see
+///     `platform/process/posix.rs` — NOT `prctl(PR_SET_PDEATHSIG)`,
+///     which can only be set inside the child after fork, and
+///     Tauri's `externalBin` API exposes no pre-exec hook).
 ///   - Windows: assign the sidecar to a Job Object with
 ///     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
 ///
@@ -94,7 +99,13 @@ pub(crate) async fn spawn_sidecar_release(
             crate::platform::paths::config_dir()
                 .to_string_lossy()
                 .to_string(),
-        );
+        )
+        // Launch-timeline markers for the sidecar's startup log
+        // (startup_timeline.py): host boot epoch (recorded once at
+        // host start) + THIS spawn's epoch — read at call time,
+        // immediately before the spawn below, so the measured
+        // "backend init" phase stays honest. Fresh on every respawn.
+        .envs(crate::startup_timeline::sidecar_timeline_envs());
 
     // Tauri v2's shell plugin automatically pipes stdout/stderr —
     // the `spawn()` returns a `Receiver<CommandEvent>` that yields

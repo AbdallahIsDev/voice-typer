@@ -6,7 +6,7 @@
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 use crate::state::SidecarState;
-// (): poison-safe Mutex helper. Replaces inline
+// state::lock (aliased `mutex_lock`): poison-safe Mutex helper. Replaces inline
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
 // the lock) does not re-panic and permanently brick the dispatch path.
 use crate::state::lock as mutex_lock;
@@ -29,7 +29,8 @@ use super::allowlist::{is_command_allowed, PENDING_MAX};
 // Previously every `dispatch` call used the uniform 120s
 // `DISPATCH_TIMEOUT_SECS` timeout. That let a hung `get_status` poll
 // (median response <50ms) block the UI for 2 minutes before
-// rejecting.  routes model-lifecycle commands (which can
+// rejecting. `dispatch_timeout_for` below routes model-lifecycle
+// commands (which can
 // legitimately take >15s) to the long 120s timeout, and everything
 // else to the new 15s `DISPATCH_SHORT_TIMEOUT_SECS`.
 //
@@ -53,7 +54,7 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
 // (Retry button) over an in-flight download.
 const _DOWNLOAD_COMMANDS: &[&str] = &["download_model", "import_model"];
 
-// returns the dispatch timeout (in seconds) for `cmd`.
+/// Returns the dispatch timeout (in seconds) for `cmd`.
 ///
 /// - 1h (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`) for the multi-GB transfer
 ///   commands (`download_model` / `import_model`).
@@ -86,11 +87,11 @@ pub(crate) struct DispatchArgs {
 /// — callers are trusted Rust-internal code (e.g. the tray menu click
 /// handler, which routes `tray_click` — a Rust-only command that is
 /// NOT in the renderer `ALLOWED_COMMANDS` set because the renderer
-/// never invokes it; 's allowlist parity test would fail if it
-/// were added).
+/// never invokes it; the Rust↔TS allowlist parity tests would fail
+/// if it were added).
 ///
 /// The public `dispatch` Tauri command wraps this with the allowlist
-/// gate () before delegating. Trusted Rust callers that need to
+/// gate (`is_command_allowed`) before delegating. Trusted Rust callers that need to
 /// send a non-allowlisted command (currently only `tray_click` from
 /// `tray.rs::on_menu_event`) call this directly.
 ///
@@ -102,36 +103,37 @@ pub(crate) async fn dispatch_inner(
     args: DispatchArgs,
     state: Arc<SidecarState>,
 ) -> Result<Value, VoiceTyperError> {
-    // the dispatch body is extracted into the shared
+    // The dispatch body is extracted into the shared
     // `dispatch_frame` helper below so the tray menu handler
     // (`tray.rs::on_menu_event`) can call it directly instead of
     // emitting a Tauri "dispatch" event that has no listener.
     dispatch_frame(&state, &args.cmd, args.data).await
 }
 
-// ( / ): fire-and-forget dispatch helper.
+// dispatch_fire_and_forget: fire-and-forget dispatch helper.
 ///
 /// Builds a WS frame `{"type": cmd, "data": data, "id": 0}` and sends it
 /// via `state.ws_tx.try_send` WITHOUT inserting a pending oneshot entry
 /// or awaiting a response. Used by `commands::bubble::bubble_toggle_dictation`
 /// (a sandboxed-window command that must NOT use the full `dispatch`
 /// path — the bubble renderer is allowed to send only the fixed
-/// `toggle_dictation` command, see  sanctioned-bypass doc).
+/// `toggle_dictation` command — see the sanctioned-bypass rationale
+/// in `commands/bubble/commands.rs::bubble_toggle_dictation`).
 ///
-/// the synthetic `id: 0` is NOT special-cased server-side.
+/// The synthetic `id: 0` is NOT special-cased server-side.
 /// The Python sidecar's `dispatch` coroutine (in
 /// `voice_typer/server/sidecar_ws.py`) treats `id=0` like any other
 /// request id: it runs the handler, and if the handler returns a
 /// non-`None` response envelope (which `_handle_toggle_dictation`
 /// always does — it sets `resp["type"] = "ack"`), the server echoes
-/// the response back over the WS with `"id": 0` attached (see
-/// `sidecar_ws.py:843-851`). The Rust WS reader (`sidecar/ws.rs:612-
-/// 620`) then looks up `id=0` in `state.pending`, finds no entry
-/// (because `dispatch_fire_and_forget` never inserted one), and
-/// silently drops the frame via `continue` — NO `[WS-READER]` warning
-/// is logged (the `pending.remove(&id)` call returns `None`, the `if
-/// let Some(tx) = ...` branch is skipped, and execution continues to
-/// the next iteration without any log statement).
+/// the response back over the WS with `"id": 0` attached. The Rust
+/// WS reader (`sidecar/ws/reader.rs`) then looks up `id=0` in
+/// `state.pending`, finds no entry (because `dispatch_fire_and_forget`
+/// never inserted one), and drops the frame after a single
+/// DEBUG-level `[WS-READER] RX response id=0 had NO pending entry`
+/// line — no WARN fires (the `pending.remove(&id)` call returns
+/// `None`, the `if let Some(tx) = ...` fulfillment branch is
+/// skipped, and the loop continues).
 ///
 /// The previous doc text here was internally contradictory: it
 /// claimed BOTH "server does NOT echo `id=0` back" AND "one-line
@@ -142,9 +144,9 @@ pub(crate) async fn dispatch_inner(
 /// fire-and-forget semantics require, but the mechanism is "drop on
 /// the reader side" rather than "suppress on the server side".
 ///
-/// Replaces the inline `json!` + `lock` + `try_send` block that was
-/// duplicated in `bubble.rs:629-674` (the  TODO that called for
-/// this extraction). Keeps the poison-safe `mutex_lock` helper so a
+/// Replaces the inline `json!` + `lock` + `try_send` block that used
+/// to live in `commands/bubble/commands.rs::bubble_toggle_dictation`
+/// (a noted cleanup TODO called for this extraction). Keeps the poison-safe `mutex_lock` helper so a
 /// poisoned mutex doesn't brick the bubble's mic button permanently.
 ///
 /// Returns `Err` if `ws_tx` is `None` (sidecar disconnected) or if
@@ -176,7 +178,7 @@ pub(crate) fn dispatch_fire_and_forget(
     Ok(())
 }
 
-// shared dispatch body used by both the `dispatch` Tauri command
+/// Shared dispatch body used by both the `dispatch` Tauri command
 /// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
 /// event handler in `tray.rs::on_menu_event` (which previously emitted
 /// a Tauri event named "dispatch" that had no listener — the click was
@@ -186,7 +188,7 @@ pub(crate) fn dispatch_fire_and_forget(
 /// inserts a pending oneshot entry, sends the frame via `state.ws_tx`,
 /// and awaits the response (or times out).
 ///
-/// the pending entry is inserted AFTER confirming `ws_tx` is
+/// The pending entry is inserted AFTER confirming `ws_tx` is
 /// `Some`. Previously the entry was inserted first and the early-return
 /// Err branch on `ws_tx == None` leaked the entry — the WS reader never
 /// fulfilled it (no frame was sent), so the map accumulated stale
@@ -194,20 +196,20 @@ pub(crate) fn dispatch_fire_and_forget(
 /// `ws_tx.send` failure (writer task has exited; the reader's drain
 /// loop is the only other remover and may not have run yet).
 ///
-/// every `Err(...)` return is logged (4 sites: WS send
+/// Every `Err(...)` return is logged (4 sites: WS send
 /// failed, dispatch response channel closed, dispatch timeout, server
 /// error). A `log::debug!` at entry gives correlation (id + cmd) for
 /// tracing dispatch lifetimes across the WS reader/writer tasks.
 ///
-/// bail out early if `state.shutting_down` is set. After
+/// Bail out early if `state.shutting_down` is set. After
 /// `shutdown_sidecar` sends the shutdown frame the WS may stay alive
 /// briefly (up to `SHUTDOWN_ACK_TIMEOUT_MS`); dispatches initiated in
 /// that window would send the frame but their response hits the
-/// shutdown-suppress branch in the WS reader () and is
-/// dropped — the client then awaits the full `DISPATCH_TIMEOUT_SECS`
-/// before rejecting. Short-circuit here instead.
+/// shutdown-suppress branch in the WS reader and is
+/// dropped — the client then awaits its full per-command dispatch
+/// timeout before rejecting. Short-circuit here instead.
 ///
-/// re-check `state.ws_tx` AFTER inserting the pending
+/// Re-check `state.ws_tx` AFTER inserting the pending
 /// entry. A reconnect racing in the window between the outer
 /// `mutex_lock(&state.ws_tx).clone()` and the pending insert could leave
 /// us holding a stale `ws_tx` (the old writer task has exited; the new
@@ -215,7 +217,7 @@ pub(crate) fn dispatch_fire_and_forget(
 /// `state.ws_tx` under a tight critical section; if it's now `None`,
 /// drop the pending entry and reject.
 ///
-/// demoted from `pub(crate) async fn` to `async fn` — the
+/// Demoted from `pub(crate) async fn` to `async fn` — the
 /// only caller is `dispatch_inner` in this same file (the tray menu
 /// handler in `tray.rs` calls `dispatch_inner`, not `dispatch_frame`
 /// directly).
@@ -232,17 +234,17 @@ async fn dispatch_frame(
     // field). Matches the Relaxed fetch_add already used by the
     // exit-shutdown id path in `sidecar/shutdown.rs`.
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
-    // debug-level entry log for correlation. The WS reader
+    // Debug-level entry log for correlation. The WS reader
     // logs the matching `id` on fulfillment so a slow / dropped
     // dispatch can be traced end-to-end.
     log::debug!("[dispatch] id={} cmd={}", id, cmd);
 
-    // per-command timeout. Model lifecycle commands (download /
+    // Per-command timeout. Model lifecycle commands (download /
     // import / delete / cancel / pause / resume) get 120s; everything
     // else gets 15s. See `dispatch_timeout_for` for the rationale.
     let timeout_secs = dispatch_timeout_for(cmd);
 
-    // short-circuit if the host is shutting down. Avoids
+    // Short-circuit if the host is shutting down. Avoids
     // the orphaned-pending-then-timeout window described above.
     if state.shutting_down.load(Ordering::SeqCst) {
         log::warn!(
@@ -253,7 +255,7 @@ async fn dispatch_frame(
         return Err(VoiceTyperError::ShuttingDown);
     }
 
-    // (Medium): cap `args.data` serialized size BEFORE
+    // Cap `args.data` serialized size BEFORE
     // constructing the WS frame. The WS layer's
     // `max_message_size=1 MiB` check fires in the writer task AFTER
     // the frame has been serialized and enqueued on the bounded
@@ -299,7 +301,7 @@ async fn dispatch_frame(
             data_str.len(),
             DISPATCH_DATA_MAX_BYTES
         );
-        // the `DataTooLarge` variant's Display AND wire string are the
+        // The `DataTooLarge` variant's Display AND wire string are the
         // same envelope JSON this branch used to inline — single-sourced
         // in `error.rs`.
         return Err(VoiceTyperError::DataTooLarge);
@@ -316,7 +318,7 @@ async fn dispatch_frame(
     let cmd_json = serde_json::to_string(cmd).unwrap_or_else(|_| "\"\"".to_string());
     let frame_str = format!(r#"{{"type":{},"data":{},"id":{}}}"#, cmd_json, data_str, id);
 
-    // confirm `ws_tx` is Some BEFORE inserting into the pending
+    // Confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
     let ws_tx = match ws_tx_opt {
@@ -334,7 +336,7 @@ async fn dispatch_frame(
     let (tx, rx) = oneshot::channel::<Value>();
     {
         let mut pending = state.pending.lock().await;
-        // pending-map size cap. Reject new dispatches when
+        // Pending-map size cap. Reject new dispatches when
         // the map is at `PENDING_MAX` entries so an unresponsive
         // sidecar + rapid tray clicks / renderer retries can't grow
         // the map unbounded. The renderer treats `pending_full` as a
@@ -357,7 +359,7 @@ async fn dispatch_frame(
             // the renderer's existing error-envelope switch can branch
             // on `code === "pending_full"` without a special case.
             //
-            // the `PendingFull` variant's Display AND wire string are
+            // The `PendingFull` variant's Display AND wire string are
             // the same envelope JSON this branch used to inline —
             // single-sourced in `error.rs`.
             return Err(VoiceTyperError::PendingFull);
@@ -401,8 +403,9 @@ async fn dispatch_frame(
         Ok(Ok(mut response)) => {
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
-            // rejects (this is the  fix — the Electron path
-            // silently treated `type:"error"` as success).
+            // rejects (the Electron path silently treated
+            // `type:"error"` as success — surfacing it as a rejection is
+            // the host-side fix).
             if response.get("type").and_then(|t| t.as_str()) == Some("error") {
                 let code = response
                     .get("data")
@@ -516,7 +519,7 @@ pub async fn dispatch(
         return Err(VoiceTyperError::Host("command name too long".into()));
     }
 
-    // window-label guard. The bubble renderer is a sandboxed
+    // Window-label guard. The bubble renderer is a sandboxed
     // window with NO `dispatch` access (ADR-0020 §7 + §9 + SEC-026).
     // The capability file `bubble-runtime.json` deliberately omits
     // `dispatch`-related permissions, but Tauri v2's capability system
@@ -536,7 +539,7 @@ pub async fn dispatch(
     // message wording doesn't matter.
     require_main_window(&window)?;
 
-    // enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
+    // Enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
     // command to the Python sidecar over WS. This mirrors the Electron
     // renderer-side gate (SEC-019 / ADR-0015) and is the
     // defense-in-depth backstop for a compromised-renderer attack
@@ -546,7 +549,7 @@ pub async fn dispatch(
             "[DISPATCH-ALLOWLIST] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
             args.cmd
         );
-        // the `DisallowedCommand` variant's Display AND wire string are
+        // The `DisallowedCommand` variant's Display AND wire string are
         // the same envelope JSON this branch used to inline —
         // single-sourced in `error.rs` (codes from `allowlist.rs`).
         return Err(VoiceTyperError::DisallowedCommand);

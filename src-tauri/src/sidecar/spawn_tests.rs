@@ -1,7 +1,7 @@
 //! Sibling tests for `sidecar::spawn` (per C-TEST-5 — sibling test
 //! file, no inline tests in production source).
 //!
-//! Covers two areas:
+//! Covers three areas:
 //!
 //! - **`passthrough_env_allowlist` LINUX_GUI vars**: the allowlist
 //!   must include `XDG_SESSION_TYPE` and `XDG_CURRENT_DESKTOP`. Without
@@ -9,6 +9,11 @@
 //!   (PulseAudio → DBUS) can't detect the desktop environment /
 //!   session type, and fall back to no-op or wrong backends under
 //!   Wayland / non-GNOME desktops.
+//! - **Launch-timeline markers** (`crate::startup_timeline`): the
+//!   sidecar spawn env must carry `VOICE_TYPER_BOOT_EPOCH_MS` +
+//!   `VOICE_TYPER_SPAWN_EPOCH_MS` so the Python side's
+//!   `startup_timeline.py` can attribute startup latency on the Tauri
+//!   runtime (it silently skips the line when the markers are absent).
 //! - **Pre-existing `parse_server_started` + `is_shutting_down` tests**
 //!   (moved verbatim from the legacy inline `mod tests` block).
 //!
@@ -381,6 +386,83 @@ fn test_passthrough_env_allowlist_no_duplicates() {
             key
         );
     }
+}
+
+// ── sidecar_timeline_envs (launch-timeline markers) ───────────────
+//
+// The sidecar spawn env must carry BOTH launch-timeline markers the
+// Python side parses (voice_typer/server/startup_timeline.py). The
+// Python side treats absent markers as "skip the Launch timeline
+// line", so a missing or renamed marker disables the startup-latency
+// attribution SILENTLY — only these tests catch the drift.
+
+/// Both markers must be present with the EXACT names the Python side
+/// expects (BOOT_EPOCH_ENV / SPAWN_EPOCH_ENV in startup_timeline.py).
+/// The names are asserted as literals, not via the Rust consts, so a
+/// rename on either side of the cross-language contract fails HERE
+/// instead of no-opping in production.
+#[test]
+fn test_sidecar_timeline_envs_contains_both_markers() {
+    let envs = crate::startup_timeline::sidecar_timeline_envs();
+    let names: Vec<&str> = envs.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(
+        names.contains(&"VOICE_TYPER_BOOT_EPOCH_MS"),
+        "sidecar spawn env must set VOICE_TYPER_BOOT_EPOCH_MS (host boot \
+         marker — without it the Python side skips the Launch timeline \
+         line); actual env keys: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"VOICE_TYPER_SPAWN_EPOCH_MS"),
+        "sidecar spawn env must set VOICE_TYPER_SPAWN_EPOCH_MS (spawn \
+         marker — without it the Python side skips the Launch timeline \
+         line); actual env keys: {:?}",
+        names
+    );
+}
+
+/// Marker values must be decimal epoch MILLISECONDS: parseable as
+/// u64, boot ≤ spawn (the boot marker is recorded once at host start,
+/// the spawn marker is read at call time), and the spawn marker within
+/// 60s of the test's own wall clock (a wrong unit — e.g. seconds
+/// instead of ms — would be off by ~1000× and fail the drift check).
+#[test]
+fn test_sidecar_timeline_envs_values_are_epoch_ms() {
+    let envs = crate::startup_timeline::sidecar_timeline_envs();
+    let get = |name: &str| -> u64 {
+        envs.iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.parse::<u64>().expect("marker must be decimal ms"))
+            .unwrap_or_else(|| panic!("{} missing from sidecar spawn env", name))
+    };
+    let boot = get("VOICE_TYPER_BOOT_EPOCH_MS");
+    let spawn = get("VOICE_TYPER_SPAWN_EPOCH_MS");
+    assert!(
+        spawn >= boot,
+        "spawn marker ({}) must not predate the boot marker ({})",
+        spawn,
+        boot
+    );
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_millis() as u64;
+    let drift = spawn.abs_diff(now_ms);
+    assert!(
+        drift <= 60_000,
+        "spawn marker drifted {}ms from the test's wall clock — the \
+         value must be epoch MILLISECONDS (Python divides by 1000.0)",
+        drift
+    );
+}
+
+/// Compile-time contract: the guarded cold-start entry point that
+/// `main.rs` spawns exists under its documented name (rename/delete
+/// breaks the main.rs wiring at COMPILE time — this mirrors the
+/// `test_worker_spawn_stubs_exist` name-binding pattern).
+#[test]
+fn test_initialize_sidecar_guarded_exists() {
+    let _init_fn = initialize_sidecar_guarded;
 }
 
 // ── shutting_down check in spawn loops ────────────────────────

@@ -29,7 +29,7 @@ pub(crate) use crate::sidecar::shutdown_sidecar_for_exit;
 // `crate::state::on_host_exit` call sites keep resolving.
 pub(crate) use crate::sidecar::lifecycle::{on_host_exit, on_quit_app, on_relaunch_app};
 
-//Poison-safe Mutex helper () ───────────────────────────────
+// ─── Poison-safe Mutex helper ───────────────────────────────
 //
 // `Mutex::lock().unwrap()` panics if the lock is poisoned (a thread
 // panicked while holding it). Poisoning permanently bricks the lock —
@@ -53,7 +53,7 @@ pub(crate) use crate::sidecar::lifecycle::{on_host_exit, on_quit_app, on_relaunc
 // `log::warn!` macro, which expands to `log`-crate calls, not to
 // `logging.rs` calls).
 //
-//( / ): the `#[allow(dead_code)]` that used to live
+// The `#[allow(dead_code)]` that used to live
 // here was STALE — the helper IS used at 10+ production call sites
 // (`ws.rs`, `main.rs`, `sidecar_cmds.rs`, `supervisor.rs`, `state.rs`,
 // `bubble.rs`). Removed the suppression so the compiler will report any
@@ -74,7 +74,8 @@ pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// without any benefit. `AsyncMutex::lock` takes `&self`, so existing
 /// call sites (`state.pending.lock().await`) compile unchanged. The
 /// only cross-file impact is `main.rs`'s struct-literal initializer,
-//which must drop the `Arc::new(...)` wrapper — see
+//which must drop the `Arc::new(...)` wrapper — `main.rs` constructs
+//the state via `SidecarState::new()`, so no live call site is affected.
 pub(crate) type PendingMap = AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>;
 
 /// The WS writer half, wrapped in a channel so the dispatch command
@@ -188,9 +189,9 @@ pub(crate) struct SidecarState {
 }
 
 impl SidecarState {
-    //convenience constructor so `main.rs`'s struct
+    /// Convenience constructor so `main.rs`'s struct
     /// literal can be replaced with `SidecarState::new()`. `pub(crate)`
-    //so `main.rs` (owned by ) can switch to it — also
+    /// so `main.rs` can switch to it — also
     /// future-proofs against further field additions.
     pub(crate) fn new() -> Self {
         Self {
@@ -244,6 +245,16 @@ impl SidecarState {
         let already_shutting_down = self.shutting_down.swap(true, Ordering::SeqCst);
         self.shutdown_notify.notify_one();
         already_shutting_down
+    }
+
+    /// Record that the system tray was successfully created — called
+    /// from `main.rs`'s `.setup` when `tray::create_tray` returns `Ok`.
+    /// `on_main_window_close` consults `tray_available` to choose
+    /// hide-to-tray vs. letting the close flow through to app exit;
+    /// see the field docs for the stranded-user rationale.
+    pub(crate) fn mark_tray_available(&self) {
+        use std::sync::atomic::Ordering;
+        self.tray_available.store(true, Ordering::SeqCst);
     }
 }
 

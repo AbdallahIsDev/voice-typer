@@ -1,4 +1,4 @@
-//! : bubble_toggle_dictation rate limiter (ADR-0020 §9 + ).
+//! `bubble_toggle_dictation` rate limiter (ADR-0020 §9).
 //!
 //! Process-wide last-toggle timestamp (nanoseconds since process start).
 //! `AtomicU64` because:
@@ -33,12 +33,14 @@ static ANCHOR: OnceLock<Instant> = OnceLock::new();
 /// See the module-level doc comment for the rationale.
 pub(super) static LAST_TOGGLE_NANOS: AtomicU64 = AtomicU64::new(0);
 
-//minimum interval between consecutive toggle_dictation
-/// invocations (500ms = 500_000_000 ns). Matches the bubble renderer's
-/// UI animation frame budget (~16ms) — a 500ms window allows ~30
-/// clicks/sec before throttling, which is well above any legitimate
-/// user click rate (~5 clicks/sec max) but well below the rate that
-/// would DoS the sidecar's recording state machine.
+/// Minimum interval between consecutive toggle_dictation
+/// invocations (500ms = 500_000_000 ns). A 500ms floor allows at
+/// most 2 toggles/sec (1 / 0.5s) — the first click in any 500ms
+/// window passes, and clicks inside the remaining window are
+/// dropped. 2/sec is far below the rate that would DoS the sidecar's
+/// recording state machine (one start/stop pair per rapid click)
+/// while still leaving room for a deliberate start/stop pair per
+/// second.
 pub(super) const TOGGLE_RATE_LIMIT_NS: u64 = 500_000_000;
 
 /// Returns a monotonic "now" timestamp in nanoseconds since the
@@ -57,7 +59,7 @@ fn monotonic_now_nanos() -> u64 {
     u64::try_from(Instant::now().duration_since(*anchor).as_nanos()).unwrap_or(u64::MAX)
 }
 
-//rate-limiter predicate. Returns `true` if the toggle is
+/// Rate-limiter predicate. Returns `true` if the toggle is
 /// allowed (>= 500ms since the last toggle), `false` if rate-limited.
 /// Updates `LAST_TOGGLE_NANOS` atomically on success.
 ///

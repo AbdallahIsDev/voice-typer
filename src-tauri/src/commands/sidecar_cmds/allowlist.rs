@@ -5,41 +5,38 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-// dedicated error code constants for the two disallowed-code
+// Dedicated error code constants for the two disallowed-code
 // branches in `dispatch`. Using named constants instead of inline
 // string literals ensures the test assertions (which match on these
 // exact strings) stay in sync with the production code.
 //
 // `disallowed_window` is emitted by `commands/mod.rs::require_main_window`
-// (NOT extracted here — that file is outside this entry's files list;
-// see `commands::mod` for the literal). Listed here for documentation
-// parity so a future cleanup can centralize both constants.
+// (the canonical constant for it lives further down in this file).
 pub(crate) const DISALLOWED_COMMAND_CODE: &str = "disallowed_command";
-// companion Rust-host-only code. Emitted by
+/// Companion Rust-host-only code. Emitted by
 /// `commands/mod.rs::require_main_window` (the main/bubble window guard).
 /// Kept here as a `pub(crate)` constant so the contract test
 /// (`tests/test_error_codes_registry.py`) can reference the canonical
-/// spelling without having to grep `commands/mod.rs` (which is outside
-/// the  entry's files list).
+/// spelling without having to grep `commands/mod.rs`.
 pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 
-// pending-map size cap. Each pending dispatch entry is a
+// Pending-map size cap. Each pending dispatch entry is a
 // `(u64, oneshot::Sender<Value>)` pair (~80 bytes on x86_64). An
 // unresponsive sidecar (WS reader stuck, sidecar process paused in a
 // debugger, GC pause) plus rapid tray clicks / renderer retries can
-// accumulate 1000s of entries — each one auto-expires after
-// `DISPATCH_TIMEOUT_SECS` (120s for model lifecycle, 15s for
-// everything else), so the steady-state cap without this guard is
-// `clicks_per_sec * 120s` entries. At 10 clicks/sec (renderer retry
-// storm) that's 1200 entries × 80 bytes = ~96 KiB — small in absolute
-// terms, but the entries never expire if the sidecar is fully stuck
-// (the timeout fires on the awaiting side, but the entry is only
-// removed by the WS reader's drain loop OR by the explicit
-// `pending.remove(&id)` in the WS-send-failure path — neither runs if
-// the WS writer task is wedged). The 1024 cap rejects new dispatches
-// once the map is full, surfacing the backpressure to the renderer as
-// an immediate `pending_full` error instead of letting the map grow
-// unbounded.
+// accumulate 1000s of entries — each one auto-expires via
+// `dispatch_frame`'s own cleanup paths (the timeout branch AND the
+// WS-send-failure branch both run `pending.remove(&id)`), so the
+// steady-state bound is `clicks_per_sec * timeout` entries. At 10
+// clicks/sec (renderer retry storm) against the 120s model-lifecycle
+// timeout that's 1200 entries × 80 bytes = ~96 KiB — small in
+// absolute terms, but a dispatch future dropped before its timeout
+// fires (e.g. the heartbeat probe cancelled by its outer 15s
+// wrapper) leaves the entry in the map until the WS reader's drain
+// loop or a late response clears it. The 1024 cap rejects new
+// dispatches once the map is full, surfacing the backpressure to the
+// renderer as an immediate `pending_full` error instead of letting
+// the map grow unbounded.
 //
 // 1024 is comfortably above the highest legitimate concurrent-dispatch
 // count observed in production (the renderer typically has 1-3 in-
@@ -47,7 +44,7 @@ pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 // settings read). The cap exists to bound memory under pathological
 // backpressure, NOT to throttle normal traffic.
 pub(crate) const PENDING_MAX: usize = 1024;
-// error code returned by `dispatch_frame` when the pending
+/// Error code returned by `dispatch_frame` when the pending
 /// map has reached `PENDING_MAX` entries. The renderer treats this as
 /// a transient "sidecar overwhelmed" signal (distinct from "sidecar
 /// not connected" / "sidecar shutting down") so it can back off and
@@ -98,7 +95,7 @@ static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
 /// directly without going through `dispatch`.
 pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
-        // this list MUST mirror the Electron renderer's
+        // This list MUST mirror the Electron renderer's
         // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
         // (canonical declaration — was previously inline
         // in `index.ts`). The Python test
@@ -188,7 +185,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "onboarding_set_model",
             "onboarding_skip",
             "onboarding_apply",
-            // previously missing from the Rust literal —
+            // Previously missing from the Rust literal —
             // present in the TS allowlist and in the server
             // `_COMMAND_REGISTRY`. Without these, the Onboarding
             // page's "Check Permissions" button (macOS/Linux mic +
@@ -247,14 +244,17 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // allowlist — Electron's main process needs them to talk
             // to the Python sidecar). The Rust host never routes
             // either command through this `dispatch` gate:
-            //   - `heartbeat` is sent by the Rust WS-reader task
-            //     itself (`sidecar/ws.rs::ws_reader_loop`) directly
-            //     over the WS — it's never the result of an
+            //   - `heartbeat` is sent by the Rust-side heartbeat task
+            //     (`sidecar/ws/heartbeat.rs::spawn_heartbeat_task`)
+            //     via `dispatch_inner`, which bypasses this allowlist
+            //     gate — it's never the result of an
             //     `invoke('dispatch', ...)`.
             //   - `relaunch_ack` is sent by the `relaunch_app` Tauri
-            //     event handler in `main.rs` via `dispatch_inner`,
-            //     which bypasses this allowlist gate (same pattern
-            //     as `tray_click` — see  above).
+            //     event listener body in `sidecar/lifecycle.rs`
+            //     (`on_relaunch_app`) as a fire-and-forget WS frame,
+            //     which bypasses this allowlist gate (same
+            //     trusted-Rust-caller pattern as `tray_click` — see
+            //     the `tray_click` rationale above).
             // Including either here would create an attack surface
             // that only a compromised renderer could reach: a
             // malicious `invoke('dispatch', {cmd:'relaunch_ack'})`
@@ -279,8 +279,8 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // Tauri host does not reject the renderer's `invoke()`.
             "get_history_count",
             "get_transcription_text",
-            // +  (session-3 + 5): onboarding reset —
-            // invoked by the Onboarding page. Registered in the Python-side
+            // Onboarding reset — invoked by the Onboarding page.
+            // Registered in the Python-side
             // `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
             // `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
             // Mirrors the TS allowlist.

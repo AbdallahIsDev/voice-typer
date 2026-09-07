@@ -7,7 +7,7 @@
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 use crate::state::SidecarState;
-// (): poison-safe Mutex helper — same rationale as the dispatch path.
+// state::lock (aliased `mutex_lock`): poison-safe Mutex helper — same rationale as the dispatch path.
 use crate::state::lock as mutex_lock;
 use crate::util::SHUTDOWN_ACK_TIMEOUT_MS;
 use serde_json::json;
@@ -24,7 +24,7 @@ pub async fn shutdown_sidecar(
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<(), VoiceTyperError> {
-    // only the main window may drive the cooperative-shutdown
+    // Only the main window may drive the cooperative-shutdown
     // path. A compromised bubble renderer must NOT be able to invoke
     // `invoke('shutdown_sidecar')` to DoS the sidecar.
     //

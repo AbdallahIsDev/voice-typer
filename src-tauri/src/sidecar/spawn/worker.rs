@@ -54,8 +54,10 @@ use super::handshake::{is_shutting_down, parse_worker_started};
 /// Kill-on-parent-exit: identical guarantee to `spawn_sidecar_release`
 /// — the ShellPlugin child does NOT kill the OS process on Drop, so a
 /// host crash would orphan the worker (which holds the loaded models).
-/// `register_kill_on_parent_exit` (Job Object on Windows, PR_SET_PDEATHSIG
-/// on POSIX) reaps it. Best-effort: errors are logged, spawn proceeds.
+/// `register_kill_on_parent_exit` (Job Object on Windows, the
+/// `/bin/sh` reaper subprocess on POSIX — see the note on
+/// `spawn_sidecar_release`) reaps it. Best-effort: errors are logged,
+/// spawn proceeds.
 #[allow(dead_code)] // called by spawn_worker_and_get_port_with_shutdown once WorkerState is managed (Phase 2c)
 pub(crate) async fn spawn_worker_release(
     app: &tauri::AppHandle,

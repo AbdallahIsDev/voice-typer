@@ -5,8 +5,8 @@
 //!   dispatch loop on the Tauri async runtime, aborting the
 //!   previous handle (if any) before storing the new one.
 //! - `abort_heartbeat` — shared idempotent abort helper used by
-//!   BOTH shutdown paths (`state.rs::shutdown_sidecar_for_exit`
-//!   and `commands/sidecar_cmds.rs::shutdown_sidecar`) so an
+//!   BOTH shutdown paths (`sidecar/shutdown.rs::shutdown_sidecar_for_exit`
+//!   and `commands/sidecar_cmds/shutdown.rs::shutdown_sidecar`) so an
 //!   in-flight heartbeat task is aborted whether the app exits
 //!   via `RunEvent::Exit` OR via the renderer-invocable Tauri
 //!   command.
@@ -15,8 +15,8 @@
 //! - `spawn_heartbeat_task` is `pub(super)` — visible to the
 //!   parent `ws` module (single call site in `reconnect_ws`).
 //! - `abort_heartbeat` is `pub(crate)` (and re-exported from
-//!   `ws.rs`) so external callers in `state.rs` /
-//!   `commands/sidecar_cmds.rs` keep working through
+//!   `ws.rs`) so external callers in `sidecar/shutdown.rs` /
+//!   `commands/sidecar_cmds/shutdown.rs` keep working through
 //!   `crate::sidecar::ws::abort_heartbeat`.
 
 use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
@@ -31,14 +31,14 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// shared heartbeat-abort helper. Idempotent — a no-op if
+/// Shared heartbeat-abort helper. Idempotent — a no-op if
 /// `heartbeat_handle` is already `None`.
 ///
 /// Used by BOTH shutdown paths so the in-flight heartbeat task is
 /// aborted whether the app exits via `RunEvent::Exit`
-/// (`shutdown_sidecar_for_exit` in `state.rs`) OR via the renderer-
+/// (`shutdown_sidecar_for_exit` in `sidecar/shutdown.rs`) OR via the renderer-
 /// invocable `shutdown_sidecar` Tauri command
-/// (`commands/sidecar_cmds.rs`). Previously only
+/// (`commands/sidecar_cmds/shutdown.rs`). Previously only
 /// `shutdown_sidecar_for_exit` aborted; the Tauri-command path leaked
 /// a heartbeat task that kept dispatching `heartbeat` frames into the
 /// dead WS for up to `HEARTBEAT_MAX_MISSES` (30s) before self-terminating.
@@ -46,15 +46,15 @@ use std::time::Duration;
 /// Extracted as a `pub(crate)` helper in this file (ws.rs owns the
 /// heartbeat spawn logic) so both call sites share one implementation.
 ///
-/// **Coordination note (file-disjoint rule):** the call sites are owned
-/// by OTHER sub-agents; this helper is wired in once each lands:
-///   - `commands/sidecar_cmds.rs` (`shutdown_sidecar`) — DONE: calls
-///     `crate::sidecar::ws::abort_heartbeat(state.inner()).await;` after
-///     the `shutting_down` swap, before sending the shutdown frame.
-///   - `state.rs` (`shutdown_sidecar_for_exit`, lines ~292-300) — still
-///     uses the inline `hb_guard.take()` + `handle.abort()` block; may
-///     be migrated to `crate::sidecar::ws::abort_heartbeat(&state).await;`
-///     but is functionally equivalent (both abort the same handle).
+/// **Call-site status:** both shutdown paths abort the heartbeat:
+///   - `commands/sidecar_cmds/shutdown.rs` (`shutdown_sidecar`) calls
+///     `crate::sidecar::ws::abort_heartbeat(state.inner()).await`
+///     after the `shutting_down` swap, before sending the shutdown
+///     frame.
+///   - `sidecar/shutdown.rs` (`shutdown_sidecar_for_exit`, the
+///     app-exit path) aborts the same handle inline
+///     (`hb_guard.take()` + `handle.abort()`) — functionally
+///     equivalent to this helper.
 pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
     let prev = {
         let mut hb_guard = state.heartbeat_handle.lock().await;
@@ -79,17 +79,19 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 /// Every 10s we send a `heartbeat` dispatch (the Python sidecar's
 /// `_handle_heartbeat` is already registered in `_COMMAND_REGISTRY`
 /// — see `voice_typer/server/ipc_server.py:2013`). We wrap the call
-/// in a 15s timeout — `dispatch_frame`'s own 120s timeout is too
-/// long for a liveness probe. On 3 consecutive misses (≥30s of
+/// in a 15s timeout (`HEARTBEAT_RESPONSE_TIMEOUT_SECS`) to bound the
+/// liveness probe. On 3 consecutive misses (≥30s of
 /// unresponsiveness) we trigger supervisor respawn via the same
 /// `std::thread::spawn` + `block_on` bridge used by the WS reader
 /// above (the supervisor's `reconnect_ws` future is `!Send` —
 /// tokio-tungstenite holds a `!Send` across an await — so it can't
 /// be awaited from a `tokio::spawn` directly).
 ///
-/// The 15s outer timeout may leak a pending entry inside
-/// `dispatch_frame` until its internal 120s timeout fires, but the
-/// supervisor respawn triggered at miss #3 kills the sidecar, which drops
+/// The 15s outer timeout cancels `dispatch_inner` by dropping its
+/// future, which leaks the pending entry: `dispatch_frame`'s own 15s
+/// timeout branch never gets to run (the future is dropped at the
+/// same deadline, before the branch can fire). The supervisor
+/// respawn triggered at miss #3 kills the sidecar, which drops
 /// the TCP socket, which makes the WS reader's drain loop clear all
 /// pending entries. So the leak is bounded and self-healing.
 /// This function is `async fn` (was `fn` calling
@@ -110,7 +112,7 @@ pub(super) async fn spawn_heartbeat_task(
     heartbeat_app: tauri::AppHandle,
     heartbeat_state: Arc<SidecarState>,
 ) {
-    //abort any previous heartbeat task before spawning
+    // Abort any previous heartbeat task before spawning
     // the new one. `reconnect_ws` is called on every successful
     // supervisor respawn (and on initial cold start), so without this abort the
     // PRIOR heartbeat task would leak — it loops forever on a 10s
@@ -118,25 +120,31 @@ pub(super) async fn spawn_heartbeat_task(
     // heartbeat tasks all dispatching `heartbeat` frames at 10s
     // intervals, multiplying sidecar load N×.
     //
-    // the heartbeat's pending dispatch id is allocated INSIDE
-    // `dispatch_inner` (in `dispatch_frame` — `sidecar_cmds.rs`, owned
-    // The heartbeat task here does NOT know the id, so
-    // it can't manually remove the pending entry from `state.pending`
-    // on the 15s timeout. Mitigation (existing behavior, preserved):
+    // The heartbeat's pending dispatch id is allocated INSIDE
+    // `dispatch_inner` (in `dispatch_frame`,
+    // `commands/sidecar_cmds/dispatch.rs`), so the heartbeat task
+    // here does NOT know the id and can't manually remove the
+    // pending entry from `state.pending` on the 15s timeout.
+    // Mitigation (existing behavior, preserved):
     // - On miss #3, supervisor respawn kills the sidecar → WS socket
     // drops → WS reader's drain loop clears ALL pending entries.
-    // - On miss #1/#2, `dispatch_frame`'s internal 120s timeout
-    // eventually removes the entry. Bounded leak.
-    //will add a Drop guard on the dispatch path so
-    // the pending entry is removed immediately when the dispatch
-    // future is dropped (which happens when the 15s outer timeout
-    // cancels `dispatch_inner`).
+    // - On miss #1/#2, the leaked entry is cleared when the sidecar
+    // eventually responds (the reader removes the id on ANY
+    // id-bearing response) or at miss #3. `dispatch_frame`'s own
+    // 15s timeout never fires here — the outer 15s wrapper drops
+    // the whole dispatch future at the same deadline, before the
+    // internal timeout branch can run.
+    // Known limitation: no Drop guard exists on the dispatch path,
+    // so the pending entry is NOT removed when the dispatch future is
+    // dropped (which happens when the 15s outer timeout cancels
+    // `dispatch_inner`); it lingers until a late response or the
+    // miss-#3 respawn clears it.
     // Clone the Arc BEFORE moving it into the async closure. The closure
     // below (async move { ... }) takes ownership of `heartbeat_state_for_
     // task`; the original `heartbeat_state` is still referenced inside the
     // lock scope below to acquire `heartbeat_state.heartbeat_handle`.
     let heartbeat_state_for_task = heartbeat_state.clone();
-    // hold the `heartbeat_handle` lock across the take + spawn +
+    // Hold the `heartbeat_handle` lock across the take + spawn +
     // store sequence. The prior code released the lock between `take()`
     // and `*hb_guard = Some(handle)` — the window spanned the entire
     // `tauri::async_runtime::spawn(...)` call. `reconnect_ws` is called
@@ -186,16 +194,16 @@ pub(super) async fn spawn_heartbeat_task(
                         cmd: "heartbeat".to_string(),
                         data: None,
                     };
-                    //wrap the dispatch + timeout in `catch_unwind`
+                    // Wrap the dispatch + timeout in `catch_unwind`
                     // so a panic inside `dispatch_inner` (e.g. a serde
                     // invariant violation, or a future-proofing regression
                     // in `dispatch_frame`'s pending-map insert path) is
                     // caught, logged at ERROR, and treated as a miss —
                     // instead of silently killing the heartbeat task and
-                    //losing  detection entirely. The reader + writer
-                    // tasks already wrap their bodies in `catch_unwind`
-                    //the heartbeat task was added later
-                    //and missed the same treatment.
+                    // losing hang detection entirely. The reader + writer
+                    // tasks already wrap their bodies in `catch_unwind`;
+                    // the heartbeat task was added later
+                    // and missed the same treatment.
                     let dispatch_result = AssertUnwindSafe(async {
                         tokio::time::timeout(
                             Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
@@ -251,7 +259,7 @@ pub(super) async fn spawn_heartbeat_task(
                                 break;
                             }
                         }
-                        //catch_unwind returned Err(_panic_payload).
+                        // `catch_unwind` returned Err(_panic_payload).
                         // Treat the panic as a miss and continue the loop so
                         // the heartbeat task stays alive (mirrors the
                         // existing timeout / dispatch-error arms). After
@@ -283,14 +291,14 @@ pub(super) async fn spawn_heartbeat_task(
                 }
             },
         );
-        // store the new handle INSIDE the lock
+        // Store the new handle INSIDE the lock
         // so the take+spawn+store sequence is atomic with respect to
         // other callers. The next reconnect (or `abort_heartbeat` /
         // `shutdown_sidecar_for_exit`) can abort it.
         *hb_guard = Some(handle);
         prev
     };
-    // abort the previous handle AFTER releasing the lock. `abort()`
+    // Abort the previous handle AFTER releasing the lock. `abort()`
     // posts a cancellation signal to the task's waker; it does not
     // synchronously join the task, so this is fast and lock-free.
     if let Some(prev) = prev_handle_opt {

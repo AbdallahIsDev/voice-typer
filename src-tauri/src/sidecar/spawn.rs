@@ -4,8 +4,10 @@
 //!
 //! - `self` — orchestration: the public spawn entry points
 //!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release
-//!   dispatch (`spawn_sidecar_and_get_port_inner`), and the cold-start
-//!   wiring (`initialize_sidecar`).
+//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start
+//!   wiring (`initialize_sidecar`), and the panic-captured background
+//!   task body (`initialize_sidecar_guarded`) that `main.rs`'s
+//!   `.setup` spawns.
 //! - [`dev_mode`] — `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn
 //!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).
 //! - [`release_mode`] — release-build `externalBin` spawn
@@ -67,10 +69,19 @@ pub(crate) use handshake::{is_shutting_down, parse_server_started, parse_worker_
 pub(crate) use target_triple::{current_target_triple, target_triple_for};
 
 use crate::state::SidecarHandle;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::mpsc;
+
+// `FutureExt::catch_unwind` + `AssertUnwindSafe` — panic capture for
+// the cold-start `initialize_sidecar` task WITHOUT bridging through
+// `block_on` (calling block_on inside a runtime worker panics with
+// "Cannot start a runtime from within a runtime" — see the C-TOKIO-1
+// guard comment on `initialize_sidecar_guarded`).
+use futures_util::future::FutureExt;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
@@ -149,8 +160,8 @@ async fn spawn_sidecar_and_get_port_inner(
 ///    failure, fall back to the supervisor's `respawn` (which will
 ///    retry with backoff per `SUPERVISOR_BACKOFF_MS`).
 ///
-/// The caller (`main.rs::setup`) wraps this in
-/// `tauri::async_runtime::spawn(async move { ... })` so it runs in
+/// The caller ([`initialize_sidecar_guarded`], which `main.rs::setup`
+/// spawns via `tauri::async_runtime::spawn`) runs this in
 /// the background — the `.setup` closure must return `Ok(())`
 /// quickly so the Tauri event loop starts.
 pub(crate) async fn initialize_sidecar(
@@ -196,6 +207,58 @@ pub(crate) async fn initialize_sidecar(
             log::error!("[SETUP] sidecar spawn failed: {}", e);
             let _ = crate::sidecar::supervisor::respawn(app_handle, &state).await;
         }
+    }
+}
+
+/// Cold-start sidecar initialization with panic capture — the body of
+/// the background task `main.rs`'s `.setup` spawns via
+/// `tauri::async_runtime::spawn`.
+///
+/// Extracted verbatim from `main.rs` (pure move, no behavior change)
+/// so the host entrypoint stays wiring-only (C-ARCH-1). Sequence:
+///
+/// 1. Run the one-time Electron→Tauri migration
+///    (`migrate::migrate_electron_userdata_async`) on the async
+///    runtime's blocking pool — fs-heavy, 5-30s on first launch — so
+///    this task is not stalled, and so `initialize_sidecar` boots the
+///    sidecar against already-migrated data (ADR-0020 §8).
+/// 2. Capture panics from `initialize_sidecar` (e.g. a future
+///    invariant violation) via `FutureExt::catch_unwind` so they are
+///    logged with the actual message instead of being silently lost
+///    (Tauri's runtime does not surface spawned-task panics).
+///
+/// # C-TOKIO-1 guard
+///
+/// This task ALREADY runs on the tokio runtime (the
+/// `tauri::async_runtime::spawn` call in `main.rs`) — a future
+/// awaited inside a runtime worker must NEVER call `block_on`. The
+/// previous `std::panic::catch_unwind(|| ... block_on ...)` wrapper
+/// panicked at every startup with "Cannot start a runtime from within
+/// a runtime" until it was replaced with the
+/// `AssertUnwindSafe(fut).catch_unwind().await` shape below. DO NOT
+/// bridge this back through `tauri::async_runtime::block_on` /
+/// std::thread + block_on — see AGENTS.md C-TOKIO-1.
+pub(crate) async fn initialize_sidecar_guarded(app_handle: tauri::AppHandle) {
+    // ADR-0020 §8: run the one-time Electron→Tauri migration on the
+    // blocking pool (fs-heavy, 5-30s on first launch) so this async
+    // task is not stalled. MUST run before initialize_sidecar so the
+    // sidecar boots against already-migrated data.
+    crate::migrate::migrate_electron_userdata_async(&app_handle).await;
+    let state: tauri::State<'_, Arc<crate::state::SidecarState>> = app_handle.state();
+    let state = state.inner().clone();
+    // See the C-TOKIO-1 guard on this function: `catch_unwind` on the
+    // AssertUnwindSafe-wrapped future — NEVER a `block_on` bridge.
+    let result =
+        AssertUnwindSafe(initialize_sidecar(&app_handle, state))
+            .catch_unwind()
+            .await;
+    if let Err(payload) = result {
+        let msg = payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("<non-string panic>");
+        log::error!("[MAIN] initialize_sidecar task panicked: {}", msg);
     }
 }
 
