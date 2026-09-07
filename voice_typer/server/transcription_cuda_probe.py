@@ -25,8 +25,10 @@ the lock, in ``TranscriptionEngine._run_deferred_gc`` (which stays in
 from __future__ import annotations
 
 import logging
+import time
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
+from voice_typer.server.duration import format_duration
 
 # Use the ``transcription`` logger name so log records emitted from this
 # extracted module are captured by tests that filter by
@@ -174,6 +176,10 @@ def warm_up_model(engine) -> None:
     try:
         import numpy as np
 
+        # C-LOG-2: the warm-up completion line below carries the
+        # duration suffix; the timer covers the whole warm-up
+        # (silence buffer alloc + inference + iteration).
+        _t0 = time.perf_counter()
         warmup_audio = np.zeros(int(_WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
         # Same ``best_of`` reasoning as the probe above: a no-op under the
         # pinned ``temperature=0.0``, so it is not forwarded.
@@ -188,7 +194,12 @@ def warm_up_model(engine) -> None:
         # Force iteration to complete the warm-up
         for _ in segments:
             pass
-        log.info("[PERF] Warm-up inference completed — CUDA kernels primed")
+        # C-LOG-2: ``format_duration`` returns the suffix WITH its
+        # leading space — splice with a bare %s, no extra separator.
+        log.info(
+            "[PERF] Warm-up inference completed — CUDA kernels primed%s",
+            format_duration(time.perf_counter() - _t0),
+        )
     except Exception as exc:
         # Warm-up failure is non-critical — log and continue
         log.debug("[PERF] Warm-up inference skipped: %s", exc)

@@ -11,7 +11,9 @@ both call into.
 IPC poll on ``_state._last_get_level_poll_ts``. The worker thread
 (:mod:`.worker`) checks this timestamp on every iteration and
 auto-stops the stream when no poll has been received in
-``_state._LEVEL_IDLE_TIMEOUT_SEC`` seconds (default 5.0). This
+``_state._LEVEL_IDLE_TIMEOUT_SEC`` seconds (default 60.0 — a
+defensive backstop, NOT a 5 s reaction time; see the attribute's
+docstring in :mod:`._state` for why it was raised). This
 prevents the RNNoise filter chain from pegging a core when the tray
 bubble is hidden but the frontend forgot to call ``level_monitor_stop``.
 """

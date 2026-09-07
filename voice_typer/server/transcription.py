@@ -89,6 +89,7 @@ from voice_typer.server.asr_utils import (  # noqa: F401
     is_oom_error,
     release_gpu_memory,
 )
+from voice_typer.server.duration import format_duration
 from voice_typer.server.hallucination import should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
 from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
@@ -562,12 +563,15 @@ class TranscriptionEngine:
                     self._compute_type = compute_type
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
+                # C-LOG-2: ``format_duration`` returns the suffix WITH
+                # its leading space — splice with a bare %s, no extra
+                # separator before the placeholder.
                 log.info(
-                    "[MODEL] Model %s via %s (%s) — %.1fs",
+                    "[MODEL] Model %s via %s (%s)%s",
                     verb.lower(),
                     self.loaded_via,
                     _warm_label,
-                    _load_elapsed,
+                    format_duration(_load_elapsed),
                 )
 
                 # CUDA probe: force a tiny transcription to smoke-test

@@ -107,8 +107,6 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 log = logging.getLogger(__name__)
 
-SYSTEM = sys.platform  # "win32", "darwin", "linux"
-
 # ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
 # it here so ``from voice_typer.server.server_platform import X`` keeps
@@ -179,7 +177,7 @@ from .microphone_list import (  # noqa: E402
     list_microphones,
     resolve_mic_id_to_device_index,
 )
-from .platform_flags import is_linux, is_macos, is_windows  # noqa: E402
+from .platform_flags import SYSTEM, is_linux, is_macos, is_windows  # noqa: E402
 from .remote_session import (  # noqa: E402
     _is_invalid_device_name,
     _is_non_mic_device,

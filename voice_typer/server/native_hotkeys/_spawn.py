@@ -16,6 +16,12 @@ log = logging.getLogger(__name__)
 
 
 class _SpawnMixin:
+    # Human-readable backend name used in log messages. Provided by the
+    # composing backend class (``_core.py`` sets ``platform_name: str =
+    # "subprocess"``); declared here so the mixin's own methods typecheck
+    # (same pattern as ``_ReaderMixin`` in ``_reader.py``).
+    platform_name: str
+
     def _spawn_process(self) -> None:
         """Spawn the native binary with the hotkey spec as argv[1].
 
@@ -201,17 +207,45 @@ class _SpawnMixin:
                 log.error("[NATIVE-HOTKEY] %s", self._error_message)
                 return
 
-        # Each backend instance spawns its OWN native listener process
-        # here. ``HotkeyDispatcher`` creates three backends (dictation /
-        # ESC / repaste), so three of these processes run at once on
-        # native platforms — three reader threads, three IPC pipes, three
-        # TOCTOU-verify + watchdog cycles. See the architecture note in
-        # ``hotkey_dispatcher.HotkeyDispatcher`` for the planned
-        # multiplexed-binary refactor that collapses all three roles into
-        # a single process accepting multiple ``(role, spec)`` pairs.
-        # TODO (future session): support a multi-spec command line so one
-        # process can listen for several hotkeys and tag events by role.
+        # A backend spawns its own native listener process here only when
+        # it is NOT delegated. ``HotkeyDispatcher`` creates three backend
+        # instances (dictation / ESC / repaste) but marks the ESC and
+        # repaste ones ``_delegated=True``: their ``start()`` skips
+        # spawning, and their specs are matched as extra matchers on the
+        # shared dictation backend's event stream (the binary emits ALL
+        # keystroke events on stdout; the Python side does the matching).
+        # So on native platforms exactly ONE native listener process,
+        # reader thread, IPC pipe, and TOCTOU-verify + watchdog cycle
+        # serves all three roles. The per-role three-process model
+        # applies only when the factory falls back to non-poolable
+        # backends. See the architecture note in
+        # ``hotkey_dispatcher.HotkeyDispatcher``.
         cmd = [str(self._binary_path), self.hotkey_str]
+        # Pass the binary its diagnostic log path (``--log-file``): the
+        # native binaries (linux/windows/macos key-listeners) parse the
+        # flag and append timestamped init / permission / hook-install
+        # diagnostics there, giving support bundles a native-side trace
+        # for hotkey problems. Error-tolerant by design: diagnostics
+        # must NEVER break the spawn — if the path can't be computed we
+        # spawn without the flag (the binary's stderr still reaches the
+        # parent via the merged stdout pipe).
+        native_log_path: Path | None
+        try:
+            native_log_path = self._compute_native_log_path()
+        except Exception as exc:  # deliberate broad catch: logging setup must never block the spawn
+            log.debug(
+                "[NATIVE-HOTKEY] %s native log path computation failed — spawning without --log-file: %s",
+                self.platform_name,
+                exc,
+            )
+            native_log_path = None
+        if native_log_path is not None:
+            cmd.extend(["--log-file", str(native_log_path)])
+        else:
+            log.debug(
+                "[NATIVE-HOTKEY] %s spawning without --log-file (log path unresolvable)",
+                self.platform_name,
+            )
         try:
             self._process = subprocess.Popen(
                 cmd,

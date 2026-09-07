@@ -31,6 +31,11 @@ import contextlib
 import logging
 
 from voice_typer.server.config_applier import SideEffectStatus
+from voice_typer.server.service._app_internals import (
+    app_config_mutation_lock,
+    invalidate_cloud_engine,
+    invalidate_llm_polisher,
+)
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -267,14 +272,11 @@ class ConfigMutationMixin(ServiceMixinBase):
         )
 
         app = self._app
-        # Use ``getattr`` instead of direct attribute access so the
-        # static type checker doesn't flag the access (``app`` is typed
-        # as :class:`AppProtocol` which doesn't declare
-        # ``_config_mutation_lock`` per ADR-0008-§3.1 — see
-        # ``providers.py`` for the full rationale). ``getattr`` returns
-        # ``Any`` to the type checker and is functionally equivalent at
-        # runtime.
-        with getattr(app, "_config_mutation_lock"):  # noqa: B009 — ADR-0008-§3.1 excludes this attr from AppProtocol; direct access fails pyrefly
+        # The mutation lock is one of the private attributes
+        # ADR-0008-§3.1 keeps off ``AppProtocol`` — the accessors in
+        # ``service/_app_internals.py`` own that boundary (see
+        # ``providers.py`` for the full rationale).
+        with app_config_mutation_lock(app):
             config_dir = _config_dir()
             config_file = config_dir / "config.json"
             backup_path = config_dir / "config.json.bak"
@@ -360,14 +362,13 @@ class ConfigMutationMixin(ServiceMixinBase):
                 }
 
             # 6. Invalidate cached LLMPolisher / CloudEngine so the
-            # next request rebuilds with the reset config.
-            #
-            # Use ``setattr`` (see the GDPR-delete path above for the
-            # full rationale).
+            # next request rebuilds with the reset config. The
+            # ``_app_internals`` accessors own the off-protocol
+            # attribute writes.
             with contextlib.suppress(Exception):
-                setattr(app, "_llm_polisher", None)  # noqa: B010 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct assignment fails pyrefly
+                invalidate_llm_polisher(app)
             with contextlib.suppress(Exception):
-                setattr(app, "_cloud_engine", None)  # noqa: B010 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct assignment fails pyrefly
+                invalidate_cloud_engine(app)
 
             log.info(
                 "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API keys",

@@ -354,8 +354,7 @@ class DeviceManager:
                 single_flight=True,
             )
         log.info(
-            "[RECORDING] TY-5: hot-plug event triggered disconnect recovery "
-            "(device was disconnected, re-attempting restart)"
+            "[RECORDING] hot-plug event triggered disconnect recovery (device was disconnected, re-attempting restart)"
         )
 
     def shutdown_mic_watcher(self) -> None:

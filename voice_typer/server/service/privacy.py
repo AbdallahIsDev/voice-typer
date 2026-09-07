@@ -39,6 +39,7 @@ the pre-refactor implementation, and the existing
 import contextlib
 import logging
 import os
+from typing import Any, Protocol
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server._user_data_files import (
@@ -48,6 +49,30 @@ from voice_typer.server._user_data_files import (
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
+
+
+# ───────────────────────────────────────────────────────────────────
+# Collaborator surface types
+# ───────────────────────────────────────────────────────────────────
+# The GDPR helpers below are deliberately duck-typed (they accept the
+# live HistoryDB / ZipFile as well as test doubles). These structural
+# Protocols describe just the surface each helper uses, so the
+# collaborator parameters can be typed precisely instead of the bare
+# ``object`` that previously required ``# type: ignore[attr-defined]``
+# at every ``close()`` / ``write()`` call.
+
+
+class _ClosableHistoryDB(Protocol):
+    """Duck-typed ``HistoryDB`` surface used by the checkpoint helper."""
+
+    def close(self) -> None: ...
+
+
+class _ZipWriter(Protocol):
+    """Duck-typed ``zipfile.ZipFile`` surface used by the export path."""
+
+    def write(self, filename: Any, arcname: Any = ...) -> None: ...
+
 
 # Once-per-process flag for the missing-``_config_mutation_lock``
 # warning emitted by ``PrivacyMixin.delete_all_personal_data`` when the
@@ -254,7 +279,7 @@ class PrivacyMixin(ServiceMixinBase):
     # ───────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _gdpr_checkpoint_history_db(hdb: object, *, close: bool = False) -> None:
+    def _gdpr_checkpoint_history_db(hdb: _ClosableHistoryDB | None, *, close: bool = False) -> None:
         """checkpoint the live HistoryDB writer.
 
         Calls ``hdb.checkpoint(truncate=True)`` so the WAL is merged
@@ -313,7 +338,7 @@ class PrivacyMixin(ServiceMixinBase):
             )
         if close:
             try:
-                hdb.close()  # type: ignore[attr-defined]
+                hdb.close()
             except Exception:
                 log.debug(
                     "[SERVICE] GDPR: hdb.close() before unlink failed",
@@ -413,7 +438,9 @@ class PrivacyMixin(ServiceMixinBase):
         import shutil
         from pathlib import Path
 
-        rust_logs_dir = Path(config_dir) / "logs"
+        from voice_typer.server.log import get_logs_dir
+
+        rust_logs_dir = get_logs_dir(Path(config_dir))
         if not rust_logs_dir.exists():
             return
         try:
@@ -721,7 +748,7 @@ class PrivacyMixin(ServiceMixinBase):
 
     @staticmethod
     def _gdpr_zip_directory(
-        zf: object,
+        zf: _ZipWriter,
         config_dir: "os.PathLike[str] | str",
         subdir: str,
         prefix: str,
@@ -764,7 +791,7 @@ class PrivacyMixin(ServiceMixinBase):
             rel = path.relative_to(root).as_posix()
             arcname = f"{prefix}/{rel}"
             try:
-                zf.write(path, arcname=arcname)  # type: ignore[attr-defined]
+                zf.write(path, arcname=arcname)
             except Exception as exc:
                 log.debug(
                     "[SERVICE] GDPR export: could not add %s to zip: %s",
@@ -773,7 +800,7 @@ class PrivacyMixin(ServiceMixinBase):
                 )
 
     @staticmethod
-    def _gdpr_build_zip(zf: object, config_dir: "os.PathLike[str] | str") -> None:
+    def _gdpr_build_zip(zf: _ZipWriter, config_dir: "os.PathLike[str] | str") -> None:
         """write every personal-data artifact into ``zf``.
 
         Walks :data:`_GDPR_PERSONAL_FILES` and
@@ -799,7 +826,7 @@ class PrivacyMixin(ServiceMixinBase):
             path = config_dir_path / name
             if path.exists() and path.is_file():
                 try:
-                    zf.write(path, arcname=name)  # type: ignore[attr-defined]
+                    zf.write(path, arcname=name)
                 except Exception as exc:
                     log.debug(
                         "[SERVICE] GDPR export: could not add %s to zip: %s",
@@ -831,7 +858,7 @@ class PrivacyMixin(ServiceMixinBase):
                     continue
                 seen.add(key)
                 try:
-                    zf.write(path, arcname=path.name)  # type: ignore[attr-defined]
+                    zf.write(path, arcname=path.name)
                 except Exception as exc:
                     log.debug(
                         "[SERVICE] GDPR export: could not add %s to zip: %s",

@@ -173,15 +173,17 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # binary" (e.g. tests that bypass the factory) — the
         # comparison is skipped in that case.
         self._expected_version: str | None = None
-        # native log path: per-session diagnostic log path passed to the binary
-        # via ``--log-file <path>`` (or as positional argv[2]). The
-        # binary writes timestamped diagnostic lines (init steps,
-        # permission checks, device opens, hook installation, warnings)
-        # to this file so support bundles can include a native-side
-        # diagnostic trace alongside the Python-side log. None until
-        # ``_compute_native_log_path`` resolves it lazily on first
-        # spawn (so tests that construct backends without spawning
-        # don't create log files).
+        # native log path: per-session diagnostic log path passed to the
+        # binary via ``--log-file <path>`` (appended to the spawn command
+        # in ``_spawn_process``; the binary also accepts it as positional
+        # argv[2]). The binary writes timestamped diagnostic lines (init
+        # steps, permission checks, device opens, hook installation,
+        # warnings) to this file so support bundles can include a
+        # native-side diagnostic trace alongside the Python-side log.
+        # None until ``_compute_native_log_path`` resolves it lazily on
+        # first spawn (so tests that construct backends without spawning
+        # don't create log files); once resolved it is memoised so
+        # watchdog respawns append to the same file.
         self._native_log_path: Path | None = None
         # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
         # dictation hotkey in toggle mode), the toggle fires on key-UP

@@ -118,6 +118,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
     # in tests/test_ipc_server_main_diagnostics.py).
     from voice_typer.server._secrets import redact_for_export
     from voice_typer.server.config import _config_dir, _secure_atomic_write
+    from voice_typer.server.log import get_logs_dir
 
     buf = io.StringIO()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -152,7 +153,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
     else:
         traceback.print_exc(file=buf)
 
-    diag_path = _config_dir() / "logs" / "startup-error.log"
+    diag_path = get_logs_dir(_config_dir()) / "startup-error.log"
     try:
         # O1: the logs live under ``<config_dir>/logs`` — ensure the dir
         # exists before the atomic write (its mkstemp requires the parent).

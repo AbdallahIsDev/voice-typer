@@ -45,6 +45,45 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# ──────────────────────────────────────────────────────────────────
+# Shared list projection
+# ──────────────────────────────────────────────────────────────────
+# The 12-column projection returned by every history list/read query
+# (``get_recent`` / ``search`` / ``get_favorites``). ``text`` is a
+# SUBSTR-bounded preview (the full text is decrypted on demand via
+# ``get_transcription_text``) and ``text_is_encrypted`` flags rows
+# that need that decryption. Single-sourced here so adding a column
+# is one edit, not one per query; ``_LIST_COLUMNS_T_SQL`` is the
+# table-alias variant for the FTS JOIN queries that read
+# ``transcriptions t``. The first ``?`` in each variant is the preview
+# length bound (``_HISTORY_TEXT_PREVIEW_LENGTH``) — it stays the FIRST
+# parameter of every statement that interpolates these constants.
+_LIST_COLUMNS_SQL = """id,
+    SUBSTR(text, 1, ?) AS text,
+    LENGTH(text) AS text_full_length,
+    text_is_encrypted,
+    timestamp,
+    duration,
+    model,
+    device,
+    word_count,
+    char_count,
+    favorite,
+    language"""
+
+_LIST_COLUMNS_T_SQL = """t.id,
+    SUBSTR(t.text, 1, ?) AS text,
+    LENGTH(t.text) AS text_full_length,
+    t.text_is_encrypted,
+    t.timestamp,
+    t.duration,
+    t.model,
+    t.device,
+    t.word_count,
+    t.char_count,
+    t.favorite,
+    t.language"""
+
 
 # ──────────────────────────────────────────────────────────────
 # Search / LIKE / FTS5 helpers
@@ -355,20 +394,9 @@ def get_recent(
         use_cursor = before_timestamp is not None and before_id is not None
         if use_cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    text_is_encrypted,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
+                    {_LIST_COLUMNS_SQL}
                 FROM transcriptions
                 WHERE timestamp < ? OR (timestamp = ? AND id < ?)
                 ORDER BY timestamp DESC, id DESC
@@ -385,20 +413,9 @@ def get_recent(
         else:
             _assert_bounded_offset(offset)
             cursor.execute(
-                """
+                f"""
                 SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    text_is_encrypted,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
+                    {_LIST_COLUMNS_SQL}
                 FROM transcriptions
                 ORDER BY timestamp DESC, id DESC
                 LIMIT ? OFFSET ?
@@ -524,20 +541,9 @@ def search(
                 # into FTS could starve the cursor filter), mirroring the
                 # unicode61 cursor branch.
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        t.id,
-                        SUBSTR(t.text, 1, ?) AS text,
-                        LENGTH(t.text) AS text_full_length,
-                        t.text_is_encrypted,
-                        t.timestamp,
-                        t.duration,
-                        t.model,
-                        t.device,
-                        t.word_count,
-                        t.char_count,
-                        t.favorite,
-                        t.language
+                        {_LIST_COLUMNS_T_SQL}
                     FROM transcriptions t
                     JOIN transcriptions_fts_cjk AS f ON f.rowid = t.id
                     WHERE transcriptions_fts_cjk MATCH ?
@@ -561,20 +567,9 @@ def search(
                 _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        t.id,
-                        SUBSTR(t.text, 1, ?) AS text,
-                        LENGTH(t.text) AS text_full_length,
-                        t.text_is_encrypted,
-                        t.timestamp,
-                        t.duration,
-                        t.model,
-                        t.device,
-                        t.word_count,
-                        t.char_count,
-                        t.favorite,
-                        t.language
+                        {_LIST_COLUMNS_T_SQL}
                     FROM (
                         SELECT rowid
                         FROM transcriptions_fts_cjk
@@ -600,20 +595,9 @@ def search(
                 # Cursor path: cannot push LIMIT into FTS because the
                 # cursor WHERE filters by (timestamp, id), not rowid.
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        t.id,
-                        SUBSTR(t.text, 1, ?) AS text,
-                        LENGTH(t.text) AS text_full_length,
-                        t.text_is_encrypted,
-                        t.timestamp,
-                        t.duration,
-                        t.model,
-                        t.device,
-                        t.word_count,
-                        t.char_count,
-                        t.favorite,
-                        t.language
+                        {_LIST_COLUMNS_T_SQL}
                     FROM transcriptions t
                     JOIN transcriptions_fts AS f ON f.rowid = t.id
                     WHERE transcriptions_fts MATCH ?
@@ -642,20 +626,9 @@ def search(
                 _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        t.id,
-                        SUBSTR(t.text, 1, ?) AS text,
-                        LENGTH(t.text) AS text_full_length,
-                        t.text_is_encrypted,
-                        t.timestamp,
-                        t.duration,
-                        t.model,
-                        t.device,
-                        t.word_count,
-                        t.char_count,
-                        t.favorite,
-                        t.language
+                        {_LIST_COLUMNS_T_SQL}
                     FROM (
                         SELECT rowid
                         FROM transcriptions_fts
@@ -680,20 +653,9 @@ def search(
             pattern = prepare_like_search_pattern(query)
             if use_cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        text_is_encrypted,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
+                        {_LIST_COLUMNS_SQL}
                     FROM transcriptions
                     WHERE text LIKE ? ESCAPE '\\'
                       AND (timestamp < ? OR (timestamp = ? AND id < ?))
@@ -715,20 +677,9 @@ def search(
                 # lacked the guard — same silent O(offset) skip scan).
                 _assert_bounded_offset(offset)
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        text_is_encrypted,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
+                        {_LIST_COLUMNS_SQL}
                     FROM transcriptions
                     WHERE text LIKE ? ESCAPE '\\'
                     ORDER BY timestamp DESC, id DESC
@@ -757,20 +708,9 @@ def get_favorites(
         use_cursor = before_timestamp is not None and before_id is not None
         if use_cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    text_is_encrypted,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
+                    {_LIST_COLUMNS_SQL}
                 FROM transcriptions
                 WHERE favorite = 1
                   AND (timestamp < ? OR (timestamp = ? AND id < ?))
@@ -791,20 +731,9 @@ def get_favorites(
             # 10,000,000 and trigger a silent O(offset) skip scan.
             _assert_bounded_offset(offset)
             cursor.execute(
-                """
+                f"""
                 SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    text_is_encrypted,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
+                    {_LIST_COLUMNS_SQL}
                 FROM transcriptions
                 WHERE favorite = 1
                 ORDER BY timestamp DESC, id DESC

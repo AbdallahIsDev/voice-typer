@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from voice_typer.server import event_bus
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.auth import extract_auth_token, tokens_equal
+from voice_typer.server.ipc.auth import AUTH_READ_TIMEOUT_SECONDS, extract_auth_token, tokens_equal
 from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
@@ -469,10 +469,15 @@ class TCPTransportMixin:
         """
         # Set a read timeout BEFORE the auth readline so a
         # malicious client that connects but sends nothing can't hold
-        # the thread indefinitely.
-        _tcp_auth_timeout_seconds = 5.0
+        # the thread indefinitely. The budget is single-sourced as
+        # ``AUTH_READ_TIMEOUT_SECONDS`` in :mod:`voice_typer.server.ipc.auth`
+        # and imported by ALL THREE handshake implementations (the TCP
+        # path here, the sidecar WS transport's ``_authenticate`` in
+        # ``sidecar_ws_internals/handshake.py``, and the worker WS path
+        # in ``voice_typer/worker/_auth.py``) so they cannot drift —
+        # no transport carries its own 5.0 literal anymore.
         with contextlib.suppress(OSError, AttributeError):
-            conn.settimeout(_tcp_auth_timeout_seconds)  # socket may be a mock in tests
+            conn.settimeout(AUTH_READ_TIMEOUT_SECONDS)  # socket may be a mock in tests
 
         # enable TCP_NODELAY on the accepted server-side socket so
         # small push events (bubble_level at 15-50 Hz, heartbeat_ack) are

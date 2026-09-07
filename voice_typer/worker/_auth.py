@@ -35,14 +35,22 @@ import logging
 import os
 
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
+from voice_typer.server.ipc.auth import AUTH_READ_TIMEOUT_SECONDS
 
 log = logging.getLogger("voice_typer.worker")
 
 # Auth frame timeout (seconds). A client that connects but never sends
-# the auth frame must not hold the connection indefinitely — matches
-# the slim-core sidecar's ``_AUTH_TIMEOUT_SECONDS`` (5.0s) so the two
-# transports agree on the auth-deadline budget.
-_AUTH_TIMEOUT_SECONDS = 5.0
+# the auth frame must not hold the connection indefinitely — the
+# budget is single-sourced as ``AUTH_READ_TIMEOUT_SECONDS`` in
+# :mod:`voice_typer.server.ipc.auth` and imported by ALL THREE
+# handshake implementations (the TCP path in
+# ``ipc/transport_tcp.py``, the sidecar WS path in
+# ``sidecar_ws_internals/handshake.py``, and this worker WS path), so
+# the transports agree on the auth-deadline budget without any manual
+# sync. The local alias below preserves the historical
+# ``_AUTH_TIMEOUT_SECONDS`` name this module's ``_authenticate``
+# reads (no test patches it — kept purely as the established name).
+_AUTH_TIMEOUT_SECONDS = AUTH_READ_TIMEOUT_SECONDS
 
 
 async def _authenticate(websocket) -> bool:  # noqa: ANN001 - websockets type is imported lazily

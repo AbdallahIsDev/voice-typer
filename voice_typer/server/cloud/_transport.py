@@ -18,8 +18,12 @@ import numpy as np
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._http_safety import build_secure_opener
 
-# PERF-: module-level OpenerDirector for connection pooling.
-# Reuses TCP connections across requests (like requests.Session).
+# Module-level OpenerDirector shared by every cloud request, so the
+# handler chain (redirect refusal, plaintext-HTTP refusal, TLS) is
+# built once instead of per request. NOTE: the stdlib opener does NOT
+# pool connections — ``AbstractHTTPHandler.do_open`` opens a fresh
+# TCP/TLS connection per request and sends ``Connection: close``, so
+# each request pays a full handshake (unlike ``requests.Session``).
 # SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
 # the opener does NOT follow 3xx redirects (the default
 # ``HTTPRedirectHandler`` would silently POST the request body — user
@@ -67,12 +71,16 @@ def _read_capped(resp, *, max_bytes: int) -> bytes:
 class _StreamingMultipartBody:
     """File-like object that yields multipart body chunks on demand.
 
-    PERF-: avoids building the entire multipart body in memory
-        as a single ``bytes`` object. ``urllib.request.Request`` accepts a
-        file-like object as ``data`` and reads it in chunks via ``read()``.
-        This class yields the pre-computed parts list one chunk at a time,
-        reducing peak memory from the full body (~5.2 MB for a 30s
-        recording) to one chunk (~64 KB).
+    PERF: avoids building the entire multipart body in memory
+        as a SECOND contiguous ``bytes`` object. ``urllib.request.Request``
+        accepts a file-like object as ``data`` and reads it in chunks via
+        ``read()``. This class yields the pre-computed parts list one
+        ~64 KB chunk at a time. Note the parts list itself keeps the
+        full WAV payload resident (``build_multipart_parts`` appends
+        ``wav_bytes``), so peak memory is ``wav_bytes`` + one ~64 KB
+        chunk — the saving versus ``b"".join(parts)`` is the additional
+        full-body copy (~5.2 MB for a 30s recording), not the WAV
+        itself.
 
         The ``__contains__`` method supports the ``in`` operator so
         existing tests like ``assert b"fake_wav_data" in body`` continue

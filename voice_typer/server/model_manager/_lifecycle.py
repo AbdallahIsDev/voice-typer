@@ -250,7 +250,7 @@ class LifecycleMixin:
         # rescheduled timer's callback aborts).
         timer = threading.Timer(delay, lambda: None)
         timer.daemon = True
-        timer.name = "TY-11-idle-unload"
+        timer.name = "model-idle-unload"
 
         def _fire() -> None:
             self._on_idle_unload_fire(timer)

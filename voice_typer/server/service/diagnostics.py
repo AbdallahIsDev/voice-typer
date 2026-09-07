@@ -25,6 +25,7 @@ mixin is composed via multiple inheritance so
 import logging
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.service._app_internals import app_crash_recovery
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -61,22 +62,13 @@ class DiagnosticsMixin(ServiceMixinBase):
                 bundle regression is visible in support tickets.
         """
         try:
-            # Direct attribute access (NOT ``getattr``) is correct
-            # here — ``self._app`` is duck-typed at runtime as a
-            # ``VoiceTyperApp`` which always sets ``self._crash_recovery``
-            # in ``__init__`` (possibly to ``None`` during early startup
-            # or after a failed init). The previous comment claimed
-            # ``getattr`` was used "so the static type checker doesn't
-            # flag the access" but the code already used direct access —
-            # the comment was stale and has been corrected. ``AppProtocol``
-            # does not declare ``_crash_recovery`` (ADR-0008-§3.1 — the
-            # protocol surface is intentionally minimal), so type-checkers
-            # that run on the mixin see an unknown-attribute warning on
-            # this line; that's an accepted trade-off (the mixin is
-            # composed into ``VoiceTyperService`` whose ``self._app`` is
-            # the concrete ``VoiceTyperApp``, not the narrow
-            # ``AppProtocol``).
-            recovery = getattr(self._app, "_crash_recovery")  # noqa: B009 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct access fails pyrefly
+            # ``_crash_recovery`` is one of the private attributes
+            # ADR-0008-§3.1 keeps off ``AppProtocol`` — the
+            # ``_app_internals`` accessor owns that boundary. The
+            # concrete ``VoiceTyperApp`` always sets the attribute in
+            # ``__init__`` (possibly to ``None`` during early startup
+            # or after a failed init).
+            recovery = app_crash_recovery(self._app)
             if recovery is None:
                 # Refuse to export rather than silently producing
                 # an empty bundle from a fresh ``CrashRecovery()``. The

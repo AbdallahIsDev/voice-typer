@@ -128,6 +128,8 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
         return []
     import subprocess
 
+    from voice_typer.server.server_platform.autostart import _windows_create_no_window_flags as _create_no_window_flags
+
     deleted: list[str] = []
     try:
         # PowerShell pipeline: Get-ScheduledTask returns matching tasks,
@@ -158,9 +160,9 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
             # window from flashing on the user's screen during the
             # uninstall sweep. The sweep runs at uninstall time, often
             # from a UI-driven flow where a flashing console would look
-            # broken. ``getattr`` guard is defensive (the constant
-            # exists on every Python 3.x Windows build).
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            # broken (flag value shared with the autostart import probe
+            # and the legacy-entry sweep via the ``autostart`` helper).
+            creationflags=_create_no_window_flags(),
         )
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():

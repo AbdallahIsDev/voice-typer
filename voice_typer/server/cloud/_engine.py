@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import time
 from collections.abc import Callable
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -162,11 +161,14 @@ class CloudEngine:
         monitors ``recording._cancelled_cycle_ids``) when the user
         hits ESC or the watchdog force-recovers a stuck cloud call.
         Sets a ``threading.Event`` that the retry loop checks at the
-        top of each iteration. The current HTTP request cannot be
-        interrupted from Python (the thread is blocked in C-level
-        ``recv``), but with the per-request timeout reduced to 10s
-        the worst-case latency before the abort takes effect is now
-        bounded to ~10s + retry backoff, down from ~30s + backoff.
+        top of each iteration AND inside every retry backoff /
+        Retry-After wait (``Event.wait(timeout=...)`` returns early
+        when the event is set, so an abort during a 60s rate-limit
+        wait takes effect immediately). The current HTTP request
+        cannot be interrupted from Python (the thread is blocked in
+        C-level ``recv``), but with the per-request timeout reduced to
+        10s the worst-case latency before the abort takes effect is
+        now bounded to ~10s, down from ~30s.
         """
         self._abort_event.set()
 
@@ -224,10 +226,10 @@ class CloudEngine:
     ) -> str:
         """Try cloud transcription; fall back to local engine on failure.
 
-        PERF-: if the cloud request fails after all retries,
-                and a local_engine is provided, attempt transcription on it
-                instead of raising.  This gives a best-effort result even
-                when the cloud is temporarily unreachable.
+        PERF: if the cloud request fails after all retries,
+        and a local_engine is provided, attempt transcription on it
+        instead of raising.  This gives a best-effort result even
+        when the cloud is temporarily unreachable.
 
                 When ``local_engine`` is NOT explicitly passed but the
                 engine was constructed with a ``local_engine_factory`` callable,
@@ -380,8 +382,11 @@ class CloudEngine:
         """Shared retry/backoff skeleton for cloud transcription HTTP calls.
 
         Honors the per-engine ``_abort_event`` (checked before each
-        attempt), retries 429 once honoring ``Retry-After`` (capped at
-        60s by ``_parse_retry_after``), and applies exponential backoff
+        attempt AND interruptibly during every Retry-After / backoff
+        wait, so an ESC-abort takes effect mid-wait instead of at the
+        top of the next attempt), retries 429 once honoring
+        ``Retry-After`` (capped at 60s by ``_parse_retry_after``), and
+        applies exponential backoff
         (0.5s, 1.0s, 2.0s) for transient ``URLError``s. Non-retryable
         ``HTTPError``s and the catch-all ``Exception`` branch raise
         typed ``CloudEngineError`` subclasses via
@@ -456,7 +461,17 @@ class CloudEngine:
                         max_retries,
                         wait,
                     )
-                    time.sleep(wait)
+                    # Interruptible wait: ``Event.wait`` returns True the
+                    # moment the abort event is set, so the user's ESC is
+                    # honored DURING the Retry-After wait instead of being
+                    # deferred to the top of the next attempt (up to 60s
+                    # later with a hostile Retry-After).
+                    if self._abort_event.wait(timeout=wait):
+                        log.info(
+                            "[CLOUD] %s abort requested — aborting Retry-After wait",
+                            provider,
+                        )
+                        raise CloudEngineError(f"{provider} transcription aborted by user") from exc
                     continue
                 # Non-retryable HTTPError (4xx other than 429, or 5xx that
                 # we also surface without retrying — 5xx from a cloud ASR
@@ -491,7 +506,15 @@ class CloudEngine:
                         backoff,
                         redact_secret(redact_url(str(exc))),
                     )
-                    time.sleep(backoff)
+                    # Interruptible wait (same rationale as the 429 branch
+                    # above): abort takes effect mid-backoff, not at the
+                    # top of the next attempt.
+                    if self._abort_event.wait(timeout=backoff):
+                        log.info(
+                            "[CLOUD] %s abort requested — aborting backoff wait",
+                            provider,
+                        )
+                        raise CloudEngineError(f"{provider} transcription aborted by user") from exc
                 else:
                     safe_msg = redact_secret(redact_url(str(exc)))
                     # Include exc_info so the final URLError
@@ -532,17 +555,20 @@ class CloudEngine:
     def _send_openai_compatible(self, wav_bytes: bytes, filename: str) -> str:
         """Send request to OpenAI-compatible API (OpenAI, Groq).
 
-                URL allowlist: asserts the configured ``api_url`` is in the
-                trusted-host allowlist before sending any audio.  This closes
-                the SEC-002 endpoint-swap vector at the cloud-engine layer:
-                even if an attacker finds another path to write
-                ``config.cloud_api_url``, this engine refuses to send audio
-                to an untrusted host.
+        URL allowlist: asserts the configured ``api_url`` is in the
+        trusted-host allowlist before sending any audio.  This closes
+        the SEC-002 endpoint-swap vector at the cloud-engine layer:
+        even if an attacker finds another path to write
+        ``config.cloud_api_url``, this engine refuses to send audio
+        to an untrusted host.
 
-        PERF-: exponential backoff retry (3 attempts) for
-                transient network errors.  Connection pooling via the
-                shared module-level OpenerDirector (urllib's equivalent of
-                requests.Session).
+        PERF: exponential backoff retry (3 attempts) for transient
+        network errors. HTTP goes through the shared module-level
+        OpenerDirector (built once, so the handler chain — redirect
+        refusal, plaintext-HTTP refusal — is not reconstructed per
+        request); note the stdlib opener does NOT pool connections —
+        each request opens a fresh TCP/TLS connection and sends
+        ``Connection: close``.
 
         Thin wrapper around ``_transcribe_with_retry`` — supplies the
         OpenAI-specific request factory (multipart body, rebuilt per
@@ -577,7 +603,7 @@ class CloudEngine:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
-                # PERF-: pass Content-Length explicitly so urllib
+                # PERF: pass Content-Length explicitly so urllib
                 # uses a single write instead of chunked encoding. The
                 # _StreamingMultipartBody.__len__ returns the total length.
                 "Content-Length": str(len(body)),
@@ -601,9 +627,9 @@ class CloudEngine:
                 (``voice_typer.server.cloud._providers.deepgram``) to prevent
                 parameter injection via crafted config values.
 
-        PERF-: exponential backoff retry (3 attempts) for
-                transient network errors, matching the OpenAI-compatible path
-                (now shared via ``_transcribe_with_retry``).
+        PERF: exponential backoff retry (3 attempts) for
+        transient network errors, matching the OpenAI-compatible path
+        (now shared via ``_transcribe_with_retry``).
         """
         # Opt in to allow_loopback_http=True — see the
         # OpenAI-compatible transcribe path above for the rationale.
@@ -645,11 +671,14 @@ class CloudEngine:
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str):
         """Build multipart/form-data body for OpenAI-compatible APIs.
 
-        PERF-: returns a streaming ``_StreamingMultipartBody`` file-like
+        PERF: returns a streaming ``_StreamingMultipartBody`` file-like
         object (defined in ``voice_typer.server.cloud._transport``) that
-        yields chunks on demand instead of materializing the full ~5.2 MB
-        body; ``Content-Length`` is computed upfront via ``__len__`` so
-        the server knows the total size without chunked transfer encoding.
+        yields the pre-built parts as ~64 KB chunks on demand, avoiding a
+        SECOND full-body copy — the naive ``b"".join(parts)`` built one
+        contiguous ~5.2 MB ``bytes`` object next to the WAV that is
+        already resident in ``parts``; ``Content-Length`` is computed
+        upfront via ``__len__`` so the server knows the total size
+        without chunked transfer encoding.
         Shaping itself lives in
         ``voice_typer.server.cloud._providers.openai``.
         """

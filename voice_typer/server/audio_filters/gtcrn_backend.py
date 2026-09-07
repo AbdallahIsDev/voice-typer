@@ -100,7 +100,7 @@ def is_available() -> bool:
     :class:`GtcrnBackend` will succeed without a network round-trip.
     """
     try:
-        import onnxruntime  # type: ignore[import-untyped]  # noqa: F401
+        import onnxruntime  # noqa: F401
     except ImportError:
         return False
     return MODEL_PATH.exists()

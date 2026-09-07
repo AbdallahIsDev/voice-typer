@@ -20,16 +20,28 @@ parts of the handshake:
   :func:`hmac.compare_digest` (used purely as a timing-safe comparison
   helper; there is no key derivation, signing, or per-message MAC — see
   ``sidecar_ws._authenticate`` for the compensating controls).
+- :data:`AUTH_READ_TIMEOUT_SECONDS` — the shared auth-read deadline
+  (seconds) both transports enforce before dropping a silent client.
 
 The transports keep their transport-specific concerns local
 (asyncio/timeout handling, the ``protocol_version`` check, the error /
-close behavior, and logging vocabulary). Only the two functions below
-are shared, so a fix to the validation contract lands in ONE module.
+close behavior, and logging vocabulary). Only the names above are
+shared, so a fix to the validation contract lands in ONE module.
 """
 
 from __future__ import annotations
 
 import hmac
+
+# Auth-read deadline (seconds), shared by BOTH IPC transports: a client
+# that connects but never sends the auth frame must not hold the
+# connection (and its dispatcher slot) indefinitely. The sidecar WS
+# handshake (``sidecar_ws._authenticate``) and the TCP handshake
+# (``ipc/transport_tcp.py::_handle_tcp_connection``) both import this
+# constant so the auth-deadline budget cannot drift between the two
+# transports (previously each carried its own 5.0 with a comment
+# requiring manual sync).
+AUTH_READ_TIMEOUT_SECONDS = 5.0
 
 
 def extract_auth_token(frame: object) -> str | None:

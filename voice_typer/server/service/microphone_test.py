@@ -8,6 +8,7 @@ mic-test recording lifecycle, and continuous level monitoring.
 import contextlib
 import logging
 
+from voice_typer.server.service._app_internals import app_microphones, set_app_microphones
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
     def get_microphones(self) -> list[dict]:
         """Return available microphones."""
-        return getattr(self._app, "_microphones")  # noqa: B009 — attr not on AppProtocol; getattr returns Any (see providers.py)
+        return app_microphones(self._app)
 
     # AUDIO-MIC: refresh the microphone list by re-querying PortAudio.
     def refresh_microphones(self, force: bool = False) -> list[dict]:
@@ -80,7 +81,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
         try:
             mics = list_microphones()
-            self._app._microphones = mics
+            set_app_microphones(self._app, mics)
             # PERF-: update the short-TTL cache.
             self._microphones_cache = mics
             self._microphones_cache_ts = now
@@ -89,7 +90,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
             return mics
         except Exception as e:
             log.exception("[SERVICE] refresh_microphones failed: %s", e)
-            return getattr(self._app, "_microphones")  # noqa: B009 — attr not on AppProtocol; getattr returns Any (see providers.py)
+            return app_microphones(self._app)
 
     # AUDIO-RMS: IPC endpoint for real-time RMS level.
     def get_rms_level(self) -> dict[str, object]:

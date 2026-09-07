@@ -45,13 +45,23 @@ _active_state_lock = threading.Lock()
 
 # Combined-alternation regex cache. The prior implementation iterated
 # through the phrase list once per dictation, doing an O(M) ``bad.lower()
-# in lower`` substring check per phrase — O(N×M) total for N phrases.
-# This cache builds a single ``re.compile(r"(?:p1|p2|p3|...)",
-# re.IGNORECASE)`` alternation that the ``re`` engine compiles to a trie
-# of escaped literals, giving O(N+M) total matching regardless of how
-# many phrases are in the dictionary (the SRE trie optimization kicks in
-# for alternations of ``re.escape``d strings because every alternative is
-# a literal with no regex metacharacters).
+# in lower`` substring check per phrase — O(N×M) total (N = text length,
+# M = phrase count), all in Python-level loops. This cache builds a
+# single ``re.compile(r"p1|p2|p3|...", re.IGNORECASE)`` alternation so
+# the whole dictionary is matched in ONE C-level scan of the text
+# instead of M separate scans.
+#
+# NOTE: CPython's ``re`` does NOT compile alternations of literals to a
+# trie — it emits a BRANCH that tries each alternative sequentially at
+# each position (verified via ``re._parser.parse``: ``cat|car|cap``
+# stays three independent literal subpatterns with no prefix sharing).
+# So worst-case comparisons still scale with M; the win is the single
+# C-level pass with no per-phrase Python loop. A true trie would need a
+# dedicated generator (trrex / Flashtext build trie-optimized patterns)
+# — deliberately not a dependency here. Because the branch tries
+# alternatives in order (leftmost-FIRST, not longest), the alternatives
+# are sorted length-DESCENDING in ``_build_phrases_regex`` so a longer
+# phrase is tried before its shorter prefix.
 #
 # The cache holds a reference to the exact list object it was built
 # from and invalidates via identity (``cached_list is _active_phrases``),

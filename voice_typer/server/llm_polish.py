@@ -254,23 +254,24 @@ class LLMPolisher:
     def _call_api(self, text: str, system_prompt: str, *, timeout_s: float | None = None) -> str:
         """Call the OpenAI-compatible chat completions API.
 
-                RELIABILITY-004: asserts ``self.api_url`` is in the trusted
-                allowlist before sending any text.  This prevents an
-                endpoint-swap attack from exfiltrating transcribed speech
-                text even if SEC-002's allowlist is somehow bypassed.
+        RELIABILITY-004: asserts ``self.api_url`` is in the trusted
+        allowlist before sending any text. This prevents an
+        endpoint-swap attack from exfiltrating transcribed speech
+        even if the config layer's allowlist check was bypassed.
 
-        Apply PII redaction to the user-content text BEFORE
-                sending to the LLM API. This is defense-in-depth against
-                template ``{clipboard}`` substitution (which can inject
-                passwords, 2FA codes, private messages from the user's
-                clipboard into the LLM-bound text). The redaction patterns
-                cover credit cards, SSNs, email addresses, phone numbers,
-                and API keys. The redacted text is what's sent to the API;
-                the original (un-redacted) text is what's returned to the
-                user for pasting.
+        PII redaction is applied to the user-content text BEFORE it is
+        sent to the LLM (defense-in-depth against template
+        ``{clipboard}`` substitution, which can inject passwords, 2FA
+        codes, or private messages into the LLM-bound text — the
+        redaction patterns cover credit cards, SSNs, email addresses,
+        phone numbers, and API keys). The REDACTED text is what leaves
+        the device. When the call fails, or redaction itself fails,
+        the ORIGINAL un-polished text is returned to the user instead
+        (see ``polish`` and the fail-closed branch below).
 
         Args:
-            text: The user-content text to send.
+            text: The user-content text to send (redacted before the
+                API call).
             system_prompt: The system prompt for the chosen preset.
             timeout_s: Optional override for the API call timeout (seconds).
                 When ``None``, falls back to ``DEFAULT_TIMEOUT_S`` (10s).

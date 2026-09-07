@@ -143,9 +143,9 @@ class TrayIcon:
         # supervisor respawn (2026-08-30: "tray menu missing" after
         # tray-Restart). Idempotent via _host_ready_republish_subscribed.
         self._host_ready_republish_subscribed = False
-        import os as _os
+        from voice_typer.server.tray_types import is_tauri_sidecar
 
-        if _os.environ.get("TAURI_SIDECAR") == "1":
+        if is_tauri_sidecar():
             self._subscribe_host_ready_republish()
 
     # ─── Public API ─────────────────────────────────────────────────────
@@ -267,9 +267,9 @@ class TrayIcon:
         # still launched, pending states drained by run()'s 60s loop, and
         # notifications re-routed to the host event bus (see
         # tray_notifications.do_notify).
-        import os as _os
+        from voice_typer.server.tray_types import is_tauri_sidecar
 
-        if _os.environ.get("TAURI_SIDECAR") == "1":
+        if is_tauri_sidecar():
             log.info(
                 "[TRAY] TAURI_SIDECAR=1 — native tray is owned by the Rust host; "
                 "skipping pystray icon creation. Menu/state reach the host via the "

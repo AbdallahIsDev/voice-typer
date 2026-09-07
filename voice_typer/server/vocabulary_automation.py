@@ -45,6 +45,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+# Token-key normalizer shared with text_cleanup (memoized
+# lru_cache over the precompiled ``^\W+|\W+$`` strip regex).
+# The suggestion loop normalizes every candidate word; most
+# dictations repeat words heavily, so the shared cache
+# amortizes the per-word strip+lower work.
+from voice_typer.server.text_cleanup import _token_key
+
 if TYPE_CHECKING:  # pragma: no cover — import only for type checkers
     from voice_typer.server.vocabulary import VocabularyManager
 
@@ -240,6 +247,12 @@ def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
 # be within 1 of each other to avoid silly matches.
 _MAX_LEVENSHTEIN_DISTANCE = 2
 
+# Sentence-split pattern for the suggestion context field: split
+# after . ! ? followed by whitespace (same approach text_cleanup
+# uses for sentence handling). Module-level so the per-call
+# suggestion loop reuses one compiled pattern.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
 # Minimum word length to consider for suggestion.  Words shorter
 # than 3 characters are too short for meaningful Levenshtein matching
 # (a 2-character word has at most a 2-edit distance to any other
@@ -400,10 +413,10 @@ class VocabularyAutomation:
         # suggestion).
         vocab_words = _collect_vocabulary_words(self._vm)
 
-        # Build a regex for sentence splitting (reuse text_cleanup's
-        # approach: split on . ! ? followed by whitespace).
-        sentence_split = re.compile(r"(?<=[.!?])\s+")
-        sentences = sentence_split.split(text)
+        # Split into sentences (``. ! ?`` followed by whitespace —
+        # the precompiled module constant) so each suggestion
+        # carries its containing sentence as context.
+        sentences = _SENTENCE_SPLIT_RE.split(text)
 
         # Map each word index to its containing sentence (for the
         # context field).  We do this by walking sentences and
@@ -426,8 +439,9 @@ class VocabularyAutomation:
 
         for i, word in enumerate(words):
             # Strip punctuation for matching but keep the original
-            # for display.
-            clean = re.sub(r"^\W+|\W+$", "", word).lower()
+            # for display (memoized normalizer shared with
+            # text_cleanup — same strip+lower semantics).
+            clean = _token_key(word)
             if len(clean) < _MIN_WORD_LENGTH:
                 continue
             if not clean.isalpha():

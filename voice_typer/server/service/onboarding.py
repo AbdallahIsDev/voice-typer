@@ -8,6 +8,7 @@ the apply-settings flow that mirrors ``set_config``.
 import logging
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.service._app_internals import app_config_mutation_lock
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -212,7 +213,7 @@ class OnboardingMixin(ServiceMixinBase):
             # in a torn state). Now run inside the lock, BEFORE save,
             # matching apply_config's pattern (so any Config mutations
             # performed by side-effects are persisted to disk).
-            with getattr(app, "_config_mutation_lock"):  # noqa: B009 — ADR-0008-§3.1 excludes this attr from AppProtocol; direct access fails pyrefly
+            with app_config_mutation_lock(app):
                 ctrl.apply_settings(app.config)
                 app.config.onboarding_completed = True
                 # Apply side effects inside the lock so any Config

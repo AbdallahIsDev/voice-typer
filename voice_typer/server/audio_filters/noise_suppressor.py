@@ -307,7 +307,7 @@ class NoiseSuppressor(AudioFilter):
 
     def _init_rnnoise(self) -> None:
         try:
-            from pyrnnoise import RNNoise  # type: ignore[import-not-found]
+            from pyrnnoise import RNNoise
 
             self._backend = RNNoise(sample_rate=RNNOISE_SAMPLE_RATE)
             if not self._quiet:

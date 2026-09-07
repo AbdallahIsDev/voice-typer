@@ -48,4 +48,14 @@ from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 # stable target for every consumer.
 SYSTEM = sys.platform
 
+# How many ancestor processes to walk looking for the host runtime
+# (the ``*.app`` bundle on macOS, the equivalent chain on Linux). The
+# backend is normally a direct child of the host (1 step); the bound
+# guards against pathological chains (launcher scripts, etc.). Lives
+# here — the platform-neutral leaf of the ``server_platform`` package —
+# so the macOS walker (``macos_bundle_id``) and the Linux walker
+# (``linux_proc_walk``) share one definition without either platform
+# module importing the other.
+_MAX_CHAIN_DEPTH = 8
+
 __all__ = ["is_windows", "is_macos", "is_linux", "SYSTEM"]

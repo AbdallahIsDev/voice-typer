@@ -103,9 +103,9 @@ def on_host_ready(tray: TrayIcon, event: dict) -> None:
     """Republish menu + state when the host connection signals ready."""
     if not isinstance(event, dict) or event.get("type") != "ready":
         return
-    import os as _os
+    from voice_typer.server.tray_types import is_tauri_sidecar
 
-    if _os.environ.get("TAURI_SIDECAR") != "1":
+    if not is_tauri_sidecar():
         return
     try:
         tray._maybe_publish_tray_menu()

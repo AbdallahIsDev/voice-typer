@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from voice_typer.server._paths import IPC_PORT, IPC_TOKEN_ENV_VAR
 from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
 from voice_typer.server.ipc.transport import _pick_available_port
+from voice_typer.server.tray_types import is_tauri_sidecar
 
 
 def _ws_startup_thread_main(app: VoiceTyperApp) -> None:
@@ -383,7 +384,10 @@ def main() -> None:
     # Python-side `VoiceTyperSingleInstance` Win32 mutex (app.py:2086)
     # would double-lock on Windows and block the second-instance focus
     # path, so we skip it under Tauri.
-    _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
+    # Canonical guard (tray_types.is_tauri_sidecar): reads
+    # ``TAURI_SIDECAR == "1"`` at call time — the authoritative form
+    # shared by every Tauri-sidecar gate in the server.
+    _tauri_sidecar = is_tauri_sidecar()
 
     # ── IN-PLACE-RESTART LOOP ────────────────────────────────────────
     # In standalone/terminal mode (``voice-typer`` from a terminal without

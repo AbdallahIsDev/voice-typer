@@ -207,8 +207,10 @@ def _sweep_legacy_tasks() -> list[str] | None:
             timeout=15,
             check=False,
             # CREATE_NO_WINDOW (0x08000000) prevents a console window
-            # from flashing during the sweep.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            # from flashing during the sweep (shared with the autostart
+            # import probe and the uninstall sweep via the
+            # ``autostart`` helper).
+            creationflags=_autostart_mod._windows_create_no_window_flags(),
         )
         if result.returncode != 0:
             log.debug(

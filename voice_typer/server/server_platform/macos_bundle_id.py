@@ -38,15 +38,9 @@ import subprocess
 from pathlib import Path
 
 from voice_typer.server.platform_utils import is_macos
+from voice_typer.server.server_platform.platform_flags import _MAX_CHAIN_DEPTH
 
 log = logging.getLogger(__name__)
-
-# How many ancestors to walk looking for the host ``*.app`` bundle. The
-# backend is normally a direct child of the host (1 step); the bound
-# guards against pathological chains (launcher scripts, etc.). Shared
-# with the Linux sibling walk (``linux_proc_walk``) so the depth
-# semantics stay in lockstep across platforms.
-_MAX_CHAIN_DEPTH = 8
 
 
 def tccutil_reset_command(service: str, bundle_id: str) -> list[str]:

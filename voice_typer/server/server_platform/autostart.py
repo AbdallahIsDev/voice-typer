@@ -303,6 +303,20 @@ def _autostart_command() -> str:
     return cmd
 
 
+def _windows_create_no_window_flags() -> int:
+    """Return the Win32 ``CREATE_NO_WINDOW`` creation flag.
+
+    Shared by the subprocess launches in this package that must not
+    flash a console window on Windows: the system-python import probe
+    (:func:`_system_python_can_import_launcher`), the legacy
+    autostart-entry sweep, and the uninstall task sweep. The
+    ``getattr`` fallback keeps the helper safe under unusual test
+    stubs that monkeypatch ``subprocess`` — the constant exists on
+    every Python 3.x Windows build.
+    """
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
 def _system_python_can_import_launcher(system_python: str) -> bool:
     """probe whether the system Python can import the launcher.
 
@@ -334,11 +348,9 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
     }
     if is_windows():
         # CREATE_NO_WINDOW — prevents a console flash when probing
-        # python.exe on Windows. ``getattr`` guard is defensive: the
-        # constant exists on every Python 3.x Windows build, but the
-        # guard keeps the line safe under unusual test stubs that
-        # monkeypatch ``subprocess``.
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        # python.exe on Windows (shared helper: the flag value is
+        # single-sourced with the sweep / uninstall launch sites).
+        kwargs["creationflags"] = _windows_create_no_window_flags()
 
     try:
         result = subprocess.run(

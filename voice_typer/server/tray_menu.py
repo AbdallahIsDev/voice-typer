@@ -348,11 +348,10 @@ def publish_tray_menu(model: list[dict]) -> bool:
 
     Returns ``True`` if the event was published, ``False`` otherwise.
     """
-    import os
-
     from voice_typer.server import event_bus
+    from voice_typer.server.tray_types import is_tauri_sidecar
 
-    if os.environ.get("TAURI_SIDECAR") != "1":
+    if not is_tauri_sidecar():
         return False
     event_bus.publish({"type": "tray_menu", "data": {"items": model}})
     return True
@@ -390,11 +389,10 @@ def publish_tray_state(
     (including when both fields are ``None`` — there's nothing to
     update).
     """
-    import os
-
     from voice_typer.server import event_bus
+    from voice_typer.server.tray_types import is_tauri_sidecar
 
-    if os.environ.get("TAURI_SIDECAR") != "1":
+    if not is_tauri_sidecar():
         return False
     payload: dict = {}
     if icon is not None:

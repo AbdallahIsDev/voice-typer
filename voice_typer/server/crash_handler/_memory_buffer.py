@@ -234,7 +234,7 @@ def install_memory_buffer(config_dir: Path) -> None:
     # handler that lacks 0o600 perms and the inter-process rotation
     # lock (a stock ``RotatingFileHandler`` re-opens rotated files with
     # the process umask, which is typically 0o022 — world-readable).
-    from voice_typer.server.log import _SecureTruncatingFileHandler
+    from voice_typer.server.log import _SecureTruncatingFileHandler, get_logs_dir
 
     # Build (or rebuild) the target RotatingFileHandler. The target is
     # replaced on every call so a config-dir migration re-points the
@@ -243,8 +243,9 @@ def install_memory_buffer(config_dir: Path) -> None:
     try:
         resolved.mkdir(parents=True, exist_ok=True)
         # O1: the crash-buffer log lives under ``logs/`` alongside
-        # ``voice-typer.log`` (both are PII-redacted support files).
-        logs_dir = resolved / "logs"
+        # ``voice-typer.log`` (both are PII-redacted support files);
+        # ``get_logs_dir`` is the single source of that location.
+        logs_dir = get_logs_dir(resolved)
         logs_dir.mkdir(parents=True, exist_ok=True)
         buffer_path = logs_dir / "voice-typer-crash-buffer.log"
         target_handler = _SecureTruncatingFileHandler(

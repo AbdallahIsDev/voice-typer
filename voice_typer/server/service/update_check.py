@@ -835,7 +835,13 @@ def handle_check_offline_pack_update_ipc(
             background download (testing / "check only" mode).
     """
     config = getattr(app, "config", None) if app is not None else None
-    event_bus = getattr(app, "event_bus", None) if app is not None else None
+    # Typed resolution: the app may expose ``event_bus`` as an
+    # attribute or a method/property, so the attribute read is
+    # untyped (``getattr``); the module-level fallback below is a
+    # ``ModuleType``. Annotating the variable keeps the
+    # ``check_offline_pack_update`` call type-checked without a
+    # suppression.
+    event_bus: ModuleType | None = getattr(app, "event_bus", None) if app is not None else None
     if event_bus is None and app is not None:
         # Fall back to the module-level event_bus (some service objects
         # expose it as a method / property rather than an attribute).
@@ -847,7 +853,7 @@ def handle_check_offline_pack_update_ipc(
             pass
     result = check_offline_pack_update(
         config,
-        event_bus,  # type: ignore[arg-type]
+        event_bus,
         http_get=http_get,
         manifest_url=manifest_url,
         local_version=local_version,

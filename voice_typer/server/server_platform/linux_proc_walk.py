@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 
 from voice_typer.server.platform_utils import is_linux
-from voice_typer.server.server_platform.macos_bundle_id import _MAX_CHAIN_DEPTH
+from voice_typer.server.server_platform.platform_flags import _MAX_CHAIN_DEPTH
 
 log = logging.getLogger(__name__)
 

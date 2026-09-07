@@ -155,6 +155,20 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
             "single-connection invariant",
             peer,
         )
+        # INTENTIONALLY INLINE (pre-existing moved code, kept as-is):
+        # this one-shot rejection frame goes through a direct
+        # ``websocket.send(json.dumps(...))`` instead of
+        # ``outbound._safe_send``. Deliberate: (1) the frame is a tiny
+        # fixed-size error envelope, so the 1 MiB cap / off-loop encode
+        # defenses are moot for it; (2) the close code contract here is
+        # 1008 (Policy Violation — the host's reconnect logic branches
+        # on it), and routing through ``_safe_send`` would introduce a
+        # competing 1011 close on its timeout/error paths, racing this
+        # authoritative 1008 close; (3) the send + close are both
+        # wrapped in ``contextlib.suppress`` so a half-dead socket
+        # cannot crash the handler. C-WS-2 is satisfied either way —
+        # ``json.dumps`` produces a ``str``, so the frame goes out as
+        # a TEXT frame.
         with contextlib.suppress(Exception):
             await websocket.send(
                 json.dumps(

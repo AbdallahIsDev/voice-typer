@@ -8,6 +8,10 @@ Extracted verbatim from the original ``service.py`` god class
 import logging
 from typing import TYPE_CHECKING
 
+from voice_typer.server.service._app_internals import (
+    app_template_manager,
+    set_app_template_manager,
+)
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
@@ -47,12 +51,12 @@ class TemplateMixin(ServiceMixinBase):
     def _template_manager(self) -> "TemplateManager":
         """Lazily obtain (or create) the app's TemplateManager."""
         app = self._app
-        tm = getattr(app, "_template_manager", None)
+        tm = app_template_manager(app)
         if tm is None:
             from voice_typer.server.templates import TemplateManager
 
             tm = TemplateManager()
-            setattr(app, "_template_manager", tm)  # noqa: B010 — attr not on AppProtocol; direct assignment fails pyrefly
+            set_app_template_manager(app, tm)
         return tm
 
     def get_templates(self) -> list[dict]:

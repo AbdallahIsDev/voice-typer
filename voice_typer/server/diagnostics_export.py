@@ -39,6 +39,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from voice_typer.server.log import get_logs_dir
 from voice_typer.server.platform_utils import is_linux
 
 if TYPE_CHECKING:
@@ -147,7 +148,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # the redacted bytes into the zip. ``redact_for_export``
                 # passes ``aggressive=True`` to :func:`redact_secret`
                 # () so bare short secrets are caught too.
-                log_path = config_dir / "logs" / "voice-typer.log"
+                log_path = get_logs_dir(config_dir) / "voice-typer.log"
                 if log_path.exists():
                     try:
                         from voice_typer.server._secrets import redact_for_export
@@ -386,7 +387,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # available) provides the GPU name + total VRAM, since
                 # ORT's ``get_device()`` returns only "cuda" or "cpu".
                 try:
-                    import onnxruntime as ort  # type: ignore[import-untyped]
+                    import onnxruntime as ort
 
                     sys_info.append(f"onnxruntime version: {ort.__version__}")
                     sys_info.append(f"onnxruntime providers: {ort.get_available_providers()}")

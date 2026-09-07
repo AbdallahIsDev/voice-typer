@@ -20,19 +20,21 @@ def build_multipart_body(
 ) -> _StreamingMultipartBody:
     """Build multipart/form-data body for OpenAI-compatible APIs.
 
-    PERF-: the naive implementation concatenates all parts
-            into a single ``bytes`` object via ``b"".join(parts)``. For a
-            30s recording at 16 kHz float32, that's ~5.2 MB held in memory
-            as one contiguous block. This function returns a
-            ``_StreamingMultipartBody`` file-like object that yields chunks
-            on demand, reducing peak memory to one chunk (~64 KB) at a time.
-            ``Content-Length`` is computed upfront so the server knows the
-            total size without chunked transfer encoding.
+    PERF: the naive implementation concatenates all parts
+    into a single ``bytes`` object via ``b"".join(parts)``, holding the
+    full body (~5.2 MB for a 30s recording) as a SECOND contiguous
+    block next to the WAV bytes already resident in ``parts``. This
+    function returns a ``_StreamingMultipartBody`` file-like object
+    that yields the parts as ~64 KB chunks on demand, avoiding that
+    second full-body copy (the WAV itself stays resident in the parts
+    list — only the joined duplicate is avoided).
+    ``Content-Length`` is computed upfront so the server knows the
+    total size without chunked transfer encoding.
 
-            Tests may call ``b"payload" in body`` —
-            ``_StreamingMultipartBody`` supports ``in`` via
-            ``__contains__`` so assertions work without materializing
-            the body through this API.
+    Tests may call ``b"payload" in body`` —
+    ``_StreamingMultipartBody`` supports ``in`` via
+    ``__contains__`` so assertions work without materializing
+    the body through this API.
     """
     parts = build_multipart_parts(wav_bytes, filename, boundary, model_name, language)
     return _StreamingMultipartBody(parts)

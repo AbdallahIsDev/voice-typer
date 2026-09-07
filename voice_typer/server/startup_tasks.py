@@ -552,6 +552,14 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     # still take effect.
     from voice_typer.server.server_platform.microphone_list import list_microphones
 
+    # Accessors for the app's off-protocol ``_microphones`` attribute
+    # (ADR-0008 deliberately excludes it from AppProtocol). Imported at
+    # call time like the platform helpers above: a module-level import
+    # would pull the whole service package into every importer of
+    # startup_tasks, adding its load cost to the app's cold start for
+    # one two-line accessor use.
+    from voice_typer.server.service._app_internals import app_microphones, set_app_microphones
+
     # RACE-020: abort early if shutting down
     if shutdown_event is not None and shutdown_event.is_set():
         return
@@ -575,10 +583,10 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # changed (USB mic plugged/unplugged), notify the UI via
         # IPC push event so the Electron renderer can refresh its
         # microphone dropdown without a manual "Refresh" click.
-        app_mics = getattr(app, "_microphones", [])
+        app_mics = app_microphones(app)
         old_ids = {m["id"] for m in app_mics} if app_mics else set()
         new_ids = {m["id"] for m in mics}
-        setattr(app, "_microphones", mics)  # noqa: B010 — attr not on AppProtocol; direct assignment fails pyrefly
+        set_app_microphones(app, mics)
         app.tray.set_microphones(mics)
         # Log INFO on first load or when device count changes.
         # Routine polls where nothing changed log nothing — the

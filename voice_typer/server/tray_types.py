@@ -5,11 +5,24 @@ from the icon rendering and menu logic.  This allows tests to import
 AppState without pulling in pystray/PIL.
 """
 
+import os
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from voice_typer.server.recording_controller import RecordingController
+
+
+def is_tauri_sidecar() -> bool:
+    """Return True when running as the Tauri sidecar (``TAURI_SIDECAR=1``).
+
+    Single source of truth for the runtime-mode guard: under Tauri the
+    native tray (and OS notifications) are owned by the Rust host, so
+    the Python side must publish menu/state over the event bus and skip
+    pystray icon creation. The check reads the environment at call time
+    so tests can flip it with ``monkeypatch.setenv``.
+    """
+    return os.environ.get("TAURI_SIDECAR") == "1"
 
 
 class AppState(Enum):

@@ -200,10 +200,14 @@ def build_secure_opener():
     ``build_opener`` replace the default ``HTTPHandler`` instead of
     adding a parallel one, so the override actually takes effect.
 
-    PERF- the returned ``OpenerDirector`` reuses TCP
-    connections across requests (like ``requests.Session``).  Callers
-    should stash the returned opener at module level and reuse it
-    rather than calling this function per request.
+    PERF: the returned ``OpenerDirector`` does NOT pool connections.
+    The stdlib's ``AbstractHTTPHandler.do_open`` constructs a fresh
+    ``HTTPConnection`` / ``HTTPSConnection`` per request and sends
+    ``Connection: close`` (verified against the CPython source), so
+    every request pays a full TCP+TLS handshake. Module-level reuse is
+    still worthwhile — callers should stash the returned opener at
+    module level so the handler chain (TLS context, redirect refusal,
+    plaintext-HTTP refusal) is built once instead of per request.
 
     Returns
     -------

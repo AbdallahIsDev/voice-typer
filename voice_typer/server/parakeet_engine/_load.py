@@ -7,6 +7,8 @@ import os
 import time
 from collections.abc import Callable
 
+from voice_typer.server.duration import format_duration
+
 from ._constants import (
     _PARAKERT_ONNX_CACHE_DIR,
     _PARAKERT_ONNX_MODEL_NAME,
@@ -41,18 +43,18 @@ class LoadMixin:
                 return True
             _t0 = time.perf_counter()
             try:
-                import onnx_asr  # type: ignore[import-untyped, import-not-found]
-                import onnxruntime as ort  # type: ignore[import-untyped]
+                import onnx_asr
+                import onnxruntime as ort
 
                 cls._onnx_asr = onnx_asr
                 cls._ort = ort
                 cls._imports_loaded = True
                 _elapsed = time.perf_counter() - _t0
                 log.info(
-                    "[PARAKEET] onnx_asr %s + onnxruntime %s imported (%.2fs)",
+                    "[PARAKEET] onnx_asr %s + onnxruntime %s imported%s",
                     getattr(onnx_asr, "__version__", "?"),
                     getattr(ort, "__version__", "?"),
-                    _elapsed,
+                    format_duration(_elapsed),
                 )
                 return True
             except ImportError as exc:
@@ -73,7 +75,7 @@ class LoadMixin:
         probe the model cache — that's :meth:`_is_cached`.
         """
         try:
-            import onnx_asr  # type: ignore[import-untyped]  # noqa: F401
+            import onnx_asr  # noqa: F401
             import onnxruntime  # noqa: F401
         except ImportError:
             return False
@@ -209,9 +211,9 @@ class LoadMixin:
             _cache_t0 = time.perf_counter()
             _cached = self._is_cached()
             log.info(
-                "[PARAKEET] model cache check: cached=%s (%.2fs)",
+                "[PARAKEET] model cache check: cached=%s%s",
                 _cached,
-                time.perf_counter() - _cache_t0,
+                format_duration(time.perf_counter() - _cache_t0),
             )
             if not _cached:
                 # The app NEVER auto-downloads models — downloading is
@@ -305,10 +307,10 @@ class LoadMixin:
                 _warm_label = "warm (page-cache)" if _elapsed < 5.0 else "cold (disk)"
                 _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_elapsed, 0.1)
                 log.info(
-                    "[PARAKEET] ONNX model loaded (%s) — total=%.1fs (%.0f MB/s)",
+                    "[PARAKEET] ONNX model loaded (%s, %.0f MB/s)%s",
                     _warm_label,
-                    _elapsed,
                     _read_speed_mbs,
+                    format_duration(_elapsed),
                 )
                 if progress_callback:
                     progress_callback("Parakeet model ready")

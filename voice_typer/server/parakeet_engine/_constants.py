@@ -1,14 +1,30 @@
-"""Parakeet engine constants (verbatim from the original module)."""
+"""Parakeet engine constants (verbatim from the original module).
+
+The language-filter and merge-chunk thresholds are imported from
+:mod:`voice_typer.server.asr_utils` (the canonical home) rather than
+re-declared as bare literals, so the two modules can never drift apart.
+"""
 
 from __future__ import annotations
 
+from voice_typer.server.asr_utils import (
+    MAX_BOUNDARY_SKIP_WORDS as _MAX_BOUNDARY_SKIP_WORDS,  # noqa: F401 — re-exported alias
+    NON_LATIN_RATIO_LIMIT as _NON_LATIN_RATIO_LIMIT,  # noqa: F401 — re-exported alias
+    OVERLAP_DEDUP_WINDOW as _OVERLAP_DEDUP_WINDOW,  # noqa: F401 — re-exported alias
+)
+
+# The three imports above are the backward-compat re-export surface of
+# this module: importers (the package facade ``__init__.py`` and tests)
+# do ``from ._constants import _MAX_BOUNDARY_SKIP_WORDS`` etc., so the
+# aliased names must exist here even though this module never uses them
+# itself.
+
 # ─── Constants ──────────────────────────────────────────────────────────
 
-# Maximum allowed ratio of non-Latin-script characters before we reject
-# a transcription segment as a language-hallucination. Re-exported from
-# asr_utils for backward-compat with tests that import the constant from
-# parakeet_engine. See ``asr_utils.NON_LATIN_RATIO_LIMIT``.
-_NON_LATIN_RATIO_LIMIT = 0.30
+# (``_NON_LATIN_RATIO_LIMIT`` — the maximum allowed ratio of non-Latin-
+# script characters before a segment is rejected as a language-
+# hallucination — is imported from ``asr_utils`` at the top of this
+# module.)
 
 # HuggingFace repo ID of the *original* torch/safetensors Parakeet
 # model. Kept as a module-level constant because ``prewarm/cache_probe``
@@ -58,9 +74,8 @@ _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
 # Backward-compat re-exports of the merge-chunk constants. The canonical
-# values now live in ``asr_utils`` (``MAX_BOUNDARY_SKIP_WORDS``,
-# ``OVERLAP_DEDUP_WINDOW``). Kept here so existing tests / importers
+# values live in ``asr_utils`` (``MAX_BOUNDARY_SKIP_WORDS``,
+# ``OVERLAP_DEDUP_WINDOW``) and are imported at the top of this module
+# (same objects, not re-declared literals) so existing tests / importers
 # (``tests/test_parakeet_engine.py``, ``tests/regressions/test_parakeet_merge.py``)
 # keep working.
-_MAX_BOUNDARY_SKIP_WORDS = 2
-_OVERLAP_DEDUP_WINDOW = 3

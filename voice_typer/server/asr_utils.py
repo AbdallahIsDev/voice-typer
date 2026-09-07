@@ -150,7 +150,7 @@ def is_cuda_error(exc: Exception) -> bool:
     """
     # Layer 1: ORT CUDA exceptions (replaces torch.cuda.OutOfMemoryError).
     try:
-        import onnxruntime as ort  # type: ignore[import-untyped]
+        import onnxruntime as ort
 
         # ``onnxruntime.RuntimeException`` no longer exists on the public
         # API (1.28+ only re-exports ``import_capi_exception``) — the

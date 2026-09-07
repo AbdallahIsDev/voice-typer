@@ -56,6 +56,7 @@ import time
 from typing import TYPE_CHECKING
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.tray_types import is_tauri_sidecar
 
 if TYPE_CHECKING:
     from voice_typer.server.tray import TrayIcon
@@ -178,7 +179,7 @@ def notify(tray: TrayIcon, title: str, message: str) -> None:
             _NOTIFY_DEDUP_TTL_SECONDS,
         )
         return
-    if tray._icon or _is_tauri_sidecar():
+    if tray._icon or is_tauri_sidecar():
         # Under Tauri there is no pystray icon — ``do_notify`` detects that
         # combination and routes the toast through the host ``notification``
         # event instead of queueing it for a pystray flush that would never
@@ -206,7 +207,7 @@ def notify_safety(tray: TrayIcon, title: str, message: str) -> None:
         the cost of a duplicate toast is far lower than the cost of a
         missed one.
     """
-    if tray._icon or _is_tauri_sidecar():
+    if tray._icon or is_tauri_sidecar():
         do_notify(tray, title, message)
     else:
         with tray._queue_lock:
@@ -236,20 +237,13 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
     # toast via tauri-plugin-notification. The payload shape mirrors the
     # ``show_electron_notification`` IPC publisher (system_handlers.py):
     # ``{"title": ..., "message": ...}``.
-    if tray._icon is None and _is_tauri_sidecar():
+    if tray._icon is None and is_tauri_sidecar():
         _publish_notification_event(title, message)
         return
     try:
         tray._icon.notify(message, title)
     except Exception as e:
         log.warning("[TRAY] Notification failed: %s", e)
-
-
-def _is_tauri_sidecar() -> bool:
-    """Return True when running as the Tauri sidecar (``TAURI_SIDECAR=1``)."""
-    import os
-
-    return os.environ.get("TAURI_SIDECAR") == "1"
 
 
 def _publish_notification_event(title: str, message: str) -> None:

@@ -42,7 +42,7 @@ _RETENTION_BATCH = 100
 
 def _rebuild_fts(
     conn: sqlite3.Connection,
-    db: HistoryDB | object | None = None,
+    db: HistoryDB | None = None,
     *,
     source: str = "apply_retention",
     deleted: int | None = None,
@@ -201,7 +201,7 @@ def _rebuild_fts(
         if db is not None:
             try:
                 current = getattr(db, "_fts5_rebuild_failures", 0)
-                db._fts5_rebuild_failures = current + 1  # type: ignore[attr-defined]
+                db._fts5_rebuild_failures = current + 1
             except Exception:  # noqa: BLE001 — best-effort metric
                 log.debug(
                     "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",

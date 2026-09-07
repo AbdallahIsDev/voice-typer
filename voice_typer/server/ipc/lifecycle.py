@@ -45,6 +45,7 @@ from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_TIMEOUT_SECONDS,
 )
 from voice_typer.server.ipc.validation import ResponseEnvelope
+from voice_typer.server.tray_types import is_tauri_sidecar
 
 # PERF-SHUTDOWN-001: the TCP dispatch pool's ``thread_name_prefix``,
 # used as a fallback self-join detector (see ``_in_pool_worker``).
@@ -254,7 +255,7 @@ class LifecycleMixin:
         # ``src-tauri/src/sidecar/ws.rs`` (reconnect_ws heartbeat
         # task) and ``voice_typer/server/sidecar_ws.py`` (Heartbeat
         # docstring) for the full picture.
-        _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
+        _tauri_sidecar = is_tauri_sidecar()
         if _tauri_sidecar:
             log.info(
                 "[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread "
