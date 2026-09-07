@@ -5,9 +5,10 @@
  * Background: the `audio_preset` config field is mutated from two
  * unrelated UI surfaces — (1) this Settings section's "Microphone
  * Quality" Select + custom filter chain, and (2) the Microphone page's
- * `AudioPresetSelector` (with its own test-record A/B workflow). The
- * two surfaces use different option sets, different disclosure
- * patterns, and live on different pages with no cross-link. Users who
+ * `PresetAccordionSelector` (with its own test-record A/B workflow). The
+ * two surfaces use different presentation patterns (a Select here vs
+ * the accordion+RadioGroup there), and live on different pages with no
+ * cross-link. Users who
  * discover the Audio Enhancement controls on the Microphone page may
  * not realise the same setting is also configurable under Settings →
  * Audio.

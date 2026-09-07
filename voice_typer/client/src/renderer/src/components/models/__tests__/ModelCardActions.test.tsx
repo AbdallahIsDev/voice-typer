@@ -347,13 +347,35 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 		cleanup();
 	});
 
-	it("disabled Download button title is sourced from models.download.oneAtATime (no English fallback)", () => {
+	it("Download button stays ENABLED while another model's transfer is active (the backend queues the request)", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
 				anyDownloading={true}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
+		// The queue's primary flow: clicking Download while a transfer runs
+		// QUEUES the request instead of erroring — the button must not be
+		// disabled, and the "one at a time" hint must NOT linger as a lie
+		// (no title at all: the request is accepted, it just queues).
+		expect(dlBtn).toBeEnabled();
+		expect(dlBtn.getAttribute("title")).toBeFalsy();
+	});
+
+	it("disabled Download button title is sourced from models.download.oneAtATime (deps-install disable)", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				anyInstallingDeps={true}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -666,5 +688,101 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 			(size) => buttonFor(size).className,
 		);
 		expect(widths.every((cls) => cls.includes("w-24"))).toBe(true);
+	});
+});
+
+describe("ModelCardActions — download-queue state (queued model card)", () => {
+	/** Renders Branch 2 (not downloaded) with the given queue position. */
+	const renderQueued = (
+		queuePosition: number | null,
+		anyDownloading = true,
+		onCancelQueued?: () => void,
+	) => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={anyDownloading}
+				queuePosition={queuePosition}
+				onCancelQueued={onCancelQueued}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+	};
+
+	it("queued model shows the localized 'Queued' label instead of the size", () => {
+		renderQueued(2);
+		const btn = screen.getByRole("button", { name: /Queued/i });
+		expect(btn).toHaveTextContent("Queued");
+		// The model size must NOT render while queued — a size number
+		// would imply the transfer is running.
+		expect(btn).not.toHaveTextContent("466");
+	});
+
+	it("queued button aria-label + title carry the queue position", () => {
+		renderQueued(2);
+		const btn = screen.getByRole("button", { name: /Queued/i });
+		const expected = "Queued — position 2 in the download queue";
+		expect(btn).toHaveAttribute("aria-label", expected);
+		expect(btn).toHaveAttribute("title", expected);
+	});
+
+	it("queued button is disabled and NOT aria-busy (waiting, not transferring)", () => {
+		renderQueued(1);
+		const btn = screen.getByRole("button", { name: /Queued/i });
+		expect(btn).toBeDisabled();
+		expect(btn).not.toHaveAttribute("aria-busy", "true");
+	});
+
+	it("queued state skips the 'one at a time' hint (the request IS accepted)", () => {
+		renderQueued(1);
+		const btn = screen.getByRole("button", { name: /Queued/i });
+		expect(btn).not.toHaveAttribute(
+			"title",
+			"Only one download at a time — wait for the current download to finish or cancel it",
+		);
+	});
+
+	it("queued model renders a Cancel affordance wired to the queue-removal handler", () => {
+		const onCancelQueued = vi.fn();
+		renderQueued(1, true, onCancelQueued);
+		// Accessible name from the catalog key
+		// models.download.cancelQueuedAria ("Cancel queued download of {name}").
+		const cancelBtn = screen.getByRole("button", {
+			name: /Cancel queued download of tiny/i,
+		});
+		expect(cancelBtn).toBeEnabled();
+		cancelBtn.click();
+		expect(onCancelQueued).toHaveBeenCalledTimes(1);
+	});
+
+	it("no Cancel affordance without a queue-removal handler (optional prop)", () => {
+		renderQueued(1, true, undefined);
+		expect(
+			screen.queryByRole("button", { name: /Cancel queued download of tiny/i }),
+		).toBeNull();
+	});
+
+	it("no Cancel affordance when the model is not queued", () => {
+		const onCancelQueued = vi.fn();
+		renderQueued(null, true, onCancelQueued);
+		expect(
+			screen.queryByRole("button", { name: /Cancel queued download of tiny/i }),
+		).toBeNull();
+	});
+
+	it("null / non-positive queue position keeps the normal at-rest download button", () => {
+		renderQueued(null);
+		expect(
+			screen.getByRole("button", { name: /Download tiny/i }),
+		).toBeInTheDocument();
+		cleanup();
+		renderQueued(0);
+		expect(
+			screen.getByRole("button", { name: /Download tiny/i }),
+		).toBeInTheDocument();
 	});
 });

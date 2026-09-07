@@ -269,6 +269,11 @@ export interface DeleteModelRequest {
 	data?: Record<string, unknown>;
 }
 
+export interface GetDownloadQueueRequest {
+	type: "get_download_queue";
+	data?: Record<string, unknown>;
+}
+
 export interface TestCloudConnectionRequest {
 	type: "test_cloud_connection";
 	data?: Record<string, unknown>;
@@ -615,6 +620,7 @@ export type PythonRequest =
 	// union. See the individual interface declarations above.
 	| GetDefaultsRequest
 	| DownloadModelRequest
+	| GetDownloadQueueRequest
 	| ImportModelRequest
 	| DeleteModelRequest
 	| TestCloudConnectionRequest

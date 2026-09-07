@@ -29,7 +29,7 @@
 // consumes ``level`` / ``peak`` directly and passes them down through
 // ``ActiveMicrophoneCard`` → ``LevelBarContainer`` → ``LevelBar`` /
 // ``LiveQualityFeedback``). Even though the heavy siblings
-// (``MemoizedTestReviewPanel`` / ``MemoizedAudioPresetSelector``) are
+// (``MemoizedTestReviewPanel`` / ``MemoizedPresetAccordionSelector``) are
 // wrapped in ``React.memo``, the parent still paid the reconciliation
 // cost 30 times per second.
 //

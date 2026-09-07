@@ -6,16 +6,25 @@
  * EVERY model (including qwen / parakeet, whose active check is
  * backend-keyed and would otherwise light up), `applyActiveState` must
  * clear all active flags, and `getActiveFamilyId` must return null.
+ *
+ * Also covers the default-model sentinel's canonical home:
+ * `MODEL_DEFAULT` is defined in `lib/utils/models` (layer-neutral lib
+ * code) and re-exported by the onboarding constants for its historical
+ * importers — `lib/` must never import from `pages/` (inverted
+ * layering), which the source-scan test below pins.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
 	applyActiveState,
 	getActiveFamilyId,
 	isModelActive,
+	MODEL_DEFAULT,
 	type ModelInfo,
 	resolveActiveModel,
 } from "@/lib/utils/models";
+import { MODEL_DEFAULT as MODEL_DEFAULT_COMPAT } from "@/pages/onboarding/lib/constants";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
 
@@ -91,7 +100,6 @@ describe("resolveActiveModel — shared no-model truth (Analytics + About)", () 
 			device: null,
 		});
 	});
-
 	it("returns null/null when the configured model's weights are NOT on disk", () => {
 		// Config defaults to "tiny" / "cuda" even with nothing
 		// installed — the resolver must NOT surface them.
@@ -120,5 +128,30 @@ describe("resolveActiveModel — shared no-model truth (Analytics + About)", () 
 			model: "tiny",
 			device: null,
 		});
+	});
+});
+
+describe("MODEL_DEFAULT — canonical home + compat re-export", () => {
+	it("is the empty-string no-model sentinel (must stay in lockstep with the backend DEFAULT_MODEL_SIZE)", () => {
+		// The value itself is pinned so a naive "tiny" reintroduction
+		// fails here before it can phantom-mark a model active.
+		expect(MODEL_DEFAULT).toBe("");
+	});
+
+	it("is the SAME binding via the onboarding constants re-export (compat importers see the canonical value)", () => {
+		// The onboarding constants module re-exports the lib constant —
+		// both import paths must resolve to the identical value so the
+		// wizard and the models lib can never drift apart.
+		expect(MODEL_DEFAULT_COMPAT).toBe(MODEL_DEFAULT);
+	});
+
+	it("lib/utils/models.ts contains no pages-layer import (lib must never import from pages — inverted layering)", () => {
+		// Source-scan guard for the layering contract: comments are
+		// stripped so a docstring mentioning the old import path
+		// cannot false-positive.
+		const src = readFileSync("src/renderer/src/lib/utils/models.ts", "utf8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/\/\/.*$/gm, "");
+		expect(src).not.toMatch(/from\s+["']@\/pages\//);
 	});
 });

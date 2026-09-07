@@ -1,8 +1,8 @@
 import { PlayIcon, RefreshIcon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import type { AudioPreset } from "@/lib/utils/audioPresets";
 
 interface QualityData {
 	volume_level: "good" | "low" | "very_low";
@@ -196,9 +196,9 @@ export function TestReviewPanel({
 			</div>
 
 			{/* Test transcription — the primary "what did it hear" result.
-			    Rendered when the backend produced text; when no speech
-			    model is loaded (``transcriptionUnavailable``) a localized
-			    explanation names the actual state instead of silence. */}
+                            Rendered when the backend produced text; when no speech
+                            model is loaded (``transcriptionUnavailable``) a localized
+                            explanation names the actual state instead of silence. */}
 			{(transcription || transcriptionUnavailable) && (
 				<div className="flex flex-col gap-1">
 					<p className="text-xs font-medium text-(--text-muted)">
@@ -240,14 +240,14 @@ export function TestReviewPanel({
 							{t("microphoneTest.estimatedQuality")}
 						</span>
 						{/* HONEST-METRIC INVARIANT: without a loaded speech model the
-						transcription-quality estimate cannot be computed — showing a
-						numeric score would fabricate a result from absent data (the
-						old bug rendered a false "0%"). Render an explicit
-						not-applicable state instead; audio-derived metrics below stay
-						fully computed. */}
+                                                transcription-quality estimate cannot be computed — showing a
+                                                numeric score would fabricate a result from absent data (the
+                                                old bug rendered a false "0%"). Render an explicit
+                                                not-applicable state instead; audio-derived metrics below stay
+                                                fully computed. */}
 						{transcriptionUnavailable ? (
 							<span className="text-sm font-bold text-(--text-muted)">
-								{t("microphoneTest.qualityNotApplicable")}
+								{t("microphoneTest.qualityFeedback.qualityNotApplicable")}
 							</span>
 						) : (
 							<span

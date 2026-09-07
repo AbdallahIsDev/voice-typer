@@ -25,10 +25,195 @@ import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useT } from "@/i18n/i18n";
+import type { TranslationKey } from "@/i18n/translation-keys";
 import { cn } from "@/lib/utils";
+import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
+
+/**
+ * Config keys whose value type is `boolean` — the keys a Switch row can
+ * read/write. Derived from `VoiceTyperConfig` so a value-type change on
+ * any of these keys surfaces here at compile time. The `-?` modifier
+ * strips the interface's optional markers so the indexed access yields
+ * a plain literal union (homomorphic mapped types preserve `?`, which
+ * would otherwise leak `undefined` into the union).
+ */
+type BooleanConfigKey = {
+	[K in keyof VoiceTyperConfig]-?: VoiceTyperConfig[K] extends boolean
+		? K
+		: never;
+}[keyof VoiceTyperConfig];
+
+/**
+ * One row of the consent/privacy switch matrix. The descriptor IS the
+ * render spec (the audio-filter row registry is the in-repo precedent):
+ * the section-level search-visibility arrays, the per-row visibility
+ * gating, the rendered SettingRow+Switch pair, and the Agree-to-All
+ * update payload are all derived from this single list — adding consent
+ * #7 is a one-entry change here, not ~7 coordinated edits across the
+ * file.
+ */
+export interface ConsentFieldDescriptor {
+	/** Which Settings section renders the row. */
+	section: "audioRecovery" | "privacy";
+	/** Config key the Switch reads/writes (boolean-valued). */
+	configKey: BooleanConfigKey;
+	/** i18n key for the row's visible label. */
+	labelKey: TranslationKey;
+	/** i18n key for the SettingRow info tooltip. */
+	infoKey: TranslationKey;
+	/**
+	 * i18n key for the search-visible info — the section-level
+	 * "any row visible?" arrays read this variant. Equals `infoKey`
+	 * for rows that have no dedicated `*InfoSearch` key.
+	 */
+	infoSearchKey: TranslationKey;
+	/** i18n key for the Switch's aria-label. */
+	ariaKey: TranslationKey;
+	/** Fallback when the runtime config value is undefined. */
+	defaultValue: boolean;
+	/**
+	 * Renders inside the highlighted ConsentRow wrapper (which carries
+	 * the `data-consent-field` scroll target + deep-link focus ring).
+	 * The six GDPR consent flags use it; the hidden-config rows render
+	 * as bare SettingRows, exactly as before.
+	 */
+	consentRow?: boolean;
+	/**
+	 * Participates in Agree-to-All (the granted payload), the granted
+	 * count, and the button's disabled state.
+	 */
+	agreeToAll?: boolean;
+	/** Stable Switch `data-testid` (hidden-config rows carry one). */
+	testId?: string;
+}
+
+/**
+ * The consent/privacy switch matrix — order is render order within each
+ * section. i18n keys are unchanged from the hand-written rows this
+ * registry replaces (pure refactor; no locale edits).
+ */
+export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
+	// Audio & Recovery section (single row).
+	{
+		section: "audioRecovery",
+		configKey: "crash_recovery_enabled",
+		labelKey: "settings.privacy.crashRecovery",
+		infoKey: "settings.privacy.crashRecoveryInfo",
+		infoSearchKey: "settings.privacy.crashRecoveryInfoSearch",
+		ariaKey: "settings.privacy.crashRecoveryAria",
+		defaultValue: true,
+	},
+	// Privacy & Consent section — the six GDPR consent flags. All
+	// four consent flags live in the Python Config and are enforced
+	// by the backend (HuggingFace download refusal, CloudEngine
+	// ConsentRequiredError, etc.).  This section gives the user a
+	// single place to view and revoke any consent they've
+	// previously granted.  Initial grant happens contextually
+	// (HuggingFace banner on Models page, per-provider toggles on
+	// Models page) — this section is primarily for
+	// review/revocation.
+	{
+		section: "privacy",
+		configKey: "huggingface_consent",
+		labelKey: "settings.privacy.huggingFaceDownloadsLabel",
+		infoKey: "settings.privacy.huggingFaceDownloadsInfo",
+		infoSearchKey: "settings.privacy.huggingFaceDownloadsInfoSearch",
+		ariaKey: "settings.privacy.huggingFaceDownloadsAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	{
+		section: "privacy",
+		configKey: "voice_biometric_consent",
+		labelKey: "settings.privacy.voiceBiometricLabel",
+		infoKey: "settings.privacy.voiceBiometricProcessingInfo",
+		infoSearchKey: "settings.privacy.voiceBiometricInfoSearch",
+		ariaKey: "settings.privacy.voiceBiometricProcessingAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	// Per-provider cloud ASR consents — mirror the Models page toggles.
+	{
+		section: "privacy",
+		configKey: "cloud_openai_consent",
+		labelKey: "settings.privacy.openaiCloudAsrLabel",
+		infoKey: "settings.privacy.openaiCloudAsrInfo",
+		infoSearchKey: "settings.privacy.openaiCloudAsrInfoSearch",
+		ariaKey: "settings.privacy.openaiCloudAsrAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	{
+		section: "privacy",
+		configKey: "cloud_groq_consent",
+		labelKey: "settings.privacy.groqCloudAsrLabel",
+		infoKey: "settings.privacy.groqCloudAsrInfo",
+		infoSearchKey: "settings.privacy.groqCloudAsrInfoSearch",
+		ariaKey: "settings.privacy.groqCloudAsrAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	{
+		section: "privacy",
+		configKey: "cloud_deepgram_consent",
+		labelKey: "settings.privacy.deepgramCloudAsrLabel",
+		infoKey: "settings.privacy.deepgramCloudAsrInfo",
+		infoSearchKey: "settings.privacy.deepgramCloudAsrInfoSearch",
+		ariaKey: "settings.privacy.deepgramCloudAsrAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	// LLM polish consent (existing field, surfaced here for completeness).
+	{
+		section: "privacy",
+		configKey: "llm_polish_consent",
+		labelKey: "settings.privacy.llmTextPolishingLabel",
+		infoKey: "settings.privacy.llmTextPolishingInfo",
+		infoSearchKey: "settings.privacy.llmTextPolishingInfoSearch",
+		ariaKey: "settings.privacy.llmTextPolishingAria",
+		defaultValue: false,
+		consentRow: true,
+		agreeToAll: true,
+	},
+	// Hidden-config rows (previously config.json-only fields, now
+	// user-tunable): transcription logging and the clipboard
+	// borrow/restore behavior (ADR-0010). Both are privacy-relevant
+	// (transcription text leaving traces; the app reading clipboard
+	// contents), so they live in the Privacy & Consent section.
+	{
+		section: "privacy",
+		configKey: "log_transcriptions",
+		labelKey: "settings.privacy.logTranscriptionsLabel",
+		// No dedicated *InfoSearch key — the tooltip text doubles
+		// as the search-visible info, exactly as before.
+		infoKey: "settings.privacy.logTranscriptionsInfo",
+		infoSearchKey: "settings.privacy.logTranscriptionsInfo",
+		ariaKey: "settings.privacy.logTranscriptionsAria",
+		defaultValue: false,
+		testId: "log-transcriptions-switch",
+	},
+	{
+		section: "privacy",
+		configKey: "clipboard_save_restore",
+		labelKey: "settings.privacy.clipboardSaveRestoreLabel",
+		infoKey: "settings.privacy.clipboardSaveRestoreInfo",
+		infoSearchKey: "settings.privacy.clipboardSaveRestoreInfo",
+		ariaKey: "settings.privacy.clipboardSaveRestoreAria",
+		defaultValue: true,
+		testId: "clipboard-save-restore-switch",
+	},
+];
+
+/** The Agree-to-All subset — the six flags the banner grants at once. */
+const AGREE_TO_ALL_FIELDS = CONSENT_FIELDS.filter((field) => field.agreeToAll);
 
 /**
  * Module-level consent-row wrapper (stable identity). Carries the
@@ -95,34 +280,16 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
-	const handleCrashRecoveryChange = (checked: boolean) =>
-		updateConfig({ crash_recovery_enabled: checked });
-
-	const handleHuggingFaceConsentChange = (checked: boolean) =>
-		updateConfig({ huggingface_consent: checked });
-
-	const handleVoiceBiometricChange = (checked: boolean) =>
-		updateConfig({ voice_biometric_consent: checked });
-
-	const handleOpenAiConsentChange = (checked: boolean) =>
-		updateConfig({ cloud_openai_consent: checked });
-
-	const handleGroqConsentChange = (checked: boolean) =>
-		updateConfig({ cloud_groq_consent: checked });
-
-	const handleDeepgramConsentChange = (checked: boolean) =>
-		updateConfig({ cloud_deepgram_consent: checked });
-
-	const handleLlmPolishConsentChange = (checked: boolean) =>
-		updateConfig({ llm_polish_consent: checked });
-
-	// Hidden-config rows (previously config.json-only): transcription
-	// logging and the clipboard borrow/restore behavior (ADR-0010).
-	const handleLogTranscriptionsChange = (checked: boolean) =>
-		updateConfig({ log_transcriptions: checked });
-
-	const handleClipboardSaveRestoreChange = (checked: boolean) =>
-		updateConfig({ clipboard_save_restore: checked });
+	// One handler factory replaces the nine verbatim per-field
+	// `(checked) => updateConfig({ key: checked })` closures.
+	// `configKey` is a non-literal union, so the computed key widens
+	// to a string index signature which `Partial<VoiceTyperConfig>`
+	// (whose keys hold strings/numbers/…) rejects — the cast is the
+	// documented registry-path exception (same as the audio-filter
+	// row registry's `set` helper).
+	const makeConsentChangeHandler =
+		(configKey: BooleanConfigKey) => (checked: boolean) =>
+			updateConfig({ [configKey]: checked } as Partial<VoiceTyperConfig>);
 
 	//opening the ConfirmDialog instead of granting all 6 consents
 	// immediately. The actual updateConfig call happens in
@@ -130,83 +297,63 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const handleAgreeToAll = () => {
 		setShowAgreeConfirm(true);
 	};
+	// The granted payload is derived from the SAME descriptor subset
+	// that drives the granted count and the button's disabled state,
+	// so the three can never drift apart.
 	const handleConfirmAgreeToAll = () => {
 		setShowAgreeConfirm(false);
-		updateConfig({
-			huggingface_consent: true,
-			voice_biometric_consent: true,
-			cloud_openai_consent: true,
-			cloud_groq_consent: true,
-			cloud_deepgram_consent: true,
-			llm_polish_consent: true,
-		});
+		updateConfig(
+			Object.fromEntries(
+				AGREE_TO_ALL_FIELDS.map((field) => [field.configKey, true]),
+			) as Partial<VoiceTyperConfig>,
+		);
 	};
 
-	// IMPL-C: resolve the translated search-visible labels once per render so
-	// the section-level isVisible check and the rendered SettingRow labels
-	// share the same strings.
-	const crashRecoveryLabel = t("settings.privacy.crashRecovery");
-	const crashRecoveryInfoSearch = t("settings.privacy.crashRecoveryInfoSearch");
-	const huggingFaceLabel = t("settings.privacy.huggingFaceDownloadsLabel");
-	const huggingFaceInfoSearch = t(
-		"settings.privacy.huggingFaceDownloadsInfoSearch",
-	);
-	const voiceBiometricLabel = t("settings.privacy.voiceBiometricLabel");
-	const voiceBiometricInfoSearch = t(
-		"settings.privacy.voiceBiometricInfoSearch",
-	);
-	const openaiCloudAsrLabel = t("settings.privacy.openaiCloudAsrLabel");
-	const openaiCloudAsrInfoSearch = t(
-		"settings.privacy.openaiCloudAsrInfoSearch",
-	);
-	const groqCloudAsrLabel = t("settings.privacy.groqCloudAsrLabel");
-	const groqCloudAsrInfoSearch = t("settings.privacy.groqCloudAsrInfoSearch");
-	const deepgramCloudAsrLabel = t("settings.privacy.deepgramCloudAsrLabel");
-	const deepgramCloudAsrInfoSearch = t(
-		"settings.privacy.deepgramCloudAsrInfoSearch",
-	);
-	const llmTextPolishingLabel = t("settings.privacy.llmTextPolishingLabel");
-	const llmTextPolishingInfoSearch = t(
-		"settings.privacy.llmTextPolishingInfoSearch",
-	);
+	// IMPL-C: resolve the translated labels once per render so the
+	// section-level isVisible check and the rendered SettingRow labels
+	// share the same strings (one t() pass per key, like the label
+	// locals this map replaces).
+	const consentRows = CONSENT_FIELDS.map((field) => ({
+		field,
+		label: t(field.labelKey),
+		info: t(field.infoKey),
+		infoSearch: t(field.infoSearchKey),
+	}));
+
 	const exportAllDataLabel = t("settings.privacy.exportAllDataLabel");
 	const exportAllDataInfoSearch = t("settings.privacy.exportAllDataInfoSearch");
 
-	// Hidden-config rows: one info string per row feeds both the search
-	// predicate and the tooltip.
-	const logTranscriptionsLabel = t("settings.privacy.logTranscriptionsLabel");
-	const logTranscriptionsInfo = t("settings.privacy.logTranscriptionsInfo");
-	const clipboardSaveRestoreLabel = t(
-		"settings.privacy.clipboardSaveRestoreLabel",
-	);
-	const clipboardSaveRestoreInfo = t(
-		"settings.privacy.clipboardSaveRestoreInfo",
-	);
-
 	//section-level visibility check for Audio & Recovery section.
 	const audioRecoveryTitle = t("settings.privacy.audioRecoveryTitle");
-	const audioRecoveryItems = [
-		{ label: crashRecoveryLabel, info: crashRecoveryInfoSearch },
-	];
+	const audioRecoveryItems = consentRows
+		.filter((row) => row.field.section === "audioRecovery")
+		.map((row) => ({ label: row.label, info: row.infoSearch }));
 	const audioRecoveryVisible = audioRecoveryItems.some((item) =>
 		isVisible(item.label, item.info, audioRecoveryTitle),
 	);
 
 	//section-level visibility check for Privacy & Consent section.
+	//The export row participates in the search (it renders inside
+	// this section) but is not a Switch row — its entry is appended
+	// to the switch-row descriptors' entries.
 	const privacyTitle = t("settings.privacy.privacyTitle");
 	const privacyItems = [
-		{ label: huggingFaceLabel, info: huggingFaceInfoSearch },
-		{ label: voiceBiometricLabel, info: voiceBiometricInfoSearch },
-		{ label: openaiCloudAsrLabel, info: openaiCloudAsrInfoSearch },
-		{ label: groqCloudAsrLabel, info: groqCloudAsrInfoSearch },
-		{ label: deepgramCloudAsrLabel, info: deepgramCloudAsrInfoSearch },
-		{ label: llmTextPolishingLabel, info: llmTextPolishingInfoSearch },
+		...consentRows
+			.filter((row) => row.field.section === "privacy")
+			.map((row) => ({ label: row.label, info: row.infoSearch })),
 		{ label: exportAllDataLabel, info: exportAllDataInfoSearch },
-		{ label: logTranscriptionsLabel, info: logTranscriptionsInfo },
-		{ label: clipboardSaveRestoreLabel, info: clipboardSaveRestoreInfo },
 	];
 	const privacyVisible = privacyItems.some((item) =>
 		isVisible(item.label, item.info, privacyTitle),
+	);
+
+	// Agree-to-All banner state — derived from the same descriptor
+	// subset as the granted payload (see handleConfirmAgreeToAll).
+	const grantedConsentCount = AGREE_TO_ALL_FIELDS.filter(
+		(field) => config[field.configKey],
+	).length;
+	const allConsentsGranted = AGREE_TO_ALL_FIELDS.every(
+		(field) => config[field.configKey],
 	);
 
 	return (
@@ -217,50 +364,49 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 					title={audioRecoveryTitle}
 					description={t("settings.privacy.audioRecoveryDescription")}
 				>
-					<SettingRow
-						label={crashRecoveryLabel}
-						info={t("settings.privacy.crashRecoveryInfo")}
-					>
-						{" "}
-						<Switch
-							checked={config.crash_recovery_enabled ?? true}
-							onCheckedChange={handleCrashRecoveryChange}
-							aria-label={t("settings.privacy.crashRecoveryAria")}
-						/>
-					</SettingRow>
+					{consentRows
+						.filter((row) => row.field.section === "audioRecovery")
+						.map(({ field, label }) => (
+							<SettingRow
+								key={field.configKey}
+								label={label}
+								info={t(field.infoKey)}
+							>
+								{" "}
+								<Switch
+									checked={config[field.configKey] ?? field.defaultValue}
+									onCheckedChange={makeConsentChangeHandler(field.configKey)}
+									aria-label={t(field.ariaKey)}
+								/>
+							</SettingRow>
+						))}
 				</SettingsSection>
 			)}
 
 			{/* ── SECTION: Privacy & Consent ─────────────────────────── */}
 			{privacyVisible && (
 				<>
-					{/*006/009: centralized consent management.
-				All four consent flags live in the Python Config and are
-				enforced by the backend (HuggingFace download refusal,
-				CloudEngine ConsentRequiredError, etc.).  This section
-				gives the user a single place to view and revoke any
-				consent they've previously granted.  Initial grant
-				happens contextually (HuggingFace banner on Models page,
-				per-provider toggles on Models page) — this section is
-				primarily for review/revocation.
+					{/*006/009: centralized consent management —
+                                        see the CONSENT_FIELDS registry comments for
+                                        the enforcement/revocation rationale.
 
-				PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
-				affordance at the top lets the user enable every consent
-				flag at once without clicking six toggles.  Defaults stay
-				False (privacy-by-default); the button is purely a UX
-				convenience, not an implicit grant.  Individual toggles
-				below remain for granular control / revocation. */}
+                                        PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
+                                        affordance at the top lets the user enable every consent
+                                        flag at once without clicking six toggles.  Defaults stay
+                                        False (privacy-by-default); the button is purely a UX
+                                        convenience, not an implicit grant.  Individual toggles
+                                        below remain for granular control / revocation. */}
 					<SettingsSection
 						title={privacyTitle}
 						description={t("settings.privacy.privacyDescription")}
 					>
 						{/* PRIV-AGREE-ALL: header banner + Agree to All button.
-					Explains what "agreeing" means in plain language so
-					the user can make an informed decision before
-					clicking.  The banner sits inside the same
-					bordered container as the toggles (visually grouped
-					with them) but uses a slightly different background
-					to distinguish it from per-flag rows. */}
+                                        Explains what "agreeing" means in plain language so
+                                        the user can make an informed decision before
+                                        clicking.  The banner sits inside the same
+                                        bordered container as the toggles (visually grouped
+                                        with them) but uses a slightly different background
+                                        to distinguish it from per-flag rows. */}
 						<div className="flex flex-col gap-3 p-4">
 							<div className="flex items-start gap-2">
 								<HugeiconsIcon
@@ -270,7 +416,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 								/>
 								<div className="flex min-w-0 flex-col gap-2 text-sm text-(--text-muted)">
 									<p>{t("settings.privacy.consentBannerDesc")}</p>
-									<ul className="list-disc ps-4 space-y-0.5 text-xs">
+									<ul className="list-disc ps-4 flex flex-col gap-0.5 text-xs">
 										<li>{t("settings.privacy.huggingFaceItem")}</li>
 										<li>{t("settings.privacy.cloudAsrItem")}</li>
 										<li>{t("settings.privacy.llmPolishItem")}</li>
@@ -283,38 +429,16 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							</div>
 							<div className="flex items-center justify-between gap-3">
 								<div className="text-xs text-(--text-muted)">
-									{(() => {
-										if (!config) return "";
-										const granted = [
-											config.huggingface_consent,
-											config.voice_biometric_consent,
-											config.cloud_openai_consent,
-											config.cloud_groq_consent,
-											config.cloud_deepgram_consent,
-											config.llm_polish_consent,
-										].filter(Boolean).length;
-										return t("settings.privacy.consentsGranted", {
-											granted: String(granted),
-										});
-									})()}
+									{t("settings.privacy.consentsGranted", {
+										granted: String(grantedConsentCount),
+									})}
 								</div>
 								<Button
 									variant="default"
 									size="sm"
 									className="gap-2"
 									onClick={handleAgreeToAll}
-									disabled={
-										config
-											? Boolean(
-													config.huggingface_consent &&
-														config.voice_biometric_consent &&
-														config.cloud_openai_consent &&
-														config.cloud_groq_consent &&
-														config.cloud_deepgram_consent &&
-														config.llm_polish_consent,
-												)
-											: false
-									}
+									disabled={allConsentsGranted}
 									aria-label={t("settings.privacy.agreeToAllAria")}
 									title={t("settings.privacy.agreeToAllHint")}
 								>
@@ -328,190 +452,49 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							</div>
 						</div>
 
-						{/* HuggingFace consent */}
-						{isVisible(
-							huggingFaceLabel,
-							t("settings.privacy.huggingFaceDownloadsInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="huggingface_consent"
-								highlighted={consentFocusField === "huggingface_consent"}
-							>
-								<SettingRow
-									label={huggingFaceLabel}
-									info={t("settings.privacy.huggingFaceDownloadsInfo")}
-								>
-									<Switch
-										checked={config.huggingface_consent ?? false}
-										onCheckedChange={handleHuggingFaceConsentChange}
-										aria-label={t("settings.privacy.huggingFaceDownloadsAria")}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-
-						{/* Voice biometric consent */}
-						{isVisible(
-							voiceBiometricLabel,
-							t("settings.privacy.voiceBiometricProcessingInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="voice_biometric_consent"
-								highlighted={consentFocusField === "voice_biometric_consent"}
-							>
-								<SettingRow
-									label={voiceBiometricLabel}
-									info={t("settings.privacy.voiceBiometricProcessingInfo")}
-								>
-									<Switch
-										checked={config.voice_biometric_consent ?? false}
-										onCheckedChange={handleVoiceBiometricChange}
-										aria-label={t(
-											"settings.privacy.voiceBiometricProcessingAria",
-										)}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-
-						{/* Per-provider cloud ASR consent — mirrors Models page toggles */}
-						{isVisible(
-							openaiCloudAsrLabel,
-							t("settings.privacy.openaiCloudAsrInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="cloud_openai_consent"
-								highlighted={consentFocusField === "cloud_openai_consent"}
-							>
-								<SettingRow
-									label={openaiCloudAsrLabel}
-									info={t("settings.privacy.openaiCloudAsrInfo")}
-								>
-									<Switch
-										checked={config.cloud_openai_consent ?? false}
-										onCheckedChange={handleOpenAiConsentChange}
-										aria-label={t("settings.privacy.openaiCloudAsrAria")}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-						{isVisible(
-							groqCloudAsrLabel,
-							t("settings.privacy.groqCloudAsrInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="cloud_groq_consent"
-								highlighted={consentFocusField === "cloud_groq_consent"}
-							>
-								<SettingRow
-									label={groqCloudAsrLabel}
-									info={t("settings.privacy.groqCloudAsrInfo")}
-								>
-									<Switch
-										checked={config.cloud_groq_consent ?? false}
-										onCheckedChange={handleGroqConsentChange}
-										aria-label={t("settings.privacy.groqCloudAsrAria")}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-						{isVisible(
-							deepgramCloudAsrLabel,
-							t("settings.privacy.deepgramCloudAsrInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="cloud_deepgram_consent"
-								highlighted={consentFocusField === "cloud_deepgram_consent"}
-							>
-								<SettingRow
-									label={deepgramCloudAsrLabel}
-									info={t("settings.privacy.deepgramCloudAsrInfo")}
-								>
-									<Switch
-										checked={config.cloud_deepgram_consent ?? false}
-										onCheckedChange={handleDeepgramConsentChange}
-										aria-label={t("settings.privacy.deepgramCloudAsrAria")}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-
-						{/* LLM polish consent (existing field, surfaced here for completeness) */}
-						{isVisible(
-							llmTextPolishingLabel,
-							t("settings.privacy.llmTextPolishingInfo"),
-							privacyTitle,
-						) && (
-							<ConsentRow
-								field="llm_polish_consent"
-								highlighted={consentFocusField === "llm_polish_consent"}
-							>
-								<SettingRow
-									label={llmTextPolishingLabel}
-									info={t("settings.privacy.llmTextPolishingInfo")}
-								>
-									<Switch
-										checked={config.llm_polish_consent ?? false}
-										onCheckedChange={handleLlmPolishConsentChange}
-										aria-label={t("settings.privacy.llmTextPolishingAria")}
-									/>
-								</SettingRow>
-							</ConsentRow>
-						)}
-
-						{/*Hidden-config rows (previously config.json-only
-                            fields, now user-tunable): transcription logging and
-                            the clipboard borrow/restore behavior. Both are
-                            privacy-relevant (transcription text leaving traces;
-                            the app reading clipboard contents), so they live in
-                            the Privacy & Consent section. */}
-						{isVisible(
-							logTranscriptionsLabel,
-							logTranscriptionsInfo,
-							privacyTitle,
-						) && (
-							<SettingRow
-								label={logTranscriptionsLabel}
-								info={logTranscriptionsInfo}
-							>
-								<Switch
-									checked={config.log_transcriptions ?? false}
-									onCheckedChange={handleLogTranscriptionsChange}
-									aria-label={t("settings.privacy.logTranscriptionsAria")}
-									data-testid="log-transcriptions-switch"
-								/>
-							</SettingRow>
-						)}
-
-						{isVisible(
-							clipboardSaveRestoreLabel,
-							clipboardSaveRestoreInfo,
-							privacyTitle,
-						) && (
-							<SettingRow
-								label={clipboardSaveRestoreLabel}
-								info={clipboardSaveRestoreInfo}
-							>
-								<Switch
-									checked={config.clipboard_save_restore ?? true}
-									onCheckedChange={handleClipboardSaveRestoreChange}
-									aria-label={t("settings.privacy.clipboardSaveRestoreAria")}
-									data-testid="clipboard-save-restore-switch"
-								/>
-							</SettingRow>
-						)}
+						{consentRows
+							.filter((row) => row.field.section === "privacy")
+							.map(({ field, label, info }) =>
+								isVisible(label, info, privacyTitle) ? (
+									field.consentRow ? (
+										<ConsentRow
+											key={field.configKey}
+											field={field.configKey}
+											highlighted={consentFocusField === field.configKey}
+										>
+											<SettingRow label={label} info={info}>
+												<Switch
+													checked={
+														config[field.configKey] ?? field.defaultValue
+													}
+													onCheckedChange={makeConsentChangeHandler(
+														field.configKey,
+													)}
+													aria-label={t(field.ariaKey)}
+												/>
+											</SettingRow>
+										</ConsentRow>
+									) : (
+										<SettingRow key={field.configKey} label={label} info={info}>
+											<Switch
+												checked={config[field.configKey] ?? field.defaultValue}
+												onCheckedChange={makeConsentChangeHandler(
+													field.configKey,
+												)}
+												aria-label={t(field.ariaKey)}
+												data-testid={field.testId}
+											/>
+										</SettingRow>
+									)
+								) : null,
+							)}
 
 						{/*GDPR right-to-export (Art. 15/20).
-					Previously only history + vocabulary were exportable.
-					Templates and config are also user data and must be
-					exportable on request.  The handlers live in
-					main/index.ts (templates:export, config:export) and
-					are exposed via the preload bridge. */}
+                                        Previously only history + vocabulary were exportable.
+                                        Templates and config are also user data and must be
+                                        exportable on request.  The handlers live in
+                                        main/index.ts (templates:export, config:export) and
+                                        are exposed via the preload bridge. */}
 						<SettingRow
 							label={exportAllDataLabel}
 							info={t("settings.privacy.exportAllDataInfo")}
@@ -616,13 +599,13 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 			)}
 
 			{/*confirmation dialog for "Agree to All". Discloses the
-				scope of the action (which 6 consents will be granted and what
-				each enables) so the user can make an informed decision before
-				clicking. Uses variant="destructive" because granting all cloud
-				+ biometric consents at once is a non-reversible-at-runtime
-				privacy action (revocation requires toggling each one off).
-				Title and message are localised via t("settings.privacy.agreeConfirm*")
-				— native translations exist in all 8 locale JSON files. */}
+                                scope of the action (which 6 consents will be granted and what
+                                each enables) so the user can make an informed decision before
+                                clicking. Uses variant="destructive" because granting all cloud
+                                + biometric consents at once is a non-reversible-at-runtime
+                                privacy action (revocation requires toggling each one off).
+                                Title and message are localised via t("settings.privacy.agreeConfirm*")
+                                — native translations exist in all 8 locale JSON files. */}
 			<ConfirmDialog
 				open={showAgreeConfirm}
 				title={t("settings.privacy.agreeConfirmTitle")}

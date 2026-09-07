@@ -1218,9 +1218,13 @@
 			"pauseFailed": "暂停失败：{error}",
 			"cancelled": "下载已取消。部分文件将在重试时被复用。",
 			"cancelFailed": "取消失败：{error}",
+			"queuedCancelled": "{name} 已从下载队列中移除。",
+			"cancelNoopName": "{name} 未在下载，也不在队列中。",
 			"depsInstalled": "依赖项已安装",
 			"selectFailed": "选择失败",
-			"downloadAlreadyActive": "另一个模型下载正在进行中（可能已暂停）。请先恢复或取消该下载。"
+			"downloadAlreadyActive": "另一个模型下载正在进行中（可能已暂停）。请先恢复或取消该下载。",
+			"downloadAlreadyActiveName": "{name} 正在下载中——请等待完成或取消。",
+			"downloadQueued": "{name} 已加入队列——当前下载完成后将自动开始。"
 		},
 		"test": {
 			"needApiKey": "请先输入 API 密钥",
@@ -1256,6 +1260,9 @@
 			"deps": "下载依赖项",
 			"progressAria": "下载模型中：已完成 {percent}%",
 			"oneAtATime": "一次只能下载一个 — 请等待当前下载完成或取消它",
+			"queued": "排队中",
+			"queuedPosition": "排队中 — 下载队列中的第 {position} 位",
+			"cancelQueuedAria": "取消 {name} 的排队下载",
 			"progressAriaWithName": "{name} 下载：{percent}% 完成",
 			"errorMessage": "下载失败：{error}",
 			"errorMessageWithName": "{name} 下载失败：{error}",

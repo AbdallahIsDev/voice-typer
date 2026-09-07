@@ -708,6 +708,9 @@
 			"deps": "Télécharger les Dépendances",
 			"progressAria": "Téléchargement du modèle : {percent}% terminé",
 			"oneAtATime": "Un seul téléchargement à la fois — attendez la fin du téléchargement en cours ou annulez-le",
+			"queued": "En file d’attente",
+			"queuedPosition": "En file d’attente — position {position} dans la file de téléchargement",
+			"cancelQueuedAria": "Annuler le téléchargement en file d'attente de {name}",
 			"progressAriaWithName": "Téléchargement de {name} : {percent}% terminé",
 			"errorMessage": "Échec du téléchargement : {error}",
 			"errorMessageWithName": "Échec du téléchargement de {name} : {error}",
@@ -757,9 +760,13 @@
 			"pauseFailed": "Échec de la pause : {error}",
 			"cancelled": "Téléchargement annulé. Les fichiers partiels seront réutilisés lors d'une nouvelle tentative.",
 			"cancelFailed": "Échec de l'annulation : {error}",
+			"queuedCancelled": "{name} a été retiré de la file d'attente des téléchargements.",
+			"cancelNoopName": "{name} n'est ni en cours de téléchargement ni en file d'attente.",
 			"depsInstalled": "Dépendances installées avec succès.",
 			"selectFailed": "Impossible de sélectionner le modèle.",
-			"downloadAlreadyActive": "Un autre téléchargement de modèle est déjà en cours (il est peut-être en pause). Reprenez-le ou annulez-le d’abord."
+			"downloadAlreadyActive": "Un autre téléchargement de modèle est déjà en cours (il est peut-être en pause). Reprenez-le ou annulez-le d’abord.",
+			"downloadAlreadyActiveName": "{name} est déjà en cours de téléchargement — attendez la fin ou annulez-le.",
+			"downloadQueued": "{name} est en file d'attente — le téléchargement démarrera automatiquement une fois le téléchargement en cours terminé."
 		},
 		"test": {
 			"needApiKey": "Veuillez d'abord saisir une clé API",

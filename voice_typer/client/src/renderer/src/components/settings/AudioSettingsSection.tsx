@@ -27,6 +27,7 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
+import { AUDIO_PRESET_OPTIONS } from "@/lib/utils/audioPresets";
 import type { VoiceTyperConfig } from "@/types/config";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
@@ -39,7 +40,9 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 }: SettingsSectionSharedProps) {
 	const { call } = usePython();
 	// The same `audio_preset` (and the entire custom filter chain) is
-	// also editable on the Microphone page via `AudioPresetSelector`.
+	// also editable on the Microphone page via its preset accordion
+	// (PresetAccordionSelector) — both surfaces draw their option
+	// values/labels from the shared `lib/utils/audioPresets.ts` registry.
 	// The Microphone page additionally offers a test-record A/B workflow
 	// (record a sample, swap preset, re-record, compare) that this
 	// Settings surface does not. The cross-link banner below surfaces
@@ -379,21 +382,18 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="auto">
-										{t("settings.audioEnhancement.presetAuto")}
-									</SelectItem>
-									<SelectItem value="studio">
-										{t("settings.audioEnhancement.presetStudio")}
-									</SelectItem>
-									<SelectItem value="noisy_room">
-										{t("settings.audioEnhancement.presetNoisyRoom")}
-									</SelectItem>
-									<SelectItem value="off">
-										{t("settings.audioEnhancement.presetOff")}
-									</SelectItem>
-									<SelectItem value="custom">
-										{t("settings.audioEnhancement.presetCustom")}
-									</SelectItem>
+									{/* Options come from the shared preset
+                                                                        registry (lib/utils/audioPresets.ts) — the
+                                                                        SAME source the Microphone page's accordion
+                                                                        consumes, so the two surfaces can never
+                                                                        drift in values or labels. Labels resolve
+                                                                        through this component's reactive `t`
+                                                                        (useT) so a locale switch re-renders them. */}
+									{AUDIO_PRESET_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{t(option.labelKey)}
+										</SelectItem>
+									))}
 								</SelectContent>
 							</Select>
 						</SettingRow>

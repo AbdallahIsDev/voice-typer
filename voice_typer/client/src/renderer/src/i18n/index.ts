@@ -62,6 +62,15 @@ export {
 } from "./store";
 // translate.ts — translation + pluralization functions.
 export { t, tChoice } from "./translate";
+// translation-keys.ts — catalog-derived compile-time key contract
+// (strict t()/tChoice() key union from en.json). Exported so consumers
+// that build key maps / lookups can annotate them with the same strict
+// key type t() enforces.
+export type {
+	PluralBaseKey,
+	TranslationChoiceKey,
+	TranslationKey,
+} from "./translation-keys";
 
 // ── Explicit initialization ──────────────────────────────────────
 

@@ -20,13 +20,13 @@ import {
 	useCallback,
 	useRef,
 } from "react";
-import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import { useFilterState } from "@/hooks/useFilterState";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
+import type { AudioPreset } from "@/lib/utils/audioPresets";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
 import type { TestResultQuality } from "../lib/types";

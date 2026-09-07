@@ -22,8 +22,27 @@ import { cn } from "@/lib/utils";
 import { prefetchPage } from "@/router/prefetch";
 import type { Page } from "@/types/ipc";
 
+// The subset of Page values that appear as sidebar destinations.
+// Narrowing the id (instead of reusing the whole Page union) keeps the
+// nav-label lookup `t(`nav.${item.id}`)` inside the compile-time
+// translation-catalog contract: every id here must have a `nav.*`
+// catalog key, so adding a nav item without its translation fails
+// typecheck instead of rendering the raw key at runtime.
+type NavLeafId = Extract<
+	Page,
+	| "home"
+	| "history"
+	| "analytics"
+	| "models"
+	| "templates"
+	| "vocabulary"
+	| "settings"
+	| "microphone"
+	| "aboutAndPrivacy"
+>;
+
 interface NavItem {
-	id: Page;
+	id: NavLeafId;
 	icon: IconSvgElement;
 }
 

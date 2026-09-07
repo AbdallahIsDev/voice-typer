@@ -11,6 +11,10 @@
 
 import type { Locale } from "./locale";
 import { _translations, getLocale } from "./store";
+// Catalog-derived compile-time key contract (flat key union from
+// translations/en.json) used by the strict t()/tChoice() overloads
+// below — see translation-keys.ts for the derivation.
+import type { TranslationChoiceKey, TranslationKey } from "./translation-keys";
 
 //cache the per-parameter interpolation RegExp. ``t()`` /
 // ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``
@@ -101,7 +105,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 }
 
 /**
- * Translate a key to the current locale's string.
+ * Translate a catalog key to the current locale's string.
  *
  * Lookup chain (in order):
  *
@@ -124,10 +128,42 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
  * provided, each ``{key}`` in the translated string is replaced with
  * the corresponding value from ``params``.
  *
+ * Key typing — two overloads (the same strict+loose pattern as
+ * ``PythonCall`` in ``lib/python-bridge/usePython.ts``):
+ *
+ *   - STRICT (this overload): a statically written key literal must be
+ *     a member of the ``TranslationKey`` union derived from
+ *     ``translations/en.json`` (see ``./translation-keys``), so a
+ *     typo'd or missing key path is a COMPILE error, not a shipped
+ *     raw-key string.
+ *   - LOOSE (next overload): for genuinely dynamic keys (built from
+ *     template expressions or held in ``string``-typed variables at
+ *     runtime). The loose overload is gated so it can NOT become a
+ *     default escape hatch for static literals: it only accepts key
+ *     types that are ``string`` itself — a concrete literal (or union
+ *     of literals) that is absent from the catalog matches NEITHER
+ *     overload and fails with an actionable error naming the bad key.
+ *
  * @param key - Dot-separated translation key (e.g., "app.name")
  * @param params - Optional interpolation params (e.g., `{ key: "Esc" }`)
  * @returns The translated string
  */
+export function t(key: TranslationKey, params?: Record<string, string>): string;
+/**
+ * Dynamic-key overload — see the strict overload above for the lookup
+ * chain and interpolation contract. This overload only matches when
+ * the argument's type is plain ``string`` (or wider), i.e. the key is
+ * built at runtime rather than statically written. A statically
+ * written literal that is absent from the catalog does NOT match this
+ * overload — the parameter type degrades to an error-message string —
+ * so typos still fail at compile time.
+ */
+export function t<K extends string>(
+	key: string extends K
+		? K
+		: `t() key "${K}" is not in the en.json translation catalog — fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
+	params?: Record<string, string>,
+): string;
 export function t(key: string, params?: Record<string, string>): string {
 	let result: string;
 	const currentLocale = getLocale();
@@ -263,7 +299,14 @@ export function t(key: string, params?: Record<string, string>): string {
 /**
  * Resolve a pluralized translation key for the given count.
  *
- * See the  section above for the full lookup algorithm.
+ * Key typing — the same strict+loose overload pair as ``t()`` above:
+ * the strict overload accepts a bare catalog key or the base of a
+ * plural family (``TranslationChoiceKey`` — the union of
+ * ``TranslationKey`` and the suffix-stripped bases of the
+ * ``_zero``..``_other`` plural-suffixed catalog keys), so a typo'd base
+ * key fails at compile time; the loose overload handles genuinely
+ * runtime-built base keys and rejects static literals the catalog
+ * cannot resolve.
  *
  * @param key - Dot-separated base key (e.g., "inbox.messages")
  * @param count - The numeric count that determines the plural category
@@ -272,6 +315,23 @@ export function t(key: string, params?: Record<string, string>): string {
  *                 the caller overrides it.
  * @returns The translated, interpolated string
  */
+export function tChoice(
+	key: TranslationChoiceKey,
+	count: number,
+	params?: Record<string, string>,
+): string;
+/**
+ * Dynamic-key overload — see the strict ``tChoice`` overload above.
+ * Accepts only plain-``string``-typed base keys (runtime-built); static
+ * literals the catalog cannot resolve fail at compile time.
+ */
+export function tChoice<K extends string>(
+	key: string extends K
+		? K
+		: `tChoice() base key "${K}" is not in the en.json translation catalog — fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
+	count: number,
+	params?: Record<string, string>,
+): string;
 export function tChoice(
 	key: string,
 	count: number,

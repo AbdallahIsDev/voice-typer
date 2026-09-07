@@ -60,6 +60,19 @@ function asLocale(s: string): Locale {
 	return s as unknown as Locale;
 }
 
+/**
+ * Wrap a synthetic test-fixture key so it takes t()'s dynamic-key
+ * (loose) overload. These keys are intentionally absent from the
+ * shipped en.json catalog — the tests below register their own
+ * translation tables for them at runtime — so the compile-time catalog
+ * contract must not apply to them (that guard exists to catch
+ * statically written production keys drifting from the catalog).
+ * Values pass through unchanged; this is typing-only.
+ */
+function fixtureKey(key: string): string {
+	return key;
+}
+
 describe("t() dev-mode missing-key warning", () => {
 	let warnSpy: ReturnType<typeof vi.spyOn>;
 
@@ -79,7 +92,7 @@ describe("t() dev-mode missing-key warning", () => {
 	it("emits a console.warn when a key is missing from current locale AND English", () => {
 		// No tables registered for `nonexistent.key` — `t()` should
 		// fall through to the raw-key path and emit the dev warning.
-		const result = t("nonexistent.key");
+		const result = t(fixtureKey("nonexistent.key"));
 		expect(result).toBe("nonexistent.key");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		expect(warnSpy).toHaveBeenCalledWith(
@@ -113,12 +126,12 @@ describe("t() dev-mode missing-key warning", () => {
 	it("warns at most once per (locale, key) pair — subsequent calls hit the resolved cache", () => {
 		// First call resolves the chain, finds nothing, warns, and
 		// caches the raw key in `_resolvedCache`.
-		const first = t("repeat.miss");
+		const first = t(fixtureKey("repeat.miss"));
 		expect(first).toBe("repeat.miss");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		// Second call hits the cache and returns the cached raw key
 		// WITHOUT re-walking the chain — so no second warning.
-		const second = t("repeat.miss");
+		const second = t(fixtureKey("repeat.miss"));
 		expect(second).toBe("repeat.miss");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 	});
@@ -161,7 +174,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		});
 		_setCurrentLocale(ZH_CN);
 
-		const result = t("app.zhOnly");
+		const result = t(fixtureKey("app.zhOnly"));
 		// The primary-subtag step picks up the `zh` value rather than
 		// falling back to English (which doesn't have `app.zhOnly`
 		// either).
@@ -178,7 +191,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		});
 		_setCurrentLocale(ZH_CN);
 
-		expect(t("app.greeting")).toBe("CN-specific greeting");
+		expect(t(fixtureKey("app.greeting"))).toBe("CN-specific greeting");
 	});
 
 	it("falls back to English when neither the regional map nor the primary subtag has the key", () => {
@@ -186,7 +199,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		registerTranslations(ZH_CN, {});
 		_setCurrentLocale(ZH_CN);
 
-		expect(t("app.enOnly")).toBe("EN value");
+		expect(t(fixtureKey("app.enOnly"))).toBe("EN value");
 	});
 
 	it("falls back to the raw key (with dev warning) when the key is missing from every step of the chain", () => {
@@ -197,7 +210,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 			registerTranslations(ZH_CN, {});
 			_setCurrentLocale(ZH_CN);
 
-			const result = t("totally.missing");
+			const result = t(fixtureKey("totally.missing"));
 			// Raw key returned (defensive — no crash).
 			expect(result).toBe("totally.missing");
 			// Dev warning fired exactly once, naming the regional
@@ -222,7 +235,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		// We verify the chain still works end-to-end: `zh` → `en` →
 		// key, picking up the English value for `app.enOnly`.
 		_setCurrentLocale("zh");
-		expect(t("app.enOnly")).toBe("EN value");
+		expect(t(fixtureKey("app.enOnly"))).toBe("EN value");
 	});
 
 	it("caches the primary-subtag resolution so subsequent calls skip the chain", () => {
@@ -230,7 +243,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		// the resolved `zh` value under the zh-CN locale's cache entry.
 		registerTranslations(ZH_CN, {});
 		_setCurrentLocale(ZH_CN);
-		const first = t("app.zhOnly");
+		const first = t(fixtureKey("app.zhOnly"));
 		expect(first).toBe("ZH value");
 
 		// Mutate the `zh` table AFTER the first call resolved. If the
@@ -238,7 +251,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		// value rather than the new one — proving the chain was
 		// short-circuited.
 		registerTranslations("zh", { app: { zhOnly: "MUTATED value" } });
-		const second = t("app.zhOnly");
+		const second = t(fixtureKey("app.zhOnly"));
 		expect(second).toBe("ZH value");
 	});
 });

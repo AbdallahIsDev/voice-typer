@@ -426,7 +426,10 @@ export function useThemeSettings({
 	// ``null`` because the ``customDraft`` ``const`` is declared later
 	// (via ``useState``) and is in the temporal dead zone here.  The
 	// tracking effect below updates the ref with the real value after
-	// every render.
+	// every render; the draft-mutating handlers ALSO write it
+	// synchronously (event-handler ref writes are legal) so the next
+	// edit in the same tick composes off the freshest draft instead
+	// of waiting for the post-commit effect.
 	const customDraftRef = useRef<CustomThemeData | null>(null);
 	useEffect(() => {
 		customDraftRef.current = customDraft;
@@ -571,33 +574,48 @@ export function useThemeSettings({
 	// ── Event handlers ──────────────────────────────────────────────
 
 	// Apply a custom color change immediately for preview, then debounce save.
+	//
+	// React state updaters must stay PURE: StrictMode double-invokes them
+	// in dev (which used to double-fire every side effect below — one edit
+	// produced TWO localStorage draft writes and TWO debounced-save
+	// armings), and a replayed/interrupted render can re-invoke an updater
+	// against a different base state in production. The next draft is
+	// therefore computed from the `customDraftRef` mirror OUTSIDE the
+	// updater — the updater only schedules the precomputed value — and the
+	// document write + cache invalidation + localStorage write + debounced
+	// backend save all run exactly ONCE, from the handler itself.
 	const handleCustomColorChange = useCallback(
 		(mode: "light" | "dark", colorKey: string, hex: string) => {
-			setCustomDraft((prev) => {
-				if (!prev) return prev;
-				const updated: CustomThemeData = {
-					...prev,
-					[mode]: { ...prev[mode], [colorKey]: hex },
-				};
-				// Preview immediately on the document
-				const isDark = document.documentElement.classList.contains("dark");
-				const modeVars = isDark ? updated.dark : updated.light;
-				const derived = deriveCustomVars(modeVars, isDark);
-				applyThemeVars("custom", isDark, derived);
+			const prev = customDraftRef.current;
+			if (!prev) return;
+			const updated: CustomThemeData = {
+				...prev,
+				[mode]: { ...prev[mode], [colorKey]: hex },
+			};
+			// Refresh the ref mirror synchronously so a second edit in the
+			// same tick (before the ref-sync effect commits) composes off this
+			// one — the same composition the old functional-updater form
+			// provided. The ref-sync effect below re-asserts the same value
+			// after commit, so this write can never desync the mirror.
+			customDraftRef.current = updated;
+			setCustomDraft(() => updated);
 
-				_themeColorCache.delete("custom");
-				_themeColorCache.delete("default");
+			// Preview immediately on the document
+			const isDark = document.documentElement.classList.contains("dark");
+			const modeVars = isDark ? updated.dark : updated.light;
+			const derived = deriveCustomVars(modeVars, isDark);
+			applyThemeVars("custom", isDark, derived);
 
-				// Persist to localStorage immediately (before the backend
-				// save completes) so the draft survives a crash or
-				// disconnect.
-				saveDraftToLS(updated);
+			_themeColorCache.delete("custom");
+			_themeColorCache.delete("default");
 
-				// Debounced save to backend
-				updateConfigDebounced("custom_theme", updated, 300);
+			// Persist to localStorage immediately (before the backend
+			// save completes) so the draft survives a crash or
+			// disconnect.
+			saveDraftToLS(updated);
 
-				return updated;
-			});
+			// Debounced save to backend
+			updateConfigDebounced("custom_theme", updated, 300);
 		},
 		[updateConfigDebounced],
 	);
@@ -680,6 +698,10 @@ export function useThemeSettings({
 					config?.theme_preset ?? "default",
 					customDraftRef.current,
 				);
+				// Refresh the ref mirror alongside the state write so
+				// the draft is visible to same-tick consumers (see
+				// handleCustomColorChange).
+				customDraftRef.current = currentColors;
 				setCustomDraft(currentColors);
 				saveDraftToLS(currentColors);
 				updateConfig({ theme_preset: "custom", custom_theme: currentColors });
@@ -750,6 +772,10 @@ export function useThemeSettings({
 			light: { ...DEFAULT_CUSTOM_LIGHT },
 			dark: { ...DEFAULT_CUSTOM_DARK },
 		};
+		// Refresh the ref mirror alongside the state write so the
+		// draft is visible to same-tick consumers (see
+		// handleCustomColorChange).
+		customDraftRef.current = defaults;
 		setCustomDraft(defaults);
 		saveDraftToLS(defaults);
 		const isDark = document.documentElement.classList.contains("dark");

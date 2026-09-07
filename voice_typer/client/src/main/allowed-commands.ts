@@ -154,6 +154,9 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	//allow get_model_catalog so the Models page can
 	// fetch the available model catalog from the backend.
 	"get_model_catalog",
+	//allow get_download_queue so the Models page can
+	// hydrate its download-queue chips on mount (read-only snapshot).
+	"get_download_queue",
 	// Microphone test commands
 	"microphone_test_start",
 	"microphone_test_stop",

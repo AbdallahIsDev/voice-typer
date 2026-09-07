@@ -313,23 +313,26 @@ describe("XA-8-L1/L2/L3: Slider / Switch / Button dev-mode a11y warn", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 6 — InfoTooltip: SVG has no <title> element
+// Test 6 — InfoTooltip: the help glyph carries no redundant accessible name
 // ────────────────────────────────────────────────────────────────────
-describe("XA-8-L3: InfoTooltip SVG has no redundant <title>", () => {
-	it("renders an SVG without a <title> child (button aria-label is the source of truth)", () => {
+describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
+	it("renders the icon glyph aria-hidden with no <title> descendant (button aria-label is the source of truth)", () => {
 		const { container } = render(
 			<TooltipProvider delayDuration={200}>
 				<InfoTooltip text="More info" />
 			</TooltipProvider>,
 		);
-		const svg = container.querySelector("svg");
-		expect(svg).not.toBeNull();
-		// A <title> inside the SVG would be announced IN ADDITION to the
-		// wrapping button's aria-label (double announcement). The fix
-		// marks the SVG aria-hidden and drops the <title>.
-		const title = svg?.querySelector("title");
+		// The help glyph is the shared hugeicons renderer (mocked as a span
+		// in this suite — the real component renders the same contract as
+		// an SVG): decorative, aria-hidden, and carrying no <title>.
+		const glyph = container.querySelector("[data-testid='hugeicon']");
+		expect(glyph).not.toBeNull();
+		// A <title> inside the glyph would be announced IN ADDITION to the
+		// wrapping button's aria-label (double announcement). The fix marks
+		// the glyph aria-hidden and drops any title.
+		const title = glyph?.querySelector("title");
 		expect(title).toBeNull();
-		expect(svg?.getAttribute("aria-hidden")).toBe("true");
+		expect(glyph?.getAttribute("aria-hidden")).toBe("true");
 	});
 
 	it("still exposes the accessible name on the wrapping button", () => {

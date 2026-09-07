@@ -22,7 +22,9 @@
  *     `aria-busy` + a "Downloading…" label swap ().
  *   • `handleTogglePause` / `handleCancelDownload` — pause/resume/cancel
  *     the in-flight download. Cancel ALSO clears `failedDownload` so
- *     the bar unmounts cleanly.
+ *     the bar unmounts cleanly. With a model name (the queued-model
+ *     Cancel affordance), the cancel targets THAT model's pending queue
+ *     entry instead — the active transfer's state is left intact.
  *   • `resetProgress` — internal helper used by `downloadModel` and
  *     `handleCancelDownload` to clear local progress state.
  *   • The `download_progress` event subscription — pushes from the
@@ -108,7 +110,11 @@ export interface UseModelDownloadResult {
 	retryDownload: (model: ModelInfo) => Promise<void>;
 	installDeps: (model: ModelInfo) => Promise<void>;
 	handleTogglePause: () => Promise<void>;
-	handleCancelDownload: () => Promise<void>;
+	/** Cancel the ACTIVE download (no argument — legacy shape, wired
+	 * to the progress bar's Cancel button), or cancel/remove a named
+	 * model's pending download (queued-model Cancel affordance: a
+	 * queued entry is removed without touching the active transfer). */
+	handleCancelDownload: (modelName?: string) => Promise<void>;
 }
 
 // ── Consolidated download state ───────────────────────────────────────
@@ -152,6 +158,24 @@ const INITIAL_DOWNLOAD_STATE: DownloadState = {
 	installingDepsModel: null,
 };
 
+/** Zero the progress-related fields (preserving `downloadingModel`,
+ * `failedDownload`, `installingDepsModel`). Pure so the claim-time
+ * updater inside `downloadModel` can reuse it — an updater must not
+ * call `setState` (which the `resetProgress` callback does). This is
+ * the SAME field set `resetProgress` clears, kept in one place. */
+function withResetProgress(prev: DownloadState): DownloadState {
+	return {
+		...prev,
+		downloadProgress: 0,
+		downloadStatus: "",
+		downloadedBytes: null,
+		totalBytes: null,
+		speedBps: null,
+		etaSeconds: null,
+		isPaused: false,
+	};
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function useModelDownload({
@@ -178,6 +202,17 @@ export function useModelDownload({
 	// Cancel bumps the generation so the cancelled promise's eventual
 	// resolution is always treated as stale.
 	const downloadRunRef = useRef(0);
+	// The run that currently OWNS the single progress-bar slot (the
+	// last run that CLAIMED `downloadingModel` — see the claim guard
+	// in `downloadModel`). The stale-resolution guard honours BOTH the
+	// newest click AND the slot owner: a download request that arrives
+	// while another model transfers resolves as QUEUED — it bumps the
+	// click generation but never claims the slot, so the ACTIVE
+	// transfer's still-pending promise must stay current (its eventual
+	// success/failure resolution processes normally instead of being
+	// silently dropped as "superseded"). Nulled whenever the slot is
+	// released (success / cancel / queued-release).
+	const barOwnerRunRef = useRef<number | null>(null);
 
 	// ── download_progress event subscription ────────────────────────
 	//
@@ -265,16 +300,7 @@ export function useModelDownload({
 		// `installingDepsModel` (these are managed by the action
 		// callbacks below and would be clobbered if we spread
 		// `INITIAL_DOWNLOAD_STATE` here).
-		setState((prev) => ({
-			...prev,
-			downloadProgress: 0,
-			downloadStatus: "",
-			downloadedBytes: null,
-			totalBytes: null,
-			speedBps: null,
-			etaSeconds: null,
-			isPaused: false,
-		}));
+		setState(withResetProgress);
 	}, []);
 
 	//Action: downloadModel ( retry on failure) ────────────
@@ -292,28 +318,76 @@ export function useModelDownload({
 			// `download_model` promise now resolves stale (see the guard
 			// below) and must not touch state.
 			const runId = ++downloadRunRef.current;
-			// True while THIS run is still the current download. Checked
-			// after every await so a cancelled / superseded promise can
-			// no longer clobber the live download's state (progress bar,
-			// error UI, toasts).
-			const isCurrent = () => downloadRunRef.current === runId;
+			// True while THIS run is still the current download OR the
+			// owner of the progress-bar slot. Checked after every await
+			// so a cancelled / superseded promise can no longer clobber
+			// the live download's state (progress bar, error UI,
+			// toasts). The slot-owner arm keeps the ACTIVE transfer's
+			// promise current even after a QUEUED request bumps the
+			// generation (queued runs never claim the slot — see the
+			// claim guard below).
+			const isCurrent = () =>
+				downloadRunRef.current === runId || barOwnerRunRef.current === runId;
 
-			setState((prev) => ({
-				...prev,
-				downloadingModel: model.name,
-				failedDownload: null,
-			}));
-			resetProgress();
+			// Claim the SINGLE progress-bar slot. The claim is
+			// conditional (a functional update reads the live slot
+			// state — the closure's `state` is stale by design):
+			//   • Another model is ACTIVELY transferring (slot
+			//     occupied, no recorded failure) → do NOT claim and do
+			//     NOT zero the live bar's progress. The backend QUEUES
+			//     this request; the live transfer keeps the bar and
+			//     its progress events keep updating it.
+			//   • This model is already the transferring owner →
+			//     duplicate click (the backend answers "already
+			//     active") — leave the live bar untouched.
+			//   • Slot free (or its owner's transfer FAILED — the
+			//     failure branch keeps the slot mounted for the inline
+			//     error UI) → claim it and zero the progress fields
+			//     for the new attempt.
+			// The queued resolution below then never has to "give the
+			// bar back" — it was never taken.
+			setState((prev) => {
+				if (
+					prev.downloadingModel != null &&
+					prev.downloadingModel !== model.name &&
+					prev.failedDownload == null
+				) {
+					// Queued-bound click — the live transfer keeps
+					// the bar AND its progress state untouched.
+					return prev;
+				}
+				if (
+					prev.downloadingModel === model.name &&
+					prev.failedDownload == null
+				) {
+					// Duplicate click on the transferring model.
+					return prev;
+				}
+				// Fresh claim (free slot, or re-claim after a
+				// failure for this model).
+				barOwnerRunRef.current = runId;
+				return {
+					...withResetProgress(prev),
+					downloadingModel: model.name,
+					failedDownload: null,
+				};
+			});
 			try {
 				const result = await call<{
 					success: boolean;
 					error?: string;
 					message?: string;
 					cancelled?: boolean;
-					/** Set when the backend refused to start because another
-					 * gateable download is still in flight (e.g. the renderer's
-					 * promise timed out during a long PAUSE). Not a failure —
-					 * the live download owns the bar; restore it. */
+					/** Set when the request was accepted into the pending
+					 * download queue instead of starting immediately (a
+					 * gateable transfer is already in flight). Not a
+					 * failure — the request auto-starts when the active
+					 * transfer exits. */
+					queued?: boolean;
+					/** Set when the backend refused to start because the
+					 * model is ALREADY the download in flight (a re-click
+					 * of the active model). Not a failure — the live
+					 * download owns the bar; keep it. */
 					download_already_active?: boolean;
 				}>("download_model", { model: model.name });
 				if (!isCurrent()) {
@@ -322,21 +396,47 @@ export function useModelDownload({
 					// stale resolution must be a no-op.
 					return;
 				}
-				if (result.download_already_active) {
-					// Another gateable download is still running (possibly
-					// paused) — this attempt never started. Surface a hint
-					// and hand the bar back to the live download instead of
-					// treating the refusal as a failure of THIS model.
+				if (result.queued) {
+					// QUEUED — the backend accepted this request into the
+					// pending FIFO queue; it auto-starts when the active
+					// transfer exits. NOT a success: the model is not on
+					// disk, so there is no `downloaded: true` marking and
+					// no reconcile. The active download's state stays
+					// intact (the claim guard above never took the bar);
+					// the queued model's position renders from the
+					// queue-position events via the queue UI.
 					showSnack(
-						result.error || t("models.snack.downloadAlreadyActive"),
+						result.message ||
+							t("models.snack.downloadQueued", { name: model.name }),
+						"info",
+					);
+					// Release the slot ONLY if this run transiently
+					// claimed it (renderer reload mid-transfer: the slot
+					// was free at click time even though the backend gate
+					// was armed). A queued request must not keep the bar.
+					if (barOwnerRunRef.current === runId) {
+						barOwnerRunRef.current = null;
+						setState((prev) =>
+							prev.downloadingModel === model.name
+								? { ...prev, downloadingModel: null }
+								: prev,
+						);
+					}
+					return;
+				}
+				if (result.download_already_active) {
+					// The requested model IS the download already in
+					// flight (a re-click of the active model). This
+					// attempt never started a second transfer — surface
+					// the state and LEAVE the live bar + progress
+					// untouched (they belong to this very model).
+					showSnack(
+						result.error ||
+							t("models.snack.downloadAlreadyActiveName", {
+								name: model.name,
+							}),
 						"warning",
 					);
-					setState((prev) => ({
-						...prev,
-						downloadingModel: null,
-						failedDownload: null,
-					}));
-					resetProgress();
 					return;
 				}
 				if (result.success) {
@@ -359,7 +459,9 @@ export function useModelDownload({
 							t("models.snack.downloaded", { name: model.name }),
 						"success",
 					);
-					// Success → unmount the bar + clear any stale failure.
+					// Success → unmount the bar + clear any stale
+					// failure (and release the slot ownership).
+					barOwnerRunRef.current = null;
 					setState((prev) => ({
 						...prev,
 						downloadingModel: null,
@@ -377,6 +479,7 @@ export function useModelDownload({
 					// cancel IPC completes — treat the cancelled
 					// resolution as a clean stop (unmount the bar,
 					// no failure toast).
+					barOwnerRunRef.current = null;
 					setState((prev) => ({
 						...prev,
 						downloadingModel: null,
@@ -526,40 +629,90 @@ export function useModelDownload({
 		}
 	}, [call, state.isPaused, showSnack]);
 
-	const handleCancelDownload = useCallback(async () => {
-		try {
-			await call("cancel_model_download");
-			showSnack(t("models.snack.cancelled"), "warning");
-		} catch (err) {
-			showSnack(
-				t("models.snack.cancelFailed", {
-					error: userFacingErrorMessage(err, t, formatErrorMessage(err)),
-				}),
-				"error",
-			);
-		} finally {
-			// Always clear local download state on cancel — whether the
-			// IPC succeeded or failed, the user has signalled intent to
-			// cancel. The bar unmounts (`downloadingModel = null`),
-			// the inline error UI is cleared (`failedDownload = null`),
-			// and progress counters reset. The backend may still be
-			// downloading, but the renderer's view reflects the user's
-			// intent and the next download_progress event (if any)
-			// will re-establish state.
-			//
-			// Bump the generation so the still-pending `download_model`
-			// promise's eventual resolution (cancelled / failed /
-			// even success) is treated as stale and cannot clobber a
-			// download the user starts right after cancelling.
-			downloadRunRef.current += 1;
-			setState((prev) => ({
-				...prev,
-				downloadingModel: null,
-				failedDownload: null,
-			}));
-			resetProgress();
-		}
-	}, [call, showSnack, resetProgress]);
+	const handleCancelDownload = useCallback(
+		async (modelName?: string) => {
+			// With a model name (queued-model Cancel affordance): cancel
+			// THAT model's pending download. When the model sits in the
+			// queue it is removed WITHOUT touching the active transfer —
+			// the active bar, progress state, and failure state stay
+			// intact. (Race safety: if the named model IS the active
+			// transfer — it auto-started between render and click — the
+			// service cancels the transfer and the legacy active-cancel
+			// semantics below run.)
+			// Without a model name (progress-bar Cancel): the legacy
+			// shape — cancel the ACTIVE transfer.
+			let cancelledActiveTransfer = false;
+			try {
+				if (modelName) {
+					const result = await call<{
+						cancelled?: boolean;
+						removed_from_queue?: boolean;
+					}>("cancel_model_download", { model: modelName });
+					if (result?.removed_from_queue) {
+						// Queue removal — the active transfer keeps running.
+						showSnack(
+							t("models.snack.queuedCancelled", { name: modelName }),
+							"info",
+						);
+					} else if (result?.cancelled) {
+						// The named model WAS the active transfer (race) —
+						// fall through to the legacy active-cancel handling.
+						cancelledActiveTransfer = true;
+						showSnack(t("models.snack.cancelled"), "warning");
+					} else {
+						// Neither queued nor active (stale queued chip /
+						// double click) — benign no-op, say so honestly.
+						showSnack(
+							t("models.snack.cancelNoopName", { name: modelName }),
+							"info",
+						);
+					}
+				} else {
+					await call("cancel_model_download");
+					cancelledActiveTransfer = true;
+					showSnack(t("models.snack.cancelled"), "warning");
+				}
+			} catch (err) {
+				cancelledActiveTransfer = !modelName;
+				showSnack(
+					t("models.snack.cancelFailed", {
+						error: userFacingErrorMessage(err, t, formatErrorMessage(err)),
+					}),
+					"error",
+				);
+			} finally {
+				if (cancelledActiveTransfer) {
+					// Always clear local download state when the ACTIVE
+					// transfer was cancelled — whether the IPC succeeded
+					// or failed, the user has signalled intent to cancel
+					// it. The bar unmounts (`downloadingModel = null`),
+					// the inline error UI is cleared (`failedDownload =
+					// null`), and progress counters reset. The backend may
+					// still be downloading, but the renderer's view
+					// reflects the user's intent and the next
+					// download_progress event (if any) will re-establish
+					// state.
+					//
+					// Bump the generation so the still-pending
+					// `download_model` promise's eventual resolution
+					// (cancelled / failed / even success) is treated as
+					// stale and cannot clobber a download the user starts
+					// right after cancelling.
+					downloadRunRef.current += 1;
+					barOwnerRunRef.current = null;
+					setState((prev) => ({
+						...prev,
+						downloadingModel: null,
+						failedDownload: null,
+					}));
+					resetProgress();
+				}
+				// A queued-model cancellation (queue removal or no-op)
+				// intentionally leaves the active download's state alone.
+			}
+		},
+		[call, showSnack, resetProgress],
+	);
 
 	// Destructure at the return boundary so consumer identity stays
 	// stable — consumers continue to receive `downloadingModel` /

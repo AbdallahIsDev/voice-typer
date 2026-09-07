@@ -25,11 +25,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
-import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import type { AudioPreset } from "@/lib/utils/audioPresets";
 import type { VoiceTyperConfig } from "@/types/config";
 import { MICROPHONE_TEST_DURATION_SEC } from "../hooks/useMicrophoneTestSession";
 import type { TestResultQuality } from "../lib/types";
@@ -126,9 +126,9 @@ export function ActiveMicrophoneCard({
 						{activeMicName}
 					</p>
 					{/* Description only for System Default — its text carries
-					information (which device the OS routes to). For a selected
-					device a "Selected microphone" line is redundant with the
-					radio list + card context (C-MIC-13), so no desc renders. */}
+                                        information (which device the OS routes to). For a selected
+                                        device a "Selected microphone" line is redundant with the
+                                        radio list + card context (C-MIC-13), so no desc renders. */}
 					{isSystemDefault && (
 						<p className="text-xs text-(--text-muted)">
 							{t("microphone.systemDefaultDesc")}
@@ -139,7 +139,7 @@ export function ActiveMicrophoneCard({
 
 			{/* : LevelBarContainer bundles the level-driven children
                             (LevelBar + LiveQualityFeedback) so the rest of the card
-                            (TestReviewPanel, AudioPresetSelector, test controls) can be
+                            (TestReviewPanel, PresetAccordionSelector, test controls) can be
                             memoised against level/peak changes. The container itself
                             re-renders on every mic_level push (it consumes `level` and
                             `peak` directly) — that's the intended behavior, since
@@ -304,7 +304,7 @@ export function ActiveMicrophoneCard({
 // `level` updates at 10 Hz (or ≤30 Hz once 's `mic_level` push
 // lands) — this container re-renders on every push, which is the
 // intended behavior. The point of the split is that the SIBLING
-// subtrees (`MemoizedTestReviewPanel`, `MemoizedAudioPresetSelector`)
+// subtrees (`MemoizedTestReviewPanel`, `MemoizedPresetAccordionSelector`)
 // are wrapped in `React.memo` and skip re-render on level-only
 // changes — so a 30 Hz level push only re-renders this container +
 // the two feedback children, not the entire card.
@@ -347,7 +347,7 @@ function LevelBarContainer({
 // closures) are ignored so a 10–30 Hz `mic_level` push doesn't
 // re-render these heavy subtrees.
 //
-// `onConfigChange` IS included in the AudioPresetSelector comparator
+// `onConfigChange` IS included in the PresetAccordionSelector comparator
 // because it's `useCallback`-stable in `useMicrophoneTest` (its
 // identity changes only when `updateConfig` changes, which happens
 // rarely). Including it lets us skip re-renders even when an upstream

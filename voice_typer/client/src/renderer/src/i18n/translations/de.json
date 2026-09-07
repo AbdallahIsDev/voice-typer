@@ -1218,9 +1218,13 @@
 			"pauseFailed": "Pausieren fehlgeschlagen: {error}",
 			"cancelled": "Download abgebrochen. Teilweise heruntergeladene Dateien werden beim erneuten Versuch wiederverwendet.",
 			"cancelFailed": "Abbrechen fehlgeschlagen: {error}",
+			"queuedCancelled": "{name} wurde aus der Download-Warteschlange entfernt.",
+			"cancelNoopName": "{name} wird weder heruntergeladen noch wartet es in der Warteschlange.",
 			"depsInstalled": "Abhängigkeiten erfolgreich installiert.",
 			"selectFailed": "Modell konnte nicht ausgewählt werden.",
-			"downloadAlreadyActive": "Ein anderer Modell-Download läuft bereits (möglicherweise pausiert). Setzen Sie ihn zuerst fort oder brechen Sie ihn ab."
+			"downloadAlreadyActive": "Ein anderer Modell-Download läuft bereits (möglicherweise pausiert). Setzen Sie ihn zuerst fort oder brechen Sie ihn ab.",
+			"downloadAlreadyActiveName": "{name} wird bereits heruntergeladen — warten Sie, bis es abgeschlossen ist, oder brechen Sie es ab.",
+			"downloadQueued": "{name} wurde in die Warteschlange eingereiht — es startet automatisch, wenn der aktuelle Download abgeschlossen ist."
 		},
 		"test": {
 			"needApiKey": "Bitte zuerst einen API-Schlüssel eingeben",
@@ -1256,6 +1260,9 @@
 			"deps": "Abhängigkeiten herunterladen",
 			"progressAria": "Modell wird heruntergeladen: {percent}% abgeschlossen",
 			"oneAtATime": "Nur ein Download gleichzeitig – warten Sie, bis der aktuelle Download abgeschlossen ist, oder brechen Sie ihn ab",
+			"queued": "In Warteschlange",
+			"queuedPosition": "In der Warteschlange — Position {position} in der Download-Warteschlange",
+			"cancelQueuedAria": "Warteschlangen-Download von {name} abbrechen",
 			"progressAriaWithName": "{name}-Download: {percent}% abgeschlossen",
 			"errorMessage": "Download fehlgeschlagen: {error}",
 			"errorMessageWithName": "{name}-Download fehlgeschlagen: {error}",

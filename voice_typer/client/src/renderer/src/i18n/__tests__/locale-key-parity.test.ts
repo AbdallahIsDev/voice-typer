@@ -205,7 +205,12 @@ describe("_withAppName helper", () => {
 		_setCurrentLocale(TEST_LOCALE);
 		_invalidateResolvedCache(TEST_LOCALE);
 		try {
-			const result = t("dialog.branded");
+			// Fixture key registered above for the synthetic locale —
+			// typed as plain `string` so the call takes t()'s dynamic-key
+			// (loose) overload; the compile-time catalog contract covers
+			// the shipped en.json keys, not synthetic test tables.
+			const brandedKey: string = "dialog.branded";
+			const result = t(brandedKey);
 			expect(result).toBe(`${APP_NAME} is ready.`);
 		} finally {
 			// Clean up so the synthetic locale doesn't leak into other

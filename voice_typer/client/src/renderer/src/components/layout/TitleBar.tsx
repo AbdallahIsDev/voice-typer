@@ -299,6 +299,142 @@ function TitleBarButton({
 	);
 }
 
+interface ToolbarButtonProps extends React.ComponentProps<"button"> {
+	/** Click handler (optional — the parent may not wire the action). */
+	onClick: (() => void) | undefined;
+	/** Accessible name (localized). */
+	ariaLabel: string;
+	/**
+	 * Optional `aria-keyshortcuts` exposure so AT users can discover the
+	 * keyboard shortcut without inspecting the tooltip. Sourced from the
+	 * SHORTCUTS catalog at the call site so the attribute can't drift
+	 * from the tooltip chips.
+	 */
+	ariaKeyshortcuts?: string;
+	/**
+	 * Back/Forward pass a boolean (their nav stack gates availability);
+	 * the sidebar toggle and help buttons omit it — no `disabled`
+	 * attribute and no disabled-* classes, exactly like the previous
+	 * inline buttons.
+	 */
+	disabled?: boolean;
+	children: React.ReactNode;
+}
+
+/**
+ * Shared toolbar icon button (sidebar toggle / back / forward / help):
+ * h-6 (24px) inside the p-1 padded toolbar group — the 4px padding
+ * keeps every button off the full 36px bar height with room to breathe
+ * — with the app's standard muted→primary hover treatment, the
+ * press-scale active state, and the shared focus ring. Extracted from
+ * four inline near-copies of the same class stack.
+ *
+ * Extends the native button props (spread onto the underlying
+ * `<button>`) so Radix `asChild` wrappers — `HotkeyTooltip`'s
+ * `TooltipTrigger` clones this element and injects its focus/pointer
+ * handlers + ref — actually reach the DOM node; without the spread the
+ * injected props would be silently dropped and the tooltip would never
+ * open on focus.
+ */
+function ToolbarButton({
+	onClick,
+	ariaLabel,
+	ariaKeyshortcuts,
+	disabled,
+	children,
+	...triggerProps
+}: ToolbarButtonProps) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			aria-label={ariaLabel}
+			aria-keyshortcuts={ariaKeyshortcuts}
+			className={cn(
+				// Toolbar buttons are h-6 (24px) inside the p-1 group wrapper —
+				// the 4px padding keeps them off the full 36px bar height.
+				"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
+				// Theme-aware hover (muted at rest, primary text + subtle wash on
+				// hover — works for custom + dark themes, unlike a physical
+				// black/white pairing).
+				"text-(--text-muted) transition-colors duration-150",
+				"hover:bg-foreground/5 hover:text-(--text-primary)",
+				disabled !== undefined &&
+					"disabled:opacity-30 disabled:cursor-not-allowed",
+				focusRing,
+			)}
+			{...triggerProps}
+		>
+			{children}
+		</button>
+	);
+}
+
+interface NavChevronButtonProps {
+	/**
+	 * Tooltip label — EXACTLY the localized Back/Forward action word
+	 * (concise, no mechanism wording like "or mouse back button"); the
+	 * shortcut chips come from HotkeyTooltip's HotkeyChips, never the
+	 * label string.
+	 */
+	tooltipLabel: string;
+	/** Shortcut chips string from the SHORTCUTS catalog. */
+	shortcutKeys: string;
+	/** Accessible name (a11y.goBack / a11y.goForward). */
+	ariaLabel: string;
+	onClick: (() => void) | undefined;
+	disabled: boolean;
+	/** Chevron path — "back" points start-ward, "forward" end-ward. */
+	path: string;
+}
+
+/**
+ * Back/Forward twin: HotkeyTooltip (label + shortcut chips) wrapping the
+ * shared ToolbarButton with a direction-mirroring chevron. The two were
+ * ~33-line near-twins differing only in label/keys/handler/disabled/path.
+ */
+function NavChevronButton({
+	tooltipLabel,
+	shortcutKeys,
+	ariaLabel,
+	onClick,
+	disabled,
+	path,
+}: NavChevronButtonProps) {
+	return (
+		<HotkeyTooltip label={tooltipLabel} keys={shortcutKeys}>
+			<ToolbarButton
+				onClick={onClick}
+				ariaLabel={ariaLabel}
+				disabled={disabled}
+			>
+				<svg
+					width="16"
+					height="16"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+					// RTL: the chevron points "back"/"forward" — mirrored under
+					// dir=rtl by the shared index.css rule so it points the
+					// semantically correct way for right-to-left locales (the bar
+					// root is pinned dir="ltr", but the [dir="rtl"] ancestor
+					// selector still matches through it).
+					className="nav-directional-icon"
+				>
+					<path
+						d={path}
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					/>
+				</svg>
+			</ToolbarButton>
+		</HotkeyTooltip>
+	);
+}
+
 function TitleBarInner({
 	onToggleSidebar,
 	onGoBack,
@@ -433,137 +569,59 @@ function TitleBarInner({
 			)}
 		>
 			{/* macOS traffic-light gutter: the native red/yellow/green dots
-			    are drawn by the OS at trafficLightPosition x:12 spanning
-			    ~52px — reserve 72px so the bar's buttons never collide
-			    with them. Windows/Linux don't need it (their window
-			    controls are the custom ones on the right). */}
+                            are drawn by the OS at trafficLightPosition x:12 spanning
+                            ~52px — reserve 72px so the bar's buttons never collide
+                            with them. Windows/Linux don't need it (their window
+                            controls are the custom ones on the right). */}
 			{/* Linux window controls pinned to the LEFT edge — either the
-			    desktop's own button-layout says so (gsettings, "follow
-			    system" mode) or the user picked "Left" in Settings →
-			    Appearance. Rendered BEFORE the toolbar group so the app
-			    buttons start after them. The bar is pinned dir="ltr", so
-			    this is the physical left edge in every locale. */}
+                            desktop's own button-layout says so (gsettings, "follow
+                            system" mode) or the user picked "Left" in Settings →
+                            Appearance. Rendered BEFORE the toolbar group so the app
+                            buttons start after them. The bar is pinned dir="ltr", so
+                            this is the physical left edge in every locale. */}
 			{IS_LINUX && linuxButtons.side === "left" && renderLinuxCluster("left")}
 			{IS_MAC && <div className="h-9 w-18 shrink-0" aria-hidden="true" />}
 			{/* Toolbar button group — sidebar/back/forward/help wrapped in
-			    a p-1 (4px) padded flex container so no button takes the
-			    full 36px bar height; the 4px padding gives breathing room
-			    top/bottom/left/right, and gap-1 separates the buttons. */}
+                            a p-1 (4px) padded flex container so no button takes the
+                            full 36px bar height; the 4px padding gives breathing room
+                            top/bottom/left/right, and gap-1 separates the buttons. */}
 			<div className="flex items-center gap-1 p-1">
 				<HotkeyTooltip
 					label={t("a11y.toggleSidebar")}
 					keys={SHORTCUTS.toggleSidebar.keys}
 				>
-					<button
-						type="button"
+					<ToolbarButton
 						onClick={onToggleSidebar}
-						aria-label={t("a11y.toggleSidebarWithShortcut", {
+						ariaLabel={t("a11y.toggleSidebarWithShortcut", {
 							shortcut: SHORTCUTS.toggleSidebar.keys,
 						})}
-						//expose the keyboard shortcut via aria-keyshortcuts
-						// so AT users can discover it without inspecting the
-						// tooltip. Sourced from the SHORTCUTS catalog so the
-						// attribute can't drift from the tooltip chips.
-						aria-keyshortcuts={SHORTCUTS.toggleSidebar.ariaKeyshortcuts}
-						className={cn(
-							// Toolbar buttons are h-6 (24px) inside the p-1
-							// group wrapper — the 4px padding keeps them off
-							// the full 36px bar height with room to breathe.
-							"no-drag press-scale flex h-6 w-6 items-center justify-center",
-							"text-(--text-muted)",
-							//parity with sibling back/forward/help buttons —
-							// add rounded corners + transition + hover bg so the
-							// toggle snaps in consistently with its neighbors
-							// (previously the only TitleBar button without a hover bg).
-							"rounded transition-colors duration-150",
-							"hover:bg-foreground/5 hover:text-(--text-primary)",
-							focusRing,
-						)}
+						ariaKeyshortcuts={SHORTCUTS.toggleSidebar.ariaKeyshortcuts}
 					>
 						<HugeiconsIcon
 							icon={PanelLeftIcon}
 							strokeWidth={2}
 							className="h-4 w-4"
 						/>
-					</button>
+					</ToolbarButton>
 				</HotkeyTooltip>
 
 				{/* Back/Forward navigation */}
-				<HotkeyTooltip label={t("titleBar.back")} keys={SHORTCUTS.navBack.keys}>
-					<button
-						type="button"
-						onClick={onGoBack}
-						disabled={!canGoBack}
-						aria-label={t("a11y.goBack")}
-						className={cn(
-							"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
-							"text-(--text-muted) transition-colors duration-150",
-							// task-9: theme-aware hover (replaces the physical
-							// black/white pairing so custom + dark themes get a
-							// consistent hover wash).
-							"hover:bg-foreground/5 hover:text-(--text-primary)",
-							"disabled:opacity-30 disabled:cursor-not-allowed",
-							focusRing,
-						)}
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 16 16"
-							fill="none"
-							aria-hidden="true"
-							// RTL: the back chevron points "back" — mirrored under
-							// dir=rtl by the shared index.css rule so it points the
-							// semantically correct way for right-to-left locales.
-							className="nav-directional-icon"
-						>
-							<path
-								d="M10 12L6 8L10 4"
-								stroke="currentColor"
-								strokeWidth="1.5"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							/>
-						</svg>
-					</button>
-				</HotkeyTooltip>
-				<HotkeyTooltip
-					label={t("titleBar.forward")}
-					keys={SHORTCUTS.navForward.keys}
-				>
-					<button
-						type="button"
-						onClick={onGoForward}
-						disabled={!canGoForward}
-						aria-label={t("a11y.goForward")}
-						className={cn(
-							"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
-							"text-(--text-muted) transition-colors duration-150",
-							"hover:bg-foreground/5 hover:text-(--text-primary)",
-							"disabled:opacity-30 disabled:cursor-not-allowed",
-							focusRing,
-						)}
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 16 16"
-							fill="none"
-							aria-hidden="true"
-							// RTL: the forward chevron points "forward" — mirrored
-							// under dir=rtl by the shared index.css rule.
-							className="nav-directional-icon"
-						>
-							<path
-								d="M6 4L10 8L6 12"
-								stroke="currentColor"
-								strokeWidth="1.5"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							/>
-						</svg>
-					</button>
-				</HotkeyTooltip>
+				<NavChevronButton
+					tooltipLabel={t("titleBar.back")}
+					shortcutKeys={SHORTCUTS.navBack.keys}
+					ariaLabel={t("a11y.goBack")}
+					onClick={onGoBack}
+					disabled={!canGoBack}
+					path="M10 12L6 8L10 4"
+				/>
+				<NavChevronButton
+					tooltipLabel={t("titleBar.forward")}
+					shortcutKeys={SHORTCUTS.navForward.keys}
+					ariaLabel={t("a11y.goForward")}
+					onClick={onGoForward}
+					disabled={!canGoForward}
+					path="M6 4L10 8L6 12"
+				/>
 
 				{/*discoverable "?" help button. Mirrors the "?"
                             keyboard shortcut (handled in App.tsx) so mouse users and
@@ -572,19 +630,10 @@ function TitleBarInner({
 					label={t("help.openHelp")}
 					keys={SHORTCUTS.openHelp.keys}
 				>
-					<button
-						type="button"
+					<ToolbarButton
 						onClick={onOpenHelp}
-						aria-label={t("help.openHelp")}
-						//expose the "?" shortcut via aria-keyshortcuts so
-						// AT users can discover that pressing "?" opens this overlay.
-						aria-keyshortcuts={SHORTCUTS.openHelp.ariaKeyshortcuts}
-						className={cn(
-							"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
-							"text-(--text-muted) transition-colors duration-150",
-							"hover:bg-foreground/5 hover:text-(--text-primary)",
-							focusRing,
-						)}
+						ariaLabel={t("help.openHelp")}
+						ariaKeyshortcuts={SHORTCUTS.openHelp.ariaKeyshortcuts}
 					>
 						<span
 							aria-hidden
@@ -592,31 +641,31 @@ function TitleBarInner({
 						>
 							?
 						</span>
-					</button>
+					</ToolbarButton>
 				</HotkeyTooltip>
 			</div>
 
 			{/* Global search bar — centered in the middle of the title bar.
-			    Only rendered on searchable pages (history, templates,
-			    vocabulary, settings*). On non-searchable pages the flex-1
-			    spacer keeps the toolbar pushed left and controls on the
-			    right, exactly as before. */}
+                            Only rendered on searchable pages (history, templates,
+                            vocabulary, settings*). On non-searchable pages the flex-1
+                            spacer keeps the toolbar pushed left and controls on the
+                            right, exactly as before. */}
 			<div className="flex min-w-0 flex-1 items-center justify-center px-2">
 				{currentPage ? <GlobalSearchBar currentPage={currentPage} /> : null}
 			</div>
 
 			{/* Theme control — icon-only, in its OWN p-1 (4px) padded
-			    container (separate from the toolbar group). It sits on
-			    the right edge of the bar, immediately LEFT of the window
-			    controls. The 4px padding insets the 24px button from the
-			    full bar height AND keeps its hover background from
-			    touching the window-control cluster (e.g. the Linux
-			    minimize circle, whose always-visible background the theme
-			    hover would otherwise collide with). On macOS the native
-			    traffic lights occupy the left gutter and there are no
-			    window controls — the button anchors the bar's right edge
-			    instead. The accessible name + hover title carry the
-			    current→next theme info (no visible text). */}
+                            container (separate from the toolbar group). It sits on
+                            the right edge of the bar, immediately LEFT of the window
+                            controls. The 4px padding insets the 24px button from the
+                            full bar height AND keeps its hover background from
+                            touching the window-control cluster (e.g. the Linux
+                            minimize circle, whose always-visible background the theme
+                            hover would otherwise collide with). On macOS the native
+                            traffic lights occupy the left gutter and there are no
+                            window controls — the button anchors the bar's right edge
+                            instead. The accessible name + hover title carry the
+                            current→next theme info (no visible text). */}
 			<div className="flex items-center p-1">
 				<ThemeSwitch
 					themeMode={themeMode}
@@ -629,15 +678,15 @@ function TitleBarInner({
 			</div>
 
 			{/* Window controls — Windows/Linux only. macOS uses the native
-			    traffic lights (titleBarStyle: 'hiddenInset' in the main
-			    window), so rendering Windows-style buttons there would
-			    duplicate the chrome with wrong-style buttons.
-			    Windows: the fixed 46×36 edge-to-edge trio — the layout is
-			    NOT user-configurable on Windows (native convention).
-			    Linux: the resolved cluster (side/visibility/shape from
-			    the linux_window_buttons setting + system snapshot); the
-			    LEFT-side variant renders before the toolbar group (see
-			    the mirror block at the top of the bar). */}
+                            traffic lights (titleBarStyle: 'hiddenInset' in the main
+                            window), so rendering Windows-style buttons there would
+                            duplicate the chrome with wrong-style buttons.
+                            Windows: the fixed 46×36 edge-to-edge trio — the layout is
+                            NOT user-configurable on Windows (native convention).
+                            Linux: the resolved cluster (side/visibility/shape from
+                            the linux_window_buttons setting + system snapshot); the
+                            LEFT-side variant renders before the toolbar group (see
+                            the mirror block at the top of the bar). */}
 			{IS_WIN && (
 				<div
 					className={cn(

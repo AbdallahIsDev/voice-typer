@@ -24,7 +24,7 @@
 // `filterIsVisible(label, infoSearch, audioSectionTitle) && …` so a
 // query like "compressor ratio" surfaces ONLY the matching row
 // instead of the entire custom filter chain. Non-Settings call sites
-// (e.g. AudioPresetSelector on the Microphone test page) omit the
+// (e.g. the Microphone test page's preset selector) omit the
 // prop and fall back to a permissive `() => true`, preserving their
 // existing behaviour.
 //
@@ -56,8 +56,8 @@ export interface AudioFilterChainProps {
 	/**
 	 * Optional search-filter predicate. Returns true when the row
 	 * should be shown. Defaults to a permissive `() => true` so
-	 * non-Settings call sites (e.g. AudioPresetSelector on the
-	 * Microphone page) are unaffected — they render the entire
+	 * non-Settings call sites (e.g. the Microphone test page's
+	 * preset selector) are unaffected — they render the entire
 	 * custom chain unconditionally.
 	 *
 	 * this wires the per-row search filter that was
@@ -97,7 +97,7 @@ export function AudioFilterChain({
 	isVisible,
 }: AudioFilterChainProps) {
 	// Permissive default so non-Settings call sites (the
-	// Microphone test page's AudioPresetSelector) keep rendering
+	// Microphone test page's preset selector) keep rendering
 	// every row unconditionally.
 	const filterIsVisible = isVisible ?? (() => true);
 

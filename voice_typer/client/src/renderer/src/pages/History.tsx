@@ -19,6 +19,7 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { Button } from "@/components/ui/button";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { getLocale, t } from "@/i18n/i18n";
@@ -71,6 +72,38 @@ export default function HistoryPage() {
 		refreshFromEvent,
 		setFilter,
 	} = useHistoryCache();
+	// True all-time row count for the display-cap footer: the same
+	// `get_history_count` IPC the Analytics page's useDashboardData
+	// consumes. The footer interpolates it into the existing
+	// `history.showingCap` template instead of the literal "N+"
+	// placeholder. `stats` is replaced by useHistoryCache on every rows
+	// reload (load + background event refresh), so the count refetches
+	// with the list; a failure keeps the previous value and the footer
+	// degrades to the "…" placeholder below — never to "N+".
+	//
+	// `call` is mirrored into a ref (the useDashboardData pattern) so
+	// the effect is keyed on `stats` alone — a fresh `call` identity
+	// under test mocks would otherwise re-fire it every render.
+	const historyCountCallRef = useLatestRef(call);
+	const [historyCount, setHistoryCount] = useState<number | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stats is a deliberate CHANGE TRIGGER (its identity is replaced on every rows reload), not a value the effect reads — the refetch key for the footer count
+	useEffect(() => {
+		let cancelled = false;
+		historyCountCallRef
+			.current<{ count: number }>("get_history_count")
+			.then((res) => {
+				if (!cancelled && typeof res?.count === "number") {
+					setHistoryCount(res.count);
+				}
+			})
+			.catch(() => {
+				// Graceful: keep the last known count (or the placeholder).
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [stats, historyCountCallRef]);
+
 	const [favoritesOnly, setFavoritesOnly] = useState(false);
 	const searchQuery = useGlobalSearch((s) => s.query);
 	const [sortOrder, setSortOrder] = useState<HistorySortOrder>("newest");
@@ -355,7 +388,14 @@ export default function HistoryPage() {
 							visibleCount >= records.length &&
 							hasMore ? (
 								<p className="text-center text-xs text-(--text-muted)">
-									{t("history.showingCap", { shown: "200", total: "N+" })}
+									{t("history.showingCap", {
+										shown: String(HISTORY_DISPLAY_CAP),
+										// While the count loads (or if the count fetch
+										// fails) render the ellipsis placeholder — the
+										// point of the line (list is capped, use search)
+										// stays readable without a broken "N+" value.
+										total: historyCount !== null ? String(historyCount) : "…",
+									})}
 								</p>
 							) : hasMore ? (
 								<Button

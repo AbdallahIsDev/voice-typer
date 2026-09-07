@@ -68,17 +68,23 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 			// Pre-clear any cache state by reloading the module.
 			// (vi.resetModules in beforeEach already did this.)
 
+			// Synthetic fixture key (registered above) — typed as plain
+			// `string` so the calls take t()'s dynamic-key (loose)
+			// overload; the compile-time catalog contract covers the
+			// shipped en.json keys, not test-fixture tables.
+			const greetKey: string = "greet";
+
 			// First call: builds the ``\{name\}`` RegExp.
-			t("greet", { name: "Alice" });
+			t(greetKey, { name: "Alice" });
 			const callsAfterFirst = ctorSpy.mock.calls.length;
 
 			// Second call with the same key but a different
 			// value: the cache should be reused, so the
 			// RegExp constructor should NOT be called again
 			// for the ``\{name\}`` pattern.
-			t("greet", { name: "Bob" });
-			t("greet", { name: "Carol" });
-			t("greet", { name: "Dave" });
+			t(greetKey, { name: "Bob" });
+			t(greetKey, { name: "Carol" });
+			t(greetKey, { name: "Dave" });
 
 			const interpCalls = ctorSpy.mock.calls.filter(
 				([pattern]) =>

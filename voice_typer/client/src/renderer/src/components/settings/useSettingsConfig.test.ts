@@ -14,6 +14,7 @@
  *    (the user's attempted value is retained for edit + retry).
  */
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
@@ -475,6 +476,142 @@ describe("useSettingsConfig — initial load failure surfaces loadError", () => 
 		});
 		await waitFor(() => {
 			expect(result.current.config?.model_size).toBe("tiny");
+		});
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// mergeExternalConfig — pure state update + outside-updater cache write.
+//
+// The merge used to mutate the module-level `_cachedConfig` cache
+// INSIDE the `setConfig` updater (impure — StrictMode double-invokes
+// updaters, and a replayed render could cache a merge computed from a
+// stale base). The merge now computes from the `configRef` mirror and
+// writes state + cache outside the updater. These tests pin the
+// preserved contract: state merge, module-cache propagation to fresh
+// mounts, the diff-baseline update (no re-send of pushed values), and
+// the null-config no-op guard — plus correctness under StrictMode.
+// ─────────────────────────────────────────────────────────────────────
+describe("useSettingsConfig — mergeExternalConfig contract", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	function mockBackend() {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ type: "ack" });
+			return Promise.resolve({});
+		});
+	}
+
+	it("merges pushed data into local state", async () => {
+		mockBackend();
+		const { result } = renderHook(() => useSettingsConfig());
+		await result.current.loadConfig();
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+		expect(result.current.config?.hotkey).toBe("F2");
+
+		act(() => {
+			result.current.mergeExternalConfig({ hotkey: "F3" });
+		});
+
+		await waitFor(() => {
+			expect(result.current.config?.hotkey).toBe("F3");
+		});
+		// All other fields survive the merge.
+		expect(result.current.config?.model_size).toBe("tiny");
+	});
+
+	it("propagates the merge to the module cache (a fresh mount sees it)", async () => {
+		mockBackend();
+		const first = renderHook(() => useSettingsConfig());
+		await first.result.current.loadConfig();
+		await waitFor(() => {
+			expect(first.result.current.config).not.toBeNull();
+		});
+		act(() => {
+			first.result.current.mergeExternalConfig({ hotkey: "F3" });
+		});
+		first.unmount();
+
+		// A fresh mount seeds its state from the module-level cache —
+		// the merged value must be there (the cache write previously
+		// lived inside the state updater).
+		const second = renderHook(() => useSettingsConfig());
+		expect(second.result.current.config?.hotkey).toBe("F3");
+		second.unmount();
+	});
+
+	it("updates the diff baseline so a pushed value is NOT re-sent on the next flush", async () => {
+		mockBackend();
+		const { result } = renderHook(() => useSettingsConfig());
+		await result.current.loadConfig();
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+
+		act(() => {
+			result.current.mergeExternalConfig({ hotkey: "F3" });
+		});
+
+		// Saving the SAME value the backend already has → the flush's
+		// shallow diff is empty → no set_config IPC call.
+		await result.current.updateConfig({ hotkey: "F3" });
+		expect(setConfigCallCount()).toBe(0);
+
+		// Saving a DIFFERENT value still sends exactly the delta.
+		await result.current.updateConfig({ hotkey: "F4" });
+		expect(setConfigCallCount()).toBe(1);
+		expect(lastSetConfigPayload()).toEqual({ hotkey: "F4" });
+	});
+
+	it("is a no-op while config is null (pre-load push)", async () => {
+		mockBackend();
+		// Fresh module instance so the module-level cache is null (the
+		// file-wide instance is already warm from the tests above).
+		vi.resetModules();
+		const { useSettingsConfig: useSettingsConfigFresh } = await import(
+			"@/components/settings/useSettingsConfig"
+		);
+		const { result } = renderHook(() => useSettingsConfigFresh());
+		expect(result.current.config).toBeNull();
+
+		act(() => {
+			result.current.mergeExternalConfig({ hotkey: "F3" });
+		});
+
+		// No state, no cache write, no diff-baseline write — the null
+		// guard is preserved.
+		expect(result.current.config).toBeNull();
+		await result.current.updateConfig({ hotkey: "F5" });
+		expect(setConfigCallCount()).toBe(0);
+	});
+
+	it("merges correctly under StrictMode (pure value update, idempotent outcome)", async () => {
+		mockBackend();
+		const wrapper = ({ children }: { children: ReactNode }) =>
+			createElement(StrictMode, null, children);
+		const { result } = renderHook(() => useSettingsConfig(), { wrapper });
+		await result.current.loadConfig();
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+
+		act(() => {
+			result.current.mergeExternalConfig({ hotkey: "F3", model_size: "qwen" });
+		});
+
+		await waitFor(() => {
+			expect(result.current.config?.hotkey).toBe("F3");
+			expect(result.current.config?.model_size).toBe("qwen");
 		});
 	});
 });

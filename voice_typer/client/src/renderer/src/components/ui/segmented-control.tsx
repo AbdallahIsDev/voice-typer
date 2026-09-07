@@ -170,22 +170,50 @@ export function SegmentedControl<T extends string>({
 	);
 	// Store refs for each option label so we can measure their position.
 	const labelRefs = useRef<Map<string, HTMLElement>>(new Map());
+	// Per-option ref callbacks, cached in a ref-held Map so each
+	// option's `ref` prop keeps the SAME function identity across
+	// re-renders. A fresh closure per option per render (what a bare
+	// `(optValue) => (el) => {...}` factory produces) makes React call
+	// the old ref with `null` and the new one with the element on
+	// EVERY re-render — 2N attach/detach round-trips plus label-Map
+	// churn even when the option list is unchanged.
+	const labelRefCallbacks = useRef<
+		Map<string, (el: HTMLElement | null) => void>
+	>(new Map());
 	// Track the measured position of the active indicator.
 	const [indicatorStyle, setIndicatorStyle] = useState<{
 		left: number;
 		width: number;
 	} | null>(null);
 
-	const getLabelRef = useCallback(
-		(optValue: T) => (el: HTMLElement | null) => {
-			if (el) {
-				labelRefs.current.set(optValue, el);
-			} else {
-				labelRefs.current.delete(optValue);
+	const getLabelRef = useCallback((optValue: T) => {
+		let callback = labelRefCallbacks.current.get(optValue);
+		if (!callback) {
+			callback = (el: HTMLElement | null) => {
+				if (el) {
+					labelRefs.current.set(optValue, el);
+				} else {
+					labelRefs.current.delete(optValue);
+				}
+			};
+			labelRefCallbacks.current.set(optValue, callback);
+		}
+		return callback;
+	}, []);
+
+	// Prune cached callbacks for options that no longer render so the
+	// cache cannot grow unboundedly for dynamic option sets. Safe in an
+	// effect: a value absent from `options` has no mounted element, so
+	// its ref was already detached during the commit (before passive
+	// effects run).
+	useEffect(() => {
+		const live = new Set<string>(options.map((o) => o.value));
+		for (const key of labelRefCallbacks.current.keys()) {
+			if (!live.has(key)) {
+				labelRefCallbacks.current.delete(key);
 			}
-		},
-		[],
-	);
+		}
+	}, [options]);
 
 	// Re-measure when the active value or the container size changes.
 	const measureElement = useCallback(
@@ -207,14 +235,42 @@ export function SegmentedControl<T extends string>({
 		[],
 	);
 
+	// Mirror the current `value` into a ref AFTER every commit so
+	// long-lived async callbacks (the ResizeObserver below, its rAF)
+	// always measure the CURRENT value's label. A closure over the
+	// `value` prop captures the render that created it — the observer
+	// is constructed ONCE (useState initializer below), so it would
+	// forever hold the first-render value and re-position the
+	// indicator on the initially-selected option on every resize after
+	// a value change.
+	const valueRef = useRef(value);
+	useEffect(() => {
+		valueRef.current = value;
+	});
+
 	const updateIndicator = useCallback(() => {
-		const el = labelRefs.current.get(value);
+		const el = labelRefs.current.get(valueRef.current);
 		const container = containerRef.current;
 		if (!el || !container) return;
 		setIndicatorStyle(measureElement(el, container));
-	}, [value, measureElement]);
+	}, [measureElement]);
+
+	// Re-measure whenever the active value changes — this is the path
+	// that repositions the indicator for EXTERNAL value changes
+	// (parent-driven re-renders, keyboard arrow navigation); clicks
+	// also schedule their own measurement with the clicked value. The
+	// rAF is cancelled if the value changes again before it fires.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` is listed deliberately — this effect must re-run (re-measure) whenever the active value changes, even though the callback reads the value from `valueRef` instead of the closure.
+	useEffect(() => {
+		const raf = requestAnimationFrame(() => updateIndicator());
+		return () => cancelAnimationFrame(raf);
+	}, [value, updateIndicator]);
 
 	// Use a ResizeObserver so the indicator repositions on container resize.
+	// The observer is created once and its callback closes over the
+	// STABLE `updateIndicator` (which reads `valueRef`), so it stays
+	// correct for the component's whole life — no stale first-render
+	// closure.
 	// MEM-LEAK-FIX: the previous implementation created the ResizeObserver
 	// via `useState(() => new ResizeObserver(...))` and only called
 	// `resizeObserver.disconnect()` inside the container ref callback when
@@ -247,8 +303,11 @@ export function SegmentedControl<T extends string>({
 	// + a `requestAnimationFrame(updateIndicator)` to fire repeatedly
 	// (ResizeObserver thrash). Wrapping the callback in `useCallback` with
 	// `[resizeObserver, updateIndicator]` deps gives it a stable identity
-	// across value-stable re-renders, so React only invokes the ref when
-	// the underlying element actually changes. The
+	// across ALL re-renders — value changes included, now that
+	// `updateIndicator` no longer depends on `value` (it reads the
+	// value from a ref instead). React only invokes the ref when the
+	// underlying element actually changes; the value-change re-measure
+	// is owned by the explicit `[value]` effect above. The
 	// `containerRef.current !== el` guard is no longer needed — React
 	// guarantees a stable ref callback is only called when the element
 	// changes. The unmount effect above handles `disconnect()`.

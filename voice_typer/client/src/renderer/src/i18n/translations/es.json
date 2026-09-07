@@ -1218,9 +1218,13 @@
 			"pauseFailed": "Error al pausar: {error}",
 			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
 			"cancelFailed": "Error al cancelar: {error}",
+			"queuedCancelled": "{name} se ha eliminado de la cola de descargas.",
+			"cancelNoopName": "{name} no se está descargando ni está en la cola.",
 			"depsInstalled": "Dependencias instaladas correctamente.",
 			"selectFailed": "No se pudo seleccionar el modelo.",
-			"downloadAlreadyActive": "Ya hay otra descarga de modelo en curso (puede estar en pausa). Reanúdela o cancélala primero."
+			"downloadAlreadyActive": "Ya hay otra descarga de modelo en curso (puede estar en pausa). Reanúdela o cancélala primero.",
+			"downloadAlreadyActiveName": "{name} ya se está descargando — espere a que termine o cancélelo.",
+			"downloadQueued": "{name} se ha puesto en la cola: comenzará automáticamente cuando termine la descarga actual."
 		},
 		"test": {
 			"needApiKey": "Por favor, introduce una clave API primero",
@@ -1256,6 +1260,9 @@
 			"deps": "Descargar Deps",
 			"progressAria": "Descarga del modelo: {percent}% completado",
 			"oneAtATime": "Solo una descarga a la vez — espera a que la descarga actual termine o cancélala",
+			"queued": "En cola",
+			"queuedPosition": "En cola — posición {position} en la cola de descarga",
+			"cancelQueuedAria": "Cancelar la descarga en cola de {name}",
 			"progressAriaWithName": "Descarga de {name}: {percent}% completada",
 			"errorMessage": "Error de descarga: {error}",
 			"errorMessageWithName": "Error en la descarga de {name}: {error}",

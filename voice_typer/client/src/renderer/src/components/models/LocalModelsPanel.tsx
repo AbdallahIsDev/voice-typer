@@ -32,7 +32,16 @@
  *
  * This panel is a pure presentational component — it receives all
  * state + handlers as props from `useModelLifecycle`. No IPC, no
- * useState (except the accordion open-state which is purely local UI).
+ * useState (except the accordion open-state which is purely local UI
+ * and the co-located download-queue subscription below).
+ *
+ * Queue exception: the pending-download queue state is derived DIRECTLY
+ * from the backend's `download_progress` events (`queue_position`
+ * field) via the co-located `useModelDownloadQueue` hook. The backend
+ * is the single source of truth for the queue (it survives renderer
+ * navigation/reload and serves non-renderer triggers too), so the
+ * queue slice does not round-trip through the page's prop plumbing —
+ * it is consumed here and forwarded to each card's actions.
  */
 import { Alert02Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -49,6 +58,7 @@ import {
 	ModelGroupTrigger,
 	ModelVariantRow,
 } from "@/components/models/ModelGroupList";
+import { useModelDownloadQueue } from "@/components/models/useModelDownloadQueue";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { formatBytes } from "@/lib/format";
@@ -105,12 +115,16 @@ export interface LocalModelsPanelProps {
 	// button still works as a fallback).
 	onRetryDownload?: (model: ModelInfo) => void;
 	onTogglePause: () => void;
-	onCancelDownload: () => void;
+	/** Cancel the ACTIVE download (no argument — wired to the progress
+	 * bar's Cancel button) or remove a NAMED model from the pending
+	 * download queue (wired to the queued card's Cancel affordance).
+	 * Optional argument keeps both call sites on one handler. */
+	onCancelDownload: (modelName?: string) => void;
 	// diskInfo + low-disk-threshold props
 	diskInfo: DiskInfo | null;
 	modelsFolderSupported: boolean;
 	onOpenModelsFolder: () => void;
-	// 	optional initial open-accordion state (the active family) — seeds
+	//      optional initial open-accordion state (the active family) — seeds
 	// INTERNAL state only (uncontrolled mode).
 	initialAccordionValue?: string[];
 	// Controlled accordion state (page-lifted): keeps the user's
@@ -157,6 +171,10 @@ export function LocalModelsPanel({
 	const accordionValue = accordionValueProp ?? internalAccordionValue;
 	const setAccordionValue = onAccordionValueChange ?? setInternalAccordionValue;
 
+	// Pending-download queue state, derived directly from the backend's
+	// download_progress events (see the module docstring's queue note).
+	const queuedPositions = useModelDownloadQueue();
+
 	const showLowDiskWarning = Boolean(
 		diskInfo && diskInfo.free_bytes < LOW_DISK_THRESHOLD_BYTES,
 	);
@@ -164,7 +182,7 @@ export function LocalModelsPanel({
 	return (
 		<div className="flex flex-col gap-4">
 			{/* Localized descriptive subtitle under the panel heading
-			    (key exists in all 8 locales). */}
+                            (key exists in all 8 locales). */}
 			<p
 				className="text-sm text-(--text-muted)"
 				data-testid="local-models-description"
@@ -245,6 +263,10 @@ export function LocalModelsPanel({
 									const isInstallingDepsThis =
 										installingDepsModel === model.name;
 									const anyDownloading = downloadingModel !== null;
+									// 1-based FIFO position while this model waits behind the
+									// active download (backend event-derived — see
+									// useModelDownloadQueue).
+									const queuePosition = queuedPositions[model.name] ?? null;
 									//priority #3: the bar's error prop is
 									// populated only when the failure is for THIS
 									// model. Failures for other models don't render
@@ -292,6 +314,11 @@ export function LocalModelsPanel({
 														isSelectingThis={isSelectingThis}
 														isDownloadingThis={isDownloadingThis}
 														anyDownloading={anyDownloading}
+														queuePosition={queuePosition}
+														// Queued-model Cancel affordance: removes THIS model
+														// from the pending queue (the named-cancel shape) —
+														// the active transfer is untouched.
+														onCancelQueued={() => onCancelDownload(model.name)}
 														anyInstallingDeps={installingDepsModel != null}
 														isInstallingDepsThis={isInstallingDepsThis}
 														onSelect={() => onSelectModel(model)}
@@ -353,7 +380,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 				value={`~${formatVram(meta.required_vram_mb)}`}
 			/>
 			{/* WER — only when the backend catalog supplies a real,
-			    published figure (meta.wer). Never guessed. */}
+                            published figure (meta.wer). Never guessed. */}
 			{typeof meta.wer === "number" && (
 				<MetadataPair
 					label={t("models.card.werLabel")}
@@ -361,13 +388,13 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 				/>
 			)}
 			{/* (2026-08-21): the metadata line is now TWO independent
-			    groups — the information group (VRAM/WER pairs above) and
-			    this label group (all descriptive tags). The outer flex
-			    (`ModelVariantRow`) keeps `gap-x-3` between the last
-			    information pair and this group; the tags WITHIN the group
-			    use the tighter `gap-x-1.5` so "Multilingual" / "Fast
-			    Speed" / "Distilled" read as one cluster instead of being
-			    spaced as far apart as the VRAM/WER metrics. */}
+                            groups — the information group (VRAM/WER pairs above) and
+                            this label group (all descriptive tags). The outer flex
+                            (`ModelVariantRow`) keeps `gap-x-3` between the last
+                            information pair and this group; the tags WITHIN the group
+                            use the tighter `gap-x-1.5` so "Multilingual" / "Fast
+                            Speed" / "Distilled" read as one cluster instead of being
+                            spaced as far apart as the VRAM/WER metrics. */}
 			<span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
 				<MetadataTag>
 					{meta.multilingual

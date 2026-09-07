@@ -122,6 +122,8 @@ const _RENDERER_CALLED_COMMANDS = {
 	// for the per-command call-site survey).
 	get_defaults: true,
 	download_model: true,
+	// Call site: useModelDownloadQueue mount hydration.
+	get_download_queue: true,
 	import_model: true,
 	delete_model: true,
 	test_cloud_connection: true,
@@ -229,6 +231,9 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	pause_model_download: true,
 	resume_model_download: true,
 	get_model_catalog: true,
+	// Mount hydration for the Models download-queue chips
+	// (read-only snapshot; call site: useModelDownloadQueue).
+	get_download_queue: true,
 	delete_model: true,
 	set_tray_locale: true,
 	test_cloud_connection: true,

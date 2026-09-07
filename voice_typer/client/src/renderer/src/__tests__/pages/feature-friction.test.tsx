@@ -16,14 +16,20 @@
  *     ``DownloadProgressBar`` when (error + onRetry) are both
  *     provided (already covered by the canonical DownloadProgressBar
  *     suite; re-asserted here from the W1-A4 perspective).
- *   • XA-5-12 — ``AudioPresetSelector`` renders the preset Select
- *     OUTSIDE the collapsible (the primary "improve your mic" CTA is
- *     always visible).
+ *   • XA-5-12 — the preset selector keeps the primary "improve your
+ *     mic" control OUTSIDE any disclosure: the collapsed selector
+ *     header (label + current selection) renders without expanding.
+ *     Re-pointed at the LIVE Microphone-page surface
+ *     (``PresetAccordionSelector``) — the former dropdown variant
+ *     (``AudioPresetSelector``) was production-dead and has been
+ *     deleted (both live surfaces now share the preset data registry
+ *     ``lib/utils/audioPresets.ts``).
  *
  * Tests run on LINUX (sandbox). They render real React components
- * (DownloadProgressBar) and read the source files + locale catalogues
- * for the structural assertions that don't warrant a full RTL mount
- * (ModelCardActions source scan + locale parity).
+ * (DownloadProgressBar, PresetAccordionSelector) and read the source
+ * files + locale catalogues for the structural assertions that don't
+ * warrant a full RTL mount (ModelCardActions source scan + locale
+ * parity + the dead-component regression guard).
  */
 
 import * as fs from "node:fs";
@@ -57,9 +63,21 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 	};
 });
 
-import { AudioPresetSelector } from "@/components/microphone/AudioPresetSelector";
+// Stub InfoTooltip so PresetAccordionSelector mounts without the
+// app-global TooltipProvider boundary (the real component mounts a
+// Radix Tooltip.Root). The XA-5-12 cases below only assert the
+// selector's header/disclosure structure, not tooltip behaviour —
+// that is pinned in __tests__/microphone-a11y.test.tsx with a
+// faithful trigger-contract mock.
+vi.mock("@/components/feedback/InfoTooltip", () => ({
+	InfoTooltip: ({ text }: { text: string }) => (
+		<span data-testid="info-tooltip" data-text={text} />
+	),
+}));
+
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
+import { PresetAccordionSelector } from "@/pages/microphone/components/PresetAccordionSelector";
 import { VocabToolbar } from "@/pages/vocabulary/components/VocabToolbar";
 
 const LOCALES: Record<string, typeof en> = {
@@ -235,14 +253,14 @@ describe("XA-5-6 — cancel-confirm locale keys exist in ALL 8 locale files", ()
 	});
 });
 
-describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the collapsible", () => {
+describe("XA-5-12 — preset selector keeps the primary CTA outside any disclosure", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("renders the preset combobox unconditionally (no expand required)", () => {
+	it("renders the collapsed selector header (label + current preset) without expanding", () => {
 		render(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="auto"
 				config={{} as never}
 				showAdvanced={false}
@@ -251,18 +269,26 @@ describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the 
 				onConfigChange={vi.fn()}
 			/>,
 		);
-		// The Select trigger's accessible name is the "microphone
-		// quality preset" label — always present regardless of the
-		// collapsible state.
-		const trigger = screen.getByRole("combobox", {
-			name: /\[t\]a11y\.microphoneQualityPreset/,
+		// The collapsed header always shows the section label — the
+		// primary "improve your mic" control is visible without
+		// expanding anything (the same friction guarantee the old
+		// always-visible Select provided).
+		const trigger = screen.getByRole("button", {
+			name: /\[t\]settings\.audioEnhancement\.microphoneQuality/,
 		});
 		expect(trigger).toBeInTheDocument();
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+		// The current selection chip sits in the collapsed header, so the
+		// active preset is readable without expanding either.
+		expect(screen.getByTestId("mic-preset-current").textContent).toBe(
+			"[t]settings.audioEnhancement.presetAuto",
+		);
 	});
 
-	it("renders the Custom Filters collapse toggle only when preset === 'custom'", () => {
+	it("reveals the Custom Filters disclosure only under the custom preset", () => {
 		const { rerender } = render(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="auto"
 				config={{} as never}
 				showAdvanced={false}
@@ -271,13 +297,17 @@ describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the 
 				onConfigChange={vi.fn()}
 			/>,
 		);
-		// Non-custom preset → no collapse toggle (nothing to reveal).
+		// Expand the accordion so the option list is mounted.
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+		// Non-custom preset → no Custom-filters toggle (nothing to
+		// reveal).
 		expect(
 			screen.queryByText(/\[t\]settings\.audioEnhancement\.customFiltersTitle/),
 		).toBeNull();
 
 		rerender(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="custom"
 				config={{} as never}
 				showAdvanced={false}
@@ -286,7 +316,8 @@ describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the 
 				onConfigChange={vi.fn()}
 			/>,
 		);
-		// Custom preset → the collapse toggle is now visible.
+		// Custom preset → the disclosure toggle is now visible inside
+		// the expanded region.
 		expect(
 			screen.getByText(/\[t\]settings\.audioEnhancement\.customFiltersTitle/),
 		).toBeInTheDocument();
@@ -572,5 +603,85 @@ describe("XA-5 locale parity for the new keys", () => {
 			if (!hasKey(catalogue, key)) missing.push(locale);
 		}
 		expect(missing, `missing in locales: ${missing.join(", ")}`).toEqual([]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Preset-surface consolidation regression guard.
+//
+// The 5-preset microphone-quality surface was forked three ways: two
+// live presentations (the Settings → Audio Select and the Microphone
+// page's PresetAccordionSelector) plus a production-DEAD dropdown
+// variant (components/microphone/AudioPresetSelector.tsx — zero render
+// sites outside this suite's own renders, kept compiling only by the
+// `AudioPreset` type imports). The dead file was deleted and both live
+// surfaces now share the preset data registry
+// (lib/utils/audioPresets.ts). These guards pin that state: the file
+// stays gone, no non-test source references it, and the shared
+// registry is what the live surfaces consume.
+// ─────────────────────────────────────────────────────────────────────
+describe("dead preset dropdown stays deleted (one shared preset-data source)", () => {
+	const DEAD_COMPONENT_PATH = path.join(
+		RENDERER_SRC_ROOT,
+		"components",
+		"microphone",
+		"AudioPresetSelector.tsx",
+	);
+
+	it("the dead component file does not exist on disk", () => {
+		expect(fs.existsSync(DEAD_COMPONENT_PATH)).toBe(false);
+	});
+
+	it("no non-test renderer source references AudioPresetSelector", () => {
+		const offenders: string[] = [];
+		const visit = (dir: string) => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) {
+					visit(full);
+					continue;
+				}
+				if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+				// Tests (and Storybook fixtures) may name the deleted
+				// component while documenting the guard itself — only
+				// production source is forbidden from referencing it.
+				if (entry.name.includes(".test.") || entry.name.includes(".spec.")) {
+					continue;
+				}
+				if (full.includes("__tests__") || full.includes(".stories.")) continue;
+				const src = fs.readFileSync(full, "utf8");
+				if (src.includes("AudioPresetSelector")) offenders.push(full);
+			}
+		};
+		visit(RENDERER_SRC_ROOT);
+		expect(offenders).toEqual([]);
+	});
+
+	it("the live surfaces import the shared preset data registry", () => {
+		const settingsSrc = fs.readFileSync(
+			path.join(
+				RENDERER_SRC_ROOT,
+				"components",
+				"settings",
+				"AudioSettingsSection.tsx",
+			),
+			"utf8",
+		);
+		const micPageSrc = fs.readFileSync(
+			path.join(
+				RENDERER_SRC_ROOT,
+				"pages",
+				"microphone",
+				"components",
+				"PresetAccordionSelector.tsx",
+			),
+			"utf8",
+		);
+		expect(settingsSrc).toMatch(
+			/import \{ AUDIO_PRESET_OPTIONS \} from "@\/lib\/utils\/audioPresets"/,
+		);
+		expect(micPageSrc).toMatch(
+			/import \{\n\tAUDIO_PRESET_OPTIONS,\n\ttype AudioPreset,\n\} from "@\/lib\/utils\/audioPresets"/,
+		);
 	});
 });

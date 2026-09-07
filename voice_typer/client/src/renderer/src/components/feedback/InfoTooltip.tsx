@@ -1,5 +1,7 @@
 // src/renderer/src/components/InfoTooltip.tsx
 
+import { CircleQuestionMarkIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
@@ -112,25 +114,18 @@ export function InfoTooltip({
 					},
 				}
 			: {};
+	// The app's standard icon language is hugeicons — the help glyph is
+	// CircleQuestionMarkIcon (strokeWidth 2, 12px = h-3 w-3, decorative:
+	// aria-hidden; the trigger's aria-label is the accessible name).
+	// Replaces the former hand-rolled 12×12 `?` SVG so every info glyph
+	// in the app shares one icon family.
 	const helpGlyph = (
-		<svg
-			width="12"
-			height="12"
-			viewBox="0 0 16 16"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
+		<HugeiconsIcon
+			icon={CircleQuestionMarkIcon}
+			strokeWidth={2}
+			className="h-3 w-3"
 			aria-hidden="true"
-		>
-			<circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-			<path
-				d="M6.4 6C6.4 4.8 7.2 4.4 8 4.4C8.8 4.4 9.6 4.8 9.6 6C9.6 7.2 8.8 7.6 8.4 8C8.2 8.4 8 8.8 8 9.2"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<circle cx="8" cy="11.2" r="0.6" fill="currentColor" />
-		</svg>
+		/>
 	);
 	const triggerClassName = cn(
 		"inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 cursor-help",

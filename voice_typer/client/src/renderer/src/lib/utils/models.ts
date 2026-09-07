@@ -13,9 +13,30 @@ import {
 	formatVram as _formatVram,
 	formatWer as _formatWer,
 } from "@/lib/format";
-import { MODEL_DEFAULT } from "@/pages/onboarding/lib/constants";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
+
+// ── Default model sentinel ─────────────────────────────────────────────
+//
+// Canonical home of the renderer's default-model constant. This module
+// is layer-neutral shared lib code — `lib/` may be imported by `pages/`,
+// but `lib/` must never import from `pages/` (inverted layering; this
+// module previously imported the value from
+// `pages/onboarding/lib/constants`). The onboarding constants module
+// re-exports this value so its existing importers keep compiling; new
+// importers should import from `@/lib/utils/models` directly.
+//
+// The renderer default must match the backend's canonical default
+// `DEFAULT_MODEL_SIZE` (`voice_typer/server/model_registry.py`) so the
+// wizard behaves identically to the backend's config default / coercion
+// reset target. The value is the empty string — the app has NO concrete
+// default model: a fresh install starts with "no model selected" and the
+// user explicitly chooses one (onboarding or the Models page). The old
+// `"tiny"` default made every consumer surface a phantom model name when
+// its weights were never installed. Change the default in the backend's
+// `DEFAULT_MODEL_SIZE` (ONE place); keep THIS value in lockstep — the
+// Python test `tests/test_default_model_sync.py` asserts the two match.
+export const MODEL_DEFAULT = "";
 
 // ── Shared model types ────────────────────────────────────────────────
 

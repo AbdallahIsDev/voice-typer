@@ -15,14 +15,19 @@
  *      selection (first other downloaded model, or the "no model
  *      selected" state when none exists) — the old refuse-and-switch
  *      flow dead-ended users with a single downloaded model.
- *   2. Not downloaded → "Download" button (disabled while any other
- *      download is in progress; shows a localized "one at a time"
- *      tooltip when disabled). NO Delete icon — a model that isn't on
+ *   2. Not downloaded → "Download" button (ENABLED while another model's
+ *      transfer is in flight — the backend QUEUES the request instead of
+ *      refusing it; disabled only while THIS model is downloading (the
+ *      "Downloading…" spinner state) or a deps install is in flight). NO
+ *      Delete icon — a model that isn't on
  *      disk has nothing to delete; showing a trash affordance next to
  *      a not-installed model (e.g. the default `tiny` before the
  *      user ever downloads anything) misleads the user into thinking
  *      something is installed. The backend would only answer "Model
  *      not downloaded" / "nothing to delete".
+ *      While the model sits in the pending download queue, the button
+ *      shows the "Queued" state (label + position tooltip) and a Cancel
+ *      affordance beside it removes the model from the queue.
  *   3. Downloaded → "Select" button + Delete icon (the trash
  *      affordance is exactly the "installed model can be removed"
  *      signal).
@@ -49,9 +54,13 @@
  *  fix #12: disabled Download buttons get a `title` attribute
  * sourced from `models.download.oneAtATime` so users hovering over the
  * disabled button know WHY it's disabled (instead of just seeing a
- * greyed-out control).
+ * greyed-out control). With the download queue, the button stays
+ * ENABLED while another model transfers (the request queues) — the
+ * hint now only surfaces for the deps-install disable, where the
+ * request genuinely has to wait.
  */
 import {
+	Cancel01Icon,
 	Delete01Icon,
 	Download01Icon,
 	Loading03Icon,
@@ -89,8 +98,26 @@ export interface ModelCardActionsProps {
 	isSelectingThis: boolean;
 	/** True while THIS model is being downloaded (Download button shows "Downloading…"). */
 	isDownloadingThis: boolean;
-	/** True while ANY download is in progress (disables the Download button on other models). */
+	/** True while ANY download is in progress. No longer disables the
+	 * Download button (the backend queues a concurrent request) — it
+	 * still disables the Download DEPS button (deps installs have no
+	 * queue: a concurrent install would clobber the single
+	 * `installingDepsModel` slot). */
 	anyDownloading: boolean;
+	/** 1-based FIFO position while THIS model is waiting in the pending
+	 * download queue (the backend queues — not refuses — a second
+	 * concurrent download request). Null/undefined when the model is
+	 * not queued. Drives the Download button's "Queued" state: label
+	 * swap + position tooltip instead of the "one at a time" hint
+	 * (that hint would be misleading — the request IS accepted, it is
+	 * just waiting its turn). */
+	queuePosition?: number | null;
+	/** Removes THIS model from the pending download queue (the Cancel
+	 * affordance rendered beside the "Queued" button). Optional so
+	 * direct mounts / tests can omit it — when absent, the queued
+	 * state still renders (label + position) but without the cancel
+	 * control (the queue eventually drains on its own). */
+	onCancelQueued?: () => void;
 	/** True while ANY deps install is in flight (disables the other
 	 * models' Download/Deps buttons — the backend installs one deps set
 	 * at a time, and a second concurrent click cleared the first model's
@@ -162,6 +189,12 @@ export function ModelCardActions({
 	// destructured or read — the Download/Deps buttons now disable on
 	// any in-flight deps install, not just downloads.
 	anyInstallingDeps,
+	// Download-queue state (see interface docstring): while queued,
+	// the button shows its own "Queued" label + position tooltip, and
+	// the Cancel affordance beside it removes the model from the
+	// queue.
+	queuePosition,
+	onCancelQueued,
 	onSelect,
 	onDownload,
 	onDelete,
@@ -259,9 +292,9 @@ export function ModelCardActions({
 					</Button>
 				</DisabledHintTooltip>
 				{/* A downloaded model whose deps are missing can still be
-				    deleted (files on disk). A NOT-downloaded model has
-				    nothing to delete — no trash icon (matches the
-				    Download branch: "not installed → no delete"). */}
+                                    deleted (files on disk). A NOT-downloaded model has
+                                    nothing to delete — no trash icon (matches the
+                                    Download branch: "not installed → no delete"). */}
 				{model.downloaded && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
@@ -281,13 +314,38 @@ export function ModelCardActions({
 	// anything — a trash affordance next to "Download" falsely implies
 	// an installed model that can be removed.)
 	if (!model.downloaded) {
-		// Disabled while another model's download OR deps install is in
-		// flight (this model's own in-flight download disables it too —
-		// it shows the "Downloading…" spinner).
+		// Queued state: the backend accepted this request into the
+		// pending FIFO queue (a gateable download is already in
+		// flight). The button shows "Queued" — not the "one at a
+		// time" hint, which would contradict the accepted state.
+		const isQueued = queuePosition != null && queuePosition > 0;
+		// One tooltip/aria string for the queued state — computed
+		// once and shared by the aria-label and title (previously a
+		// verbatim duplicate).
+		const queuedLabel = isQueued
+			? t("models.download.queuedPosition", { position: String(queuePosition) })
+			: undefined;
+		// The Download button stays ENABLED while another model's
+		// transfer is in flight — the backend QUEUES the request
+		// (that is the queue's primary flow: click N models, each
+		// queues). Disabled only while THIS model is transferring
+		// (its own "Downloading…" spinner state), while it sits in
+		// the queue (the "Queued" chip is a status, not an action;
+		// the Cancel affordance beside it is the action), or while
+		// a deps install is in flight (no queue for deps).
 		const downloadDisabled =
-			anyDownloading || (Boolean(anyInstallingDeps) && !isDownloadingThis);
+			isDownloadingThis ||
+			isQueued ||
+			(Boolean(anyInstallingDeps) && !isDownloadingThis);
 		const downloadHint =
-			downloadDisabled && !isDownloadingThis ? oneAtATimeTitle() : undefined;
+			downloadDisabled && !isDownloadingThis && !isQueued
+				? oneAtATimeTitle()
+				: undefined;
+		// Accessible name + tooltip for the queued-model Cancel
+		// affordance (one string, shared by aria-label and title).
+		const cancelQueuedLabel = t("models.download.cancelQueuedAria", {
+			name: model.name,
+		});
 		return (
 			<div className="flex items-center gap-2 shrink-0">
 				<DisabledHintTooltip hint={downloadHint}>
@@ -304,9 +362,11 @@ export function ModelCardActions({
 						// the label swaps to the localized "Downloading…" so a
 						// content-fitted width is used for that state (user request:
 						// no truncated size text inside a disabled spinner button).
+						// The QUEUED state is also a label swap ("Queued"), not a
+						// size — same content-fitted treatment.
 						className={cn(
 							"gap-2 text-xs whitespace-nowrap",
-							!isDownloadingThis && DOWNLOAD_SIZE_BUTTON_WIDTH,
+							!isDownloadingThis && !isQueued && DOWNLOAD_SIZE_BUTTON_WIDTH,
 							DOWNLOAD_CONTENT_ALIGNMENT,
 						)}
 						onClick={onDownload}
@@ -315,15 +375,19 @@ export function ModelCardActions({
 						aria-label={
 							isDownloadingThis
 								? t("models.downloading")
-								: t("models.card.downloadAria", { name: model.name })
+								: isQueued
+									? queuedLabel
+									: t("models.card.downloadAria", { name: model.name })
 						}
 						//fix #12: explain why the button is disabled
 						// (one download at a time) so users don't think the
 						//button is broken. : skip the tooltip when THIS
 						// is the in-flight download (the button is showing
 						// "Downloading…" — the "one at a time" hint would be
-						// contradictory).
-						title={downloadHint}
+						// contradictory). Queued models show their position
+						// tooltip instead (the request IS accepted, it is
+						// waiting its turn).
+						title={isQueued ? queuedLabel : downloadHint}
 					>
 						<HugeiconsIcon
 							//in-flight presentation: a LOADING spinner glyph
@@ -339,17 +403,43 @@ export function ModelCardActions({
 							)}
 						/>
 						{/* At rest: download icon + model size only (the icon
-						    communicates "download" — see the 2026-08-20 overhaul,
-						    point 7). In-flight: the localized "Downloading…" label
-						    replaces the size (a frozen size number inside a
-						    disabled spinner button misreads as "downloaded"). */}
+                                                    communicates "download" — see the 2026-08-20 overhaul,
+                                                    point 7). In-flight: the localized "Downloading…" label
+                                                    replaces the size (a frozen size number inside a
+                                                    disabled spinner button misreads as "downloaded").
+                                                    Queued: the localized "Queued" label replaces the
+                                                    size — the request is accepted and waiting, not
+                                                    transferring. */}
 						{isDownloadingThis ? (
 							t("models.downloading")
+						) : isQueued ? (
+							t("models.download.queued")
 						) : (
 							<span className="font-medium">{formatModelSize(model.size)}</span>
 						)}
 					</Button>
 				</DisabledHintTooltip>
+				{isQueued && onCancelQueued && (
+					// Cancel affordance for the QUEUED state: removes this
+					// model from the pending download queue (the backend's
+					// cancel-anywhere dequeue — the ACTIVE transfer is
+					// untouched). Visual language mirrors DeleteButton
+					// (ghost icon button, muted → destructive hover).
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={onCancelQueued}
+						className="text-(--text-muted) hover:text-destructive"
+						aria-label={cancelQueuedLabel}
+						title={cancelQueuedLabel}
+					>
+						<HugeiconsIcon
+							icon={Cancel01Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					</Button>
+				)}
 			</div>
 		);
 	}

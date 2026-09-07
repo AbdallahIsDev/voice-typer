@@ -447,13 +447,24 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// `config_changed` Python event) into local state AND the diff
 	// baseline so the next flush doesn't re-send values the backend
 	// already has.
+	//
+	// The merged value is computed from the `configRef` mirror and
+	// applied with a PLAIN `setConfig(merged)` call — the
+	// module-level `_cachedConfig` write stays OUTSIDE the state
+	// updater (updaters must be pure: StrictMode double-invokes
+	// them in dev, and a replayed/interrupted render could cache a
+	// merge computed from a stale base state). `configRef` is
+	// refreshed synchronously so a same-tick follow-up (another
+	// merge, or an `updateConfig` call) composes off this value
+	// exactly like the old functional-updater form did.
 	const mergeExternalConfig = useCallback((data: Partial<VoiceTyperConfig>) => {
-		setConfig((prev) => {
-			if (!prev) return prev;
+		const prev = configRef.current;
+		if (prev) {
 			const merged = { ...prev, ...data } as VoiceTyperConfig;
+			configRef.current = merged;
+			setConfig(merged);
 			_cachedConfig = merged;
-			return merged;
-		});
+		}
 		if (lastSavedConfigRef.current) {
 			lastSavedConfigRef.current = {
 				...lastSavedConfigRef.current,

@@ -6,7 +6,16 @@
  *   - downloadModel success path: marks model downloaded, surfaces success snack, clears state
  *   - downloadModel failure path: success=false records failedDownload, fires sonner toast with Retry
  *   - downloadModel thrown-error path: records failedDownload with formatted error message
+ *   - downloadModel QUEUED path: the backend's queued outcome surfaces an info
+ *     snack, does NOT mark the model downloaded, and leaves the ACTIVE
+ *     download's bar state intact (a concurrent request never steals the
+ *     single progress-bar slot).
+ *   - downloadModel already-active path: a re-click of the ACTIVE model warns
+ *     and keeps the live bar mounted.
  *   - handleCancelDownload: invokes cancel_model_download IPC, clears state regardless of IPC outcome
+ *   - handleCancelDownload(modelName): the queued-model cancel forwards the
+ *     model name in the IPC payload; a queue removal leaves the active
+ *     transfer's state intact (only the active-cancel paths clear state).
  *   - retryDownload: clears failedDownload then re-invokes downloadModel
  *
  * Strategy: renderHook with a mocked `call` IPC fn + a captured `usePythonEvent`
@@ -360,6 +369,251 @@ describe("useModelDownload — handleCancelDownload", () => {
 		// State still cleared in the finally block.
 		expect(result.current.downloadingModel).toBeNull();
 		expect(result.current.failedDownload).toBeNull();
+	});
+});
+
+describe("useModelDownload — downloadModel queued path (backend FIFO queue)", () => {
+	it("queued outcome surfaces an info snack, does NOT mark downloaded, leaves the active bar intact", async () => {
+		// Model A ("tiny") is actively downloading (its IPC promise never
+		// resolves in this test); model B ("base") is clicked while A
+		// transfers → the backend answers {queued: true}.
+		callMock.mockImplementation(
+			(cmd: string, data?: Record<string, unknown>) => {
+				if (cmd === "download_model" && data?.model === "tiny") {
+					return new Promise(() => {});
+				}
+				if (cmd === "download_model" && data?.model === "base") {
+					return Promise.resolve({
+						success: true,
+						queued: true,
+						model: "base",
+						queue_position: 1,
+						message:
+							"Queued — it starts automatically when the current download finishes.",
+					});
+				}
+				return Promise.resolve({});
+			},
+		);
+		const setModels = vi.fn();
+		const reconcileAfterDownload = vi.fn().mockResolvedValue(undefined);
+		const args = makeHookArgs({
+			setModels: setModels as never,
+			reconcileAfterDownload,
+		});
+
+		const { result } = renderHook(() => useModelDownload(args));
+
+		// Start A's download (never resolves), let its claim flush.
+		act(() => {
+			void result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {});
+		expect(result.current.downloadingModel).toBe("tiny");
+		// Seed the ACTIVE download's live progress so the "bar stays
+		// intact" assertion is meaningful.
+		act(() => {
+			getDownloadProgressHandler()?.({
+				model: "tiny",
+				progress: 50,
+				status: "downloading",
+			});
+		});
+		expect(result.current.downloadProgress).toBe(50);
+
+		// Click B while A transfers.
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "base" }));
+		});
+
+		// NOT a success: no downloaded-marking, no reconcile, no failure.
+		expect(setModels).not.toHaveBeenCalled();
+		expect(reconcileAfterDownload).not.toHaveBeenCalled();
+		expect(result.current.failedDownload).toBeNull();
+		// The queued message surfaces as an INFO-type snack.
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"Queued — it starts automatically when the current download finishes.",
+			"info",
+		);
+		// The ACTIVE download keeps the single progress-bar slot (and its
+		// live progress) — the queued request never claimed it.
+		expect(result.current.downloadingModel).toBe("tiny");
+		expect(result.current.downloadProgress).toBe(50);
+	});
+
+	it("queued outcome with no backend message falls back to the localized key", async () => {
+		callMock.mockResolvedValue({ success: true, queued: true, model: "tiny" });
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.downloadQueued: name=tiny",
+			"info",
+		);
+		// No promise claimed the bar (slot was free, queued released it).
+		expect(result.current.downloadingModel).toBeNull();
+	});
+
+	it("re-click of the ACTIVE model (already-active outcome) warns and keeps the live bar", async () => {
+		// First click: never resolves (the transfer runs). Second click of
+		// the SAME model: the backend answers download_already_active.
+		let callCount = 0;
+		callMock.mockImplementation(() => {
+			callCount += 1;
+			if (callCount === 1) return new Promise(() => {});
+			return Promise.resolve({
+				success: true,
+				model: "tiny",
+				download_already_active: true,
+				message: "Download of tiny is already in progress.",
+			});
+		});
+		const setModels = vi.fn();
+		const args = makeHookArgs({ setModels: setModels as never });
+
+		const { result } = renderHook(() => useModelDownload(args));
+		act(() => {
+			void result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {});
+		expect(result.current.downloadingModel).toBe("tiny");
+
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+
+		// The live transfer's bar survives the duplicate click.
+		expect(result.current.downloadingModel).toBe("tiny");
+		expect(setModels).not.toHaveBeenCalled();
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.downloadAlreadyActiveName: name=tiny",
+			"warning",
+		);
+	});
+});
+
+describe("useModelDownload — handleCancelDownload(modelName) (queued-model cancel)", () => {
+	it("forwards the model name in the IPC payload and leaves the active state intact on queue removal", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "download_model") {
+				// The ACTIVE transfer keeps running (its promise never resolves).
+				return new Promise(() => {});
+			}
+			return Promise.resolve({
+				cancelled: true,
+				model: "base",
+				removed_from_queue: true,
+			});
+		});
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		act(() => {
+			void result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {});
+		// Seed the ACTIVE download (its state must survive the queued
+		// cancel).
+		act(() => {
+			const handler = getDownloadProgressHandler();
+			handler?.({ model: "tiny", progress: 50, status: "downloading" });
+		});
+		expect(result.current.downloadingModel).toBe("tiny");
+		expect(result.current.downloadProgress).toBe(50);
+
+		await act(async () => {
+			await result.current.handleCancelDownload("base");
+		});
+
+		expect(callMock).toHaveBeenCalledWith("cancel_model_download", {
+			model: "base",
+		});
+		// Queue-removal snack (info), NOT the active-cancel warning.
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.queuedCancelled: name=base",
+			"info",
+		);
+		// The active transfer's bar + progress survive.
+		expect(result.current.downloadingModel).toBe("tiny");
+		expect(result.current.downloadProgress).toBe(50);
+		expect(result.current.failedDownload).toBeNull();
+	});
+
+	it("named cancel of the ACTIVE model (race) runs the legacy active-cancel semantics", async () => {
+		// The queued model auto-started between render and click → the named
+		// cancel hits the ACTIVE transfer.
+		callMock.mockResolvedValue({ cancelled: true });
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		await act(async () => {
+			await result.current.handleCancelDownload("tiny");
+		});
+
+		expect(callMock).toHaveBeenCalledWith("cancel_model_download", {
+			model: "tiny",
+		});
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.cancelled",
+			"warning",
+		);
+		// Active-cancel clears local state.
+		expect(result.current.downloadingModel).toBeNull();
+		expect(result.current.downloadProgress).toBe(0);
+	});
+
+	it("named cancel of a model that is neither queued nor active is a benign no-op (state intact)", async () => {
+		callMock.mockResolvedValue({ cancelled: false });
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		act(() => {
+			const handler = getDownloadProgressHandler();
+			handler?.({ model: "tiny", progress: 50, status: "downloading" });
+		});
+		act(() => {
+			void result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {});
+		expect(result.current.downloadingModel).toBe("tiny");
+
+		await act(async () => {
+			await result.current.handleCancelDownload("base");
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.cancelNoopName: name=base",
+			"info",
+		);
+		// No active-cancel state clear.
+		expect(result.current.downloadingModel).toBe("tiny");
+	});
+
+	it("named cancel IPC failure surfaces the error and leaves the active state intact", async () => {
+		callMock.mockRejectedValue(new Error("cancel IPC failed"));
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		act(() => {
+			void result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {});
+		expect(result.current.downloadingModel).toBe("tiny");
+
+		await act(async () => {
+			await result.current.handleCancelDownload("base");
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			expect.stringContaining("cancel IPC failed"),
+			"error",
+		);
+		// The active transfer's state survives a queued-cancel IPC failure.
+		expect(result.current.downloadingModel).toBe("tiny");
 	});
 });
 
