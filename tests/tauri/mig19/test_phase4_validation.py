@@ -150,7 +150,13 @@ IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
 # the shim.
 IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "lifecycle.py"
 IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "entrypoint.py"
+TRAY_TYPES_PY = REPO_ROOT / "voice_typer" / "server" / "tray_types.py"
 SIDECAR_WS_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
+# The WS auth handshake (``_authenticate``) lives in the
+# ``sidecar_ws_internals`` leaf since the sidecar_ws split; the
+# token-leak source scan below concatenates it after the canonical
+# file so it keeps covering the auth body's new home.
+SIDECAR_WS_HANDSHAKE_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws_internals" / "handshake.py"
 WS_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
 WS_EVENT_PROTOCOL_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "event_protocol.rs"
 # reader/writer module split: the spawn_reader_task / spawn_writer_task
@@ -1025,17 +1031,27 @@ def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     ``ipc_server.py``) for the env-var check + the
     ``_heartbeat_thread = None`` skip path."""
     src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
-    # The env var MUST be read with the exact "1" sentinel (not
-    # truthy / not "true" - ADR-0020 §7 specifies "=1").
-    assert 'os.environ.get("TAURI_SIDECAR") == "1"' in src, (
-        'ipc/lifecycle.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
+    # The gate now goes through the canonical helper
+    # ``tray_types.is_tauri_sidecar()`` (call-time read of
+    # ``TAURI_SIDECAR == "1"`` - single authoritative form shared by
+    # every Tauri-sidecar gate in the server). The env var MUST still
+    # be read with the exact "1" sentinel (not truthy / not "true" -
+    # ADR-0020 §7 specifies "=1") - that invariant now lives in the
+    # helper itself, pinned here against its source.
+    helper_src = TRAY_TYPES_PY.read_text(encoding="utf-8")
+    assert 'os.environ.get("TAURI_SIDECAR") == "1"' in helper_src, (
+        'tray_types.is_tauri_sidecar must read the exact `TAURI_SIDECAR == "1"` sentinel (ADR-0020 §7).'
+    )
+    assert "from voice_typer.server.tray_types import is_tauri_sidecar" in src, (
+        "ipc/lifecycle.py must gate the heartbeat watchdog on the canonical "
+        "`is_tauri_sidecar()` helper (ADR-0020 §2 + §10)."
     )
     # The skip path MUST set ``_heartbeat_thread = None`` (not
     # start the thread and then immediately stop it - that would
     # leak a thread).
-    # Find the TAURI_SIDECAR gate block and assert
+    # Find the is_tauri_sidecar gate block and assert
     # ``_heartbeat_thread = None`` appears within ~10 lines.
-    gate_idx = src.index('os.environ.get("TAURI_SIDECAR") == "1"')
+    gate_idx = src.index("_tauri_sidecar = is_tauri_sidecar()")
     window = src[gate_idx : gate_idx + 600]
     assert "_heartbeat_thread = None" in window, (
         "ipc/lifecycle.py must set `self._heartbeat_thread = None` when "
@@ -1073,14 +1089,15 @@ def test_tauri_sidecar_env_disables_python_single_instance_mutex():
     # separate from the heartbeat-watchdog gate in lifecycle.py).
     # Look for at least TWO occurrences of the env-var check across
     # the two submodules that now host the IPC logic.
-    occurrences = server_src.count('os.environ.get("TAURI_SIDECAR") == "1"') + main_src.count(
-        'os.environ.get("TAURI_SIDECAR") == "1"'
-    )
+    # Both gates consume the canonical helper
+    # (``tray_types.is_tauri_sidecar()`` - the exact ``== "1"`` sentinel
+    # is pinned once at the helper itself; see the heartbeat test).
+    occurrences = server_src.count("is_tauri_sidecar()") + main_src.count("is_tauri_sidecar()")
     assert occurrences >= 2, (
-        "ipc/ must reference TAURI_SIDECAR=1 in at least two "
-        "gates: (1) the heartbeat-watchdog skip (§10, in lifecycle.py) "
-        "and (2) the Python single-instance mutex skip (§12, in "
-        f"entrypoint.py). Found {occurrences}."
+        "ipc/ must gate on the canonical is_tauri_sidecar() helper in at "
+        "least two gates: (1) the heartbeat-watchdog skip (§10, in "
+        "lifecycle.py) and (2) the Python single-instance mutex skip "
+        f"(§12, in entrypoint.py). Found {occurrences}."
     )
 
 
@@ -1125,11 +1142,13 @@ def test_sidecar_authenticate_does_not_echo_token(monkeypatch):
 
 def test_sidecar_source_does_not_log_token_verbatim():
     """ADR-0020 §3: the token MUST NOT appear verbatim in any log
-    line. Source-inspect ``sidecar_ws.py`` for ``log.*`` calls that
-    interpolate the token (``expected_token``) or the env var value.
+    line. Source-inspect ``sidecar_ws.py`` (plus the handshake leaf —
+    ``_authenticate``'s home since the sidecar_ws split) for
+    ``log.*`` calls that interpolate the token (``expected_token``)
+    or the env var value.
     The env var NAME (``VOICE_TYPER_IPC_TOKEN``) MAY appear in log
     messages — the VALUE may not."""
-    src = SIDECAR_WS_PY.read_text(encoding="utf-8")
+    src = SIDECAR_WS_PY.read_text(encoding="utf-8") + "\n" + SIDECAR_WS_HANDSHAKE_PY.read_text(encoding="utf-8")
     # Find every log.* call that mentions ``expected_token`` or
     # ``provided`` (the inbound token value). They MUST NOT appear in
     # an f-string / .format() / % interpolation.

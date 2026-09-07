@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -91,6 +92,15 @@ from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 # per-test.
 _SIDECAR_WS_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "sidecar_ws.py"
 assert _SIDECAR_WS_PATH.exists(), f"sidecar_ws.py not found at {_SIDECAR_WS_PATH}"
+# The auth handshake (``_authenticate``) moved to the
+# ``sidecar_ws_internals`` leaf package in the sidecar_ws split; the
+# token-security / env-lookup source greps below read the canonical
+# file CONCATENATED with this leaf so they keep covering the auth
+# body's new home.
+_SIDECAR_HANDSHAKE_PATH = (
+    Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "sidecar_ws_internals" / "handshake.py"
+)
+assert _SIDECAR_HANDSHAKE_PATH.exists(), f"handshake.py not found at {_SIDECAR_HANDSHAKE_PATH}"
 
 # Path to the Rust WS client source — used by the arch-agnostic test
 # that asserts the Rust auth-frame construction has no ``cfg(target_arch)``
@@ -121,8 +131,16 @@ def _import_sidecar_ws():
 
 
 def _read_sidecar_ws_source() -> str:
-    """Read the sidecar_ws.py source as a string (for source-grep tests)."""
-    return _SIDECAR_WS_PATH.read_text(encoding="utf-8")
+    """Read the sidecar_ws.py source (plus the handshake leaf) as a
+    string (for source-grep tests).
+
+    The auth handshake body (``_authenticate``) lives in
+    ``sidecar_ws_internals/handshake.py`` since the sidecar_ws split;
+    the token-never-logged / no-platform-branch / constant-time
+    routing greps concatenate it after the canonical file so they keep
+    asserting on the auth code wherever it lives.
+    """
+    return _SIDECAR_WS_PATH.read_text(encoding="utf-8") + "\n" + _SIDECAR_HANDSHAKE_PATH.read_text(encoding="utf-8")
 
 
 def _read_ws_rs_source() -> str:
@@ -1059,14 +1077,14 @@ async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
     monkeypatch scopes env-var changes to the test, so this is a no-op
     assertion — but it documents the contract.
     """
-    sw = _import_sidecar_ws()
+    _import_sidecar_ws()  # imports cleanly (side effect asserted)
     # Set a token, verify it's visible.
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-a")
-    assert sw.os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-a"
+    assert os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-a"
 
     # Re-set to a different value (simulating a second test).
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-b")
-    assert sw.os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-b"
+    assert os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-b"
 
     # After this test, monkeypatch auto-undoes — the next test sees
     # the original env (or no env). This is the contract.

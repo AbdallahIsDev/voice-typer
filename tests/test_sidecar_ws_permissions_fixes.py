@@ -50,6 +50,10 @@ import pytest
 websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
+from voice_typer.server.sidecar_ws_internals import (  # noqa: E402
+    outbound as _outbound_mod,
+    read_loop as _read_loop_mod,
+)
 
 from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket_for_read_loop  # noqa: E402
 
@@ -128,18 +132,21 @@ async def test_heartbeat_rate_cap_window_evicts_old_entries() -> None:
     cap = sidecar_ws._HEARTBEAT_RATE_MAX_PER_WINDOW
     window = sidecar_ws._HEARTBEAT_RATE_WINDOW_SECONDS
 
-    # Patch ``time.monotonic`` used INSIDE ``sidecar_ws`` (the module
-    # does ``import time`` then ``time.monotonic()``).
+    # Patch ``time.monotonic`` used INSIDE the OWNING leaf module
+    # (``_read_loop`` moved to sidecar_ws_internals/read_loop.py in
+    # the sidecar_ws split; the leaf does ``import time`` then
+    # ``time.monotonic()``). ``time`` is the one stdlib module object,
+    # so rebinding the attribute on the OWNING module's reference is
+    # observed by the moved loop exactly as the pre-split
+    # ``sw.time.monotonic`` patch was.
     fake_clock = {"t": 0.0}
 
-    import voice_typer.server.sidecar_ws as sw
-
-    original_monotonic = sw.time.monotonic
+    original_monotonic = _read_loop_mod.time.monotonic
 
     def _fake_monotonic():
         return fake_clock["t"]
 
-    sw.time.monotonic = _fake_monotonic
+    _read_loop_mod.time.monotonic = _fake_monotonic
     try:
         # 100 frames at t=0 (the cap).
         frames = [json.dumps({"type": "heartbeat"}) for _ in range(cap)]
@@ -185,7 +192,7 @@ async def test_heartbeat_rate_cap_window_evicts_old_entries() -> None:
             f"The sliding window is not popping old entries."
         )
     finally:
-        sw.time.monotonic = original_monotonic
+        _read_loop_mod.time.monotonic = original_monotonic
 
 
 def test_heartbeat_rate_cap_constants_exist() -> None:
@@ -319,9 +326,13 @@ async def test_writer_closes_connection_on_send_timeout() -> None:
     ws.send = _blocking_send
     ws.close = _track_close
 
-    # Lower the timeout so the test doesn't take 5s.
-    original_timeout = sidecar_ws._WS_SEND_TIMEOUT_SECONDS
-    sidecar_ws._WS_SEND_TIMEOUT_SECONDS = 0.05
+    # Lower the timeout so the test doesn't take 5s. The send timeout
+    # is owned by sidecar_ws_internals/outbound.py (it moved there with
+    # ``_safe_send``/``_start_writer`` in the sidecar_ws split); patch
+    # the OWNING module — an assignment on the canonical re-export
+    # would be a silent no-op now.
+    original_timeout = _outbound_mod._WS_SEND_TIMEOUT_SECONDS
+    _outbound_mod._WS_SEND_TIMEOUT_SECONDS = 0.05
     try:
         writer_task = sidecar_ws._start_writer(ws, outbound)
         await outbound.put({"type": "test_event"})
@@ -343,7 +354,7 @@ async def test_writer_closes_connection_on_send_timeout() -> None:
         assert kwargs.get("code") == 1011, f"close code must be 1011 (internal error); got {kwargs}"
         assert kwargs.get("reason") == "send timeout", f"close reason must be 'send timeout'; got {kwargs}"
     finally:
-        sidecar_ws._WS_SEND_TIMEOUT_SECONDS = original_timeout
+        _outbound_mod._WS_SEND_TIMEOUT_SECONDS = original_timeout
 
 
 # ─── dead-code removal: permissions payload + docstring ─────────────

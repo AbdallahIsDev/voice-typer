@@ -304,9 +304,19 @@ def state_source() -> str:
 
 @pytest.fixture(scope="module")
 def sidecar_ws_source() -> str:
-    """Full text of voice_typer/server/sidecar_ws.py (read once per module)."""
+    """Full text of voice_typer/server/sidecar_ws.py PLUS the split
+    leaf modules under sidecar_ws_internals/ whose contracts are
+    grepped below (the dispatch factory moved to dispatch.py; read
+    once per module)."""
     assert SIDECAR_WS_PY.is_file(), f"missing: {SIDECAR_WS_PY}"
-    return SIDECAR_WS_PY.read_text(encoding="utf-8")
+    parts = [SIDECAR_WS_PY.read_text(encoding="utf-8")]
+    for leaf in (
+        PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws_internals" / "dispatch.py",
+        PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws_internals" / "outbound.py",
+    ):
+        assert leaf.is_file(), f"missing: {leaf}"
+        parts.append(leaf.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 @pytest.fixture(scope="module")

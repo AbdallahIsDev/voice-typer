@@ -248,8 +248,12 @@ def test_run_passes_process_request_to_serve(monkeypatch) -> None:
     from voice_typer.server import ipc_server
 
     fake_server = ipc_server.IPCServer.__new__(ipc_server.IPCServer)
-    # _make_dispatch touches server internals; stub it out.
-    monkeypatch.setattr(sidecar_ws, "_make_dispatch", lambda s: lambda *a, **k: None)
+    # _make_dispatch touches server internals; stub it out. The factory
+    # is owned by sidecar_ws_internals.dispatch (run() resolves it via
+    # that module object at call time), so patch the OWNING submodule.
+    from voice_typer.server.sidecar_ws_internals import dispatch as _dispatch_mod
+
+    monkeypatch.setattr(_dispatch_mod, "_make_dispatch", lambda s: lambda *a, **k: None)
 
     rc = sidecar_ws.run(fake_server)
 

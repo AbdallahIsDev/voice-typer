@@ -2027,15 +2027,16 @@ class TestWriterEncodesOnce:
         # The writer was refactored from a nested closure inside
         # ``_handle_connection`` into a sibling function
         # ``_start_writer`` (which spawns ``_writer`` as a task).
-        # Read the writer source from the module directly via
-        # ``inspect.getsource`` on the module file so the static
+        # Read the writer source from the OWNING leaf module directly
+        # via ``inspect.getsource`` on that module file so the static
         # check doesn't care which enclosing function the writer
-        # lives in.
+        # lives in (the outbound path moved to
+        # sidecar_ws_internals/outbound.py in the sidecar_ws split).
         import inspect as _inspect
 
-        from voice_typer.server import sidecar_ws
+        from voice_typer.server.sidecar_ws_internals import outbound as _sidecar_outbound
 
-        src = _inspect.getsource(sidecar_ws)
+        src = _inspect.getsource(_sidecar_outbound)
         # XV-84 encode-once pattern: the JSON→bytes encode lives in
         # the module-level ``_encode_ws_frame`` helper (called from
         # the writer via the executor offload so the asyncio loop

@@ -80,8 +80,13 @@ _SIDECAR_WS_PATH = os.path.join(
     "..",
     "voice_typer",
     "server",
-    "sidecar_ws.py",
+    "sidecar_ws_internals",
+    "dispatch.py",
 )
+# The dispatch factory (_make_dispatch) was extracted from
+# sidecar_ws.py into sidecar_ws_internals/dispatch.py; the source
+# contracts below pin its drain / in-flight coordination body, so the
+# path points at the OWNING leaf file.
 # The ``_drain_ws_dispatch_pool`` body (the WS-drain half of
 # ``_do_cleanup``'s early bookend) was extracted from the
 # ``shutdown_controller/_cleanup.py`` leaf into

@@ -228,9 +228,20 @@ def main_rs_source() -> str:
 
 @pytest.fixture(scope="module")
 def sidecar_ws_source() -> str:
-    """Read voice_typer/server/sidecar_ws.py as text (for the bind address)."""
+    """Read voice_typer/server/sidecar_ws.py + the stdout_banner leaf
+    as text (for the bind address + ``server_started`` payload greps).
+
+    The ``_emit_server_started`` helper moved to
+    ``sidecar_ws_internals/stdout_banner.py`` in the sidecar_ws split;
+    the ``"def _emit_server_started"`` / payload-shape greps below read
+    the canonical file CONCATENATED with that leaf, while the
+    ``getsockname`` / bind-address greps keep matching the canonical
+    file (``run()`` stays there).
+    """
     assert _SIDECAR_WS_PY.exists(), f"sidecar_ws.py not found: {_SIDECAR_WS_PY}"
-    return _SIDECAR_WS_PY.read_text(encoding="utf-8")
+    _stdout_banner = _SIDECAR_WS_PY.parent / "sidecar_ws_internals" / "stdout_banner.py"
+    assert _stdout_banner.exists(), f"stdout_banner.py not found: {_stdout_banner}"
+    return _SIDECAR_WS_PY.read_text(encoding="utf-8") + "\n" + _stdout_banner.read_text(encoding="utf-8")
 
 
 # ─── Test 1: tauri.conf.json externalBin list ──────────────────────────

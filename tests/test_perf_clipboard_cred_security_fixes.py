@@ -741,7 +741,14 @@ class TestRunKeyringCallWedgedCooldown:
         # that engages the wedge — both check the incremented
         # ``orphan_count`` in the same critical section, mirroring the
         # pattern in ``test_credential_store_keyring_orphan.py``).
-        monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.05)
+        # The timeout is generously above the orphan-registration
+        # window: under parallel-suite CPU contention the worker thread
+        # may not reach its wait point for hundreds of milliseconds,
+        # which would let the outer call time out BEFORE the orphan is
+        # booked — the threshold warning then never fires (observed as
+        # a load-order flake on a 2-core runner). 0.5s keeps the test
+        # fast while making that scheduling undercut impossible.
+        monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.5)
         monkeypatch.setattr(credential_store, "_KEYRING_WEDGE_COOLDOWN_S", 60.0)
         monkeypatch.setattr(credential_store, "_KEYRING_ORPHAN_WARN_THRESHOLD", 1)
 

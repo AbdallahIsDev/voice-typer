@@ -89,6 +89,13 @@ class TestSharedHelperWiredIntoBothTransports:
         assert "tokens_equal(" in src, "transport_tcp must call tokens_equal (shared ipc/auth.py helper)"
 
     def test_ws_transport_uses_shared_helpers(self):
-        src = inspect.getsource(importlib.import_module("voice_typer.server.sidecar_ws"))
+        # The WS handshake (``_authenticate``) lives in the
+        # ``sidecar_ws_internals`` leaf since the sidecar_ws split; the
+        # canonical module re-exports it. Concatenate both module
+        # sources so the anti-drift pin keeps covering the WS auth
+        # body's actual home.
+        src = inspect.getsource(importlib.import_module("voice_typer.server.sidecar_ws")) + inspect.getsource(
+            importlib.import_module("voice_typer.server.sidecar_ws_internals.handshake")
+        )
         assert "extract_auth_token(" in src, "sidecar_ws must call extract_auth_token (shared ipc/auth.py helper)"
         assert "tokens_equal(" in src, "sidecar_ws must call tokens_equal (shared ipc/auth.py helper)"

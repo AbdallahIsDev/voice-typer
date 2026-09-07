@@ -1,14 +1,15 @@
 """Tests for :mod:`voice_typer.server.startup_timeline`.
 
-The Electron main process stamps ``VOICE_TYPER_BOOT_EPOCH_MS`` (at
-main-bundle eval) and ``VOICE_TYPER_SPAWN_EPOCH_MS`` (right before
-spawning the Python backend) into the backend's environment.
+The host process stamps ``VOICE_TYPER_BOOT_EPOCH_MS`` (Electron at
+main-bundle eval; the Tauri host as the first statement of ``main``)
+and ``VOICE_TYPER_SPAWN_EPOCH_MS`` (right before spawning the Python
+backend) into the backend's environment.
 ``log_launch_timeline`` merges them into ONE startup line attributing
-the spawn→first-log gap (electron boot vs backend interpreter +
+the spawn→first-log gap (host boot vs backend interpreter +
 imports). These tests pin:
 
 1. Both markers present → single INFO line with both segments.
-2. No markers (standalone / Tauri-WS launch) → nothing logged.
+2. No markers (standalone / non-host launch) → nothing logged.
 3. Partial markers → only the present segment is logged.
 4. Garbage marker values are skipped without raising.
 5. Negative deltas (clock skew) clamp to `` 0.0s``.
@@ -44,7 +45,7 @@ def test_both_markers_emit_single_line(caplog, monkeypatch):
     assert len(recs) == 1
     msg = recs[0].getMessage()
     assert "[STARTUP] Launch timeline:" in msg
-    assert f"electron boot{format_duration(1.8)}" in msg
+    assert f"host boot{format_duration(1.8)}" in msg
     assert f"backend init{format_duration(0.6)}" in msg
 
 
@@ -62,7 +63,7 @@ def test_partial_marker_logs_only_that_segment(caplog, monkeypatch):
     assert len(recs) == 1
     msg = recs[0].getMessage()
     assert "backend init" in msg
-    assert "electron boot" not in msg
+    assert "host boot" not in msg
 
 
 def test_garbage_marker_is_skipped(caplog, monkeypatch):
@@ -72,7 +73,7 @@ def test_garbage_marker_is_skipped(caplog, monkeypatch):
         st.log_launch_timeline(logging.getLogger("test.timeline"))
     recs = _records(caplog)
     assert len(recs) == 1
-    assert "electron boot" not in recs[0].getMessage()
+    assert "host boot" not in recs[0].getMessage()
 
 
 def test_negative_delta_clamps_to_zero(caplog, monkeypatch):

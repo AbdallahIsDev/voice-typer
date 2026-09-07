@@ -152,7 +152,12 @@ async def test_authenticate_rejects_timeout(monkeypatch):
 
     ws.recv = AsyncMock(side_effect=_never_resolves)
     # Patch the auth timeout down to 0.1s so the test doesn't wait 5s.
-    sw._AUTH_TIMEOUT_SECONDS = 0.1
+    # monkeypatch (not a bare assignment) so the module global is
+    # restored after the test — the bare assignment leaked 0.1 into
+    # sidecar_ws._AUTH_TIMEOUT_SECONDS for every later test in the
+    # same pytest process (order-dependent failures in the mig15-17
+    # suites' ``== 5.0`` value assertions).
+    monkeypatch.setattr(sw, "_AUTH_TIMEOUT_SECONDS", 0.1)
 
     accepted = await sw._authenticate(ws)
     assert accepted is False

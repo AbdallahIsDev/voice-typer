@@ -306,12 +306,33 @@ def test_gp94_main_rs_line_count_is_385():
     call, and a ``WindowEvent::ThemeChanged`` branch that forwards to
     ``apply_to_window()``; bodies live in ``theme_icon.rs``). Still
     wiring-only. Doc + test pin updated in lockstep.
+
+    Updated 2026-09-07: main.rs shrank from 434 → 342 lines — the
+    main-window bootstrap block (window construction +
+    ``VT_START_HIDDEN`` env handling) moved to
+    ``window_bootstrap.rs``, and the sidecar cold-start init (guarded
+    spawn body incl. the panic-payload downcast chain) moved to
+    ``sidecar/spawn``; the launch-timeline epoch-marker stamping
+    landed as ``startup_timeline.rs`` (``mod`` + first-statement
+    ``record_boot_epoch()`` wiring call). Still wiring-only. Doc +
+    test pin updated in lockstep.
+
+    Updated 2026-09-07 (Wave 3): main.rs shrank from 342 → 274
+    lines — the ``.on_window_event`` arm dispatch (close-to-tray /
+    theme-icon / bubble-persist forwarding) moved to
+    ``window_events.rs``, and the tray-init error-log +
+    ``tray_available`` marking moved into ``tray.rs``
+    (``create_tray_and_mark_state``); several comment blocks were
+    deduplicated against the owning modules' docs (the C-TAURI-2
+    plugin-contract comment and the C-TOKIO-1 spawn-site guard stay
+    inline by design). Still wiring-only. Doc + test pin updated in
+    lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "434 lines" in doc, "Doc must claim '434 lines' for main.rs."
+    assert "274 lines" in doc, "Doc must claim '274 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 434, (
-        f"src-tauri/src/main.rs must be 434 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 274, (
+        f"src-tauri/src/main.rs must be 274 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
@@ -324,6 +345,8 @@ def test_gp94_main_rs_line_count_is_385():
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
     assert "385 lines" not in doc, "Stale '385 lines' must be removed from doc."
     assert "413 lines" not in doc, "Stale '413 lines' must be removed from doc."
+    assert "434 lines" not in doc, "Stale '434 lines' must be removed from doc."
+    assert "342 lines" not in doc, "Stale '342 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────
