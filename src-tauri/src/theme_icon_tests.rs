@@ -42,11 +42,13 @@ fn theme_variants_are_distinct_or_documented_identical() {
     let dark = png_for_theme(&Theme::Dark);
     let light = png_for_theme(&Theme::Light);
     if dark == light {
-        assert!(!dark.is_empty(), "identical variants must still embed bytes");
+        assert!(
+            !dark.is_empty(),
+            "identical variants must still embed bytes"
+        );
     } else {
         assert_ne!(
-            dark as *const [u8],
-            light as *const [u8],
+            dark as *const [u8], light as *const [u8],
             "dark/light must not resolve to the same embedded asset"
         );
     }
@@ -55,8 +57,8 @@ fn theme_variants_are_distinct_or_documented_identical() {
 #[test]
 fn both_variants_decode_to_512_rgba() {
     for theme in [Theme::Dark, Theme::Light] {
-        let img = image_for_theme(&theme)
-            .unwrap_or_else(|e| panic!("{theme:?} icon must decode: {e}"));
+        let img =
+            image_for_theme(&theme).unwrap_or_else(|e| panic!("{theme:?} icon must decode: {e}"));
         assert_eq!(img.width(), 512, "{theme:?} width");
         assert_eq!(img.height(), 512, "{theme:?} height");
         assert_eq!(
@@ -101,7 +103,13 @@ fn both_variants_carry_the_brand_dark_chip() {
             [26, 27, 30],
             "{theme:?} dominant chip color must be #1a1b1e (26/27/30)"
         );
-        assert!(white_px > 1_000, "{theme:?} must keep the white glyph (got {white_px} white px)");
-        assert!(red_px > 50, "{theme:?} must keep the red dot (got {red_px} red px)");
+        assert!(
+            white_px > 1_000,
+            "{theme:?} must keep the white glyph (got {white_px} white px)"
+        );
+        assert!(
+            red_px > 50,
+            "{theme:?} must keep the red dot (got {red_px} red px)"
+        );
     }
 }

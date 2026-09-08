@@ -17,9 +17,8 @@
 //! On item click we dispatch `{"cmd":"tray_click","data":{"id": <id>}}`
 //! back to the sidecar via the trusted `dispatch_inner` path
 //! (previously the click was forwarded by emitting a Tauri event named
-//! `"dispatch"` that had no listener — `app.emit("dispatch", payload)`
-//! was dead code, so the click was silently dropped). Left-click (no
-//! item) focuses the main window.
+//! `"dispatch"` that had no listener — dead code, so the click was
+//! silently dropped). Left-click (no item) focuses the main window.
 //!
 //! # Module layout
 //!

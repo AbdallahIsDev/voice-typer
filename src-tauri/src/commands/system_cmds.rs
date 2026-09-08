@@ -2,6 +2,10 @@
 //! concern under `system_cmds/` — mirrors the `commands/bubble/` and
 //! `commands/sidecar_cmds/` decompositions):
 //!
+//! - [`dialog_titles`] — the Rust-side locale→title lookup that
+//!   consumes the renderer-pushed `host_locale` at the native
+//!   dialog title sites (mirrors Electron's `mainT()` dialog
+//!   strings).
 //! - [`dialogs`] — native OS-surface commands: `open_logs` (OS file
 //!   manager) + `open_model_import_dialog` (native folder picker).
 //! - [`renderer_log`] — the `renderer_log_error` sink + its
@@ -26,6 +30,7 @@
 //! window guard — SEC-026) so a compromised bubble renderer can never
 //! open OS surfaces, write host state, or trigger exports.
 
+mod dialog_titles;
 mod dialogs;
 mod export;
 mod locale;
@@ -34,10 +39,13 @@ mod renderer_log;
 
 // Crate-visible re-exports — `main.rs` imports these six commands from
 // `commands::system_cmds` (see the `use commands::system_cmds::{...}`
-// block + `generate_handler!` registration there). The redaction,
-// locale-core, and bounded-serialization helpers keep their owning
-// submodule as the single import path — no extra re-export surface for
-// items only the sibling test file consumes.
+// block + `generate_handler!` registration there). The dialog-title
+// lookup is ALSO re-exported because `commands::export::export_data`
+// (outside this module tree) resolves its save-dialog titles through
+// it. The redaction, locale-core, and bounded-serialization helpers
+// keep their owning submodule as the single import path — no extra
+// re-export surface for items only the sibling test files consume.
+pub(crate) use dialog_titles::{localized_title_for, DialogTitle};
 pub(crate) use dialogs::{open_logs, open_model_import_dialog};
 pub(crate) use export::{export_config, export_templates};
 pub(crate) use locale::set_host_locale;
@@ -48,7 +56,10 @@ pub(crate) use renderer_log::renderer_log_error;
 // source free of inline test code, matching the
 // `commands/bubble/tests.rs` pattern). Bounded-serialization tests for
 // the renderer log sink live in `system_cmds/renderer_log_tests.rs`,
-// wired from `renderer_log.rs`.
+// wired from `renderer_log.rs`; the dialog-title lookup tests live in
+// `system_cmds/dialog_titles_tests.rs`, wired from `dialog_titles.rs`,
+// and the `open_logs` target-path tests live in
+// `system_cmds/dialogs_tests.rs`, wired from `dialogs.rs`.
 #[cfg(test)]
 #[path = "system_cmds_tests.rs"]
 mod system_cmds_tests;

@@ -584,6 +584,76 @@ fn test_parse_worker_started_invalid_json() {
     assert_eq!(parse_worker_started(""), None);
 }
 
+// ── worker_shared_env (worker env contract) ────────────────────────
+//
+// BOTH worker spawn paths (release + dev) pass the same three explicit
+// env pairs after `.env_clear()` + the OS-required allowlist. A missing
+// or renamed pair breaks the worker SILENTLY from the host's view (the
+// Python side refuses to start without the token — EXIT_NO_TOKEN; a
+// wrong config dir changes which `fast_startup` / log location the
+// worker reads).
+
+/// The worker env contract is exactly the bearer token + the session
+/// id + the config dir, in the documented order, with the token
+/// forwarded verbatim.
+#[test]
+fn test_worker_shared_env_carries_the_worker_contract() {
+    let envs = worker_shared_env("vt-test-token");
+    let names: Vec<&str> = envs.iter().map(|(k, _)| *k).collect();
+    assert_eq!(
+        names,
+        vec![
+            "VOICE_TYPER_IPC_TOKEN",
+            "VOICE_TYPER_SESSION_ID",
+            "VOICE_TYPER_CONFIG_DIR"
+        ],
+        "the worker env contract is exactly token + session id + config dir, in order"
+    );
+    let token = envs
+        .iter()
+        .find(|(k, _)| *k == "VOICE_TYPER_IPC_TOKEN")
+        .map(|(_, v)| v.as_str());
+    assert_eq!(
+        token,
+        Some("vt-test-token"),
+        "the per-launch bearer token must be forwarded verbatim"
+    );
+}
+
+/// The session-id pair must carry the process-wide join key (stable
+/// per process via OnceLock — the worker's log lines correlate with the
+/// host + sidecar through it).
+#[test]
+fn test_worker_shared_env_session_id_matches_host_session() {
+    let envs = worker_shared_env("vt-test-token");
+    let session = envs
+        .iter()
+        .find(|(k, _)| *k == "VOICE_TYPER_SESSION_ID")
+        .map(|(_, v)| v.as_str());
+    assert_eq!(
+        session,
+        Some(crate::util::session_id()),
+        "the session id must be the host's process-wide join key"
+    );
+}
+
+/// The config-dir pair must be a usable (non-empty) path — an empty
+/// value would make the worker resolve its config against the process
+/// CWD instead of the shared config dir.
+#[test]
+fn test_worker_shared_env_config_dir_is_non_empty() {
+    let envs = worker_shared_env("vt-test-token");
+    let config_dir = envs
+        .iter()
+        .find(|(k, _)| *k == "VOICE_TYPER_CONFIG_DIR")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        !config_dir.is_empty(),
+        "VOICE_TYPER_CONFIG_DIR must resolve to a non-empty path"
+    );
+}
+
 /// `WorkerState::new()` must initialize `child` to `None` — the worker
 /// child handle is installed lazily by `initialize_worker` after the
 /// pack is downloaded + verified (Phase 2b). A non-`None` default would

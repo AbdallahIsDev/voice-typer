@@ -15,7 +15,12 @@ use crate::util;
 
 #[derive(Debug)]
 pub(crate) enum MergeOutcome {
+    /// Whole file copied (target was absent).
     Copied,
+    /// Key-by-key merge completed; the payload is the number of keys
+    /// taken from `old`. When the payload is 0, nothing was taken AND
+    /// the target was a valid object — the target file is NOT
+    /// rewritten (no byte/mtime churn for identical content).
     Merged(usize),
 }
 
@@ -25,7 +30,12 @@ pub(crate) enum MergeOutcome {
 /// - If `new` exists: merge key-by-key. The entire newer file's values
 ///   win for overlapping keys (single whole-file mtime comparison —
 ///   NOT per-key mtime). Keys present only in `old` are always taken.
-///   Returns Merged(keys_from_old_written).
+///   Returns Merged(keys_from_old_written). When 0 keys are taken and
+///   the target parsed as a valid object, the merged content is
+///   exactly the target's parsed content — the file is left untouched
+///   (no rewrite, no mtime churn). Pathological targets (corrupt or
+///   non-object) keep the pre-fix write so the repair path (overwrite
+///   with the merge result) is unchanged.
 ///
 //the previous docstring promised "newest-mtime-wins per
 /// key" which suggested per-key mtime resolution. The implementation
@@ -42,14 +52,24 @@ pub(crate) enum MergeOutcome {
 /// user's migrated Electron config. The atomic write ensures the target
 /// is either fully-old or fully-new, never partial.
 ///
-/// The merge loop now CONSUMES `old_val` (moves the owned
+/// The merge loop CONSUMES `old_val` (moves the owned
 /// `Map<String, Value>` out of the `Value::Object` variant) instead of
 /// borrowing `old_val.as_object()` and cloning every key+value pair on
 /// insertion. The move is sound because `old_val` is owned by this
-/// function and is never read again after the loop. For users with
-/// multi-MB Electron configs this drops N deep-clone allocations per
-/// migration (first-launch-only cost, but the pattern is also more
-/// idiomatic — future copy-paste won't replicate the clone).
+/// function and is never read again after the loop. The SAME move is
+/// applied to `new_val`: `base` takes ownership of the target's map
+/// instead of borrowing `as_object()` and deep-cloning every entry —
+/// `new_val` is equally owned here and equally never read after the
+/// base map is extracted. For users with multi-MB Electron configs
+/// this drops 2×N deep-clone allocations per migration (first-launch-
+/// only cost, but the pattern is also more idiomatic — future
+/// copy-paste won't replicate the clone).
+///
+/// No-op short-circuit: when the loop takes ZERO keys from `old` and
+/// the target parsed as a valid object, re-serializing and rewriting
+/// `new` would only re-sort the BTreeMap and bump the mtime for
+/// semantically identical content — so the write is skipped entirely
+/// (`Merged(0)` is returned without touching the file).
 pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
         // M-65: atomic copy so an interrupted migration never leaves
@@ -114,9 +134,17 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // source (old vs new) that wins for that key.
     let old_newer = file_newer_than(old, new);
 
-    let mut base = match new_val.as_object() {
-        Some(o) => o.clone(),
-        None => serde_json::Map::new(),
+    // Consume `new_val` (owned) exactly like `old_val` above: move the
+    // inner `Map<String, Value>` out of the variant instead of
+    // borrowing `as_object()` and deep-cloning every entry. `new_val`
+    // is never read again after this point, so the move is sound.
+    // The boolean remembers whether the target was a VALID object —
+    // the no-op skip below only applies then (corrupt / non-object
+    // targets keep the pre-fix rewrite, which repairs the file).
+    let new_was_object = matches!(new_val, serde_json::Value::Object(_));
+    let mut base = match new_val {
+        serde_json::Value::Object(o) => o,
+        _ => serde_json::Map::new(),
     };
 
     let mut written = 0usize;
@@ -135,6 +163,16 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
             base.insert(k, v);
             written += 1;
         }
+    }
+
+    // Nothing taken from old + a valid-object target means the merged
+    // content is EXACTLY the target's parsed content: rewriting would
+    // only re-sort the BTreeMap and bump the mtime for identical
+    // semantics. Skip the write — `Merged(0)` already tells the caller
+    // nothing was taken, and the target's original bytes (even its
+    // formatting) are preserved.
+    if written == 0 && new_was_object {
+        return Ok(MergeOutcome::Merged(0));
     }
 
     let merged = serde_json::Value::Object(base);

@@ -35,16 +35,34 @@ pub(crate) fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
     }
 }
 
-/// Recursively copy files from `src` to `dst` that are ABSENT in `dst`.
-/// Returns the count of files copied. Directory structure under `src` is
-/// preserved. Never overwrites an existing target file.
-pub(crate) fn copy_missing_files(src: &Path, dst: &Path) -> usize {
-    let mut count = 0usize;
-    copy_missing_recursive(src, dst, &mut count);
-    count
+/// Result of a `copy_missing_files` walk: how many files were copied
+/// and how many individual file-copy attempts FAILED.
+///
+/// Failed copies are non-fatal — the walk continues to the next
+/// file — but they are counted (not just logged) so the migration
+/// summary and the sentinel gate account for them: a failed copy
+/// leaves the target file ABSENT, which means the next launch's
+/// re-walk (the migration is idempotent and only copies files still
+/// missing) re-attempts exactly those files. Pre-fix, a failed model
+/// copy was invisible to every accounting surface — the sentinel was
+/// written success-shaped and the failed model was silently never
+/// migrated.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CopyStats {
+    pub(crate) copied: usize,
+    pub(crate) failed: usize,
 }
 
-fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
+/// Recursively copy files from `src` to `dst` that are ABSENT in `dst`.
+/// Returns per-walk statistics (see [`CopyStats`]). Directory structure
+/// under `src` is preserved. Never overwrites an existing target file.
+pub(crate) fn copy_missing_files(src: &Path, dst: &Path) -> CopyStats {
+    let mut stats = CopyStats::default();
+    copy_missing_recursive(src, dst, &mut stats);
+    stats
+}
+
+fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
     let entries = match std::fs::read_dir(src) {
         Ok(e) => e,
         Err(e) => {
@@ -100,7 +118,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
                 log::error!("[MIGRATE] cannot create dir {}: {}", dst_path.display(), e);
                 continue;
             }
-            copy_missing_recursive(&path, &dst_path, count);
+            copy_missing_recursive(&path, &dst_path, stats);
         } else if file_type.is_file() {
             if dst_path.exists() {
                 continue; // never clobber a newer download
@@ -114,14 +132,28 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
             // corrupt model file in the target. The atomic copy writes
             // to a sibling temp file then renames, so the destination
             // is either fully-present or fully-absent — never partial.
+            // The in-flight temp is a DOTTED name (`.NAME.tmp.copy.*`,
+            // convention owned by `util::atomic_copy_file`), so a hard
+            // kill mid-copy leaves the orphan temp HIDDEN from normal
+            // directory listings instead of a visible junk file next
+            // to the user's models.
             if let Err(e) = util::atomic_copy_file(&path, &dst_path) {
-                log::error!(
+                // One WARN per failed copy — follows the module's
+                // `[MIGRATE] what: path: err` warn convention (see the
+                // history.db sidecar copy failure in mod.rs). WARN, not
+                // ERROR: the failure is non-critical for THIS launch
+                // (the walk continues), but the copy is counted in
+                // `stats.failed` so the migration summary surfaces it
+                // and the sentinel gate defers — the target stays
+                // absent and the next launch retries it.
+                log::warn!(
                     "[MIGRATE] model file copy failed {}: {}",
                     dst_path.display(),
                     e
                 );
+                stats.failed += 1;
             } else {
-                *count += 1;
+                stats.copied += 1;
             }
         }
     }

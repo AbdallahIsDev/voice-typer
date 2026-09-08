@@ -158,15 +158,18 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     let dir = dst
         .parent()
         .ok_or_else(|| format!("dst has no parent: {}", dst.display()))?;
-    // Same uniqueness scheme as `atomic_write_bytes` in util.rs —
-    // PID + 4 random bytes hex so concurrent invocations on the same
-    // dst don't race on the same temp filename.
+    // Same uniqueness scheme as `atomic_write_bytes` — PID + 4
+    // random bytes hex so concurrent invocations on the same dst don't
+    // race on the same temp filename. Dotted, exactly like
+    // `atomic_write_bytes`'s `.NAME.tmp.*` and the docstring's "dotfile
+    // in the user's config dir" claim above, so a crash-orphaned temp
+    // is hidden from normal directory listings.
     let tmp_name = match dst.file_name().and_then(|n| n.to_str()) {
         Some(n) => {
             let mut rng_bytes = [0u8; 4];
             rand::rng().fill_bytes(&mut rng_bytes);
             let suffix = u32::from_le_bytes(rng_bytes);
-            format!("{}.tmp.copy.{}.{:08x}", n, std::process::id(), suffix)
+            format!(".{}.tmp.copy.{}.{:08x}", n, std::process::id(), suffix)
         }
         None => return Err(format!("dst has no file_name: {}", dst.display())),
     };
@@ -184,7 +187,18 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     // the temp file's data could leave the renamed file with zero
     // bytes (ext4's auto-no-csum mode) — corrupting the destination.
     {
-        let f = std::fs::File::open(&tmp)
+        // WRITE access is required: Win32 `FlushFileBuffers` (what
+        // `File::sync_all` maps to on Windows) fails with
+        // ERROR_ACCESS_DENIED unless the handle was opened with
+        // GENERIC_WRITE, so a read-only `File::open` made this fsync a
+        // guaranteed no-op on Windows that ALSO logged a warning per
+        // copied file. `write(true)` WITHOUT `truncate(true)` keeps
+        // the just-copied bytes intact on every platform.
+        // VALIDATE ON WINDOWS HOST (the access-mode contract is not
+        // observable on POSIX, where fsync works on read-only handles).
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&tmp)
             .map_err(|e| format!("open tmp for fsync {}: {}", tmp.display(), e))?;
         // Best-effort fsync — not all filesystems support it (tmpfs,
         // network FS), and a failure here doesn't invalidate the copy
@@ -214,6 +228,22 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
             e
         ));
     }
+
+    // Fsync the parent directory after the rename on POSIX so the
+    // rename itself is durable — the exact pattern (and best-effort
+    // semantics) `atomic_write_bytes` uses above: without this, a
+    // crash after the rename returns could leave the OLD file (or NO
+    // file) at `dst` on next mount, while the copied data is already
+    // durable. A dir `sync_all` failure never fails the copy.
+    #[cfg(unix)]
+    {
+        if let Some(parent) = dst.parent() {
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
+    }
+
     Ok(())
 }
 

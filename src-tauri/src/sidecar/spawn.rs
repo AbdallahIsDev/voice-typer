@@ -15,6 +15,12 @@
 //! - [`handshake`] — `server_started` stdout parsing
 //!   (`parse_server_started`) + the shutting-down loop short-circuit
 //!   (`is_shutting_down`).
+//! - [`handshake_loop`] — the shared stdout-handshake read loops used by
+//!   all four spawn paths (`spawn_sidecar_release` /
+//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /
+//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin
+//!   `CommandEvent` pair, one for the tokio `read_line` pair, plus the
+//!   off-thread kill-tree + best-effort kill-on-parent-exit leaves.
 //! - [`env_allowlist`] — the OS-required env-var passthrough allowlist
 //!   (`passthrough_env_allowlist`).
 //! - [`target_triple`] — the pure `target_triple_for` table +
@@ -39,6 +45,7 @@
 pub(crate) mod dev_mode;
 mod env_allowlist;
 mod handshake;
+mod handshake_loop;
 mod release_mode;
 // Worker exe spawn logic (Phase 2b — plan-runtime-pack-split §7):
 // `spawn_worker_release` + `spawn_worker_dev_mode` live in `worker.rs`
@@ -67,6 +74,8 @@ pub(crate) use env_allowlist::passthrough_env_allowlist;
 pub(crate) use handshake::{is_shutting_down, parse_server_started, parse_worker_started};
 #[cfg(test)]
 pub(crate) use target_triple::{current_target_triple, target_triple_for};
+#[cfg(test)]
+pub(crate) use worker::worker_shared_env;
 
 use crate::state::SidecarHandle;
 use std::panic::AssertUnwindSafe;

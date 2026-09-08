@@ -21,10 +21,72 @@
 //! `-`, `@`, `\t`, `\r` with `'`), and the atomic-write helper contract
 //! used by `export_data`.
 
-use super::{csv_escape, csv_escape_into, json_to_csv, value_to_string, value_to_string_into};
+use super::{
+    csv_escape, csv_escape_into, export_file_filters, json_to_csv, value_to_string,
+    value_to_string_into,
+};
 use serde_json::{json, Value};
 
-// ── csv_escape ────────────────────────────────────────────────────
+// ── export_file_filters (save-dialog filter list per export kind) ─
+//
+// The save dialog's offered file types must match the content being
+// written. The export `format` is the discriminator: the JSON-only
+// kinds (templates, config — both hard-pass "json") and any
+// history/vocabulary export whose chosen format is "json" offer the
+// JSON filter ALONE (offering a CSV filter for JSON content lets the
+// user save a `.csv` file containing JSON — the bug this pins);
+// CSV exports keep the historical [JSON, CSV] set in the same order.
+
+#[test]
+fn test_export_file_filters_json_exports_offer_json_filter_only() {
+    // Every export kind whose content is JSON: templates (always
+    // "json"), config (always "json"), plus history/vocabulary
+    // exported with the "json" format.
+    let filters = export_file_filters("json");
+    assert_eq!(
+        filters.len(),
+        1,
+        "JSON-content export (format='json') must offer exactly one filter, got {filters:?}"
+    );
+    assert_eq!(filters[0].0, "JSON");
+    assert_eq!(filters[0].1, &["json"][..]);
+    // The CSV filter must NOT be offered for JSON content.
+    assert!(
+        !filters.iter().any(|(name, _)| *name == "CSV"),
+        "JSON-content export must not offer a CSV filter (lets users save JSON \
+         content as .csv), got {filters:?}"
+    );
+}
+
+#[test]
+fn test_export_file_filters_csv_exports_keep_json_and_csv_filters() {
+    // CSV-capable exports (history / vocabulary with format "csv")
+    // keep their current filters: JSON first (the dialog's default
+    // selected filter — order pinned), CSV second.
+    let filters = export_file_filters("csv");
+    assert_eq!(
+        filters.len(),
+        2,
+        "CSV export must keep the historical two-filter set"
+    );
+    assert_eq!(filters[0].0, "JSON");
+    assert_eq!(filters[0].1, &["json"][..]);
+    assert_eq!(filters[1].0, "CSV");
+    assert_eq!(filters[1].1, &["csv"][..]);
+}
+
+#[test]
+fn test_export_file_filters_unrecognized_format_falls_back_to_json_filter() {
+    // Unrecognized formats get the JSON-only set here; `export_data`
+    // rejects them with the same "unsupported format" error as
+    // before once the dialog returns.
+    let filters = export_file_filters("xml");
+    assert_eq!(filters.len(), 1);
+    assert_eq!(filters[0].0, "JSON");
+    assert_eq!(filters[0].1, &["json"][..]);
+}
+
+// ── csv_escape ──────────────────────────────────────────────────────
 
 #[test]
 fn test_csv_escape_plain() {

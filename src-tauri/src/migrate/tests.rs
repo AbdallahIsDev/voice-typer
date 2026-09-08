@@ -76,9 +76,10 @@ fn copy_missing_recursive_skips_symlinks() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, src.join("evil.bin")).unwrap();
 
-    let count = copy_missing_files(&src, &dst);
+    let stats = copy_missing_files(&src, &dst);
     // Only `real.bin` should have been copied — the symlink is skipped.
-    assert_eq!(count, 1, "only the regular file should be copied");
+    assert_eq!(stats.copied, 1, "only the regular file should be copied");
+    assert_eq!(stats.failed, 0, "no copy should fail in this scenario");
     assert!(dst.join("real.bin").is_file());
     // The symlink target's contents must NOT appear under the dst.
     assert!(
@@ -270,6 +271,111 @@ fn merge_config_whole_file_mtime_wins() {
     );
 }
 
+/// a no-op merge (nothing taken from old) must NOT rewrite the
+/// target file. Pre-fix, `merge_config` ALWAYS re-serialized and
+/// atomically rewrote `new` after the loop — even when `written == 0`
+/// — churning the mtime and re-sorting the BTreeMap for identical
+/// content on every launch after the first.
+///
+/// Observability: the target is written in COMPACT form (one line,
+/// no pretty-printing). A rewrite always round-trips through
+/// `serde_json::to_string_pretty`, so a rewrite would change the
+/// bytes AND bump the mtime; a true skip leaves both untouched.
+/// (Mtime alone is not sufficient on coarse-mtime filesystems — the
+/// repo's existing mtime tests sleep 1100ms for exactly that reason —
+/// so both signals are asserted.)
+#[test]
+fn merge_config_noop_merge_skips_write() {
+    let _scratch = ScratchDir::new("noop-skip-write");
+    let root = _scratch.path().to_path_buf();
+    let old = root.join("old.json");
+    let new = root.join("new.json");
+
+    // old's only key `a` ALSO exists in new (same value), and old has
+    // no keys new lacks. With new strictly newer, the whole-file
+    // mtime rule resolves the overlap for new -> written == 0.
+    std::fs::write(&old, b"{\"a\": 1}").unwrap();
+    // Settling sleep so `new`'s mtime is strictly newer (whole-file
+    // mtime rule; 1100ms matches the repo's coarse-mtime convention).
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(&new, b"{\"a\":1,\"b\":2}").unwrap();
+    let bytes_before = std::fs::read(&new).unwrap();
+    let mtime_before = std::fs::metadata(&new).unwrap().modified().unwrap();
+
+    let outcome = merge_config(&old, &new).expect("no-op merge should succeed");
+
+    match outcome {
+        MergeOutcome::Merged(0) => {}
+        other => panic!("expected Merged(0) for a no-op merge, got {:?}", other),
+    }
+    // Bytes untouched: the compact one-line form survives (a rewrite
+    // would have pretty-printed the file).
+    assert_eq!(
+        std::fs::read(&new).unwrap(),
+        bytes_before,
+        "no-op merge must not rewrite the target file"
+    );
+    // Mtime untouched: no atomic temp+rename churn.
+    assert_eq!(
+        std::fs::metadata(&new).unwrap().modified().unwrap(),
+        mtime_before,
+        "no-op merge must not bump the target's mtime"
+    );
+}
+
+/// regression guard for the skip-write logic: a merge that DOES
+/// take keys from old must still rewrite the target. Over-matching
+/// the skip (skipping when changes exist) would silently drop the
+/// user's old-side settings.
+#[test]
+fn merge_config_changed_values_still_writes() {
+    let _scratch = ScratchDir::new("changed-still-writes");
+    let root = _scratch.path().to_path_buf();
+    let old = root.join("old.json");
+    let new = root.join("new.json");
+
+    // `x` exists ONLY in old (always taken); `a` exists only in new.
+    std::fs::write(&old, b"{\"x\": 42}").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(&new, b"{\"a\":1}").unwrap();
+    let bytes_before = std::fs::read(&new).unwrap();
+    let mtime_before = std::fs::metadata(&new).unwrap().modified().unwrap();
+    // Settle again so the merge's rewrite is mtime-distinguishable
+    // even on coarse (1-2s) filesystems.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    let outcome = merge_config(&old, &new).expect("merge should succeed");
+
+    match outcome {
+        MergeOutcome::Merged(1) => {}
+        other => panic!("expected Merged(1) (x taken from old), got {:?}", other),
+    }
+    let bytes_after = std::fs::read(&new).unwrap();
+    assert_ne!(
+        bytes_after, bytes_before,
+        "a merge with changes MUST rewrite the file"
+    );
+    assert!(
+        std::fs::metadata(&new).unwrap().modified().unwrap() > mtime_before,
+        "a merge with changes MUST bump the mtime: before={:?}",
+        mtime_before
+    );
+    // The rewritten file must contain BOTH old's and new's keys.
+    let merged: serde_json::Value =
+        serde_json::from_slice(&bytes_after).expect("merged file must parse");
+    let obj = merged.as_object().expect("merged must be an object");
+    assert_eq!(
+        obj.get("x").and_then(|v| v.as_i64()),
+        Some(42),
+        "x taken from old"
+    );
+    assert_eq!(
+        obj.get("a").and_then(|v| v.as_i64()),
+        Some(1),
+        "a kept from new"
+    );
+}
+
 //`sidecar_path` appends the suffix to the file_name
 /// (NOT to the extension) so `history.db` -> `history.db-wal`.
 /// Critical for SQLite WAL mode — the sidecar files live next to
@@ -315,13 +421,77 @@ fn copy_missing_files_does_not_clobber_existing() {
     std::fs::write(src.join("model.bin"), b"OLD").unwrap();
     std::fs::write(dst.join("model.bin"), b"NEW (preserved)").unwrap();
 
-    let count = copy_missing_files(&src, &dst);
-    assert_eq!(count, 0, "no files should be copied (target exists)");
+    let stats = copy_missing_files(&src, &dst);
+    assert_eq!(stats.copied, 0, "no files should be copied (target exists)");
+    assert_eq!(stats.failed, 0, "no copy should fail in this scenario");
     // The target's content must be unchanged.
     assert_eq!(
         std::fs::read_to_string(dst.join("model.bin")).unwrap(),
         "NEW (preserved)"
     );
+}
+
+/// failed model-file copies must be COUNTED (honest accounting),
+/// not just logged. Pre-fix `copy_missing_files` returned only the
+/// copied count; a failed copy (disk full, unwritable target, name
+/// too long) was invisible to the migration summary and the sentinel
+/// gate — the sentinel was written success-shaped and the failed
+/// model file was silently never migrated.
+///
+/// Failure injection: a 250-char source filename. The atomic copy
+/// derives its in-flight temp name from the dst filename plus a
+/// `.tmp.copy.<pid>.<hex>` suffix, pushing it past the 255-byte
+/// per-component NAME_MAX enforced by ext4/APFS/NTFS alike — a
+/// deterministic, cross-platform copy failure with no permission
+/// tricks and no platform-specific code.
+#[test]
+fn copy_missing_files_counts_failed_copies() {
+    let _scratch = ScratchDir::new("count-failures");
+    let root = _scratch.path().to_path_buf();
+    let src = root.join("src");
+    let dst = root.join("dst");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
+
+    // One copyable file.
+    std::fs::write(src.join("ok.bin"), b"model-weights").unwrap();
+    // One file whose copy must fail (dst temp name > NAME_MAX).
+    let long_name = "x".repeat(250);
+    std::fs::write(src.join(&long_name), b"also-weights").unwrap();
+
+    let stats = copy_missing_files(&src, &dst);
+
+    assert_eq!(stats.copied, 1, "the normal file must be copied");
+    assert_eq!(stats.failed, 1, "the failed copy must be counted");
+    assert!(
+        dst.join("ok.bin").is_file(),
+        "ok.bin must exist at the target"
+    );
+    assert!(
+        !dst.join(&long_name).exists(),
+        "the failed file must NOT exist at the target (left absent for retry)"
+    );
+}
+
+/// a walk where every copy succeeds must report zero failures —
+/// pins the counter against false positives (e.g. counting the
+/// never-clobber skip as a failure).
+#[test]
+fn copy_missing_files_all_success_reports_zero_failed() {
+    let _scratch = ScratchDir::new("zero-failures");
+    let root = _scratch.path().to_path_buf();
+    let src = root.join("src");
+    let dst = root.join("dst");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
+
+    std::fs::write(src.join("a.bin"), b"a").unwrap();
+    std::fs::write(src.join("b.bin"), b"b").unwrap();
+
+    let stats = copy_missing_files(&src, &dst);
+
+    assert_eq!(stats.copied, 2);
+    assert_eq!(stats.failed, 0, "no failures on an all-success walk");
 }
 
 //sentinel gating on partial failures ───────────────

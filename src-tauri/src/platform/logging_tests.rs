@@ -33,7 +33,26 @@ use crate::test_support::PANIC_HOOK_TEST_LOCK;
 use crate::util::LOG_MAX_BYTES;
 use log::Log;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+
+/// Serializes tests that install (or upgrade) the process-global `log`
+/// sink: `install_early_logger` callers and the `init_file_logger`
+/// banner test below. `log::set_logger` is a process-global one-shot
+/// and `install_early_logger` sets `EARLY_LOGGER_HANDLE` a few
+/// instructions AFTER its `set_logger` succeeds — without this lock,
+/// an `init_file_logger` call racing through that window sees
+/// `instance() == None`, takes the direct-`set_logger` fallback, and
+/// fails because the EarlyLogger already won the one-shot. Current
+/// holders (KEEP IN SYNC — any NEW test that calls `install_early_logger`
+/// or `init_file_logger` MUST acquire this lock and be added here):
+///
+/// - `test_si15_3_install_early_logger_does_not_orphan_handle`
+/// - `test_fr16_install_early_logger_idempotent`
+/// - `test_init_file_logger_startup_banner_first_line_session_once`
+///
+/// Poison-recovery (`.unwrap_or_else(|e| e.into_inner())`) mirrors
+/// `PANIC_HOOK_TEST_LOCK` in `test_support.rs`.
+static LOGGER_INSTALL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 //merge note: tests call `logger.log(&record)` and
 // `logger.flush()` directly on a `CombinedLogger` value. Those
@@ -283,12 +302,13 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
 
 //RUST_LOG parsing ─────────────────────────────────
 //
-// We can't call `init_file_logger` from a test (it calls
-// `log::set_logger`, which is process-global and can only be set
-// once). Instead, test the parsing logic in isolation by mirroring
-// the `RUST_LOG` parse chain here. This pins the default-Info +
-// unparseable-fallback behavior so a future refactor can't silently
-// break it.
+// These tests mirror the `RUST_LOG` parse chain in isolation
+// instead of calling `init_file_logger` (which installs the
+// process-global `log` sink — one-shot, so only ONE test per
+// process can call it successfully; that test is the startup-banner
+// test below, serialized via LOGGER_INSTALL_TEST_LOCK). Mirroring
+// the chain here pins the default-Info + unparseable-fallback
+// behavior so a future refactor can't silently break it.
 
 #[test]
 fn test_rust_log_parsing_default_is_info() {
@@ -502,6 +522,13 @@ fn test_si15_3_install_early_logger_does_not_orphan_handle() {
     // actual set_logger-failure path is verified by code
     // inspection: EARLY_LOGGER_HANDLE.set is now inside the
     // success branch of `if log::set_logger(logger).is_err() { return; }`.
+    //
+    // LOGGER_INSTALL_TEST_LOCK: this call installs the process-global
+    // `log` sink — serialize against the init_file_logger banner test
+    // (see the static's doc comment above).
+    let _install_lock = LOGGER_INSTALL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     install_early_logger();
     let _ = EARLY_LOGGER_HANDLE.get();
 }
@@ -622,6 +649,245 @@ fn test_combined_logger_log_format_renders_without_file_line() {
             && !content.contains("src/test.rs")
             && !content.contains("?:0"),
         "clutter leaked into clean log line: {}",
+        content
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ── canonical file-line format + startup banner ─────────────
+
+#[test]
+fn test_combined_logger_file_line_has_no_session_id() {
+    // The per-line `[sid xxxxxxxx]` join-key field is GONE: the
+    // canonical file line is `ts  LEVEL  msg` with NO session id,
+    // thread name, or module path. The id appears exactly once per
+    // session — as the trailing `session=` field of the first-line
+    // startup banner (see the init_file_logger banner test below).
+    // The file sink and the stderr sink are built from the same
+    // parts, so pinning the file line pins the terminal line too.
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-fmt-nosid", std::process::id()));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    let logger = CombinedLogger {
+        file_writer: Some(writer),
+        level_filter: log::LevelFilter::Info,
+        // stderr off — this test asserts only on the file sink.
+        stderr_verbose: AtomicBool::new(false),
+    };
+    let record = log::Record::builder()
+        .level(log::Level::Info)
+        .target("test_target")
+        .args(format_args!("plain message"))
+        .build();
+    logger.log(&record);
+    logger.flush();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        !content.contains("[sid"),
+        "per-line session-id field leaked into the file line: {}",
+        content
+    );
+    assert!(
+        !content.contains(crate::util::session_id()),
+        "session id value leaked into the file line: {}",
+        content
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_combined_logger_file_line_matches_canonical_shape() {
+    // The file line must mirror Python's `_FileFormatter`
+    // (`formatters.py`: `f"{ts}  {label:<5} {msg}"`) line-for-line:
+    // `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` — timestamp (20 chars), TWO
+    // spaces, level left-padded to a 5-char column, ONE space,
+    // message. Column layout (byte indices, all ASCII):
+    //   [0..10)  date        [10..12)  two spaces (inside the ts)
+    //   [12..20) time        [20..22)  two spaces (after the ts)
+    //   [22..27) level + pad [27]      one space
+    //   [28..)   message
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-fmt-shape", std::process::id()));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    let logger = CombinedLogger {
+        file_writer: Some(writer),
+        level_filter: log::LevelFilter::Info,
+        stderr_verbose: AtomicBool::new(false),
+    };
+    // Capture the clock around the log calls: the record's internal
+    // timestamp lies between the two reads, so the line's timestamp
+    // must equal one of them even if a second boundary is straddled.
+    let (ts_before, _) = crate::util::now_timestamps();
+    // NOTE: `format_args!` with only a literal format string (no
+    // runtime arguments) is rvalue-promoted to 'static — a dynamic
+    // message would hit E0716 (temporary dropped while `record`
+    // still borrows it), so both records use literal messages.
+    let record = log::Record::builder()
+        .level(log::Level::Info)
+        .target("test_target")
+        .args(format_args!("shape check info message"))
+        .build();
+    logger.log(&record);
+    let record = log::Record::builder()
+        .level(log::Level::Warn)
+        .target("test_target")
+        .args(format_args!("shape check warn message"))
+        .build();
+    logger.log(&record);
+    logger.flush();
+    let (ts_after, _) = crate::util::now_timestamps();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 2, "expected exactly two lines: {}", content);
+    for &line in &lines {
+        assert!(
+            line.starts_with(&ts_before) || line.starts_with(&ts_after),
+            "file line must start with the full `YYYY-MM-DD  HH:MM:SS` timestamp: {}",
+            line
+        );
+        assert!(
+            line.len() >= 28,
+            "file line too short for `ts  LEVEL  msg` ({} bytes): {}",
+            line.len(),
+            line
+        );
+        assert_eq!(
+            &line[10..12],
+            "  ",
+            "date/time separator must be two spaces: {}",
+            line
+        );
+        assert_eq!(
+            &line[20..22],
+            "  ",
+            "timestamp/level separator must be two spaces: {}",
+            line
+        );
+        assert_eq!(
+            line.as_bytes()[27],
+            b' ',
+            "level/message separator must be one space: {}",
+            line
+        );
+    }
+    // INFO line: 4-char label left-padded to the 5-char column.
+    assert_eq!(
+        &lines[0][22..27],
+        "INFO ",
+        "INFO column must be `INFO `: {}",
+        lines[0]
+    );
+    assert!(
+        lines[0][28..].starts_with("shape check info message"),
+        "message must start at byte 28: {}",
+        lines[0]
+    );
+    // WARN line: short label (never WARNING), same 5-char column.
+    assert_eq!(
+        &lines[1][22..27],
+        "WARN ",
+        "WARN column must be `WARN `: {}",
+        lines[1]
+    );
+    assert!(
+        lines[1][28..].starts_with("shape check warn message"),
+        "message must start at byte 28: {}",
+        lines[1]
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_init_file_logger_startup_banner_first_line_session_once() {
+    // `init_file_logger` must write, as the FIRST line of the fresh
+    // session file, the startup banner mirroring the Python side's
+    // (`logging_setup.py`): `[STARTUP] logging initialized: ...`
+    // with the trailing `session=<id>` field — and the field must
+    // appear EXACTLY once across the whole file, in that first line,
+    // no matter how many more records are logged afterwards. No
+    // `[sid` per-line field may ever appear.
+    //
+    // Serialization: `init_file_logger` installs the process-global
+    // `log` sink (one-shot `set_logger` / EarlyLogger swap), so it
+    // must not run concurrently with the `install_early_logger`
+    // tests (LOGGER_INSTALL_TEST_LOCK — see its doc comment) nor
+    // with the panic-firing tests (PANIC_HOOK_TEST_LOCK): the panic
+    // hook's `log::error!` would otherwise interleave into the
+    // freshly installed file sink ahead of the banner. This test is
+    // the only holder of BOTH locks, so no lock-ordering cycle can
+    // form.
+    let _install_lock = LOGGER_INSTALL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _panic_lock = PANIC_HOOK_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Pin the level gate so the INFO banner lands regardless of any
+    // ambient RUST_LOG (the only other RUST_LOG readers in this
+    // process — the parse-chain mirror tests — assert nothing about
+    // its value, so a brief window with it set to "info" is safe).
+    let rust_log_prev = std::env::var("RUST_LOG").ok();
+    std::env::set_var("RUST_LOG", "info");
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-banner", std::process::id()));
+    std::fs::remove_dir_all(&tmp).ok();
+    init_file_logger(&tmp).expect("init_file_logger must succeed on a fresh temp config dir");
+    // Restore the ambient env BEFORE any assertion can fail (a
+    // failing assert would otherwise leak the pin to later tests).
+    match rust_log_prev {
+        Some(v) => std::env::set_var("RUST_LOG", v),
+        None => std::env::remove_var("RUST_LOG"),
+    }
+    // Several more records AFTER the banner — the session id must
+    // NOT reappear on any of them.
+    log::info!("post banner info line");
+    log::warn!("post banner warn line");
+    log::error!("post banner error line");
+    // Flush the global sink: INFO records stay buffered until a
+    // flush barrier (the warn/error records flush on write, but be
+    // explicit — the banner itself is INFO).
+    log::logger().flush();
+    let log_path = tmp.join("logs").join("voice-typer-rust.log");
+    let content = std::fs::read_to_string(&log_path).unwrap_or_else(|e| {
+        panic!(
+            "log file {} must exist after init: {}",
+            log_path.display(),
+            e
+        )
+    });
+    let first = content.lines().next().expect("log file must not be empty");
+    assert!(
+        first.contains("[STARTUP] logging initialized:"),
+        "first line must be the startup banner, got: {}",
+        first
+    );
+    assert!(
+        first.contains("session="),
+        "banner must carry the session= field, got: {}",
+        first
+    );
+    assert!(
+        first.contains(crate::util::session_id()),
+        "banner must carry THIS process's session id, got: {}",
+        first
+    );
+    let occurrences = content.matches("session=").count();
+    assert_eq!(
+        occurrences, 1,
+        "session= must appear exactly once (on the first line); file:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("[sid"),
+        "per-line session-id field leaked into the log file:\n{}",
+        content
+    );
+    assert!(
+        content.contains("post banner info line")
+            && content.contains("post banner warn line")
+            && content.contains("post banner error line"),
+        "post-banner records missing from the log file:\n{}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -877,6 +1143,13 @@ fn test_fr16_install_early_logger_idempotent() {
     // when `EARLY_LOGGER_HANDLE` is already set). The first call
     // may or may not have been made by another test in the same
     // process — either way, this call must not panic.
+    //
+    // LOGGER_INSTALL_TEST_LOCK: this call installs the process-global
+    // `log` sink — serialize against the init_file_logger banner test
+    // (see the static's doc comment near the top of this file).
+    let _install_lock = LOGGER_INSTALL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     install_early_logger();
     // Second call must be a no-op (the function checks
     // `EARLY_LOGGER_HANDLE.get().is_some()` and returns early).

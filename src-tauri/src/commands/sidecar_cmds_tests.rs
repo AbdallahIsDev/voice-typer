@@ -194,25 +194,30 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // transport for mic-test WAVs) added in lockstep → 70.
     //
     // The TS allowlist is the canonical declaration
-    // (`voice_typer/client/src/main/allowed-commands.ts`): 72 entries
-    // total = 70 shared + `heartbeat` + `relaunch_ack` (both sent by
+    // (`voice_typer/client/src/main/allowed-commands.ts`): 73 entries
+    // total = 71 shared + `heartbeat` + `relaunch_ack` (both sent by
     // the host, never routed through this dispatch gate — see the
     // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 75
-    // (72 renderer-reachable + `tray_click` + `shutdown`, both
+    // (73 renderer-reachable + `tray_click` + `shutdown`, both
     // host-supervised and excluded from the TS allowlist).
+    // (2026-09): `get_download_queue` (pending-download FIFO queue
+    // snapshot hydrating the Models page queue chips) was added to
+    // the literal + TS + Python registry in lockstep; the snapshot
+    // and count tests were missed in that commit and are corrected
+    // here → 71.
     assert_eq!(
         allowed_commands().len(),
-        70,
-        "must match TS allowlist (72 entries) minus heartbeat/relaunch_ack (70 entries)"
+        71,
+        "must match TS allowlist (73 entries) minus heartbeat/relaunch_ack (71 entries)"
     );
 }
 
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 70 entries — must match the cmds literal below (single
+    // 71 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 70.
+    // set.len() < 71.
     // 66 → 67: `run_prewarm` restored 2026-08-14 (§6.3 addendum
     // second half — re-implemented to re-run the warm phase
     // in-process instead of spawning the deleted subprocess).
@@ -220,10 +225,12 @@ fn test_allowed_commands_set_contains_no_duplicates() {
     // 68 → 69: `get_correction_usage` (2026-08-17).
     // 69 → 70: `microphone_test_read_audio` (2026-08, chunked
     // file-reference transport for mic-test WAVs).
+    // 70 → 71: `get_download_queue` (2026-09, pending-download
+    // queue snapshot).
     assert_eq!(
         set.len(),
-        70,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (70). \
+        71,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (71). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -231,20 +238,20 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 
 #[test]
 fn test_allowed_commands_exact_snapshot() {
-    //Stricter parity test: pin the EXACT 67-entry set (sorted)
+    //Stricter parity test: pin the EXACT 71-entry set (sorted)
     // so any drift between the Rust literal and the TS allowlist is
     // caught at `cargo test` time, BEFORE the cross-layer Python
     // parity test in
     // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
     // runs. The count-only test above catches add/remove drift but
     // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
-    // that keeps the count at 67. This snapshot test catches both
+    // that keeps the count at 71. This snapshot test catches both
     // renames and any silent reordering that would mask a missing
     // entry.
     //
     // The expected list is the alphabetically-sorted union of:
     //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (69 entries)
+    //     `voice_typer/client/src/main/allowed-commands.ts` (73 entries)
     //   - minus the two Rust-only-excluded commands:
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
@@ -268,8 +275,9 @@ fn test_allowed_commands_exact_snapshot() {
     // (auto-update feature) was added → 67.
     // (2026-08-16): `test_vocabulary_correction` → 68.
     // (2026-08-17): `get_correction_usage` → 69. This snapshot is
-    // the current 70-entry set (2026-08: + microphone_test_read_audio,
-    // chunked file-reference transport for mic-test WAVs).
+    // the current 71-entry set (2026-08: + microphone_test_read_audio,
+    // chunked file-reference transport for mic-test WAVs;
+    // 2026-09: + get_download_queue, pending-download queue snapshot).
     let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
     actual.sort();
     let expected: &[&str] = &[
@@ -285,6 +293,7 @@ fn test_allowed_commands_exact_snapshot() {
         "get_config",
         "get_correction_usage",
         "get_defaults",
+        "get_download_queue",
         "get_favorites",
         "get_history",
         "get_history_count",
@@ -356,7 +365,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         70-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         71-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

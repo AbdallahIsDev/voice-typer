@@ -102,33 +102,39 @@ impl log::Log for CombinedLogger {
         // `str::contains('@')` / `str::contains('+')` / etc. scan.
         let raw_msg = record.args().to_string();
         let msg = redact_pii(&raw_msg);
-        // Clean line format: `ts LEVEL msg`. The `record.target()`
+        // Clean line format: `ts  LEVEL  msg`. The `record.target()`
         // module path and `file:line` were deliberately removed — the
         // module path added noise to every line (matching the Python
         // side's removal of the `[component]` label) and the message
         // already carries a `[TOPIC]` prefix identifying the subsystem.
         //
-        // The FILE sink gets the full timestamp (`YYYY-MM-DD  HH:MM:SS`,
-        // matching Python's `_FileFormatter`) while the TERMINAL sink
-        // shows TIME ONLY (`HH:MM:SS` — the date lives only in the log
-        // file, matching Python's `_ColorFormatter`). Two lines are
+        // The FILE sink gets the full timestamp (`YYYY-MM-DD  HH:MM:SS`)
+        // while the TERMINAL sink shows TIME ONLY (`HH:MM:SS` — the
+        // date lives only in the log file, matching Python's
+        // `_ColorFormatter`). Both lines use the SAME level column
+        // (short label, left-padded to a 5-char field). Two lines are
         // built from a SINGLE clock read (`now_timestamps`) so the file
         // and terminal lines for one record can never straddle a second
         // boundary; the level + message body are identical.
         let (file_ts, term_ts) = now_timestamps();
-        // Carry the per-process session ID (same value passed to
-        // the Python sidecar via `VOICE_TYPER_SESSION_ID`) in the FILE
-        // line so the Rust + Python log streams share a join key for
-        // cross-process correlation (crash-report matching). The
-        // terminal line stays session-free — it's a dev convenience
-        // view and the extra 10 chars/line would add noise.
-        let file_line = format!(
-            "{} {:5} [sid {}] {}",
-            file_ts,
-            record.level(),
-            crate::util::session_id(),
-            msg
-        );
+        // The FILE line mirrors Python's `_FileFormatter`
+        // (`voice_typer/server/log/formatters.py`) line-for-line:
+        // `f"{ts}  {label:<5} {msg}"` — timestamp, TWO spaces, level
+        // left-padded to a 5-char column, ONE space, message — so the
+        // Rust and Python log streams align column-for-column.
+        //
+        // The per-process session ID is deliberately NOT rendered
+        // here: the canonical line stays clean, and the id appears
+        // exactly once per session — as the trailing `session=` field
+        // of the `[STARTUP] logging initialized:` banner emitted by
+        // `init_file_logger` (mirroring the Python side's banner in
+        // `logging_setup.py`). Cross-process correlation with the
+        // Python sidecar is preserved because both processes' banners
+        // carry the SAME id: this host generates it
+        // (`crate::util::session_id()`) and passes it to the sidecar
+        // via the `VOICE_TYPER_SESSION_ID` env var, which the sidecar
+        // stamps into its own banner.
+        let file_line = format!("{}  {:5} {}", file_ts, record.level(), msg);
         // The terminal line is built ONLY when stderr logging is
         // actually enabled — the `format!` used to run unconditionally,
         // wasting one String allocation per log line in release builds

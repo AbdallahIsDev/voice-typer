@@ -34,18 +34,59 @@
 //! allowlist (`passthrough_env_allowlist`) + the explicit vars above —
 //! identical to the sidecar spawn paths, so the worker never inherits
 //! arbitrary host env (e.g. `HF_TOKEN`, `OPENAI_API_KEY`, `http_proxy`).
+//!
+//! # Shared loop bodies
+//!
+//! The stdout-handshake read loops are shared with the sidecar paths
+//! (`super::handshake_loop`): the release path uses
+//! `read_handshake_from_command_events` (same as
+//! `spawn_sidecar_release`), the dev path uses
+//! `read_handshake_from_stdout_lines` (same as
+//! `spawn_sidecar_dev_mode`). Only the labels (log tag, error wording,
+//! handshake event name) and the env contract differ per path.
 
 use crate::state::SidecarHandle;
-use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
-use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 
 use super::env_allowlist::passthrough_env_allowlist;
-use super::handshake::{is_shutting_down, parse_worker_started};
+use super::handshake::parse_worker_started;
+use super::handshake_loop::{
+    read_handshake_from_command_events, read_handshake_from_stdout_lines,
+    register_kill_on_parent_exit_best_effort, HandshakeLabels,
+};
+
+/// Env pairs shared by BOTH worker spawn paths (release + dev):
+/// the per-launch bearer token, the cross-process session id, and the
+/// shared config dir — the `# Worker spawn contract` section above.
+/// Applied AFTER `.env_clear()` + `passthrough_env_allowlist()`; the
+/// dev path additionally sets `VOICE_TYPER_DEBUG=1`.
+#[allow(dead_code)] // called by spawn_worker_release / spawn_worker_dev_mode once WorkerState is managed (Phase 2c)
+pub(crate) fn worker_shared_env(token: &str) -> Vec<(&'static str, String)> {
+    vec![
+        // Worker auth: same token env var as the sidecar
+        // (VOICE_TYPER_IPC_TOKEN). The worker refuses to start without
+        // it (EXIT_NO_TOKEN). The slim-core sidecar re-uses this token
+        // for its WS client connection to the worker.
+        ("VOICE_TYPER_IPC_TOKEN", token.to_string()),
+        // Share the host's per-process session ID so the
+        // worker's log lines correlate with the host + sidecar.
+        (
+            "VOICE_TYPER_SESSION_ID",
+            crate::util::session_id().to_string(),
+        ),
+        // The worker reads the shared config dir for `fast_startup`
+        // (prewarm toggle) + its log location.
+        (
+            "VOICE_TYPER_CONFIG_DIR",
+            crate::platform::paths::config_dir()
+                .to_string_lossy()
+                .to_string(),
+        ),
+    ]
+}
 
 /// Release-build worker spawn via Tauri's `externalBin`
 /// (`bin/voice-typer-worker` in tauri.conf.json). Wraps the resulting
@@ -58,6 +99,12 @@ use super::handshake::{is_shutting_down, parse_worker_started};
 /// `/bin/sh` reaper subprocess on POSIX — see the note on
 /// `spawn_sidecar_release`) reaps it. Best-effort: errors are logged,
 /// spawn proceeds.
+///
+/// The stdout-handshake read loop (shutting-down short-circuit,
+/// CommandEvent arms, kill/drain ordering, deadline) lives in
+/// `super::handshake_loop::read_handshake_from_command_events` —
+/// shared with the sidecar release path. The labels below pin this
+/// path's exact log/error wording.
 #[allow(dead_code)] // called by spawn_worker_and_get_port_with_shutdown once WorkerState is managed (Phase 2c)
 pub(crate) async fn spawn_worker_release(
     app: &tauri::AppHandle,
@@ -75,156 +122,51 @@ pub(crate) async fn spawn_worker_release(
     let cmd = worker
         .env_clear()
         .envs(passthrough_env_allowlist())
-        // Worker auth: same token env var as the sidecar
-        // (VOICE_TYPER_IPC_TOKEN). The worker refuses to start without
-        // it (EXIT_NO_TOKEN). The slim-core sidecar re-uses this token
-        // for its WS client connection to the worker.
-        .env("VOICE_TYPER_IPC_TOKEN", token)
-        // Share the host's per-process session ID so the
-        // worker's log lines correlate with the host + sidecar.
-        .env("VOICE_TYPER_SESSION_ID", crate::util::session_id())
-        // The worker reads the shared config dir for `fast_startup`
-        // (prewarm toggle) + its log location.
-        .env(
-            "VOICE_TYPER_CONFIG_DIR",
-            crate::platform::paths::config_dir()
-                .to_string_lossy()
-                .to_string(),
-        );
+        .envs(worker_shared_env(token));
 
-    let (mut rx, child) = cmd
+    let (rx, child) = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn worker: {e}"))?;
 
     // Kill-on-parent-exit so the OS reaps the orphan worker when the
     // host dies (mirrors spawn_sidecar_release). Best-effort.
     let worker_pid = child.pid();
-    if let Err(e) = crate::platform::process::register_kill_on_parent_exit(worker_pid) {
-        log::warn!(
-            "[WORKER] failed to register kill-on-parent-exit for pid {} \
-             (best-effort — worker may be orphaned on host crash): {}",
-            worker_pid,
-            e
-        );
-    }
+    register_kill_on_parent_exit_best_effort(
+        "[WORKER]",
+        "worker may be orphaned on host crash",
+        worker_pid,
+    );
 
     // Read stdout until the `worker_started` JSON is parsed. The
     // worker force-sets line-buffered stdout (worker/__main__.py
     // `_force_line_buffered_stdout`), so each `print(flush=True)` lands
     // as one CommandEvent.
-    let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
-    let mut stdout_buf = String::new();
-
-    while Instant::now() < deadline {
-        // Same shutting-down short-circuit as the sidecar paths: a
-        // respawn initiated seconds before the user quits would
-        // otherwise block up to SERVER_STARTED_TIMEOUT_MS waiting for
-        // a `worker_started` line that will never arrive.
-        if is_shutting_down(shutting_down) {
-            log::info!(
-                "[WORKER] shutting_down set during stdout-read loop — killing freshly-spawned worker"
-            );
-            let pid = child.pid();
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                crate::platform::process::kill_process_tree(pid)
-            })
-            .await;
-            if let Err(kill_err) = child.kill() {
-                log::warn!(
-                    "[WORKER] failed to kill worker after shutting_down detected (best-effort): {}",
-                    kill_err
-                );
-            }
-            let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
-            return Err("shutdown".to_string());
-        }
-
-        match tokio::time::timeout(
-            Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
-            rx.recv(),
-        )
-        .await
-        {
-            Ok(Some(event)) => {
-                let line = match event {
-                    CommandEvent::Stdout(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-                    CommandEvent::Stderr(bytes) => {
-                        let s = String::from_utf8_lossy(&bytes).into_owned();
-                        log::debug!("[WORKER] stderr: {}", s.trim());
-                        continue;
-                    }
-                    CommandEvent::Terminated(payload) => {
-                        let pid = child.pid();
-                        let _ = tauri::async_runtime::spawn_blocking(move || {
-                            crate::platform::process::kill_process_tree(pid)
-                        })
-                        .await;
-                        if let Err(kill_err) = child.kill() {
-                            log::warn!(
-                                "[WORKER] failed to kill worker after Terminated event (best-effort): {}",
-                                kill_err
-                            );
-                        }
-                        return Err(format!(
-                            "worker terminated before worker_started (code={:?})",
-                            payload.code
-                        ));
-                    }
-                    CommandEvent::Error(err) => {
-                        let pid = child.pid();
-                        let _ = tauri::async_runtime::spawn_blocking(move || {
-                            crate::platform::process::kill_process_tree(pid)
-                        })
-                        .await;
-                        if let Err(kill_err) = child.kill() {
-                            log::warn!(
-                                "[WORKER] failed to kill worker after CommandEvent::Error (best-effort): {}",
-                                kill_err
-                            );
-                        }
-                        return Err(format!("worker command error: {err}"));
-                    }
-                    _ => continue,
-                };
-                stdout_buf.push_str(&line);
-                if let Some(port) = parse_worker_started(&line) {
-                    log::info!("[WORKER] worker_started port={}", port);
-                    return Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx));
-                }
-                log::warn!(
-                    "[WORKER] unexpected stdout line (expected only worker_started): {}",
-                    line.trim()
-                );
-            }
-            Ok(None) => {
-                return Err("worker stdout closed before worker_started".into());
-            }
-            Err(_) => {
-                // Per-iteration timeout — loop and retry until deadline.
-                continue;
-            }
-        }
-    }
-
-    let pid = child.pid();
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        crate::platform::process::kill_process_tree(pid)
-    })
-    .await;
-    if let Err(e) = child.kill() {
-        log::warn!("[WORKER] failed to kill worker after deadline: {}", e);
-    }
-    let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
-    Err(format!(
-        "worker did not emit worker_started within {}ms. stdout so far: {}",
-        SERVER_STARTED_TIMEOUT_MS, stdout_buf
-    ))
+    let (port, child, rx) = read_handshake_from_command_events(
+        &HandshakeLabels {
+            log_tag: "[WORKER]",
+            err_noun: "worker",
+            event_name: "worker_started",
+            kill_target: "worker",
+            fresh_target: "worker",
+        },
+        rx,
+        child,
+        shutting_down,
+        parse_worker_started,
+    )
+    .await?;
+    Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx))
 }
 
 /// Dev-mode worker spawn — runs `python -m voice_typer.worker` (no
 /// Nuitka freeze, no `externalBin`), parallel to
 /// `spawn_sidecar_dev_mode`. The developer must have `voice_typer`
 /// importable in their Python environment.
+///
+/// The stdout-handshake read loop lives in
+/// `super::handshake_loop::read_handshake_from_stdout_lines` — shared
+/// with the sidecar dev path. The labels below pin this path's exact
+/// log/error wording.
 #[allow(dead_code)] // called by spawn_worker_and_get_port_with_shutdown once WorkerState is managed (Phase 2c)
 pub(crate) async fn spawn_worker_dev_mode(
     token: &str,
@@ -244,14 +186,7 @@ pub(crate) async fn spawn_worker_dev_mode(
     cmd.args(["-m", "voice_typer.worker"])
         .env_clear()
         .envs(passthrough_env_allowlist())
-        .env("VOICE_TYPER_IPC_TOKEN", token)
-        .env("VOICE_TYPER_SESSION_ID", crate::util::session_id())
-        .env(
-            "VOICE_TYPER_CONFIG_DIR",
-            crate::platform::paths::config_dir()
-                .to_string_lossy()
-                .to_string(),
-        )
+        .envs(worker_shared_env(token))
         .env("VOICE_TYPER_DEBUG", "1")
         .stdout(std::process::Stdio::piped())
         // Dev mode: inherit stderr so the developer sees Python
@@ -270,70 +205,19 @@ pub(crate) async fn spawn_worker_dev_mode(
         .ok_or_else(|| "dev worker stdout not captured".to_string())?;
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
-    let mut stdout_buf = String::new();
-    while Instant::now() < deadline {
-        // Same shutting-down short-circuit as the sidecar dev path.
-        if is_shutting_down(shutting_down) {
-            log::info!(
-                "[WORKER-DEV] shutting_down set during stdout-read loop — killing freshly-spawned dev worker"
-            );
-            let pid_opt = child.id();
-            if let Some(pid) = pid_opt {
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    crate::platform::process::kill_process_tree(pid)
-                })
-                .await;
-            }
-            if let Err(e) = child.kill().await {
-                log::warn!(
-                    "[WORKER-DEV] failed to kill worker after shutting_down detected (best-effort): {}",
-                    e
-                );
-            }
-            let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
-            return Err("shutdown".to_string());
-        }
-        let mut line = String::new();
-        match tokio::time::timeout(
-            Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
-            reader.read_line(&mut line),
-        )
-        .await
-        {
-            Ok(Ok(0)) => {
-                return Err("dev worker stdout closed before worker_started".into());
-            }
-            Ok(Ok(_)) => {
-                stdout_buf.push_str(&line);
-                if let Some(port) = parse_worker_started(&line) {
-                    log::info!("[WORKER-DEV] worker_started port={}", port);
-                    return Ok((port, SidecarHandle::DevMode(child)));
-                }
-                log::warn!(
-                    "[WORKER-DEV] unexpected stdout line (expected only worker_started): {}",
-                    line.trim()
-                );
-            }
-            Ok(Err(e)) => {
-                return Err(format!("dev worker stdout read error: {e}"));
-            }
-            Err(_) => continue, // per-iteration timeout — retry until deadline
-        }
-    }
-    let pid_opt = child.id();
-    if let Some(pid) = pid_opt {
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            crate::platform::process::kill_process_tree(pid)
-        })
-        .await;
-    }
-    if let Err(e) = child.kill().await {
-        log::warn!("[WORKER-DEV] failed to kill worker after deadline: {}", e);
-    }
-    let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
-    Err(format!(
-        "dev worker did not emit worker_started within {}ms. stdout so far: {}",
-        SERVER_STARTED_TIMEOUT_MS, stdout_buf
-    ))
+    let port = read_handshake_from_stdout_lines(
+        &HandshakeLabels {
+            log_tag: "[WORKER-DEV]",
+            err_noun: "dev worker",
+            event_name: "worker_started",
+            kill_target: "worker",
+            fresh_target: "dev worker",
+        },
+        &mut reader,
+        &mut child,
+        shutting_down,
+        parse_worker_started,
+    )
+    .await?;
+    Ok((port, SidecarHandle::DevMode(child)))
 }

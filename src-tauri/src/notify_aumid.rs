@@ -51,7 +51,9 @@ fn register_windows(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config_dir)?;
     let icon_path = config_dir.join("toast-icon.ico");
     if !icon_path.exists()
-        || std::fs::metadata(&icon_path).map(|m| m.len() != ICON_BYTES.len() as u64).unwrap_or(true)
+        || std::fs::metadata(&icon_path)
+            .map(|m| m.len() != ICON_BYTES.len() as u64)
+            .unwrap_or(true)
     {
         let mut f = std::fs::File::create(&icon_path)?;
         f.write_all(ICON_BYTES)?;
@@ -62,6 +64,9 @@ fn register_windows(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let (key, _) = hkcu.create_subkey_with_flags(&key_path, KEY_SET_VALUE)?;
     key.set_value("DisplayName", &display_name)?;
     key.set_value("IconUri", &icon_path.to_string_lossy().to_string())?;
-    log::info!("[AUMID] registered '{identifier}' (DisplayName='{display_name}', IconUri={})", icon_path.display());
+    log::info!(
+        "[AUMID] registered '{identifier}' (DisplayName='{display_name}', IconUri={})",
+        icon_path.display()
+    );
     Ok(())
 }

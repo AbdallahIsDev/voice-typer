@@ -2,13 +2,11 @@
 //! single-file `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
-use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
-use tokio::io::AsyncBufReadExt;
 
 use super::env_allowlist::passthrough_env_allowlist;
-use super::handshake::{is_shutting_down, parse_server_started};
+use super::handshake::parse_server_started;
+use super::handshake_loop::{read_handshake_from_stdout_lines, HandshakeLabels};
 
 /// ADR-0020 §14: returns true when the sidecar should run from SOURCE
 /// (`python -m voice_typer.server.ipc_server --ws`) instead of the
@@ -45,6 +43,12 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
 /// - Windows: `python.exe` (spec §14 says `pythonw.exe` would suppress
 ///   the console window, but we use `python.exe` to surface logs).
 /// - macOS / Linux: `python3`.
+///
+/// The stdout-handshake read loop (shutting-down short-circuit,
+/// read_line arms, kill/drain ordering, deadline) lives in
+/// `super::handshake_loop::read_handshake_from_stdout_lines` — shared
+/// with the worker dev path. The labels below pin this path's exact
+/// log/error wording.
 pub(crate) async fn spawn_sidecar_dev_mode(
     token: &str,
     shutting_down: Option<&AtomicBool>,
@@ -91,7 +95,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // integration couldn't be exercised under `cargo tauri dev`).
         //
         // Prewarm binary removal (Phase 2a, plan-runtime-pack-split
-        // 6.2): the prewarm exe env var is no longer
+        // 6.2): the prewarm exe env var is no longer
         // set in either release or dev mode - the prewarm binary is
         // deleted (Sub-agent 6), the Rust-side `dev_prewarm_exe` /
         // `prewarm_resource_path` helpers are deleted, and the
@@ -151,99 +155,23 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         .ok_or_else(|| "dev sidecar stdout not captured".to_string())?;
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
-    let mut stdout_buf = String::new();
-    while Instant::now() < deadline {
-        // Same shutting_down short-circuit as the release path
-        // (see `spawn_sidecar_release`). The dev-mode sidecar is
-        // typically faster to emit `server_started` (no Nuitka
-        // unpack), but a cold Python import on the first run can take
-        // 5-10s — long enough for a user-initiated quit to race the
-        // handshake. The dev-mode `tokio::process::Child` was
-        // constructed with `kill_on_drop(true)`, so dropping it would
-        // eventually kill the process — but we kill explicitly here
-        // (and wait via `child.wait()`) so the test environment
-        // doesn't see a zombie between this return and the eventual
-        // Drop.
-        if is_shutting_down(shutting_down) {
-            log::info!(
-                "[SIDECAR-DEV] shutting_down set during stdout-read loop — killing freshly-spawned dev child"
-            );
-            let pid_opt = child.id();
-            if let Some(pid) = pid_opt {
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    crate::platform::process::kill_process_tree(pid)
-                })
-                .await;
-            }
-            if let Err(e) = child.kill().await {
-                log::warn!(
-                    "[SIDECAR-DEV] failed to kill child after shutting_down detected (best-effort): {}",
-                    e
-                );
-            }
-            let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
-            return Err("shutdown".to_string());
-        }
-        let mut line = String::new();
-        match tokio::time::timeout(
-            Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
-            reader.read_line(&mut line),
-        )
-        .await
-        {
-            Ok(Ok(0)) => {
-                return Err("dev sidecar stdout closed before server_started".into());
-            }
-            Ok(Ok(_)) => {
-                stdout_buf.push_str(&line);
-                if let Some(port) = parse_server_started(&line) {
-                    log::info!("[SIDECAR-DEV] server_started port={}", port);
-                    return Ok((port, SidecarHandle::DevMode(child)));
-                }
-                log::warn!(
-                    "[SIDECAR-DEV] unexpected stdout line (expected only server_started): {}",
-                    line.trim()
-                );
-            }
-            Ok(Err(e)) => {
-                return Err(format!("dev sidecar stdout read error: {e}"));
-            }
-            Err(_) => continue, // per-iteration timeout — retry until deadline
-        }
-    }
-    // same fix as the release path — reap grandchildren
-    // before killing the root. `tokio::process::Child::id()` returns
-    // `Option<u32>` (None if the child has already been reaped).
-    let pid_opt = child.id();
-    if let Some(pid) = pid_opt {
-        // (High): spawn_blocking wrap — see the comment in the
-        // release-path Terminated arm above. Mirrors the
-        // `SidecarHandle::kill_tree` pattern in `state.rs:148`.
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            crate::platform::process::kill_process_tree(pid)
-        })
-        .await;
-    }
-    // log the kill error for visibility (mirrors the release
-    // path's kill-error logging above).
-    if let Err(e) = child.kill().await {
-        log::warn!("[SIDECAR-DEV] failed to kill child after deadline: {}", e);
-    }
-    // reap the zombie. `tokio::process::Child::kill(&mut self)`
-    // sends SIGKILL but does NOT call waitpid — the killed child remains
-    // a zombie in the OS process table until `wait()` (or `try_wait()`)
-    // is invoked. `kill_on_drop(true)` ensures Drop will eventually reap,
-    // but Drop fires on function return; if the function panics or the
-    // async runtime is shut down before return, the zombie leaks. Call
-    // `wait()` explicitly with a 500ms timeout to bound the spawn path
-    // against a misbehaving process that ignores SIGKILL (rare, but
-    // possible for uninterruptible kernel waits). Best-effort: errors
-    // and timeouts are silently discarded (the kill has already been
-    // attempted).
-    let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
-    Err(format!(
-        "dev sidecar did not emit server_started within {}ms. stdout so far: {}",
-        SERVER_STARTED_TIMEOUT_MS, stdout_buf
-    ))
+    // The dev-mode sidecar is typically faster to emit `server_started`
+    // (no Nuitka unpack), but a cold Python import on the first run can
+    // take 5-10s — the loop's shutting-down short-circuit covers the
+    // quit-during-handshake race (see `handshake_loop`).
+    let port = read_handshake_from_stdout_lines(
+        &HandshakeLabels {
+            log_tag: "[SIDECAR-DEV]",
+            err_noun: "dev sidecar",
+            event_name: "server_started",
+            kill_target: "child",
+            fresh_target: "dev child",
+        },
+        &mut reader,
+        &mut child,
+        shutting_down,
+        parse_server_started,
+    )
+    .await?;
+    Ok((port, SidecarHandle::DevMode(child)))
 }

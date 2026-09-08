@@ -69,32 +69,37 @@ pub(crate) fn image_for_theme(theme: &Theme) -> tauri::Result<Image<'static>> {
 /// Apply the OS-theme icon to `window`. Never panics: a rejected icon
 /// is a warn log — the window keeps its embedded default icon.
 pub(crate) fn apply_to_window(window: &tauri::Window, theme: &Theme) {
-    match image_for_theme(theme) {
-        Ok(img) => {
-            if let Err(e) = window.set_icon(img) {
-                log::warn!("[THEME-ICON] set_icon({theme:?}) failed: {e}");
-            } else {
-                log::info!("[THEME-ICON] main window icon set for {theme:?} OS theme");
-            }
-        }
-        Err(e) => log::warn!("[THEME-ICON] icon decode failed: {e}"),
-    }
+    apply_theme_icon(theme, |img| window.set_icon(img))
 }
 
 /// Read the main window's current OS theme and apply the matching icon.
 /// `.setup`-time entry point; same never-panics contract as above.
 pub(crate) fn apply_startup(window: &tauri::WebviewWindow) {
     match window.theme() {
-        Ok(theme) => match image_for_theme(&theme) {
-            Ok(img) => {
-                if let Err(e) = window.set_icon(img) {
-                    log::warn!("[THEME-ICON] set_icon({theme:?}) failed: {e}");
-                } else {
-                    log::info!("[THEME-ICON] main window icon set for {theme:?} OS theme");
-                }
-            }
-            Err(e) => log::warn!("[THEME-ICON] icon decode failed: {e}"),
-        },
+        Ok(theme) => apply_theme_icon(&theme, |img| window.set_icon(img)),
         Err(e) => log::warn!("[THEME-ICON] could not read OS theme: {e}"),
+    }
+}
+
+/// Shared body of [`apply_to_window`] and [`apply_startup`]: decode the
+/// theme-variant icon and set it on the window, mapping every failure
+/// to a warn log (never panics — a rejected icon leaves the window's
+/// embedded default in place).
+///
+/// `set_icon` is injected because the two entry points receive
+/// different window types (`Window` from the `ThemeChanged` event arm,
+/// `WebviewWindow` from the `.setup` bootstrap) that expose no common
+/// `set_icon` interface — the closure lets both delegate to this one
+/// body instead of duplicating the decode/set/log match.
+fn apply_theme_icon(theme: &Theme, set_icon: impl FnOnce(Image<'static>) -> tauri::Result<()>) {
+    match image_for_theme(theme) {
+        Ok(img) => {
+            if let Err(e) = set_icon(img) {
+                log::warn!("[THEME-ICON] set_icon({theme:?}) failed: {e}");
+            } else {
+                log::info!("[THEME-ICON] main window icon set for {theme:?} OS theme");
+            }
+        }
+        Err(e) => log::warn!("[THEME-ICON] icon decode failed: {e}"),
     }
 }

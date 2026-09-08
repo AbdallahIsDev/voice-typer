@@ -82,6 +82,13 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 /// drops them entirely so file logs capture events/errors, not the
 /// level stream.
 ///
+/// **Emits the session banner**: the FIRST line written to the file
+/// for the session is `[STARTUP] logging initialized: file=...,
+/// level=..., session=...` — mirroring the Python side's banner
+/// (`voice_typer/server/logging_setup.py`) and carrying the ONLY
+/// sanctioned per-session id occurrence (the trailing `session=`
+/// field; every other file line is clean `ts  LEVEL  msg`).
+///
 /// Replaces the prior `env_logger::Builder::init()` call — this
 /// logger writes to BOTH stderr (matching the prior env_logger
 /// output) AND the rotating file. If file init fails, the caller
@@ -131,7 +138,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // Rust's file makes the contract explicit and survives a Python
     // layout change. Mirrors the Python side's
     // `RotatingFileHandler(filename=...)` at log.py:891-893.
-    let writer = RotatingFileWriter::new(logs_dir, "voice-typer-rust");
+    let writer = RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust");
     // honor `RUST_LOG` runtime log-level override. Parsed
     // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
     // Default to `Info` if the var is unset OR unparseable so a typo
@@ -193,30 +200,64 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // subsequent `log::*!` records delegate to the combined file+stderr
     // sink. `OnceLock::get` is a single atomic load on the hot path —
     // no mutex acquisition per log call.
-    if let Some(early) = EarlyLogger::instance() {
-        if early.inner.set(combined).is_err() {
-            return Err(
-                "init_file_logger called twice (EarlyLogger already upgraded to file sink)"
-                    .to_string(),
-            );
+    //
+    // The `None` arm is the fallback for when the EarlyLogger was
+    // NOT installed (e.g. tests, or a host entrypoint that skipped
+    // `install_early_logger`): install the `CombinedLogger` directly
+    // via `log::set_logger`. This path preserves the behavior so
+    // existing tests that depend on `init_file_logger` calling
+    // `set_logger` continue to compile and run.
+    //
+    // Both arms MOVE `combined` (into the swap slot or the leaked
+    // global), and both error paths bail out BEFORE the banner below
+    // — the two success paths converge at a SINGLE banner emission
+    // site, so the banner fires exactly once per process regardless
+    // of which path installed the sink.
+    match EarlyLogger::instance() {
+        Some(early) => {
+            if early.inner.set(combined).is_err() {
+                return Err(
+                    "init_file_logger called twice (EarlyLogger already upgraded to file sink)"
+                        .to_string(),
+                );
+            }
         }
-        // Bump the global max-level to the resolved value (the
-        // EarlyLogger was installed with `Info` as a safe default; the
-        // file-logger init may have parsed `RUST_LOG=debug` etc.).
-        // `set_max_level` can be called multiple times safely.
-        log::set_max_level(max_level);
-        return Ok(());
+        None => {
+            log::set_logger(Box::leak(Box::new(combined)))
+                .map_err(|_| "failed to set logger (already set?)".to_string())?;
+        }
     }
-
-    // Fallback: EarlyLogger was NOT installed (e.g. tests, or a host
-    // entrypoint that skipped `install_early_logger`). Install the
-    // `CombinedLogger` directly via `log::set_logger`. This path
-    // preserves the behavior so existing tests that depend
-    // on `init_file_logger` calling `set_logger` continue to compile
-    // and run.
-    log::set_logger(Box::leak(Box::new(combined)))
-        .map_err(|_| "failed to set logger (already set?)".to_string())?;
+    // Bump the global max-level to the resolved value (the
+    // EarlyLogger was installed with `Info` as a safe default; the
+    // file-logger init may have parsed `RUST_LOG=debug` etc.).
+    // `set_max_level` can be called multiple times safely. This runs
+    // BEFORE the banner so the banner (an INFO record) survives the
+    // level gate under the default `Info` configuration.
     log::set_max_level(max_level);
+    // Session banner — the FIRST line written to the log file for
+    // this session. Mirrors the Python side's startup banner
+    // (`voice_typer/server/logging_setup.py` logs
+    // `[STARTUP] logging initialized: file=..., level=..., json=...,
+    // debug=..., quiet=..., session=...`), adapted to the fields the
+    // Rust logger knows: the logs dir, the resolved max level, and
+    // the 8-char hex session id. The session id is the ONLY
+    // sanctioned id occurrence in the file — every other line is
+    // clean `ts  LEVEL  msg`. Cross-process correlation with the
+    // Python sidecar is preserved: the SAME id is passed to the
+    // sidecar via `VOICE_TYPER_SESSION_ID`, and the sidecar stamps it
+    // into its own banner. Logged at INFO so it lands in the file
+    // under the default level gate. Emitted HERE (not in
+    // `install_early_logger`) because the banner belongs to
+    // file-logger init — the early stderr-only phase has no file
+    // sink yet, and no record is routed to the fresh file between
+    // the install above and this line (sweep/chmod/writer-open emit
+    // nothing), so the banner is guaranteed to be the first line.
+    log::info!(
+        "[STARTUP] logging initialized: file={}, level={}, session={}",
+        logs_dir.display(),
+        max_level,
+        crate::util::session_id()
+    );
     Ok(())
 }
 

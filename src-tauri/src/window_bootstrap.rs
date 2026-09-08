@@ -42,9 +42,8 @@ pub(crate) fn bootstrap_main_window(app: &tauri::App) {
         .iter()
         .find(|w| w.label == "main")
         .unwrap_or_else(|| panic!("[SETUP] main window missing from tauri.conf.json"));
-    let main_window_builder =
-        tauri::WebviewWindowBuilder::from_config(app, main_window_config)
-            .expect("[SETUP] main window config is valid");
+    let main_window_builder = tauri::WebviewWindowBuilder::from_config(app, main_window_config)
+        .expect("[SETUP] main window config is valid");
     #[cfg(not(target_os = "macos"))]
     let main_window_builder = main_window_builder.decorations(false);
     let main_window = main_window_builder
@@ -67,8 +66,6 @@ pub(crate) fn bootstrap_main_window(app: &tauri::App) {
         if let Err(e) = main_window.set_skip_taskbar(true) {
             log::warn!("[SETUP] set_skip_taskbar for VT_START_HIDDEN failed: {}", e);
         }
-        log::info!(
-            "[SETUP] started hidden (VT_START_HIDDEN=1) — window hidden, skip_taskbar=true"
-        );
+        log::info!("[SETUP] started hidden (VT_START_HIDDEN=1) — window hidden, skip_taskbar=true");
     }
 }

@@ -120,8 +120,14 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // level monitoring is active; drives the Microphone page's live
     // level meter.
     // - `llm_polish_failed`: emitted by dictation_pipeline.py when the
-    // LLM polish step fails (typed in TS push_events.ts; latent
-    // subscriber today).
+    // LLM polish step fails (typed in TS push_events.ts; surfaced by
+    // the renderer's `useLlmPolishFailedToast`).
+    // - `text_enhancement_failed`: emitted by
+    // dictation_pipeline/enhancement_steps.py when the RULE-BASED
+    // AI-enhancement step (Step 7b) fails. Distinct from
+    // `llm_polish_failed` (the LLM-polish path); the transcription is
+    // still delivered un-enhanced (typed in TS push_events.ts;
+    // surfaced by the renderer's `useTextEnhancementFailedToast`).
     // - `device_lost`: emitted by level_monitor.py when the audio
     // input device disappears (typed in TS; latent subscriber).
     // - `asr_backend_disabled`: emitted by asr_registry.py when an ASR
@@ -151,6 +157,7 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "error",
     "mic_level",
     "llm_polish_failed",
+    "text_enhancement_failed",
     "device_lost",
     "asr_backend_disabled",
     "asr_last_resort_unloaded",

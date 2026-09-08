@@ -27,7 +27,51 @@ use tokio::sync::oneshot;
 // server-side rejection. See `commands::mod::require_main_window` for
 //the  /  envelope shape contract.
 use crate::commands::require_main_window;
+use crate::commands::system_cmds::{localized_title_for, DialogTitle};
 use crate::error::VoiceTyperError;
+
+// Export save-dialog file filters, parameterized by the export
+// format ──────────────────────────────────
+//
+// The save dialog's filter list must match the content actually
+// written: `format` is the single discriminator of what lands on
+// disk (the JSON-only kinds — templates and config — always pass
+// "json"; history/vocabulary pass the user-chosen format).
+
+/// Historical two-filter set, offered for CSV exports (JSON stays
+/// first so it remains the dialog's default-selected filter —
+/// byte-identical to the filter list CSV-capable exports have
+/// always offered).
+const JSON_AND_CSV_FILTERS: &[(&str, &[&str])] = &[("JSON", &["json"]), ("CSV", &["csv"])];
+
+/// JSON-only filter set: the save dialog for any export whose
+/// content is JSON must NOT offer a CSV filter — a user picking the
+/// CSV filter for JSON content would save a `.csv` file containing
+/// JSON, which no CSV/spreadsheet reader can open.
+const JSON_ONLY_FILTERS: &[(&str, &[&str])] = &[("JSON", &["json"])];
+
+/// File-extension filters for the export save-file dialog, derived
+/// from the export `format` (the discriminator of the content being
+/// written):
+/// - `"csv"` → the historical [`JSON_AND_CSV_FILTERS`] set (CSV-capable
+///   exports keep their current filters);
+/// - anything else (`"json"` — templates, config, and
+///   history/vocabulary exported as JSON) → [`JSON_ONLY_FILTERS`],
+///   so JSON-only exports never offer the CSV filter;
+/// - unrecognized formats also land on the JSON-only set here; the
+///   format validation further down in `export_data` rejects them
+///   with the same `"unsupported format"` error as before.
+///
+/// Pure so unit tests can pin the per-kind filter shape (see
+/// `export_tests.rs`).
+pub(crate) fn export_file_filters(
+    format: &str,
+) -> &'static [(&'static str, &'static [&'static str])] {
+    match format {
+        "csv" => JSON_AND_CSV_FILTERS,
+        _ => JSON_ONLY_FILTERS,
+    }
+}
 
 //Tauri command: export_history () ─────────────────────────
 
@@ -53,7 +97,14 @@ pub async fn export_history(
     window: tauri::Window,
 ) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
-    export_data(data, format, app, "voice-typer-history", "Export History").await
+    export_data(
+        data,
+        format,
+        app,
+        "voice-typer-history",
+        DialogTitle::ExportHistory,
+    )
+    .await
 }
 
 //Tauri command: export_vocabulary () ──────────────────────
@@ -76,15 +127,24 @@ pub async fn export_vocabulary(
         format,
         app,
         "voice-typer-vocabulary",
-        "Export Vocabulary",
+        DialogTitle::ExportVocabulary,
     )
     .await
 }
 
-/// Shared helper for `export_history` + `export_vocabulary`. Opens a
+/// Shared helper for `export_history` + `export_vocabulary` (and the
+/// template/config wrappers in `system_cmds/export.rs`). Opens a
 /// `tauri-plugin-dialog` save-file dialog, then writes the data as
 /// pretty-printed JSON or CSV to the chosen path. Returns
 /// `{"canceled": true}` when the user cancels the dialog.
+///
+/// The dialog title is resolved from `title_kind` against the
+/// renderer-pushed `host_locale` (see `system_cmds::dialog_titles`)
+/// so every export save dialog follows the app language — English
+/// only before the first `set_host_locale` push or for unsupported
+/// locales. The save dialog's file filters are derived from `format`
+/// via [`export_file_filters`] so the offered file types always
+/// match the content being written.
 ///
 /// Misc host failures (path conversion, encoding, the blocking write)
 /// surface as `VoiceTyperError::Host` — the legacy formatted strings,
@@ -94,8 +154,11 @@ pub(crate) async fn export_data(
     format: String,
     app: tauri::AppHandle,
     default_filename: &str,
-    title: &str,
+    title_kind: DialogTitle,
 ) -> Result<Value, VoiceTyperError> {
+    // Locale-aware title from the renderer-pushed host_locale
+    // (English until the first `set_host_locale` push resolves).
+    let title = localized_title_for(title_kind, &app);
     //use the async file-save pattern instead of blocking.
     // The blocking variant parks the Tokio worker thread for the entire
     // duration the user has the save dialog open; with Tauri's default
@@ -104,15 +167,16 @@ pub(crate) async fn export_data(
     // tauri-plugin-dialog v2.7.2's ``save_file()`` is callback-based
     // (not async), so we bridge it via a oneshot channel.
     let (tx, rx) = oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title(title)
-        .add_filter("JSON", &["json"])
-        .add_filter("CSV", &["csv"])
-        .set_file_name(default_filename)
-        .save_file(move |f| {
-            let _ = tx.send(f);
-        });
+    // Filter list per export format — JSON-only exports (templates /
+    // config / history-as-JSON) get the JSON filter alone; CSV exports
+    // keep the historical [JSON, CSV] set.
+    let mut dialog = app.dialog().file().set_title(title);
+    for (filter_name, extensions) in export_file_filters(&format) {
+        dialog = dialog.add_filter(*filter_name, *extensions);
+    }
+    dialog.set_file_name(default_filename).save_file(move |f| {
+        let _ = tx.send(f);
+    });
     let file_path = rx.await.unwrap_or(None);
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,

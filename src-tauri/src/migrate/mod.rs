@@ -36,9 +36,12 @@
 //! - `config.json`: if absent in target, copy whole; if present but differs,
 //!   merge key-by-key. The entire newer file's values win for overlapping
 //!   keys (single whole-file mtime comparison — NOT per-key mtime; see
-//!   fix on `merge_config`).
+//!   fix on `merge_config`). When nothing is taken from the old file, the
+//!   target is left untouched (no rewrite, no mtime churn).
 //! - `models/`: copy only files ABSENT from the target (: symlinks
-//!   are skipped; : copy is atomic via temp+rename).
+//!   are skipped; : copy is atomic via temp+rename). Failed copies are
+//!   non-critical but COUNTED and WARN-logged; they defer the sentinel
+//!   so the next launch retries only the still-missing files.
 //! - `history.db`: copy only if target absent (append is unsafe for SQLite —
 //!   skip with a warning rather than risk corruption). WAL/SHM sidecars
 //!   copied atomically; if either fails, target sidecars are deleted so
@@ -48,9 +51,15 @@
 //! All fs ops are wrapped so this function NEVER panics.
 //!
 //! : the sentinel marker is written ONLY when ALL critical
-//! migration steps succeeded. If any step fails (config merge, history.db
-//! copy, recovery.json copy, models dir creation), the sentinel is skipped
-//! so the next launch re-attempts the migration (idempotent ops).
+//! migration steps succeeded AND no model file copy failed. If any
+//! step fails (config merge, history.db copy, recovery.json copy,
+//! models dir creation), the sentinel is skipped so the next launch
+//! re-attempts the migration (idempotent ops). Model-file copy
+//! failures are non-critical for the rest of the walk, but they also
+//! defer the sentinel: a failed copy leaves the target file absent,
+//! and only a re-run (which copies exactly the still-missing files)
+//! can recover it — a success-shaped sentinel after failed copies
+//! would silently strand the user's models.
 //!
 //! # Module layout (Phase 4.5 split)
 //!
@@ -233,6 +242,17 @@ fn migrate_inner(new_dir: &Path) {
     let mut config_merged = 0usize;
     let mut config_copied = false;
     let mut models_copied = 0usize;
+    // Non-critical failure counter for the models walk: a failed model
+    // copy does not abort anything, but it is surfaced in the summary
+    // (separately from `migration_failed`, so operators can tell
+    // critical from non-critical) and it defers the sentinel (see the
+    // write_sentinel_if_clean call at the end) so the next launch
+    // retries the still-absent files. Pre-fix this counter did not
+    // exist — failed model copies were logged (ERROR level) and then
+    // invisible: the sentinel was written success-shaped and the
+    // failed models were silently never migrated (disk-full during a
+    // GB-scale models copy = the silent re-download trap).
+    let mut models_failed = 0usize;
     let mut history_copied = false;
     let mut recovery_copied = false;
     //track critical-step failures so the sentinel marker
@@ -272,9 +292,18 @@ fn migrate_inner(new_dir: &Path) {
             log::error!("[MIGRATE] cannot create models dir: {}", e);
             migration_failed += 1;
         } else {
-            models_copied = copy_missing_files(&old_models, &new_models);
+            let stats = copy_missing_files(&old_models, &new_models);
+            models_copied = stats.copied;
+            models_failed = stats.failed;
             if models_copied > 0 {
                 log::info!("[MIGRATE] models/ copied {} new files", models_copied);
+            }
+            if models_failed > 0 {
+                log::warn!(
+                    "[MIGRATE] models/ {} file copies failed — targets left absent; \
+                     sentinel deferred so next launch retries them",
+                    models_failed
+                );
             }
         }
     }
@@ -375,28 +404,40 @@ fn migrate_inner(new_dir: &Path) {
     // 5. Summary.
     log::info!(
         "[MIGRATE] done — config: copied={} merged_keys={}, models_new_files={}, \
-         history_copied={}, recovery_copied={}, failures={}",
+         models_failed={}, history_copied={}, recovery_copied={}, failures={}",
         config_copied,
         config_merged,
         models_copied,
+        models_failed,
         history_copied,
         recovery_copied,
         migration_failed
     );
 
     //fix: write the sentinel marker AFTER successful migration so
-    // subsequent launches skip re-migration. Without this, every launch
-    // would re-attempt the (idempotent but log-noisy) migration.
+    // subsequent launches skip re-migration. The gating logic is
+    // extracted into `write_sentinel_if_clean` (sentinel.rs) so it is
+    // unit-testable without a Tauri AppHandle.
     //
     //only write the sentinel if ALL critical migration
-    // steps succeeded. If any failed, skip the sentinel so the next
-    // launch re-attempts the migration (the operations are idempotent
-    // — atomic_copy uses temp+rename, merge_config is key-by-key).
-    // This prevents silently losing the user's config / history.db /
-    // recovery.json when a step fails.
+    // steps succeeded AND no model copy failed. If any failed, skip
+    // the sentinel so the next launch re-attempts the migration (the
+    // operations are idempotent — atomic_copy uses temp+rename,
+    // merge_config is key-by-key, and the models walk only copies
+    // files still absent). This prevents silently losing the user's
+    // config / history.db / recovery.json when a step fails, and
+    // silently stranding models whose copy failed.
     //
-    // The logic is extracted into `write_sentinel_if_clean` so it is
-    // unit-testable without a Tauri AppHandle (the entry-point function
-    // requires one and is hard to construct in `#[cfg(test)]`).
-    let _ = write_sentinel_if_clean(new_dir, migration_failed);
+    // Sentinel schema note (backward compatibility): the
+    // `.migrated-from-electron` marker is an EMPTY presence-only file
+    // — every reader (the early-return guard above) checks existence,
+    // never contents. There is no per-field payload to extend, so the
+    // backward-compatible way to make non-critical model-copy
+    // failures retry-able is to FOLD them into the single failure
+    // count the existing gate already consumes: existing readers stay
+    // correct (sentinel present ⟺ every migration op, model copies
+    // included, succeeded), while the summary line above keeps
+    // `migration_failed` and `models_failed` separate so operators
+    // can distinguish critical from non-critical failures.
+    let _ = write_sentinel_if_clean(new_dir, migration_failed + models_failed);
 }

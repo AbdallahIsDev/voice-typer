@@ -6,15 +6,21 @@
 
 use serde_json::Value;
 
+use super::dialog_titles::DialogTitle;
 use super::redaction::redact_config_secrets;
 use crate::commands::export::export_data;
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 
 /// GDPR right-to-export for templates. Opens a save-file dialog (JSON
-/// only — no CSV shape for templates) and writes the data as
-/// pretty-printed JSON. Mirrors the Electron `templates:export` IPC
-/// handler in `voice_typer/client/src/main/ipc/export-handlers.ts`.
+/// only — no CSV filter and no CSV shape for templates) and writes the
+/// data as pretty-printed JSON. Mirrors the Electron `templates:export`
+/// IPC handler in
+/// `voice_typer/client/src/main/ipc/export-handlers.ts`.
+///
+/// The dialog title follows the renderer-pushed `host_locale` (see
+/// `super::dialog_titles`) — byte-mirroring the Electron main
+/// process's `dialog.export.templates` string per locale.
 ///
 /// Returns the same `{success, path?, canceled?, error?}` shape as
 /// `export_history` / `export_vocabulary` so the renderer's mapping
@@ -32,13 +38,15 @@ pub async fn export_templates(
 ) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     // Templates are always JSON (no tabular CSV shape). Pass "json"
-    // explicitly so the shared helper's format-validation accepts.
+    // explicitly so the shared helper's format-validation accepts —
+    // and so the save dialog offers the JSON filter only (no CSV
+    // filter on JSON content).
     export_data(
         data,
         "json".to_string(),
         app,
         "voice-typer-templates",
-        "Export Templates",
+        DialogTitle::ExportTemplates,
     )
     .await
 }
@@ -54,6 +62,10 @@ pub async fn export_templates(
 /// the JSON to disk. Mirrors the Electron `config:export` IPC handler.
 ///
 /// Same return shape as `export_templates`.
+///
+/// The dialog title follows the renderer-pushed `host_locale` (see
+/// `super::dialog_titles`) — byte-mirroring the Electron main
+/// process's `dialog.export.config` string per locale.
 ///
 /// `window` is auto-injected by Tauri at runtime — the renderer's
 /// `invoke('export_config', { data })` call is unchanged.
@@ -85,7 +97,7 @@ pub async fn export_config(
         "json".to_string(),
         app,
         "voice-typer-config",
-        "Export Config",
+        DialogTitle::ExportConfig,
     )
     .await
 }

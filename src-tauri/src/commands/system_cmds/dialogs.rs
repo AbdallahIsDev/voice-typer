@@ -7,10 +7,24 @@ use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
+use super::dialog_titles::{localized_title_for, DialogTitle};
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 use crate::platform::open_path::open_path_in_file_manager;
 use crate::platform::paths::config_dir;
+
+/// Pure decision core for [`open_logs`]: the directory the command
+/// opens in the OS file manager. The host's logs live in
+/// `<config_dir>/logs/` — the same directory
+/// `platform::logging::init::init_file_logger` creates and rotates
+/// `voice-typer-rust.log` in (and the Python sidecar's logs land
+/// alongside) — NOT the config-dir root. Extracted as a pure helper
+/// so unit tests can pin the exact target directory without
+/// spawning the OS file manager (the command itself needs a live
+/// `tauri::Window`, which cannot be constructed in unit tests).
+pub(crate) fn logs_dir_path(config_dir: &std::path::Path) -> std::path::PathBuf {
+    config_dir.join("logs")
+}
 
 /// Open the Voice Typer log directory in the OS file manager.
 ///
@@ -22,12 +36,16 @@ use crate::platform::paths::config_dir;
 /// - macOS:   `open <path>`
 /// - Linux:   `xdg-open <path>`
 ///
-/// The path is the same `config_dir` used by the Python sidecar's
-/// `_paths.config_dir()` resolution (see `platform::paths::config_dir`)
-/// — under Tauri the logs live under `<config_dir>/voice-typer/` (NOT
-/// the Electron `~/.voice-typer/` path the old handler used, because
-/// the Tauri host writes to the platform-canonical config dir per
-/// ADR-0020 §8).
+/// The opened path is `<config_dir>/logs/` — the exact directory the
+/// host's rotating file logger writes to (see
+/// `platform::logging::init::init_file_logger`, which creates the
+/// dir and writes `<config_dir>/logs/voice-typer-rust.log`), resolved
+/// from the same `config_dir()` the Python sidecar's
+/// `_paths.config_dir()` resolution uses (see
+/// `platform::paths::config_dir` and ADR-0020 §8). The
+/// `create_dir_all` below makes the logs dir exist even on a fresh
+/// install where no log line has been written yet, so the file
+/// manager never opens a "path not found" dead end.
 ///
 /// The response no longer includes the `path` field — the absolute
 /// path can contain the user's home directory / username (PII leak in
@@ -46,7 +64,7 @@ pub async fn open_logs(
     window: tauri::Window,
 ) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
-    let log_dir = config_dir();
+    let log_dir = logs_dir_path(&config_dir());
     // Offload the synchronous fs mkdir + the OS file-manager spawn to
     // the dedicated blocking-thread pool so this `async fn` does not
     // hold a Tauri async-runtime worker thread for the duration of the
@@ -103,6 +121,13 @@ pub async fn open_logs(
 /// calls `dialog.showOpenDialog({properties: ["openDirectory"]})`.
 /// The Tauri path uses `tauri-plugin-dialog`'s folder-picker API.
 ///
+/// The dialog title is localized from the renderer-pushed
+/// `SidecarState::host_locale` (see `super::dialog_titles`) so the
+/// native surface follows the app language instead of hardcoded
+/// English — byte-mirroring the Electron main process's
+/// `dialog.selectModelFolder.title` string for every supported
+/// locale, with English as the fallback before the first push.
+///
 /// Returns `{"canceled": true}` if the user dismissed the dialog, or
 /// `{"canceled": false, "path": "<folder>"}` on success. Matches the
 /// Electron handler's shape so `Models.tsx`'s import handler is
@@ -118,16 +143,16 @@ pub async fn open_model_import_dialog(
     window: tauri::Window,
 ) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
+    // Locale-aware title from the renderer-pushed host_locale
+    // (English until the first `set_host_locale` push resolves).
+    let title = localized_title_for(DialogTitle::SelectModelFolder, &app);
     // Use the async folder-pick pattern instead of blocking.
     // tauri-plugin-dialog v2.7.2's `pick_folder()` is callback-based
     // (not async), so we bridge it via a oneshot channel.
     let (tx, rx) = oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title("Select Model Folder")
-        .pick_folder(move |f| {
-            let _ = tx.send(f);
-        });
+    app.dialog().file().set_title(title).pick_folder(move |f| {
+        let _ = tx.send(f);
+    });
     let file_path = rx.await.unwrap_or(None);
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
@@ -138,3 +163,12 @@ pub async fn open_model_import_dialog(
         "path": path.to_string_lossy().to_string(),
     }))
 }
+
+// Unit tests for the `open_logs` target-directory helper live in the
+// sibling `dialogs_tests.rs` file (C-TEST-5 — keeps production source
+// free of inline test code, matching the `commands/bubble/tests.rs`
+// pattern). The module is wired as a child of `dialogs` so the test
+// file can use `use super::logs_dir_path` directly.
+#[cfg(test)]
+#[path = "dialogs_tests.rs"]
+mod dialogs_tests;

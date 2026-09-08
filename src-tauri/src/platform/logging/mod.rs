@@ -34,9 +34,11 @@
 //! re-exported below.
 //!
 //! Submodules stay private; all external access goes through the
-//! re-exports. `init_file_logger` is intentionally NOT re-exported —
-//! its only caller is `init_file_logger_or_stderr_fallback` inside
-//! `init.rs` (re-exporting it would be a dead re-export).
+//! re-exports. `init_file_logger` has NO production re-export — its
+//! only caller is `init_file_logger_or_stderr_fallback` inside
+//! `init.rs` — but it IS re-exported test-gated (below) so the
+//! sibling `logging_tests.rs` can exercise the startup-banner
+//! contract directly.
 
 mod combined;
 mod early;
@@ -64,7 +66,7 @@ pub(crate) use combined::{
 #[cfg(test)]
 pub(crate) use early::{EarlyLogger, EARLY_LOGGER_HANDLE};
 #[cfg(test)]
-pub(crate) use init::sweep_stale_logs;
+pub(crate) use init::{init_file_logger, sweep_stale_logs};
 #[cfg(test)]
 pub(crate) use panic_hook::PANIC_HOOK_REENTRY;
 #[cfg(test)]

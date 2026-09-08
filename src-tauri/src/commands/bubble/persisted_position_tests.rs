@@ -135,7 +135,10 @@ async fn quiesced_wake_fires_after_full_debounce_window() {
     );
 
     // The fired move is consumed (a surplus wakeup permit can't re-fire it).
-    assert!(PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()).is_none());
+    assert!(PENDING_MOVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_none());
 }
 
 #[tokio::test]

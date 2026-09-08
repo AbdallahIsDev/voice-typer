@@ -1,7 +1,9 @@
 //! Host-locale storage: the `set_host_locale` Tauri command + its pure
 //! decision core. Mirrors Electron's `i18n:set-locale` IPC handler,
 //! which keeps the pushed locale in the main process so the host can
-//! localize its native surfaces.
+//! localize its native surfaces. The stored value is consumed by the
+//! native dialog title lookup in `super::dialog_titles` (folder
+//! picker + export save dialogs).
 
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -28,9 +30,10 @@ pub(crate) fn set_host_locale_core(locale: String, state: &Arc<SidecarState>) ->
 }
 
 /// Store the main-window renderer's current locale so the host can
-/// localize its native surfaces (today a parity sink — mirrors
-/// Electron's `i18n:set-locale` IPC handler which keeps the pushed
-/// locale in the main process). Returns the same
+/// localize its native surfaces. The stored value feeds the
+/// locale→title lookup in `super::dialog_titles`, which localizes
+/// the native folder-picker and export save-dialog titles. Returns
+/// the same
 /// `{ok: boolean; error?: string}` promise shape as the Electron
 /// preload's `window.window_.setLocale`, and never rejects for
 /// domain-level failures (an empty locale resolves with
