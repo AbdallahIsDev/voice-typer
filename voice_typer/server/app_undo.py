@@ -124,6 +124,16 @@ class UndoRepasteController:
         # ① READ FROM DB (primary — survives restart)
         text = ""
         try:
+            # BP-88 / ADR-0010 §6.2: the dictation pipeline's
+            # ``_store_result`` now ENQUEUES the history row without a
+            # blocking ``flush()`` (the paste path must not stall on
+            # DB durability). The read-after-write guarantee therefore
+            # lives HERE: flush the writer queue before reading so a
+            # repaste immediately after a dictation sees the committed
+            # row, not a stale read. ``flush()`` short-circuits on a
+            # dead/unavailable writer, so a broken DB never stalls the
+            # repaste — the memory fallback below covers that.
+            app.history_db.flush()
             text = app.history_db.get_latest_text()
         except Exception as e:
             log.warning("[REPASTE] DB read failed, falling back to memory: %s", e)

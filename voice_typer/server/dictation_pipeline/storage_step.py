@@ -49,22 +49,27 @@ class _StorageStepMixin:
         ``exception`` level and surface a tray notice the first time
         each failure type occurs so the user knows data is being lost.
 
-        ADR-0010 §6.2: ``history_db.flush()`` is called after
-        ``add_transcription()`` to guarantee the row is committed before
-        ``repaste_last()`` could fire. ``flush()`` blocks until the
-        writer thread processes all queued writes (FIFO no-op with
-        ``wait=True``). See ``history_db.py:flush()``.
+        ADR-0010 §6.2: the history row must be committed before
+        ``repaste_last()`` could read it back. The blocking ``flush()``
+        was moved OUT of this pre-paste step onto the
+        repaste boundary — ``_store_result`` only ENQUEUES
+        (``add_transcription`` is fire-and-forget) so the paste path
+        carries zero flush latency; ``repaste_last`` now calls
+        ``history_db.flush()`` before its ``get_latest_text()`` read
+        (see ``app_undo.py``). The writer thread commits in the
+        background either way.
 
          (privacy): if ``self._app.config.history_enabled`` is
         ``False``, the ``add_transcription`` call is skipped entirely
         (but the clipboard paste still happens — incognito mode only
-        disables persistence, not the dictation flow). ``flush()`` is
-        also skipped because there is no queued write to wait for.
-        ``history_enabled`` defaults to ``True`` (preserving the
-        pre- behavior) so the field is only consulted when P4-A2
-        has added it to ``Config``. ``getattr(..., True)`` is used so
-        dictation still works on an older Config instance that hasn't
-        yet picked up the new field.
+        disables persistence, not the dictation flow). There is no
+        history ``flush()`` on this path at all (it lives at the
+        repaste boundary), so disabling history simply means nothing
+        is enqueued. ``history_enabled`` defaults to ``True``
+        (preserving the pre- behavior) so the field is only
+        consulted when P4-A2 has added it to ``Config``.
+        ``getattr(..., True)`` is used so dictation still works on an
+        older Config instance that hasn't yet picked up the new field.
 
          (resilience): when ``add_transcription`` returns ``<= 0``
         (writer thread is dead or schema init failed — see
@@ -96,11 +101,15 @@ class _StorageStepMixin:
                         "history_db.add_transcription returned a non-positive row_id "
                         f"({row_id}) — writer is unavailable; transcription was NOT persisted"
                     )
-                # ADR-0010 §6.2: flush to guarantee the row is committed
-                # before repaste could fire. flush() blocks until the writer
-                # thread processes all queued writes (FIFO no-op with
-                # wait=True). See history_db.py:flush().
-                self._app.history_db.flush()
+                # NO blocking flush on the paste path — the history row
+                # is ENQUEUED (fire-and-forget) and the
+                # writer commits it in the background. The
+                # ADR-0010 §6.2 read-after-write guarantee now lives at
+                # the repaste boundary: ``repaste_last`` calls
+                # ``history_db.flush()`` before its ``get_latest_text()``
+                # read (see ``app_undo.py``). This removes the
+                # multi-hundred-ms (worst-case seconds) flush stall
+                # from every dictation's paste latency.
             except Exception:
                 log.exception("[PIPELINE] History DB add failed")
                 # a-review Finding 2: notify-once flag lives on ``self._app``
@@ -115,7 +124,10 @@ class _StorageStepMixin:
 
         if self._app.config.crash_recovery_enabled:
             try:
-                self._app._crash_recovery.add(text, pasted=False)
+                # Correlate this entry with the dictation cycle so a
+                # subsequent crash's `.dictation-in-flight` sentinel can
+                # match it and offer recovery.
+                self._app._crash_recovery.add(text, pasted=False, cycle_id=self._cycle_id)
                 # CRASH-SAFE-GAP-B: flush the crash recovery file immediately
                 # so the transcription is on disk before the pipeline function
                 # returns. crash_recovery.add() is async (enqueues to a

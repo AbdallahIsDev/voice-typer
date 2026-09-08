@@ -904,7 +904,10 @@ class RecordingLifecycle:
 
         log.info("[DICTATION] Stopping recording... (cycle=%s)", app._cycle_id)
 
-        app._busy_event.clear()  # busy = True
+        # BP-90: routed through the BusynessCoordinator (set_busy =
+        # legacy ``_busy_event.clear()`` — the inverted primitive stays
+        # internal to the coordinator).
+        app._busyness.set_busy()
 
         # Detach the RMS callback so the audio path cannot keep pushing
         # levels after the stream is closed.
@@ -1032,7 +1035,7 @@ class RecordingLifecycle:
                 APP_NAME,
                 i18n.t("notify.recording_controller.stop_failed"),
             )
-            app._busy_event.set()  # busy = False
+            app._busyness.set_idle()  # busy = False (BP-90 coordinator)
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
@@ -1122,7 +1125,7 @@ class RecordingLifecycle:
             log.info("[DICTATION] Audio too short, skipping transcription")
             controller._cancel_streaming_session()
             app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.too_short"))
-            app._busy_event.set()  # busy = False
+            app._busyness.set_idle()  # busy = False (BP-90 coordinator)
             app._schedule_timer(2.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
@@ -1203,12 +1206,14 @@ class RecordingLifecycle:
         controller._current_audio = None
 
         pipeline = DictationPipeline(app)
+        # BP-90: the vestigial ``watchdog`` parameter was removed from
+        # ``run()`` (sole caller always passed ``None``; RACE-013: no
+        # longer using a Timer-based watchdog).
         pipeline.run(
             audio=audio_bytes,
             duration=duration,
             recorded_rms=recorded_rms,
             cycle_id=cycle_id,
-            watchdog=None,  # RACE-013: no longer using Timer-based watchdog
         )
         # Now that the transcription pipeline has fully returned (the
         # late-transcription check inside ``CancellationGuard`` has
@@ -1404,4 +1409,4 @@ class RecordingLifecycle:
         # Tray state + busy flag MUST be cleared so the user can press
         # F2 again after a cancel.
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.cancelled"))
-        app._busy_event.set()
+        app._busyness.set_idle()  # BP-90: coordinator-routed

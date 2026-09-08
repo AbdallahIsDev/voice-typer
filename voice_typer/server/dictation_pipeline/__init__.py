@@ -15,13 +15,9 @@ The original ``dictation_pipeline.py`` was a single file containing:
     ``_hide_or_idle_bubble``, ``_check_resources_throttled``,
     ``_check_resources``).
 
-This package splits the monolith into 9 focused modules:
+This package splits the monolith into 7 focused modules:
 
   * ``helpers`` — shared helpers and exception classes (listed above).
-  * ``resource_probe`` — re-export shim for the already-extracted
-    ``voice_typer.server.resource_probe`` module (the probe body
-    itself was extracted in an earlier refactor — this module just
-    exposes the two public entry points under a package-local path).
   * ``transcribe_step`` — ``_TranscribeStepMixin``: Step 1 (transcribe)
     + Step 2 (empty handling) + shared ``_hide_or_idle_bubble`` +
     resource-probe wrappers.

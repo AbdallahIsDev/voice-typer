@@ -18,7 +18,7 @@ The orchestrator owns:
     ``_PipelineAbortEmpty`` / ``_PipelineAbortCancelled`` /
     ``except Exception`` paths, and runs the 7-step finally block
     (sentinel unlink, audio zero, watchdog reset, streaming-session
-    cancel, busy-event clear, transcription-thread clear, gc.collect).
+    cancel, busyness idle, transcription-thread clear, gc.collect).
 
 Originally inline methods on ``DictationPipeline`` in the 2077-LOC
 monolith; extracted as a mixin with NO behavior change. The other
@@ -78,9 +78,13 @@ class _OrchestratorMixin:
     # exercise the timeout path without waiting 4s in real time.
     _LLM_POLISH_PIPELINE_TIMEOUT_S: float = 4.0
 
-    # cached 11-stage list shared across all pipeline instances.
-    # None until the first __init__ populates it. Stage objects are
-    # stateless (each run reads from ctx, not self), so sharing is safe.
+    # Lazily-built 11-stage template shared across all pipeline
+    # instances. None until the first __init__ populates it. Stage
+    # objects are stateless (each run reads from ctx, not self), so
+    # sharing the OBJECTS is safe — but every instance gets its OWN
+    # list copy below, because ``build_default_stages`` promises a
+    # fresh mutable list and a shared list would let one pipeline's
+    # insert/remove corrupt every other pipeline.
     _SHARED_STAGES: list | None = None
 
     def __init__(self, app: Any):
@@ -90,7 +94,6 @@ class _OrchestratorMixin:
         self._duration = 0.0
         self._recorded_rms = 0.0
         self._device_info = ""
-        self._watchdog = None
         # Throttle _check_resources to once per 60s. The values
         # change slowly and are only needed for post-crash triage.
         self._last_resources_check_ts: float = 0.0
@@ -134,12 +137,15 @@ class _OrchestratorMixin:
         # set this attribute, and ``run`` rebuilds the default list
         # when that happens so the finally-block teardown still
         # exercises the production code paths.
-        # stage objects are stateless (each run reads from ctx,
-        # not self), so a single shared list is reused across all
-        # pipeline instances. Lazy-init via the class attribute.
+        # Stage objects are stateless (each run reads from ctx, not
+        # self), so the template list is built once — but each
+        # instance takes its OWN list copy so a caller mutating
+        # ``pipeline._stages`` (insert/remove, as the factory
+        # docstring allows) cannot affect other pipelines.
+        # Lazy-init via the class attribute.
         if _OrchestratorMixin._SHARED_STAGES is None:
             _OrchestratorMixin._SHARED_STAGES = build_default_stages()
-        self._stages: list = _OrchestratorMixin._SHARED_STAGES
+        self._stages: list = list(_OrchestratorMixin._SHARED_STAGES)
 
     def request_abort(self) -> None:
         """Signal the active ASR backend to abort in-flight inference.
@@ -200,7 +206,6 @@ class _OrchestratorMixin:
         duration: float,
         recorded_rms: float,
         cycle_id: str,
-        watchdog,
     ) -> None:
         """Run the full transcription pipeline.
 
@@ -220,7 +225,6 @@ class _OrchestratorMixin:
         self._duration = duration
         self._recorded_rms = recorded_rms
         self._cycle_id = cycle_id
-        self._watchdog = watchdog
         # Write an in-flight sentinel so crash_recovery can detect
         # interrupted dictations on the next startup and emit a
         # dictation_lost event. The sentinel is cleared in the finally
@@ -454,7 +458,7 @@ class _OrchestratorMixin:
             # because it was hoisted to before the ``try`` block above.
             if text and getattr(self._app.config, "crash_recovery_enabled", False):
                 with contextlib.suppress(Exception):
-                    self._app._crash_recovery.add(text, pasted=False)
+                    self._app._crash_recovery.add(text, pasted=False, cycle_id=self._cycle_id)
                     self._app._crash_recovery.flush(timeout=0.5)
 
         finally:
@@ -470,7 +474,7 @@ class _OrchestratorMixin:
             self._cleanup_audio_zero()
             self._cleanup_watchdog_reset()
             self._cleanup_streaming_session_cancel()
-            self._cleanup_busy_event_clear()
+            self._cleanup_busyness_idle()
             self._cleanup_transcription_thread_clear()
             self._cleanup_gc_collect()
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
@@ -612,13 +616,19 @@ class _OrchestratorMixin:
         except Exception:
             log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
 
-    def _cleanup_busy_event_clear(self) -> None:
-        """Finally-block step 5: clear the busy event (busy = False)."""
+    def _cleanup_busyness_idle(self) -> None:
+        """Finally-block step 5: mark the pipeline idle (busy = False).
+
+        Routed through the ``BusynessCoordinator`` (the
+        intent-revealing ``set_idle()``) instead of writing the raw
+        ``_busy_event`` - the inverted legacy primitive stays internal
+        to the coordinator.
+        """
         try:
-            self._app._busy_event.set()  # busy = False
+            self._app._busyness.set_idle()
         except Exception:
             log.debug(
-                "[PIPELINE] finally cleanup step busy_event_clear failed",
+                "[PIPELINE] finally cleanup step busyness idle failed",
                 exc_info=True,
             )
 

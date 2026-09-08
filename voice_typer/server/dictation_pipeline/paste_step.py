@@ -86,7 +86,7 @@ class _PasteStepMixin:
                 recovery_path: str | None = None
                 try:
                     if self._app.config.crash_recovery_enabled:
-                        self._app._crash_recovery.add(text, pasted=False)
+                        self._app._crash_recovery.add(text, pasted=False, cycle_id=self._cycle_id)
                         self._app._crash_recovery.flush(timeout=2.0)
                         # Best-effort: surface the recovery file path so the
                         # user can locate the saved transcription.
@@ -138,7 +138,8 @@ class _PasteStepMixin:
                         "[PIPELINE] could not publish paste_failed event",
                         exc_info=True,
                     )
-                self._app._busy_event.set()
+                # BP-90: routed through the BusynessCoordinator.
+                self._app._busyness.set_idle()
                 self._app._schedule_timer(
                     3.0,
                     lambda: self._app.tray.set_state(

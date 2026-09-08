@@ -122,6 +122,11 @@ Events emitted via ``event_bus.publish`` (the modern path):
   Consumed in-process by ``tray_notifications.on_gpu_cpu_fallback``;
   also allowlisted in the Rust ``ALLOWED_EVENT_TYPES`` slice for wire
   parity. Payload: ``{device:str (="cpu"), reason:str}``.
+* ``text_enhancement_failed`` — emitted by
+  ``dictation_pipeline/enhancement_steps.py`` (``_apply_ai_enhancement``,
+  Step 7b) when the RULE-BASED AI-enhancement pass fails. Distinct
+  from ``llm_polish_failed`` (the LLM-polish path): the transcription
+  is still delivered un-enhanced. Payload: ``{}``.
 
 Master plan §7.4 — runtime-pack / worker IPC events (13 new event
 types introduced by the slim-core / runtime-pack split). The
@@ -213,7 +218,7 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 39 events — the live count is ``len(EVENT_TYPES)`` and this
+Total: 40 events — the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -328,6 +333,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "asr_backend_disabled",
         "asr_last_resort_unloaded",
         "llm_polish_failed",
+        "text_enhancement_failed",
         "error",
         "mic_level",
         "device_lost",

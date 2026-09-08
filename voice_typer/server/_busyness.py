@@ -26,13 +26,14 @@ wants the raw ``threading.Lock``.
 
 Back-compat: ``VoiceTyperApp._busy_event`` and ``VoiceTyperApp._lock``
 remain accessible (as read-only properties delegating to this
-coordinator) so non-owned consumer files that haven't been migrated
-yet (e.g. ``recording_lifecycle.py``, ``transcription_watchdog.py``,
-``dictation_pipeline/paste_step.py``, ``dictation_pipeline/transcribe_step.py``,
-``dictation_pipeline/orchestrator.py``) keep working unchanged — only the
-owned consumer files (``model_manager.py``, ``startup_tasks.py``,
-``service/microphone_test.py``, ``recording_controller.py``) are migrated
-to the new API in this wave.
+coordinator) so consumer files that still read the raw event keep
+working unchanged. The dictation-flow WRITES are fully migrated:
+``dictation_pipeline/{orchestrator,transcribe_step,paste_step}.py``,
+the ``recording_lifecycle.py`` stop/cancel writes, and the watchdog
+force-recover reset now call ``set_busy()`` / ``set_idle()`` on this
+coordinator. The remaining raw ``_busy_event`` accesses are READS
+(``is_set()`` checks) kept for back-compat — they observe the same
+underlying primitive.
 """
 
 from __future__ import annotations

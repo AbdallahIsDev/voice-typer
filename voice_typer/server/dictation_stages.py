@@ -410,8 +410,11 @@ class CancellationGuard:
             try:
                 # Persist to crash-recovery so the user can review the
                 # late transcription manually (without auto-pasting it).
-                if hasattr(app, "_crash_recovery"):
-                    app._crash_recovery.add(text, pasted=False)
+                # Gated on ``crash_recovery_enabled`` (BP-85: the privacy
+                # opt-out must hold on every path) and correlated with the
+                # cycle id (BP-84: so a crash sentinel can match it).
+                if hasattr(app, "_crash_recovery") and getattr(app.config, "crash_recovery_enabled", False):
+                    app._crash_recovery.add(text, pasted=False, cycle_id=cycle_id)
             except Exception:
                 log.debug(
                     "[DICTATION] crash-recovery write for cancelled cycle failed",
@@ -420,17 +423,11 @@ class CancellationGuard:
             # Tear down the bubble + tray state — the watchdog already
             # set tray to IDLE, but the bubble may still be showing
             # "Transcribing…" if the watchdog's tray update happened
-            # before the bubble wiring was reset.
-            try:
-                if app.config.bubble_behavior == "always_visible":
-                    app._waveform_bubble.set_state("idle")
-                else:
-                    app._waveform_bubble.hide()
-            except Exception:
-                log.debug(
-                    "[DICTATION] bubble hide on cancelled cycle failed",
-                    exc_info=True,
-                )
+            # before the bubble wiring was reset. BP-89: folded into the
+            # shared ``_hide_or_idle_bubble`` helper (this was a
+            # duplicated inline block; the mixin method centralizes the
+            # always_visible/otherwise choice + best-effort try/except).
+            ctx.pipeline._hide_or_idle_bubble("bubble hide on cancelled cycle")
             # Skip the wrapped paste stage — the cycle was cancelled.
             raise _PipelineAbortCancelled()
 

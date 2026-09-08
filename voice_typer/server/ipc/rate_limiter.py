@@ -98,6 +98,7 @@ COMMAND_COSTS: dict[str, int] = {
     "heartbeat": 1,
     "get_config": 1,
     "get_defaults": 1,
+    "get_download_queue": 1,  # cheap read — pending-download queue snapshot (renderer mount hydration)
     "get_favorites": 1,
     "get_history": 1,
     "get_history_count": 1,

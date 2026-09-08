@@ -211,8 +211,8 @@ _AUDIO_FILTER_KEYS = (
 # ── TypedDict for the config side-effect status payload ──
 #
 # This replaces the bare ``dict`` annotations on the
-# ``apply_config`` / ``apply_config_side_effects`` surface (module-level
-# function, :class:`ConfigApplier` methods, :class:`SideEffectContext.status`,
+# ``apply_config`` / ``apply_config_side_effects`` surface
+# (:class:`ConfigApplier` methods, :class:`SideEffectContext.status`,
 # and the :class:`ServiceProtocol` declarations in ``providers.py``) so
 # static checkers and IDEs can see the exact shape of the status dict
 # the ``set_config`` IPC response carries.
@@ -316,55 +316,6 @@ def _apply_audio_preset(preset: str) -> dict[str, Any]:
     legacy_map = {"recommended": PRESET_AUTO, "none": PRESET_OFF}
     normalized = legacy_map.get(preset, preset)
     return get_preset_filters(normalized)
-
-
-def apply_config_side_effects(updates: dict, service: Any) -> SideEffectStatus:
-    """Fix-D: module-level entry point for the
-        post-config-update side-effect dispatch.
-
-        This function exists primarily as the *delegation seam* referenced
-        by ``tests/test_config_applier.py::test_service_apply_config_delegates_to_module``.
-        The regression guard replaces this module attribute with a spy and
-        asserts that ``VoiceTyperService.apply_config_side_effects`` invokes
-        it — proving the service layer delegates to the extracted
-        ``config_applier`` module rather than carrying the side-effect
-        branching inline.
-
-        The canonical dispatch logic lives in the
-        :data:`voice_typer.server.service._CONFIG_SIDE_EFFECTS` registry
-    (SVC-2 /  step 2) and is iterated directly by
-        :meth:`VoiceTyperService.apply_config_side_effects`.  This
-        module-level function does NOT iterate the registry itself — doing
-        so would double-dispatch when called from
-        :meth:`VoiceTyperService.apply_config_side_effects` (which then
-        iterates the registry itself).  It returns an empty status dict
-        (shape ``{"autostart_status": None, "prewarm_status": None}``) so
-        the call is a no-op from the caller's perspective.
-
-        External callers that want the full side-effect dispatch should
-        call ``service.apply_config_side_effects(updates)`` directly (the
-        instance method on :class:`VoiceTyperService`).
-
-        Parameters
-        ----------
-        updates :
-            Validated config updates dict (allowlisted keys only).
-        service :
-            The :class:`VoiceTyperService` instance whose app/config the
-            side-effects would target (unused — kept in the signature so
-            the spy in the regression guard receives the same positional
-            args a real delegation would pass).
-
-        Returns
-        -------
-        SideEffectStatus
-            Empty status dict (no work performed).  The real status dict
-            is returned by :meth:`VoiceTyperService.apply_config_side_effects`.
-    """
-    return {
-        "autostart_status": None,
-        "prewarm_status": None,
-    }
 
 
 # ─── Registered side-effect handlers ─────────────────────────────────

@@ -33,6 +33,7 @@ import logging
 import threading
 from typing import Any
 
+from voice_typer.server._secrets import redact_secret
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.dictation_pipeline.helpers import (
     _EMPTY_SEGMENTS,
@@ -309,9 +310,10 @@ class _EnhancementStepsMixin:
                 # Authorization header (which carries the API key) back
                 # in their body; ``redact_secret`` masks ``Bearer …`` /
                 # ``sk-…`` / 20+ char bare tokens so the log line is
-                # safe to surface in the tray / log file.
-                from voice_typer.server._secrets import redact_secret
-
+                # safe to surface in the tray / log file. The import
+                # lives at module top (guarded) — an inline import
+                # here could itself raise inside this except block and
+                # abort the dictation.
                 log.warning("[LLM_POLISH] Polish failed: %s", redact_secret(str(exc)))
                 # previously this except block only logged a
                 # WARNING — the user paid for an LLM API call that never
@@ -384,9 +386,21 @@ class _EnhancementStepsMixin:
             return enhance_transcription(text, self._app.config)
         except Exception:
             log.warning("[AI_ENHANCE] Enhancement failed", exc_info=True)
-            from voice_typer.server import event_bus
+            # This failure path previously published
+            # ``llm_polish_failed`` — an LLM-specific event — for a
+            # RULE-BASED enhancer failure (E9-class event-type
+            # mismatch): the renderer surfaced the "LLM polish failed"
+            # toast for a failure that had nothing to do with the LLM.
+            # Publish the enhancement-specific ``text_enhancement_failed``
+            # event instead, wrapped in ``contextlib.suppress``
+            # (mirroring the ``_apply_llm_polish`` path) so a raising
+            # event bus can never abort the whole dictation — the
+            # module contract is that failures here degrade to the
+            # un-enhanced text, never abort the cycle.
+            with contextlib.suppress(Exception):
+                from voice_typer.server import event_bus
 
-            event_bus.publish({"type": "llm_polish_failed"})
+                event_bus.publish({"type": "text_enhancement_failed"})
             return text
 
     def _analyze_vocabulary(self, text: str) -> None:

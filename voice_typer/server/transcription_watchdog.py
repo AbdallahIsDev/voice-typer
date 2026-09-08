@@ -306,7 +306,7 @@ class TranscriptionWatchdog:
                     "[RECOVERY] failed to eject ASR backend during force-recover",
                     exc_info=True,
                 )
-        app._busy_event.set()  # busy = False
+        app._busyness.set_idle()  # busy = False (coordinator-routed)
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.recovered"))
         # HOTKEY-THREAD: name the user's ACTUAL configured hotkey in the
         # recovery hint (e.g. "Press Caps Lock to try again") instead of

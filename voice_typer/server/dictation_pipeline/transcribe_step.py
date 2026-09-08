@@ -443,6 +443,35 @@ class _TranscribeStepMixin:
         returned empty" so the user knows something happened, and a
         warning is logged so the failure is traceable.
         """
+        # BP-89: ESC-during-transcribe marks the cycle cancelled
+        # (recording_lifecycle._mark_cycle_cancelled →
+        # ``app.recording._cancelled_cycle_ids``). If the abort landed
+        # before the first segment, the empty result flows here and
+        # would otherwise surface the misleading "No speech detected —
+        # check your microphone" message. A deliberately-cancelled
+        # cycle must end QUIETLY (the user pressed ESC; their mic is
+        # fine). Mirrors the CancellationGuard membership check (same
+        # set + lock — torn-read safety; falls back to "not cancelled"
+        # when the attrs are missing).
+        _recording = getattr(self._app, "recording", None)
+        _cancelled_set = getattr(_recording, "_cancelled_cycle_ids", None)
+        if _cancelled_set is not None:
+            _cancelled_lock = getattr(_recording, "_cancelled_cycle_ids_lock", None)
+            if _cancelled_lock is not None:
+                with _cancelled_lock:
+                    _is_cancelled = self._cycle_id in _cancelled_set
+            else:
+                _is_cancelled = self._cycle_id in _cancelled_set
+            if _is_cancelled:
+                log.info(
+                    "[TRANSCRIBE] Cycle %s was ESC-cancelled — skipping "
+                    "empty-transcription handling (no misleading "
+                    "'no speech detected' message)",
+                    self._cycle_id,
+                )
+                self._hide_or_idle_bubble("bubble hide/set idle on cancelled empty")
+                return
+
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
         # Hide the bubble since there's nothing to
         # transcribe — no need to keep the overlay visible.
@@ -557,5 +586,7 @@ class _TranscribeStepMixin:
                 "audio is unclear. Try again, or check the log file for "
                 "details.",
             )
-        self._app._busy_event.set()  # busy = False
+        # BP-90: routed through the BusynessCoordinator (set_idle =
+        # busy = False) instead of the raw inverted _busy_event.
+        self._app._busyness.set_idle()
         self._app._schedule_timer(2.0, lambda: self._app.tray.set_state(AppState.IDLE))
