@@ -876,6 +876,10 @@ Do NOT silently add commands/events during implementation — every addition wid
 - **Retired (plan-runtime-pack-split.md §6.2 P-1):** `run_prewarm` — the standalone-prewarm subprocess (`prewarm-<triple>.exe`, `process_tracker.py`, sentinel/PID machinery) was deleted; start/stop is now the `fast_startup` toggle gating the worker warm phase. `run_prewarm` stays OUT of the registry.
 - **Restored (plan-runtime-pack-split.md §6.3 addendum — user-facing feature re-opened):** `get_prewarm_status` + `open_prewarm_log` restored verbatim from commit 5a319872 (Settings → About "Cache Status" card). Adaptations: status reads the worker status file `prewarm-status.json` (written by the worker warm phase) instead of the deleted sentinel; `open_prewarm_log` opens `worker.log`. `EXPECTED_COMMANDS` grew 63 → 65; registry 67 → 69 (TS 67, Rust 65).
 
+#### §16 addendum 2026-09-08 — pending-download queue snapshot
+
+- **Added:** `get_download_queue`. The Models page serializes model downloads behind a single gateable transfer (FIFO queue with idle-unload); this read-only command returns the queued model names in drain order under the cancel lock so the renderer can hydrate its queue chips on mount. Live updates keep flowing through the existing `download_progress` events with `queue_position`. It has a `_handle_*` mixin in `handlers/model_handlers.py`, a service method (`service/model/_downloads.py`), dispatch-error coverage in `tests/test_ipc_dispatch_errors.py`, and handler tests in `tests/handlers/test_model_handlers.py`. No-payload read — same `_validate_dict_payload` exemption as `get_correction_usage` (nothing to validate). `EXPECTED_COMMANDS` grew 70 → 71; the registry/TS/Rust allowlists were already grown in lockstep by the feature commit (75 / 73 / 71); this addendum closes the ADR-documentation gap that commit left open.
+
 ---
 
 ### Phase 0 validation gate (concrete, per platform)

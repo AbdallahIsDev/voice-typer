@@ -240,7 +240,7 @@ restored `get_prewarm_status` / `run_prewarm` (worker status file +
 in-process warm pass), not the old
 `sentinel` / `PID`-file probe.
 
-## Push events (51 typed)
+## Push events (52 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -282,6 +282,7 @@ list — events not in the union fall through to the `string` overload of
 | `asr_backend_disabled` | `AsrBackendDisabledEvent` | `{ backend: string, reason: string, ... }` — emitted from `asr_registry._record_failure` when a backend trips its failure threshold. |
 | `asr_last_resort_unloaded` | `AsrLastResortUnloadedEvent` | `{ backend: string, reason: string, ... }` — emitted when the last-resort ASR backend is force-unloaded. |
 | `llm_polish_failed` | `LlmPolishFailedEvent` | `{ reason: string, ... }` — emitted when LLM polishing fails so the UI can fall back to raw transcription. |
+| `text_enhancement_failed` | `TextEnhancementFailedEvent` | bare `{ type: "text_enhancement_failed" }` — emitted when the rule-based text enhancement pass fails; transcription is still delivered un-enhanced, renderer may surface a one-time toast. |
 | `reconnecting` | `ReconnectingEvent` | `{ reason: string }` |
 | `reconnected` | `ReconnectedEvent` | `{ reason: string }` |
 | `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` — continuous level monitor stream for the Settings microphone level meter. |

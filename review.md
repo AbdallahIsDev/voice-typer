@@ -4,42 +4,42 @@ These items are the highest-priority remaining work for the project — they blo
 
 > **Won't Fix tasks live in `WONT_FIX.md`** — deliberately not solved. Do NOT fix them (AGENTS.md C-REVIEW-1). See that file for the full list.
 
-### T-1 — TAURI-E2E — Full-application validation mission (GOAL MODE: zero problems)
+### T-1 ΓÇö TAURI-E2E ΓÇö Full-application validation mission (GOAL MODE: zero problems)
 
-**Status:** 🟡 Partial — IN PROGRESS (2026-09-02 local Windows-host session): full pytest+vitest+cargo suites GREEN on the final state (14165/3683/501, 0 failed); tray status_change WS delivery, ws-mode sidecar app.start, tray Models/Microphone rebuilds (TR-1/2/3) verified landed; headless checklist suite (20 tests) green in the full run; recording_level live-level transport fixed end-to-end; notify AUMID registration added so Windows toasts are attributed correctly. Browser-driven visual walkthrough + real-model dictation on the Tauri host remain the open manual-verification phase (VALIDATE ON WINDOWS HOST — this session ran focused/E2E-checklist evidence, not a full interactive GUI drive). **FV session 2026-09-07 (ON LINUX sandbox):** browser-mode renderer walkthrough executed via headless browser + injected mock bridge (contract mirrors tauri-bridge python-namespace): 15+ phases driven — app shell, sidebar navigation, theme toggle, help overlay, bubble window, Settings (search/appearance/privacy/language), full onboarding flow incl. consent + language steps; 107 evidence artifacts (screenshots/snapshots/console logs) under .tmp-evidence/; the ONLY console errors are the expected pre-bridge "Python bridge not available" degradation warnings — the renderer works in a plain browser and degrades cleanly. Console logs show only the expected pre-bridge degradation warnings plus one triaged Vite-HMR transient (a ReferenceError during concurrent App.tsx live-editing, caught by the ErrorBoundary and recovered on hot update — not a final-state defect). Browser-Use install per §2.3 could not be verified in-sandbox; the built-in agent-browser CLI was used (degraded-mode note in worklog.md under ## Degraded Mode). Full-suite green evidence for the EXACT final code state is the session's final delivery gate (worklog.md ## Validation Performed). REMAINING: interactive GUI walkthrough + real-model dictation on the Tauri host — VALIDATE ON WINDOWS HOST.
+**Status:** ≡ƒƒí Partial ΓÇö IN PROGRESS (2026-09-02 local Windows-host session): full pytest+vitest+cargo suites GREEN on the final state (14165/3683/501, 0 failed); tray status_change WS delivery, ws-mode sidecar app.start, tray Models/Microphone rebuilds (TR-1/2/3) verified landed; headless checklist suite (20 tests) green in the full run; recording_level live-level transport fixed end-to-end; notify AUMID registration added so Windows toasts are attributed correctly. Browser-driven visual walkthrough + real-model dictation on the Tauri host remain the open manual-verification phase (VALIDATE ON WINDOWS HOST ΓÇö this session ran focused/E2E-checklist evidence, not a full interactive GUI drive). **FV session 2026-09-07 (ON LINUX sandbox):** browser-mode renderer walkthrough executed via headless browser + injected mock bridge (contract mirrors tauri-bridge python-namespace): 15+ phases driven ΓÇö app shell, sidebar navigation, theme toggle, help overlay, bubble window, Settings (search/appearance/privacy/language), full onboarding flow incl. consent + language steps; 107 evidence artifacts (screenshots/snapshots/console logs) under .tmp-evidence/; the ONLY console errors are the expected pre-bridge "Python bridge not available" degradation warnings ΓÇö the renderer works in a plain browser and degrades cleanly. Console logs show only the expected pre-bridge degradation warnings plus one triaged Vite-HMR transient (a ReferenceError during concurrent App.tsx live-editing, caught by the ErrorBoundary and recovered on hot update ΓÇö not a final-state defect). Browser-Use install per ┬º2.3 could not be verified in-sandbox; the built-in agent-browser CLI was used (degraded-mode note in worklog.md under ## Degraded Mode). Full-suite green evidence for the EXACT final code state is the session's final delivery gate (worklog.md ## Validation Performed). REMAINING: interactive GUI walkthrough + real-model dictation on the Tauri host ΓÇö VALIDATE ON WINDOWS HOST.
 
-> **TAURI ONLY — NOT ELECTRON.** The Electron shell is being removed in the future; Tauri becomes the main (and only) runtime. Every problem must be found and fixed **in the Tauri shell**. Problems that exist only in Electron are OUT OF SCOPE and must NOT be chased. When comparing behavior ("it works in Electron but not in Tauri"), use Electron only as a behavioral reference, then fix the TAURI side.
+> **TAURI ONLY ΓÇö NOT ELECTRON.** The Electron shell is being removed in the future; Tauri becomes the main (and only) runtime. Every problem must be found and fixed **in the Tauri shell**. Problems that exist only in Electron are OUT OF SCOPE and must NOT be chased. When comparing behavior ("it works in Electron but not in Tauri"), use Electron only as a behavioral reference, then fix the TAURI side.
 >
-> **Environment reality:** this task runs in a cloud sandbox — no visual window, no desktop user session, but full terminal access + a controllable browser + vision (screenshot analysis). Where a human would click a switch with a mouse, the agent must TRIGGER the same action through the terminal, through code, through E2E tests, or through the browser. Every triggered action is verified either programmatically (config/state assertions, logs) or visually (screenshot + vision analysis). For every feature touched: if no test exists (E2E, unit, or golden), CREATE one and leave it in the test suite.
+> **Environment reality:** this task runs in a cloud sandbox ΓÇö no visual window, no desktop user session, but full terminal access + a controllable browser + vision (screenshot analysis). Where a human would click a switch with a mouse, the agent must TRIGGER the same action through the terminal, through code, through E2E tests, or through the browser. Every triggered action is verified either programmatically (config/state assertions, logs) or visually (screenshot + vision analysis). For every feature touched: if no test exists (E2E, unit, or golden), CREATE one and leave it in the test suite.
 
 #### The mission
 
-Run the **Tauri application** with the **full Python backend (sidecar) and everything else**, latest version, and test **literally everything in the application**, like a normal new user would — then like a power user. Use every feature available. Anything that doesn't look right, isn't clean, doesn't work, doesn't do what it's supposed to do (even without throwing an error), has unclean logs, fake/misleading messages, errors, warnings, or failing tests — **fix it immediately**.
+Run the **Tauri application** with the **full Python backend (sidecar) and everything else**, latest version, and test **literally everything in the application**, like a normal new user would ΓÇö then like a power user. Use every feature available. Anything that doesn't look right, isn't clean, doesn't work, doesn't do what it's supposed to do (even without throwing an error), has unclean logs, fake/misleading messages, errors, warnings, or failing tests ΓÇö **fix it immediately**.
 
-The application also runs in a normal browser (the renderer is served on localhost). Launching it in the browser and using it there is part of this mission — **if the app does not work in the browser, that itself is a problem that must be fixed.**
+The application also runs in a normal browser (the renderer is served on localhost). Launching it in the browser and using it there is part of this mission ΓÇö **if the app does not work in the browser, that itself is a problem that must be fixed.**
 
-**Known broken areas to start from (already documented — see TR-1, TR-2, TR-3 above):** tray "Models" sub-menu (dash item + "More Models" dead), Microphone page completely empty, tray menu missing the "Microphone" item. Fix these as part of this mission.
+**Known broken areas to start from (already documented ΓÇö see TR-1, TR-2, TR-3 above):** tray "Models" sub-menu (dash item + "More Models" dead), Microphone page completely empty, tray menu missing the "Microphone" item. Fix these as part of this mission.
 
-#### Checklist (exhaustive — and the list is NOT exhaustive: anything found beyond it is also in scope)
+#### Checklist (exhaustive ΓÇö and the list is NOT exhaustive: anything found beyond it is also in scope)
 
 1. **Run the app** like a normal user: Tauri host + full Python sidecar, latest version, everything healthy (logs clean).
 2. **Onboarding:** go through the ENTIRE onboarding as a brand-new user. Every step, every screen. Fix anything that breaks, hangs, misleads, or looks wrong.
-3. **Models:** from onboarding or the Models page, download **`Whisper Tiny`** (~75 MB — small, so it downloads fast). Then use it: perform real transcription end-to-end and verify it works 100%.
-4. **Recording & dictation:** full recording test — start, pause, Escape-cancel, stop; everything related to recording and everything that happens to the recording AFTER dictation (paste, cleanup, history write). Verify with the model that transcription of the recording works.
+3. **Models:** from onboarding or the Models page, download **`Whisper Tiny`** (~75 MB ΓÇö small, so it downloads fast). Then use it: perform real transcription end-to-end and verify it works 100%.
+4. **Recording & dictation:** full recording test ΓÇö start, pause, Escape-cancel, stop; everything related to recording and everything that happens to the recording AFTER dictation (paste, cleanup, history write). Verify with the model that transcription of the recording works.
 5. **Templates:** open the Templates page, add templates, USE them (insert via dictation flow), verify output correctness.
 6. **Vocabulary:** add custom vocabulary, use it in dictation, verify replacements come out correctly.
-7. **Database:** verify things are actually persisted (history, templates, vocabulary, settings) — survive restarts; fix any save/load problems.
+7. **Database:** verify things are actually persisted (history, templates, vocabulary, settings) ΓÇö survive restarts; fix any save/load problems.
 8. **Clipboard:** test the clipboard/paste path end-to-end; fix problems.
 9. **History page:** verify dictation/recording history is displayed correctly; fix the microphone issues there; test the filters.
-10. **Microphone page + filters:** fix the empty page (TR-2); test every microphone quality/filter preset — Advanced, Noisy Room, Studio, Auto — all of them.
-11. **Settings pages — test EVERYTHING on every settings page** (General, AI & Audio, Appearance, Privacy — every page, every control). Specifically named items (the list is not exhaustive):
-    - **Launch at Login** (autostart): toggle on → verify it works; toggle off → verify.
+10. **Microphone page + filters:** fix the empty page (TR-2); test every microphone quality/filter preset ΓÇö Advanced, Noisy Room, Studio, Auto ΓÇö all of them.
+11. **Settings pages ΓÇö test EVERYTHING on every settings page** (General, AI & Audio, Appearance, Privacy ΓÇö every page, every control). Specifically named items (the list is not exhaustive):
+    - **Launch at Login** (autostart): toggle on ΓåÆ verify it works; toggle off ΓåÆ verify.
     - **Fast Startup:** test it works.
-    - **Notifications:** test once with notifications OFF, once ON — verify both states behave.
-    - **Tray Click:** test both modes — click opens the app window vs. click starts dictation immediately.
-    - **Bubble Behavior:** test the bubble end-to-end — shows, works, no problems.
-    - **Bubble Position:** top center, bottom center, etc. — verify each position actually applies.
-    - **Dictation hotkey:** verify it works; test hotkey VALIDATION — try changing the dictation key to Caps Lock and other keys; fix any validation problems.
+    - **Notifications:** test once with notifications OFF, once ON ΓÇö verify both states behave.
+    - **Tray Click:** test both modes ΓÇö click opens the app window vs. click starts dictation immediately.
+    - **Bubble Behavior:** test the bubble end-to-end ΓÇö shows, works, no problems.
+    - **Bubble Position:** top center, bottom center, etc. ΓÇö verify each position actually applies.
+    - **Dictation hotkey:** verify it works; test hotkey VALIDATION ΓÇö try changing the dictation key to Caps Lock and other keys; fix any validation problems.
     - **Recording mode:** test `tap to record` and related modes.
     - **Stop on silence:** test with MULTIPLE option values, not just one.
     - **Paste key, Escape cancel, auto-paste,** and every other recording-related keybinding: test all of them.
@@ -47,28 +47,28 @@ The application also runs in a normal browser (the renderer is served on localho
 12. **Analytics:** perform dictations and verify the Analytics page numbers actually move/update; test sharing status; fix what's broken.
 13. **Search:** perform searches on EVERY page that has search; verify results and behavior.
 14. **Punctuation cheat sheet:** open it, verify content/behavior.
-15. **Export/Import:** export and import History, Templates, Vocabulary — verify round-trips are correct.
-16. **Logs:** at the end, read the full session logs — unclean logs, fake/misleading messages, spurious warnings/errors: rewrite and fix them.
+15. **Export/Import:** export and import History, Templates, Vocabulary ΓÇö verify round-trips are correct.
+16. **Logs:** at the end, read the full session logs ΓÇö unclean logs, fake/misleading messages, spurious warnings/errors: rewrite and fix them.
 17. **Everything else in the application** not listed above: test it too.
 
 #### Tools & method
 
 - **Terminal:** trigger features by code/IPC/test-harness when no GUI is available; inspect state, config, and database directly; run the existing test suites.
-- **Browser (Browser Use — see override below):** drive the renderer UI on localhost like a real user (navigate, click switches, fill forms), take screenshots, and use vision to VERIFY what changed (e.g. "the switch is really off", "the page really shows my mic").
-- **Tests:** any feature or fix without a test gets one (E2E, unit, or golden — whatever fits). Tests stay in the repo.
-- **Green gate:** per AGENTS.md C-TEST-6 — no claiming success without the full-suite green runs on the final code state.
+- **Browser (Browser Use ΓÇö see override below):** drive the renderer UI on localhost like a real user (navigate, click switches, fill forms), take screenshots, and use vision to VERIFY what changed (e.g. "the switch is really off", "the page really shows my mic").
+- **Tests:** any feature or fix without a test gets one (E2E, unit, or golden ΓÇö whatever fits). Tests stay in the repo.
+- **Green gate:** per AGENTS.md C-TEST-6 ΓÇö no claiming success without the full-suite green runs on the final code state.
 
-#### BROWSER TOOL OVERRIDE — BROWSER USE ONLY. (NON-NEGOTIABLE)
+#### BROWSER TOOL OVERRIDE ΓÇö BROWSER USE ONLY. (NON-NEGOTIABLE)
 
-> The sandbox's built-in browser is DEPRECATED for this task. Before any website or browser-driven action, install **Browser Use** (`browser-use/browser-use`, with the self-healing `browser-use/browser-harness` recovery layer) per §2.3, register its skill, **READ the registered skill documentation**, and route every browser-driven action of this task through it. The built-in browser is a last-resort fallback only after the §2.3 retry procedure fails — and if that happens, the run is logged as DEGRADED MODE in `worklog.md`, never silently substituted.
+> The sandbox's built-in browser is DEPRECATED for this task. Before any website or browser-driven action, install **Browser Use** (`browser-use/browser-use`, with the self-healing `browser-use/browser-harness` recovery layer) per ┬º2.3, register its skill, **READ the registered skill documentation**, and route every browser-driven action of this task through it. The built-in browser is a last-resort fallback only after the ┬º2.3 retry procedure fails ΓÇö and if that happens, the run is logged as DEGRADED MODE in `worklog.md`, never silently substituted.
 >
-> **§2.3 Browser Use installation (mandatory, once per session):**
+> **┬º2.3 Browser Use installation (mandatory, once per session):**
 > 1. Run the official quickstart instruction, following it exactly: install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to the browser.
-> 2. After registration, **READ the skill documentation that was installed** (its usage guide/skill files) before driving any browser task through it — know how to operate it, not merely that it exists.
+> 2. After registration, **READ the skill documentation that was installed** (its usage guide/skill files) before driving any browser task through it ΓÇö know how to operate it, not merely that it exists.
 > 3. If setup or connection fails: follow the recovery steps at `https://github.com/browser-use/browser-harness/blob/main/install.md` (the self-healing harness built for exactly this), then retry setup ONCE.
-> 4. If it still fails after that retry: fall back to the sandbox's built-in browser for the session, log it in `worklog.md` under `## Degraded Mode` with the exact failure reason, and continue. Do not stall the run over tooling — but never claim nominal mode when running degraded.
+> 4. If it still fails after that retry: fall back to the sandbox's built-in browser for the session, log it in `worklog.md` under `## Degraded Mode` with the exact failure reason, and continue. Do not stall the run over tooling ΓÇö but never claim nominal mode when running degraded.
 > 5. Resource discipline while connected (sandbox has ~4GB RAM, no elevated privileges): headless mode always; close/release each browser context before starting the next check; never hold more concurrent contexts than strictly required; prefer sequential processing within each sub-agent's slice.
-> 6. From the moment Browser Use is connected, EVERY navigation, form interaction, extraction, and behavioral task simulation in this task goes through it — not the sandbox's native browser primitives.
+> 6. From the moment Browser Use is connected, EVERY navigation, form interaction, extraction, and behavioral task simulation in this task goes through it ΓÇö not the sandbox's native browser primitives.
 
 #### Definition of done (the GOAL)
 
@@ -76,16 +76,16 @@ The application also runs in a normal browser (the renderer is served on localho
 - Every problem encountered: FIXED immediately, with a test left behind.
 - Logs: clean (no fake messages, no spurious warnings/errors).
 - Full test suites: green on the final code state (C-TEST-6).
-- The Tauri application behaves correctly for a normal user from onboarding through daily use — production-ready.
+- The Tauri application behaves correctly for a normal user from onboarding through daily use ΓÇö production-ready.
 - Findings and fixes recorded in `worklog.md` / this file.
 
-### CI-1 — Fix all GitHub Actions CI pipeline errors and warnings
+### CI-1 ΓÇö Fix all GitHub Actions CI pipeline errors and warnings
 
-**Status:** ⚠️ Partial (FV session 2026-09-07, static audit ON LINUX sandbox): GP-66 + GP-70 edits verified landed (commit 91990ee8, user-approved C-CI-2 override); all action pins audited at Node-24 majors (checkout@v5, setup-python@v7, setup-node@v7, upload-artifact@v6, download-artifact@v6, setup-uv@v7, cache@v5, attest-build-provenance@v4, rust-toolchain@v1 — no Node-20-era pins remain). REMAINING: a validated full CI re-run (manual dispatch, green) — VALIDATE ON HOST; not executable from the sandbox.
+**Status:** ΓÜá∩╕Å Partial (FV session 2026-09-07, static audit ON LINUX sandbox): GP-66 + GP-70 edits verified landed (commit 91990ee8, user-approved C-CI-2 override); all action pins audited at Node-24 majors (checkout@v5, setup-python@v7, setup-node@v7, upload-artifact@v6, download-artifact@v6, setup-uv@v7, cache@v5, attest-build-provenance@v4, rust-toolchain@v1 ΓÇö no Node-20-era pins remain). REMAINING: a validated full CI re-run (manual dispatch, green) ΓÇö VALIDATE ON HOST; not executable from the sandbox.
 **Description:** The CI pipeline contains several known issues: GP-66 (macOS binary-existence hard-fails instead of skipping), GP-70 (no `codesign --verify` step in Tauri macOS workflow), plus broader concerns such as `actions/upload-artifact@v5` / `setup-uv@v6` that run on deprecated Node.js 20 (hard-fail imminent when GitHub removes Node 20), potential secrets-not-set causing silent skip of signing steps, and drift between `build.yml` (Electron) and `tauri-*-build.yml` workflows. The full set of failures can only be determined by running each workflow end-to-end and inspecting logs.
 **User Impact:** Red CI blocks merges and masks real regressions; unsigned binaries ship to SmartScreen; Node 20 deprecation will cause hard failures when GitHub drops it (expected late 2026).
 **Root Cause:** Individual CI configurations were written at different times for Electron and Tauri targets; action pins were not kept in lockstep across workflow files; signing/secrets gates were added piecemeal without full end-to-end validation.
-**Progress:** Partial — GP-66, GP-70 documented; GP-65 (--sign flag) fixed.
+**Progress:** Partial ΓÇö GP-66, GP-70 documented; GP-65 (--sign flag) fixed.
 **Related Files:**
 - `.github/workflows/build.yml`
 - `.github/workflows/tauri-windows-build.yml`
@@ -96,12 +96,12 @@ The application also runs in a normal browser (the renderer is served on localho
 - `.github/workflows/codeql.yml`
 - `scripts/build/build_tauri_all.sh`
 
-**Fix:** 1) Audit every workflow for pinned action versions — replace any running Node 20 (`upload-artifact@v5`, `setup-uv@v6`, etc.) with their Node 24 majors (`upload-artifact@v6`, `setup-uv@v7`, etc.). 2) Fix GP-66 (replace `exit 1` with a skip pattern on missing binaries). 3) Fix GP-70 (add `codesign --verify` step to Tauri macOS workflow). 4) Fix GP-65 (already applied — `build_tauri_all.sh --sign` now fails hard). 5) Validate every workflow by triggering a manual dispatch on the main branch and confirming green runs. 6) Check for any other Node 20 deprecation warnings in workflow logs.
-**Severity:** 🔴 High
+**Fix:** 1) Audit every workflow for pinned action versions ΓÇö replace any running Node 20 (`upload-artifact@v5`, `setup-uv@v6`, etc.) with their Node 24 majors (`upload-artifact@v6`, `setup-uv@v7`, etc.). 2) Fix GP-66 (replace `exit 1` with a skip pattern on missing binaries). 3) Fix GP-70 (add `codesign --verify` step to Tauri macOS workflow). 4) Fix GP-65 (already applied ΓÇö `build_tauri_all.sh --sign` now fails hard). 5) Validate every workflow by triggering a manual dispatch on the main branch and confirming green runs. 6) Check for any other Node 20 deprecation warnings in workflow logs.
+**Severity:** ≡ƒö┤ High
 **Category:** CI/CD
 
 ### BP-33 — Runtime-pack worker subsystem is fully built but never wired (~590 dead LOC, 10 suppressions)
-**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-33 — both implementation branches would downgrade the project (AGENTS.md E12): wiring today spawns an unused ~450 MB worker while the sidecar still bundles the full ML stack (docs/plan-runtime-pack-split.md status block: slim-core BUILD BLOCKED — server imports ML in 10 files; transcribe_offline forwarding is a stub) and would trip the documented cold-prewarm respawn loop without the enrichment's timeout fix; excising destroys a planned, contract-pinned subsystem mid-migration. The entry's own My Recommendation: 🟡 Defer (product decision). Requires USER adjudication on the runtime-pack timeline.
+**Status:** ❌ Not Fixed — OPEN (still unresolved, awaiting user adjudication; history: SKIPPED: BP-33 — both implementation branches would downgrade the project (AGENTS.md E12): wiring today spawns an unused ~450 MB worker while the sidecar still bundles the full ML stack (docs/plan-runtime-pack-split.md status block: slim-core BUILD BLOCKED — server imports ML in 10 files; transcribe_offline forwarding is a stub) and would trip the documented cold-prewarm respawn loop without the enrichment's timeout fix; excising destroys a planned, contract-pinned subsystem mid-migration. The entry's own My Recommendation: 🟡 Defer (product decision). Requires USER adjudication on the runtime-pack timeline.
 
 **Description:** The runtime-pack worker (`WorkerState` in state.rs, `spawn/worker.rs`, the worker section of `spawn.rs`, `platform/worker_path.rs`) is complete, tested code that nothing ever calls: `main.rs` never manages `WorkerState`, and `initialize_worker` has zero production callers. Eleven `#[allow(dead_code)]` Phase-2c suppressions carry "wired when … Phase 2c" comments (state.rs×7, worker.rs×2, spawn.rs×2) — Phase 2c never arrived. Size: ~492 comment-stripped LOC (~984 raw) plus ~700 lines of associated tests.
 
@@ -132,44 +132,18 @@ The application also runs in a normal browser (the renderer is served on localho
 **Implementation Difficulty:** 🟢 Easy (wire) / 🟡 Medium (excise — includes repointing the mig18 gate tests)
 **Severity:** 🟡 Medium
 
-**Enrichment (2026-09-04 BP session — Wave 3):** Additional latent defect in the dead worker subsystem: the worker spawn handshake reuses the sidecar's 30s SERVER_STARTED_TIMEOUT_MS, but the worker's prewarm (pages ~180-200 MB runtime-pack libs, cold-HDD 80-110 MB/s) runs BEFORE worker_started is emitted (worker/__main__.py:200 → _ws_server.py:523) — once wired, cold-disk workers get killed mid-prewarm into a respawn loop of partial prewarms. Wire-time fix: dedicated 90-120s WORKER_STARTED_TIMEOUT_MS or emit worker_started before prewarm. Also: the four spawn loops (worker/release/dev) are ~270 copy-pasted lines — see BP-79.
+**Enrichment (2026-09-04 BP session — Wave 3):** Additional latent defect in the dead worker subsystem: the worker spawn handshake reuses the sidecar's 30s SERVER_STARTED_TIMEOUT_MS, but the worker's prewarm (pages ~180-200 MB runtime-pack libs, cold-HDD 80-110 MB/s) runs BEFORE worker_started is emitted (worker/__main__.py:200 → _ws_server.py:523) — once wired, cold-disk workers get killed mid-prewarm into a respawn loop of partial prewarms. Wire-time fix: dedicated 90-120s WORKER_STARTED_TIMEOUT_MS or emit worker_started before prewarm. Also: the four spawn loops (worker/release/dev) were ~270 copy-pasted lines — consolidated into `spawn/handshake_loop.rs` (BP-79, fixed 2026-09-08).
 
-### BP-34 — Rust host logs render a session id on every file line (C-LOG-1 divergence)
-**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-34 — conflicts with AGENTS.md `Hard "Don'ts"`: C-LOG-1 (pinned canonical log-line format; the rule's own change protocol requires USER APPROVAL before any format change + test updates; no user approval exists this session). Revisit after user sign-off.
-
-**Description:** The canonical log line rule says no per-line session id, with the only sanctioned occurrence being the first-line banner. Python complies. The Rust `CombinedLogger` prints `[sid a3f1b2c4]` on EVERY file log line (`combined.rs:125-131`), and the Rust side has no first-line banner equivalent at all.
-
-**User Impact:** None visible — but log readers and any tooling matching the canonical template miss every Rust line, and the two runtimes' logs look different for the same reason the format rule exists.
-
-**Root Cause:** Rust logger implemented before/independently of the 2026-08-08 format fix; C-LOG-1's text explicitly names the Rust files but the `[sid]` field was never removed.
-
-**Gain vs Trade-off:** Gain: format parity + rule compliance. Trade-off: a pinned, user-approved format changes on the Rust side (C-LOG-1's own change protocol: update tests, user approval).
-
-**If We Do It:** Rust log lines match the Python template; a single init-time banner carries the session id.
-
-**If We Don't:** The binding rule stays violated; grep tooling keeps missing Rust lines.
-
-**My Recommendation:** 🟡 Try and revert — small, test-pinned change; requires user sign-off per C-LOG-1.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/platform/logging/combined.rs:125-131`
-- `src-tauri/src/util/crypto.rs:33` (`session_id`, re-exported at `util.rs:30`)
-
-**Fix:** Drop `[sid]` from the file-line formatter; emit one `session=xxxxxxxx` first-line banner at logger init (mirroring Python's `[STARTUP] logging initialized:` line). Update `src-tauri/src/util_tests.rs` / logging tests accordingly. USER APPROVAL REQUIRED per C-LOG-1 before the format changes.
-
-**Simplified Fix:** Make the Rust log lines follow the same clean format as the Python ones, and print the session marker once at startup instead of on every line.
 
 **Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
+**Severity:** 🟢 Low
 
-### BP-78 — Rule-text drift: C-MODELS-2 and C-MIC-12 no longer describe the shipped code (user adjudication)
-**Status:** ❌ Not Fixed — SKIPPED (FV session 2026-09-07): SKIPPED: BP-78 — conflicts with AGENTS.md `Hard "Don'ts"`: "The user is the only one who can edit these rules" (entry itself: REQUIRES USER ACTION). Recommendation carried to the Final Report: user should update C-MODELS-2 token values (w-24/gap-2/text-xs, h-3 w-3) and either refresh C-MIC-12's text to the binary-recolor contract or order a revert to the ⚠-glyph contract.
+### BP-78 ΓÇö Rule-text drift: C-MODELS-2 and C-MIC-12 no longer describe the shipped code (user adjudication)
+**Status:** Γ¥î Not Fixed ΓÇö SKIPPED (FV session 2026-09-07): SKIPPED: BP-78 ΓÇö conflicts with AGENTS.md `Hard "Don'ts"`: "The user is the only one who can edit these rules" (entry itself: REQUIRES USER ACTION). Recommendation carried to the Final Report: user should update C-MODELS-2 token values (w-24/gap-2/text-xs, h-3 w-3) and either refresh C-MIC-12's text to the binary-recolor contract or order a revert to the ΓÜá-glyph contract.
 
-**Description:** Two AGENTS.md Hard "Don'ts" have drifted from the code they pin: (1) C-MODELS-2 pins download-button tokens `w-[88px]`/`h-3.5 w-3.5`, but the code ships `w-24`/`h-3 w-3` with a dated 2026-08-28 rationale comment — a deliberate later user decision whose rule text was never updated; (2) C-MIC-12 pins "clipping signaled by the ⚠ glyph and aria tier text, never by recoloring the fill", but the evolved design (documented in code) removed the glyph and DOES recolor the fill (bg-primary → bg-destructive) — the rAF-writes-only-transform invariant IS preserved.
+**Description:** Two AGENTS.md Hard "Don'ts" have drifted from the code they pin: (1) C-MODELS-2 pins download-button tokens `w-[88px]`/`h-3.5 w-3.5`, but the code ships `w-24`/`h-3 w-3` with a dated 2026-08-28 rationale comment ΓÇö a deliberate later user decision whose rule text was never updated; (2) C-MIC-12 pins "clipping signaled by the ΓÜá glyph and aria tier text, never by recoloring the fill", but the evolved design (documented in code) removed the glyph and DOES recolor the fill (bg-primary ΓåÆ bg-destructive) ΓÇö the rAF-writes-only-transform invariant IS preserved.
 
-**User Impact:** A future agent obeying the rule text will "fix" the code backwards — undoing deliberate 2026-08-28+ design decisions. This is the exact failure mode AGENTS.md rules exist to prevent, inverted.
+**User Impact:** A future agent obeying the rule text will "fix" the code backwards ΓÇö undoing deliberate 2026-08-28+ design decisions. This is the exact failure mode AGENTS.md rules exist to prevent, inverted.
 
 **Root Cause:** Rule text not updated when the user changed the design after the rule was written.
 
@@ -179,412 +153,21 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **If We Don't:** The next session risks reverting deliberate design.
 
-**My Recommendation:** ✅ Implement — by the USER: update C-MODELS-2's token values (w-24/gap-2/text-xs, h-3 w-3) and either update C-MIC-12's text to the binary-recolor contract or direct a revert to the ⚠-glyph contract. Recorded here so the decision is tracked; agents take no action until then.
+**My Recommendation:** Γ£à Implement ΓÇö by the USER: update C-MODELS-2's token values (w-24/gap-2/text-xs, h-3 w-3) and either update C-MIC-12's text to the binary-recolor contract or direct a revert to the ΓÜá-glyph contract. Recorded here so the decision is tracked; agents take no action until then.
 
 **Progress:** `None yet.` (user action)
 
 **Related Files:**
 - `voice_typer/client/src/renderer/src/components/models/ModelCardActions.tsx:78-84`
 - `voice_typer/client/src/renderer/src/components/feedback/LevelBar.tsx:54-70,126-147`
-- `AGENTS.md` (C-MODELS-2, C-MIC-12 — user-edited only)
+- `AGENTS.md` (C-MODELS-2, C-MIC-12 ΓÇö user-edited only)
 
 **Fix:** User updates the two rule texts (or orders reverts). Agent-side: none until adjudicated.
 
 **Simplified Fix:** Two of the project's "don't change this" rules describe an older version of two controls; the rules need a one-line refresh from the project owner so future assistants don't undo the newer design.
 
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-79 — Four sidecar/worker spawn loops are copy-paste twins (~270 duplicated lines)
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `spawn/worker.rs`, `release_mode.rs`, `dev_mode.rs` share the identical spawn skeleton — env clear + allowlist, spawn, the 500ms-poll/30s handshake loop with four identical CommandEvent arms including a spawn_blocking kill_process_tree + child.kill + 500ms drain, and the deadline kill. NB (Review Wave 4): the loops split 2×2 by process machinery — the release pair (worker.rs/release_mode.rs) uses ShellPlugin + CommandEvent + register_kill_on_parent_exit, the dev pair (dev_mode.rs + the dev sidecar loop) uses tokio Command + read_line + kill_on_drop — so a shared helper must abstract the event-source/handle axis, not just binary/parser/log-tag.
-
-**User Impact:** None directly — but any fix to one loop (e.g. the handshake-timeout defect, kill semantics, or BP-33's wiring) must be hand-replicated four times; a miss leaves the other loops broken silently.
-
-**Root Cause:** Parameterizable helper never extracted; each new runtime mode copy-pasted the previous loop.
-
-**Gain vs Trade-off:** Pure improvement (single parameterized spawn helper over binary/parser/log-tag/args); no behavior change.
-
-**If We Do It:** Spawn-lifecycle fixes land once and apply to all four runtimes.
-
-**If We Don't:** The four loops keep drifting — one already has the latent worker-handshake timeout issue (see BP-33 enrichment).
-
-**My Recommendation:** ✅ Implement (fold into BP-33's wire-or-excise decision: parameterize the surviving loops).
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/sidecar/spawn/worker.rs:60-220,227-337`
-- `src-tauri/src/sidecar/spawn/release_mode.rs:38-364`
-- `src-tauri/src/sidecar/spawn/dev_mode.rs:48-242`
-
-**Fix:** Extract one spawn helper parameterized over (binary, parser fn, log tag, dev args); each mode calls it. Coordinate with BP-33 (the worker twin may be excised instead).
-
-**Simplified Fix:** Four copies of the "start the background program and wait for it to say hello" recipe exist — make it one shared recipe.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-### BP-80 — Rust atomic-write fsync opens the temp file read-only — a guaranteed no-op (and a warn-log) on Windows
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `util/atomic_fs.rs:186-204` opens the temp file with read-only access to fsync it. Win32 `FlushFileBuffers` requires GENERIC_WRITE (MSDN), so on Windows the fsync is a guaranteed no-op that also emits a warning log per migrated model file. There is also no parent-directory fsync (the sibling `atomic_write_bytes` has one), and the temp name is not dotted despite the docstring claiming "dotfile".
-
-**User Impact:** The durability claim of atomic writes doesn't hold on the primary platform (Windows): a crash in the rename window can lose the file; migration logs collect spurious warnings; killed migrations leave visible orphan temp files.
-
-**Root Cause:** OpenOptions copy-paste without the Windows access-mode requirement.
-
-**Gain vs Trade-off:** Pure improvement (write-mode open + parent-dir fsync mirror); negligible cost.
-
-**If We Do It:** Atomic writes are durably fsynced on every platform; the warn noise is gone.
-
-**If We Don't:** Windows keeps shipping best-effort-only atomic writes.
-
-**My Recommendation:** ✅ Implement — same defect class as the TS-side BP-103 (fix both).
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/util/atomic_fs.rs:186-204` (+`:103-110,155,169`)
-
-**Fix:** `OpenOptions::new().write(true)` for the temp handle; mirror the parent-dir fsync from `atomic_write_bytes`; prefix the temp name with a dot. Add a Windows-qualified test (VALIDATE ON WINDOWS HOST).
-
-**Simplified Fix:** The "safely save a file" helper asks Windows to flush the file to disk without permission to write to it — which Windows refuses — so the safety step never happens there.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-81 — Migration batch: owned-value deep-clone + identical-content rewrite + uncounted model-copy failures
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Three verified items in the Electron→Tauri migration path: (1) `migrate/config_merge.rs:117-120,140-147` deep-clones `new_val`'s object although it is owned and never reused (the move pattern the docstring claims was applied to old_val was never applied to new_val) and the file is always rewritten even when `written == 0` (BTreeMap re-sort + mtime bump for identical content); (2) `migrate/mod.rs:275,376-385,401` + `migrate/copy.rs:117-125` — model-file copy failures are non-critical and counted NOWHERE: the sentinel is written with `failures=0` and the summary reports only `migration_failed`; (3) `migrate/copy.rs` orphan temps visible after a killed migration.
-
-**User Impact:** A disk-full during model migration (GB-scale copies) writes a success-shaped sentinel and never retries — the user silently re-downloads models. No-op merges churn the config file.
-
-**Root Cause:** Mechanical copy-paste + optimistic error accounting.
-
-**Gain vs Trade-off:** Pure improvement (move semantics + skip no-op writes + a `models_failed` counter + warn).
-
-**If We Do It:** Migrations report honest failures and retry-able state; no-op merges don't touch the file.
-
-**If We Don't:** The silent re-download trap stays.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/migrate/config_merge.rs:117-147`
-- `src-tauri/src/migrate/{mod.rs:275,376-385,401, copy.rs:117-125}`
-
-**Fix:** (1) `match new_val { Value::Object(o) => o, _ => Map::new() }` + skip the write when `written == 0`; (2) separate `models_failed` counter surfaced in the summary + a WARN line per failed copy; (3) dotted temp names (with BP-80).
-
-**Simplified Fix:** The settings-migration code needlessly copies data it already owns, rewrites the file even when nothing changed, and doesn't count failed model copies as failures.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-82 — host_locale is write-only and every native dialog title is hardcoded English
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `commands/system_cmds/locale.rs` stores the renderer's locale into `state.host_locale` "so the host can localize its native surfaces" — grep shows no production reader. Meanwhile every native dialog title is hardcoded English ("Select Model Folder", "Export Templates/Config/History/Vocabulary") in dialogs.rs and the export commands.
-
-**User Impact:** Non-English users get English OS-level dialog titles; the i18n parity gap is invisible because the mechanism "exists".
-
-**Root Cause:** The localization seam was built one side only.
-
-**Gain vs Trade-off:** Gain: native dialogs follow the app language. Trade-off: title strings need a locale→title map IN THE RUST HOST (the Electron main's mainT() does not exist there — Review Wave 4 correction; a small Rust-side lookup table is required).
-
-**If We Do It:** Native dialogs match the app language.
-
-**If We Don't:** The write-only field keeps implying support that isn't wired.
-
-**My Recommendation:** ✅ Implement (consume host_locale at the title sites) — or explicitly demote to a documented stub.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/commands/system_cmds/locale.rs:26` (state.rs:187)
-- `src-tauri/src/commands/system_cmds/{dialogs.rs:127, export.rs:41,87}`, `src-tauri/src/commands/export.rs:56,78`
-
-**Fix:** Pass localized titles from the locale module at each dialog site (mainT-style lookup keyed off `state.host_locale`); add a test pinning that a non-English locale yields a non-English title.
-
-**Simplified Fix:** The app tells the desktop shell which language the user speaks, then ignores it — every system dialog still says "Select Model Folder" in English.
-
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-### BP-83 — Rust micro-batch 2: rate-limit sentinel collision, open-logs opens the wrong folder, CSV filter on JSON exports
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Four verified small items: (1) `commands/bubble/rate_limit.rs:51-92` — the first call anchors `Instant::now()` then stores a value that can be exactly 0 on Windows (QPC granularity), colliding with the "never toggled" sentinel → the second rapid toggle bypasses the limiter once; (2) `commands/system_cmds/dialogs.rs:44-94` — "Open Logs" opens the config-dir ROOT, not `<config_dir>/logs/` (init.rs:99), while the docstring describes a third, wrong path; (3) `commands/export.rs:110-111` + `system_cmds/export.rs:36-43,83-90` — JSON-only exports (templates/config) offer the CSV filter in the save dialog, letting users save JSON content as .csv; (4) `theme_icon.rs:71-85` — `apply_startup` duplicates `apply_to_window`'s match/log body instead of delegating (14 lines).
-
-**User Impact:** (2) is user-visible: the Open Logs action lands the user in the wrong folder every time. The rest is polish.
-
-**Root Cause:** Mechanical shortcuts + one path drift.
-
-**Gain vs Trade-off:** Pure improvement.
-
-**If We Do It:** Open Logs lands in the logs folder; no mislabeled exports; no sentinel edge case.
-
-**If We Don't:** Small frictions persist.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `src-tauri/src/commands/bubble/rate_limit.rs:51-92`
-- `src-tauri/src/commands/system_cmds/dialogs.rs:44-94`
-- `src-tauri/src/commands/export.rs:110-111`, `src-tauri/src/commands/system_cmds/export.rs:36-43,83-90`
-- `src-tauri/src/theme_icon.rs:71-85`
-
-**Fix:** (1) store `now.max(1)` (or u64::MAX sentinel); (2) `config_dir().join("logs")` + fix the docstring; (3) parameterize the filter list per export kind; (4) delegate from apply_startup.
-
-**Simplified Fix:** Four small fixes: a timing edge case, the "Open Logs" button opening the wrong folder, a save dialog offering the wrong file type, and one duplicated function.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-84 — Crash recovery never receives the dictation cycle id: lost-dictation detection always says "not recoverable"
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `CrashRecovery.add()` accepts a `cycle_id`, and `_detect_and_notify_lost_dictation` matches the `.dictation-in-flight` sentinel's cycle_id against entry cycle_ids to decide recoverability. But NONE of the four production call sites (storage_step.py:118, orchestrator.py:455, paste_step.py:89, dictation_stages.py:414) passes `cycle_id` — so `recoverable` is ALWAYS False in production. The tests pass `cycle_id=` manually and mask the defect.
-
-**User Impact:** After a hard crash mid-dictation, the user is told nothing is recoverable while the partial text sits in recovery.json — the crash-recovery feature's core promise silently never fires.
-
-**Root Cause:** Parameter exists, callers never grew the argument; tests compensate manually.
-
-**Gain vs Trade-off:** Pure improvement — the feature starts working as designed.
-
-**If We Do It:** Crashed dictations are detected and offered for recovery.
-
-**If We Don't:** The crash-recovery notification path remains dead in production.
-
-**My Recommendation:** ✅ Implement — high user-trust impact, cheap fix.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/{storage_step.py:118, orchestrator.py:455, paste_step.py:89}`
-- `voice_typer/server/dictation_stages.py:414`
-- `voice_typer/server/crash_recovery/_store.py:378-383`
-
-**Fix:** Thread the pipeline's cycle id into all four `add()` call sites; change the tests to go through the production callers (or add one that does); add a regression test asserting a sentinel-with-matching-cycle yields `recoverable=True`.
-
-**Simplified Fix:** The crash-recovery notebook records what was typed but forgets to write which recording session it belonged to, so after a crash the app never recognizes the saved text as recoverable.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🔴 High
-
-### BP-85 — CancellationGuard writes crash-recovery entries even when the user disabled crash recovery
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** The guard's crash-recovery write (`dictation_stages.py:410-419`) is not gated on `config.crash_recovery_enabled` — while every other path gates (storage_step.py:116, paste_step.py:88, orchestrator.py:453). `CrashRecovery.add()` itself doesn't gate either.
-
-**User Impact:** A user who turned OFF crash recovery (a privacy choice) still gets ESC-cancelled / watchdog-aborted late transcriptions persisted to disk — the opt-out is bypassed on this path.
-
-**Root Cause:** The guard was written without the config gate the sibling paths carry.
-
-**Gain vs Trade-off:** Pure improvement — restores the privacy opt-out's integrity; no legit behavior lost.
-
-**If We Do It:** The crash_recovery_enabled setting means what it says on every path.
-
-**If We Don't:** A documented privacy control has a hole.
-
-**My Recommendation:** ✅ Implement — privacy-contract fix.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_stages.py:410-419`
-- `voice_typer/server/crash_recovery/_store.py` (add())
-
-**Fix:** Add the `config.crash_recovery_enabled` gate to the guard's write (mirror storage_step's shape); regression test: guard write with the flag off → no file write.
-
-**Simplified Fix:** When the user says "don't save my unsent dictations for recovery", one code path ignores it — close that hole.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🔴 High
-
-### BP-86 — The AI-enhancement failure path publishes the wrong event type, unguarded — and has zero tests
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `_apply_ai_enhancement`'s failure path (enhancement_steps.py:381-390) publishes `llm_polish_failed` for a rule-based enhancer failure (E9-class event-type mismatch), and the publish is not suppress-guarded — a raising event bus aborts the whole dictation via run()'s generic except, contradicting the module's documented "does NOT abort" contract. There are zero tests for this path (`rg _apply_ai_enhancement tests/` → 0). Related: `_apply_llm_polish`'s except imports `redact_secret` unguarded (:313).
-
-**User Impact:** A transient enhancement failure can kill the entire dictation result instead of passing the text through — the opposite of the designed behavior.
-
-**Root Cause:** Failure path never tested, so the abort-contradiction and event-type drift shipped.
-
-**Gain vs Trade-off:** Pure improvement — failure isolation per the module's own contract.
-
-**If We Do It:** Enhancement failures degrade to unpolished text (as documented) with an accurate event.
-
-**If We Don't:** The latent abort stays.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/enhancement_steps.py:381-390,313`
-
-**Fix:** Suppress-wrap the publish; correct the event type (enhancement-specific key or a shared `text_enhancement_failed`); add failure-path tests; move the `redact_secret` import to module top (guarded).
-
-**Simplified Fix:** When the optional text-polish step fails, one untested code path can throw away the whole transcription instead of just skipping the polish — and it reports the failure under the wrong name.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
-### BP-87 — Five dead "extracted" pipeline modules (~560 LOC) duplicate the live orchestrator and claim to be wired
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** `_run_body.py`, `_finalize.py`, `_cancelled.py`, `_stage_timer.py`, `resource_probe.py` in dictation_pipeline/ are complete implementations whose docstrings claim `run()` delegates to them — import-grep proves nothing imports them. The live orchestrator contains the real logic; the dead copies have already drifted (e.g. a `_partial_transcript` mirroring absent from the live code).
-
-**User Impact:** None directly — but a future "wiring" of these modules would silently change behavior, and the docstrings mislead every reader of the core flow.
-
-**Root Cause:** An extraction that renamed docstrings but never moved the callers — the inverse of the usual unfinished split.
-
-**Gain vs Trade-off:** Pure E15 removal; alternative (actually wire them) is a refactor with behavior-equivalence burden.
-
-**If We Do It:** One implementation of the pipeline; honest docstrings.
-
-**If We Don't:** The trap stays armed for the next refactorer.
-
-**My Recommendation:** ✅ Implement (delete; record in archive/deleted_files.txt).
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/{_run_body.py, _finalize.py, _cancelled.py, _stage_timer.py, resource_probe.py}`
-
-**Fix:** Delete the five modules (E15; no test file imports them — Review Wave 4 correction); fix the live orchestrator's docstrings. (Alternative: complete the extraction — only if a decomposition of run() is genuinely planned; BP-12 enrichment notes run() is ~290 lines.)
-
-**Simplified Fix:** Five leftover copies of the dictation engine's inner steps say "the engine now runs through us" — it doesn't. Delete them.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
-### BP-88 — History and crash-recovery flush waits run on the pre-paste critical path
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Stage 10 of the pipeline runs `history_db.flush()` (unbounded-arg wait; the "≈10s on SQLite busy" docstring figure is the pre-fix root-cause note — current worst case is bounded by the 30s/60s future timeouts; Review Wave 4 clarification) and `crash_recovery.flush(timeout=0.5)` BEFORE PasteStage (stage 11). Every dictation's paste latency therefore includes these waits.
-
-**User Impact:** Paste can stall behind database/recovery flushing — a feelable latency spike on the app's most latency-sensitive action, worst under disk contention.
-
-**Root Cause:** Durability waits sequenced before the user-visible completion instead of after (or off-thread).
-
-**Gain vs Trade-off:** Gain: paste latency no longer contains flush waits. Trade-off: moving waits off the pre-paste path needs a race analysis (durability before "done" vs after) — the fix direction is a design decision (writer FIFO + repaste-path flush), per E5 evaluate 2-3 options.
-
-**If We Do It:** Text appears immediately; durability completes in the background bounded.
-
-**If We Don't:** Occasional multi-hundred-ms (worst-case seconds) paste stalls persist.
-
-**My Recommendation:** 🟡 Try and revert — redesign the flush sequencing with a bounded background drain; revert if repaste semantics regress.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/storage_step.py` (stage 10)
-- `voice_typer/server/history_db.py` (flush), `voice_typer/server/crash_recovery/_store.py`
-
-**Fix:** Options: (a) move flushes to a post-paste stage; (b) writer-thread FIFO with the repaste path forcing the flush; (c) reduce to crash_recovery-only before paste + history after. Add a latency bench assertion (paste path has no blocking flush). Related: BP-49 (same flush family, correction_usage).
-
-**Simplified Fix:** Before the typed text lands in your document, the app waits for the history database and the recovery file to finish saving — move those saves after the text appears.
-
-**Implementation Difficulty:** 🟠 Hard
-**Severity:** 🟡 Medium
-
-### BP-89 — ESC-cancelled dictations can surface a misleading "No speech detected" toast
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** ESC-during-transcribe marks the cycle cancelled and aborts the engine; if the abort lands before the first segment, the EMPTY result flows to EmptyCheckStage, whose `_handle_empty_transcription` (transcribe_step.py:418-561) has no cancelled-cycle check (the CancellationGuard is documented "intentionally NARROW", paste-only). The user who pressed ESC sees "No speech detected — check your microphone".
-
-**User Impact:** The app tells an escaping user their microphone is broken — misleading support-bait.
-
-**Root Cause:** Abort path and empty-result path were never composed; abort tests don't cover this interaction.
-
-**Gain vs Trade-off:** Pure improvement — cancelled cycles end quietly (or with a "cancelled" toast).
-
-**If We Do It:** ESC ends silently and correctly.
-
-**If We Don't:** Occasional misleading error after a deliberate cancel.
-
-**My Recommendation:** ✅ Implement.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/transcribe_step.py:418-561`
-- `voice_typer/server/recording_lifecycle.py:1280-1329`
-
-**Fix:** Add a cancelled-cycle check at the top of `_handle_empty_transcription` (return quietly / emit the cancel toast). While there: fold the duplicated bubble-teardown into `_hide_or_idle_bubble` (dictation_stages.py:424-433). Test: abort-before-first-segment → no empty-transcription toast.
-
-**Simplified Fix:** When you cancel a dictation with Escape at just the wrong moment, the app claims you have a microphone problem — recognize the cancel and stay quiet.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
-
-### BP-90 — Pipeline micro-batch: vestigial watchdog parameter, _SHARED_STAGES contract contradiction, unfinished _busy_event migration
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Three verified small items: (1) `orchestrator.py:195-221` — `run()`'s `watchdog` parameter is vestigial (sole caller passes None) and `self._watchdog` is write-only; (2) `dictation_stages.py:463-465` — `_SHARED_STAGES` class-level sharing contradicts `build_default_stages`' documented "fresh list so callers can mutate" contract (safe today, mutation hazard); (3) the inverted `_busy_event` semantics are still written raw at every dictation-flow call site (orchestrator.py:616, transcribe_step.py:560, paste_step.py:141, recording_lifecycle stop/cancel) despite `_busyness.py`'s coordinator existing and listing these files as un-migrated.
-
-**User Impact:** None directly — maintainability and migration-completion debt in the core flow.
-
-**Root Cause:** Three unfinished migrations.
-
-**Gain vs Trade-off:** Pure improvement.
-
-**If We Do It:** The coordinator owns busyness signaling; dead parameters gone; contracts truthful.
-
-**If We Don't:** The staged migration stays half-done with its own TODO map.
-
-**My Recommendation:** ✅ Implement (finish the documented migration).
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/orchestrator.py:195-221,616`
-- `voice_typer/server/dictation_stages.py:463-465`
-- `voice_typer/server/dictation_pipeline/{transcribe_step.py:560, paste_step.py:141}`, `voice_typer/server/recording_lifecycle.py`
-
-**Fix:** Remove the watchdog parameter; fix the `_SHARED_STAGES` docstring or stop sharing; route `_busy_event` writes through the busyness coordinator per its own migration list.
-
-**Simplified Fix:** Three tidy-ups in the dictation engine: delete an unused option, make one comment match the code, and finish a half-completed migration to the shared "is the app busy" tracker.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### BP-91 — config_applier's module-level side-effect function is a silent no-op citing a registry that doesn't exist
-**Status:** ❌ Not Fixed (investigation only)
-
-**Description:** Module-level `apply_config_side_effects(updates, service)` (config_applier.py:321-367) returns `{"autostart_status": None, "prewarm_status": None}` unconditionally — a silent no-op with zero production callers. Its docstring claims the canonical dispatch lives in `voice_typer.server.service._CONFIG_SIDE_EFFECTS` — no such name exists anywhere. The one test that touches the area takes the `ConfigApplier` class branch, so the module-function elif never executes.
-
-**User Impact:** None today — it's a contributor trap (same class as BP-52): calling the obvious module function silently skips side effects and returns empty status; the docstring points at a phantom registry.
-
-**Root Cause:** An extraction seam that was never completed or removed.
-
-**Gain vs Trade-off:** Pure improvement — delete, or delegate to `service.apply_config_side_effects(updates)`.
-
-**If We Do It:** One true entry point for config side effects; honest docs.
-
-**If We Don't:** The trap stays.
-
-**My Recommendation:** ✅ Implement (delegate or delete — prefer delete; the ConfigApplier class path is the live mechanism).
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/config_applier.py:321-367` (docstring :334; real registry :898-910)
-
-**Fix:** Either delete the module function (test already covers the class branch) or make it delegate to the service method; remove the phantom-registry reference. Cross-ref BP-52.
-
-**Simplified Fix:** A "apply settings changes" helper that does nothing, points to a list that doesn't exist, and is only kept alive by a test that never runs it — remove or wire it.
-
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟡 Medium
+**Implementation Difficulty:** ≡ƒƒó Easy
+**Severity:** ≡ƒƒó Low
 
 ### BP-92 — The diagnostics-export pipeline is production-dead across all four layers (~869 LOC) with stale caller claims
 **Status:** ❌ Not Fixed (investigation only)
@@ -855,7 +438,7 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🟢 Low
 
 ### BP-101 — Device prewarm opens a real microphone stream at every launch, ungated by visibility
-**Status:** ❌ Not Fixed (investigation only) — C-BG-1 concern class, distinct mechanism; flag for the C-BG-1 owner
+**Status:** ❌ Not Fixed (investigation only - status restored 2026-09-08, fix not implemented)
 
 **Description:** `recording/device_prewarm.py:72-122,233-241` opens and starts a real InputStream at every app launch (to warm PortAudio) with no visibility gate — the same OS-mic-indicator concern C-BG-1 addresses for the level monitor, but via a different path. Additionally, `cached_max_input_channels(None)` bypasses the prewarmed cache with a direct 50-200 ms `sd.query_devices` call on the DEFAULT-device path, whose comment assumes default-mic users are a minority — inverting C-MIC-1's pinned `microphone: null` (System Default) fresh-install default.
 
@@ -919,7 +502,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **User Impact:** On Windows, a crash-looping app relaunches unboundedly instead of stopping after 3 quick restarts — the exact breaker the file exists to provide. (Platform-qualified: mechanism verified from Win32 docs + code; runtime reproduction needs a Windows host — VALIDATE ON WINDOWS HOST.)
 
-**Root Cause:** Wrong open flag for the fsync contract — the same class as BP-80 on the Rust side.
+**Root Cause:** Wrong open flag for the fsync contract — the same class as the Rust atomic-write fsync fix (BP-80, fixed 2026-09-08).
 
 **Gain vs Trade-off:** Pure improvement — `"r+"` satisfies GENERIC_WRITE and is POSIX-equivalent.
 
@@ -1033,7 +616,7 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🟢 Low
 
 ### BP-107 — Templates and Vocabulary are a forked subsystem (~1,100 duplicated lines beyond the page roots)
-**Status:** ❌ Not Fixed (investigation only) — extends BP-15 with the subcomponent layer
+**Status:** ❌ Not Fixed (investigation only - status restored 2026-09-08, fix not implemented)
 
 **Description:** Beyond BP-15's page-level fork, the subcomponent layer is a 1:1 mirror: Toolbar, BulkBar, ListHeader, ListRow, use*Selection hooks, and import/export hooks exist as near-identical pairs (files' own headers: "a 1:1 mirror of the Vocabulary page's … (the Templates UI is an exact copy)"), with byte-identical class strings. Drift has already shipped: row action buttons use `size="icon-xs"` (Vocabulary) vs `size="icon-sm"` (Templates); `title` tooltips exist only on Template rows; the Add-button aria-label exists only on Templates.
 
@@ -1700,7 +1283,7 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🟡 Medium
 
 ### BP-129 — Prewarm-sync startup ceremony is a no-op; schtasks runs SYNCHRONOUSLY on the startup path (30 s ceiling)
-**Status:** ❌ Not Fixed (investigation only) — third blocking site beyond BP-5's two
+**Status:** ❌ Not Fixed (investigation only - status restored 2026-09-08, fix not implemented)
 
 **Description:** (1) startup_tasks.py:224-242 + startup_sequence/_phases_late.py:339-427 spawn a dedicated daemon thread to call a DOCUMENTED STUB — the prewarm-sync ceremony is a no-op wearing a startup thread, and its every-startup INFO log ("Syncing prewarm task — triggers: boot + event") misdescribes both the deleted task and the live XML (actual: LogonTrigger). (2) task_scheduler.py:57-60's docstring claims schtasks runs "from a background thread" — it actually runs SYNCHRONOUSLY via phase-6 `sync_autostart` → `is_autostart_enabled` → `/Query` with a 30-second hang ceiling, ON the critical path BEFORE hotkey registration.
 
@@ -1732,7 +1315,7 @@ The application also runs in a normal browser (the renderer is served on localho
 ### BP-130 — Autostart batch: dead pid-file port stub, launcher spawn recipe ×5, log-handle leak, whole-binary hashing
 **Status:** ❌ Not Fixed (investigation only)
 
-**Description:** Four verified items: (1) `autostart/pid_file.py:19-78` — `_read_ipc_port_from_pid_file` is a forward-compat stub: the writer never emits `port=`, the parse loop is dead-in-practice, the comment's claimed second-backend protection cannot fire, and docstrings cite "review.md MED-Y" which no longer exists; (2) the launcher spawn recipe exists ×5 (tauri_spawn.py:357-382, focus.py:64-87+98-126, electron_spawn.py:41-78+128-176, + siblings) with three divergent cleanup shapes — Rust-side twins filed as BP-79; (3) `electron_spawn._launch_electron_built` leaks its opened log-file handles on the Popen-failure path (no finally — its own comment warns about exactly this); (4) `tauri_spawn.py:314` reads the whole 10-40 MB Tauri binary into RAM to hash it (once per launcher run incl. focus-only) — chunked hashing is the documented practice.
+**Description:** Four verified items: (1) `autostart/pid_file.py:19-78` — `_read_ipc_port_from_pid_file` is a forward-compat stub: the writer never emits `port=`, the parse loop is dead-in-practice, the comment's claimed second-backend protection cannot fire, and docstrings cite "review.md MED-Y" which no longer exists; (2) the launcher spawn recipe exists ×5 (tauri_spawn.py:357-382, focus.py:64-87+98-126, electron_spawn.py:41-78+128-176, + siblings) with three divergent cleanup shapes — Rust-side twins consolidated into `spawn/handshake_loop.rs` (BP-79, fixed 2026-09-08); (3) `electron_spawn._launch_electron_built` leaks its opened log-file handles on the Popen-failure path (no finally — its own comment warns about exactly this); (4) `tauri_spawn.py:314` reads the whole 10-40 MB Tauri binary into RAM to hash it (once per launcher run incl. focus-only) — chunked hashing is the documented practice.
 
 **User Impact:** None directly — maintenance surface, a handle leak on a failure path, and peak-RAM spikes during login.
 
@@ -1744,7 +1327,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **If We Don't:** The five recipes keep drifting.
 
-**My Recommendation:** ✅ Implement (coordinate with BP-79/BP-22).
+**My Recommendation:** ✅ Implement (coordinate with BP-22).
 
 **Progress:** `None yet.`
 
@@ -2386,7 +1969,7 @@ The application also runs in a normal browser (the renderer is served on localho
 **Severity:** 🟢 Low
 
 ### BP-152 — axe-core wiring scans page roots in empty/stub states only
-**Status:** ❌ Not Fixed (investigation only) — test-infrastructure wiring (Group 1), not an a11y finding
+**Status:** ❌ Not Fixed (investigation only - status restored 2026-09-08, fix not implemented)
 
 **Description:** `a11y/axe-core.test.tsx` scans all 10 pages in EMPTY/stub states (ConfirmDialog stubbed null :315-317). The renderer-wide axe-consumer inventory is exactly 6 files. No full axe pass exists for: ConsentGateDialog (the GDPR gate), HelpOverlay, ShareStatsDialog, the app shell (Sidebar/TitleBar/GlobalSearchBar), populated page states, or the non-default Settings sections. Behavioral name/role tests exist, but not the full rule-set.
 
