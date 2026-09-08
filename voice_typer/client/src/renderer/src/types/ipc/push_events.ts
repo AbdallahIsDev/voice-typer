@@ -478,6 +478,23 @@ export interface LLMPolishFailedEvent {
 	type: "llm_polish_failed";
 }
 
+/** Pushed by `voice_typer/server/dictation_pipeline/enhancement_steps.py`
+ *  (`_apply_ai_enhancement`, Step 7b) when the RULE-BASED text
+ *  enhancement pass fails. Distinct from {@link LLMPolishFailedEvent}
+ *  (the LLM-polish path, `_apply_llm_polish`): this event covers only
+ *  the local rule-based enhancer, NOT the LLM provider. The
+ *  transcription is still delivered to the user un-enhanced (the
+ *  pipeline swallows the error and returns the original text), so the
+ *  event is purely informational — the renderer may surface a one-time
+ *  toast.
+ *
+ *  Wire shape: the Python emitter publishes a bare
+ *  `{ "type": "text_enhancement_failed" }` frame with NO payload
+ *  fields. */
+export interface TextEnhancementFailedEvent {
+	type: "text_enhancement_failed";
+}
+
 /** Pushed by the level monitor / recording pipeline when the ACTIVE
  *  microphone disappears (unplug, Bluetooth power-off, driver reset) and
  *  retries are exhausted. Emitters (all publish the same wire shape):
@@ -785,6 +802,11 @@ export type PythonPushEvent =
 	| ASRBackendDisabledEvent
 	| ASRLastResortUnloadedEvent
 	| LLMPolishFailedEvent
+	// rule-based AI-enhancement failure (Step 7b). Distinct from
+	// `llm_polish_failed` — this event covers the local rule-based
+	// enhancer, not the LLM-polish path. Emitter:
+	// `dictation_pipeline/enhancement_steps.py` (`_apply_ai_enhancement`).
+	| TextEnhancementFailedEvent
 	// active-microphone-disappeared event (level monitor + dictation
 	// recorder emitters). See `DeviceLostEvent` above for the wire shape.
 	| DeviceLostEvent

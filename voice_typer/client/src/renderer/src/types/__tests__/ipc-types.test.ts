@@ -128,6 +128,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"asr_backend_disabled",
 			"asr_last_resort_unloaded",
 			"llm_polish_failed",
+			"text_enhancement_failed",
 		];
 
 		// Runtime guard: the literal must NOT appear in the accepted
@@ -144,7 +145,9 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		//+3 (asr_backend_disabled + asr_last_resort_unloaded +
 		// llm_polish_failed) = 32.
 		// relaunch_app added (was documented in comment but missing from list) = 33.
-		expect(acceptedTypes).toHaveLength(33);
+		// +1 (text_enhancement_failed — BP-86 rule-based enhancement
+		// failure event) = 34.
+		expect(acceptedTypes).toHaveLength(34);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -459,6 +462,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		"asr_backend_disabled",
 		"asr_last_resort_unloaded",
 		"llm_polish_failed",
+		"text_enhancement_failed",
 	];
 
 	it("every Python emitter type literal is in the PythonPushEvent union (via the acceptedTypes list)", () => {
@@ -502,6 +506,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 			"asr_backend_disabled",
 			"asr_last_resort_unloaded",
 			"llm_polish_failed",
+			"text_enhancement_failed",
 			// Host-bridge-synthesized (NOT emitted by Python's
 			// event_bus.publish — but still members of the union so
 			// renderer code can subscribe). Excluded from the
@@ -533,14 +538,14 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		//from the  fix that removed `relaunch_electron` but
 		// never added the canonical `relaunch_app` to the list).
 		// This parity test's `PYTHON_EMITTER_TYPE_LITERALS` list
-		// DOES include `relaunch_app` (33 entries) because the
+		// DOES include `relaunch_app` (34 entries) because the
 		// Python backend's `voice_typer/server/app.py` does emit
 		// it via `event_bus.publish({"type": "relaunch_app"})`. The
 		// first list's missing entry is a documentation bug, not a
 		// type-safety bug (the union itself correctly contains
 		// `RelaunchAppEvent`); leaving it untouched here to avoid
 		//scope creep beyond
-		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(33);
+		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(34);
 	});
 });
 

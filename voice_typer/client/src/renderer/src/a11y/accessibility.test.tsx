@@ -335,6 +335,10 @@ vi.mock("@/stores/appStore", () => ({
 			lastError: null,
 			config: { onboarding_completed: true },
 		}),
+	// Shared recovering-status predicate (GAP-A) used by
+	// ConnectionStatusScreen / toasts / live regions.
+	isRecoveringStatus: (status: string) =>
+		status === "restarting" || status === "reconnecting",
 }));
 
 // Mock window.window_ bridge (used by TitleBar and some pages for

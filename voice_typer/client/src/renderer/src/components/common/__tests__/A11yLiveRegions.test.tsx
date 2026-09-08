@@ -108,6 +108,11 @@ describe("A11yLiveRegions — connection error stream (assertive)", () => {
 		expect(errorRegion()?.textContent).toContain("app.restartingBackend");
 	});
 
+	it("reconnecting announces the restarting key assertively (GAP-A shared recovering UI)", () => {
+		renderRegions("idle", "reconnecting", "connected");
+		expect(errorRegion()?.textContent).toContain("app.restartingBackend");
+	});
+
 	it("connected/connecting states keep the assertive region silent", () => {
 		renderRegions("idle", "connected", "connecting");
 		expect(errorRegion()?.textContent).toBe("");

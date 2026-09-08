@@ -2078,6 +2078,8 @@
 		"deviceLostHint": "Reconéctalo o elige otro micrófono y vuelve a intentarlo.",
 		"llmPolishFailed": "El pulido con IA falló — la transcripción se entregó sin limpieza gramatical",
 		"llmPolishFailedHint": "Comprueba la configuración de tu proveedor de LLM y la conexión. El pulido se reintenta automáticamente en la siguiente transcripción.",
+		"textEnhancementFailed": "La mejora de texto con IA falló — la transcripción se entregó sin limpieza",
+		"textEnhancementFailedHint": "La mejora es un proceso local basado en reglas y se reintentará en la siguiente transcripción. Consulta el archivo de registro para más detalles.",
 		"asrBackendDisabled": "Motor de voz {backend} deshabilitado tras fallos repetidos",
 		"asrBackendDisabledHint": "La transcripción usa otro motor. Abre Modelos para elegir uno distinto."
 	},

@@ -30,6 +30,7 @@
  */
 import { useEffect, useRef } from "react";
 import type { ConnectionStatus } from "@/stores/appStore";
+import { isRecoveringStatus } from "@/stores/appStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
@@ -94,7 +95,7 @@ export function useConnectionToasts({
 					description: t("app.lostConnectionHint"),
 					duration: SNACKBAR_DEFAULT_DURATION_MS.warning,
 				});
-			} else if (connectionStatus === "restarting") {
+			} else if (isRecoveringStatus(connectionStatus)) {
 				showSnack(t("app.restartingBackend"), "warning", {
 					id: "conn-restarting",
 					description: t("app.restartingHint"),

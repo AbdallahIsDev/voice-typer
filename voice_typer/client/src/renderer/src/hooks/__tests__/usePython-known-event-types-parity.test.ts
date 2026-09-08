@@ -81,6 +81,7 @@ const _PARITY = {
 	asr_backend_disabled: true,
 	asr_last_resort_unloaded: true,
 	llm_polish_failed: true,
+	text_enhancement_failed: true,
 	device_lost: true,
 	reconnecting: true,
 	reconnected: true,

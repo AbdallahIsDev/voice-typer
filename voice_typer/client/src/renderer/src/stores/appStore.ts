@@ -26,7 +26,19 @@ export type ConnectionStatus =
 	| "connected"
 	| "disconnected"
 	| "connecting"
-	| "restarting";
+	| "restarting"
+	| "reconnecting";
+
+/**
+ * Transient auto-recovery states share the "restarting" UI (spinner +
+ * restartingBackend copy + force-retry) everywhere they are rendered:
+ * ConnectionStatusScreen, useConnectionToasts, A11yLiveRegions. A single
+ * predicate so a future state cannot update one surface and silently
+ * drift from the others (the GAP-A class of bug).
+ */
+export function isRecoveringStatus(status: string): boolean {
+	return status === "restarting" || status === "reconnecting";
+}
 
 interface AppState {
 	// ── Connection ──────────────────────────────────────────────

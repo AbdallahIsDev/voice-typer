@@ -1,5 +1,6 @@
 import { useT } from "@/i18n/i18n";
 import type { ConnectionStatus } from "@/stores/appStore";
+import { isRecoveringStatus } from "@/stores/appStore";
 import type { Page, RecordingState } from "@/types/ipc";
 
 interface A11yLiveRegionsProps {
@@ -72,7 +73,7 @@ export function A11yLiveRegions({
 			</div>
 			<div aria-live="assertive" aria-atomic="true" className="sr-only">
 				{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
-				{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
+				{isRecoveringStatus(connectionStatus) ? t("app.restartingBackend") : ""}
 			</div>
 			<div aria-live="polite" aria-atomic="true" className="sr-only">
 				{connectionStatus === "connected" &&

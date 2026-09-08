@@ -2078,6 +2078,8 @@
 		"deviceLostHint": "请重新连接或选择其他麦克风，然后重试。",
 		"llmPolishFailed": "AI 润色失败——转写未经语法清理即已交付",
 		"llmPolishFailedHint": "请检查你的 LLM 提供商设置和网络连接。下次转写时会自动重试润色。",
+		"textEnhancementFailed": "AI 文本增强失败——转写未经清理即已交付",
+		"textEnhancementFailedHint": "增强是本地基于规则的处理，会在下次转写时自动重试。详情请查看日志文件。",
 		"asrBackendDisabled": "{backend} 语音引擎在多次失败后已停用",
 		"asrBackendDisabledHint": "转写将回退到其他引擎。打开“模型”页面选择其他引擎。"
 	},

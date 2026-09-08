@@ -105,6 +105,20 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 		});
 	});
 
+	it("fires the shared recovering toast on → reconnecting (GAP-A parity with restarting)", async () => {
+		const { rerenderWith } = await renderWithStatus("connecting");
+		act(() => {
+			rerenderWith("reconnecting");
+		});
+		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
+		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
+		expect(opts).toMatchObject({
+			id: "conn-restarting",
+			description: "[t]app.restartingHint",
+			duration: 4000,
+		});
+	});
+
 	it("fires toast.success with id='conn-connected' on RECOVERY (disconnected → connected)", async () => {
 		const { rerenderWith } = await renderWithStatus("disconnected");
 		act(() => {

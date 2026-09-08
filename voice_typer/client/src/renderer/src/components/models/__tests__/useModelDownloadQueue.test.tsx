@@ -11,33 +11,36 @@
  *   • position-only updates (drain / queue-advance) re-render without
  *     state churn when the value is unchanged.
  *
- * The `usePythonEvent` hook is mocked (same capture technique as
- * `__tests__/app-download-progress-gating.test.tsx`) so the test invokes
- * the captured `download_progress` handler directly with synthetic
- * payloads.
+ * The `@/hooks/usePython` module is mocked via the shared stable-mocks
+ * harness (`__tests__/helpers/stableMocks`): `pythonMock({ captureEvents })`
+ * wires `usePython().call` to the assertable `stableMocks.mockCall`
+ * singleton and stores the `usePythonEvent` handler in the hoisted event
+ * map, so the tests invoke the captured `download_progress` handler
+ * directly with synthetic payloads.
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+	pythonMock,
+	resetStableMocks,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
+
+const { mockCall } = stableMocks;
+
+// Hoisted (NOT a standard singleton — it is this file's event capture
+// map) because the vi.mock factory below is hoisted above module-body
+// declarations and closes over it.
+const { eventHandlers } = vi.hoisted(() => ({
+	eventHandlers: {} as Record<string, (data: unknown) => void>,
+}));
+
+vi.mock("@/hooks/usePython", () =>
+	pythonMock({ captureEvents: eventHandlers }),
+);
 
 import { useModelDownloadQueue } from "@/components/models/useModelDownloadQueue";
-
-const { capturedHandlerRef, mockCall } = vi.hoisted(() => ({
-	capturedHandlerRef: {
-		current: null as ((data?: Record<string, unknown>) => unknown) | null,
-	},
-	mockCall: vi.fn(async (): Promise<{ queue?: unknown }> => ({ queue: [] })),
-}));
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: vi.fn(() => ({ call: mockCall })),
-	usePythonEvent: vi.fn(
-		(type: string, handler: (data?: Record<string, unknown>) => unknown) => {
-			if (type === "download_progress") {
-				capturedHandlerRef.current = handler;
-			}
-		},
-	),
-}));
 
 /** Probe component: renders one row per queued model + its position. */
 function QueueProbe() {
@@ -54,16 +57,24 @@ function QueueProbe() {
 }
 
 function fireEvent(data: Record<string, unknown> | undefined) {
-	const handler = capturedHandlerRef.current;
+	const handler = eventHandlers.download_progress;
 	expect(handler).toBeTruthy();
 	act(() => {
 		handler?.(data);
 	});
 }
 
+beforeEach(() => {
+	resetStableMocks();
+	// Default snapshot response — an empty queue (the pre-stableMocks
+	// preamble's mock resolved `{ queue: [] }`): the event tests below
+	// don't care about hydration. The hydration describe overrides per
+	// call via mockResolvedValueOnce / mockRejectedValueOnce.
+	mockCall.mockResolvedValue({ queue: [] });
+});
+
 afterEach(() => {
 	cleanup();
-	vi.clearAllMocks();
 });
 
 describe("useModelDownloadQueue — event-derived queue state", () => {

@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useAppStore } from "@/stores/appStore";
+import { isRecoveringStatus, useAppStore } from "@/stores/appStore";
 
 describe("appStore", () => {
 	beforeEach(() => {
@@ -39,6 +39,11 @@ describe("appStore", () => {
 			expect(useAppStore.getState().connectionStatus).toBe("connected");
 			setConnectionStatus("restarting");
 			expect(useAppStore.getState().connectionStatus).toBe("restarting");
+			setConnectionStatus("reconnecting");
+			expect(useAppStore.getState().connectionStatus).toBe("reconnecting");
+			expect(isRecoveringStatus("reconnecting")).toBe(true);
+			expect(isRecoveringStatus("restarting")).toBe(true);
+			expect(isRecoveringStatus("connected")).toBe(false);
 			setConnectionStatus("disconnected");
 			expect(useAppStore.getState().connectionStatus).toBe("disconnected");
 		});

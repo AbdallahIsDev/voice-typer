@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
+import { isRecoveringStatus } from "@/stores/appStore";
 
 interface ConnectionStatusScreenProps {
 	status: string;
@@ -62,7 +63,7 @@ export function ConnectionStatusScreen({
 
 	const isConnecting = status === "connecting";
 	const isDisconnected = status === "disconnected";
-	const isRestarting = status === "restarting";
+	const isRestarting = isRecoveringStatus(status);
 
 	// State-aware title so the user can tell apart "still starting"
 	// from "crashed and waiting for retry". The keys are localised in
@@ -70,7 +71,7 @@ export function ConnectionStatusScreen({
 	// namespace.
 	const title = isConnecting
 		? t("app.startingBackend")
-		: status === "restarting"
+		: isRestarting
 			? t("app.restartingBackend")
 			: t("app.lostConnection");
 

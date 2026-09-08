@@ -22,6 +22,13 @@ interface DegradationToastState {
 	 */
 	llmPolishFailedAt: number | null;
 	/**
+	 * Wall-clock timestamp of the last ``text_enhancement_failed``
+	 * toast shown (``null`` = none yet). Same cooldown rationale as
+	 * ``llmPolishFailedAt`` — the rule-based enhancement step can emit
+	 * one event per transcription while it is broken.
+	 */
+	textEnhancementFailedAt: number | null;
+	/**
 	 * Per-backend wall-clock timestamps of the last
 	 * ``asr_backend_disabled`` toast. Absent key = never toasted.
 	 */
@@ -34,6 +41,7 @@ interface DegradationToastState {
 	 */
 	lastAnyToastShownAt: number | null;
 	setLlmPolishFailedAt: (timestamp: number) => void;
+	setTextEnhancementFailedAt: (timestamp: number) => void;
 	setAsrBackendDisabledAt: (backend: string, timestamp: number) => void;
 	setLastAnyToastShownAt: (timestamp: number) => void;
 	/** Test seam — reset every field. */
@@ -43,9 +51,12 @@ interface DegradationToastState {
 export const useDegradationToastStore = create<DegradationToastState>(
 	(set) => ({
 		llmPolishFailedAt: null,
+		textEnhancementFailedAt: null,
 		asrBackendDisabledAt: {},
 		lastAnyToastShownAt: null,
 		setLlmPolishFailedAt: (timestamp) => set({ llmPolishFailedAt: timestamp }),
+		setTextEnhancementFailedAt: (timestamp) =>
+			set({ textEnhancementFailedAt: timestamp }),
 		setAsrBackendDisabledAt: (backend, timestamp) =>
 			set((state) => ({
 				asrBackendDisabledAt: {
@@ -58,6 +69,7 @@ export const useDegradationToastStore = create<DegradationToastState>(
 		resetForTest: () =>
 			set({
 				llmPolishFailedAt: null,
+				textEnhancementFailedAt: null,
 				asrBackendDisabledAt: {},
 				lastAnyToastShownAt: null,
 			}),

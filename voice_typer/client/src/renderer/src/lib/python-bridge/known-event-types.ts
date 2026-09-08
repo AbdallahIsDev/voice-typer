@@ -55,6 +55,9 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"asr_backend_disabled",
 	"asr_last_resort_unloaded",
 	"llm_polish_failed",
+	// rule-based AI-enhancement failure (Step 7b) — distinct from
+	// `llm_polish_failed` (the LLM-polish path).
+	"text_enhancement_failed",
 	"reconnecting",
 	"reconnected",
 	// the new mic_level push event (coalesced at

@@ -603,10 +603,10 @@ export function useConnection({
 		"reconnecting",
 		useCallback((): (() => void) | undefined => {
 			markEventReceived();
-			//`"restarting"` is a member of the ConnectionStatus
-			// union (see appStore.ts), so the `as ConnectionStatus` cast
-			// was redundant dead code.
-			setConnectionStatus("restarting");
+			// GAP-A landed: "reconnecting" is a first-class
+			// ConnectionStatus (see appStore.ts) and renders the shared
+			// recovering UI — no more "restarting" workaround.
+			setConnectionStatus("reconnecting");
 			return undefined;
 		}, [markEventReceived, setConnectionStatus]),
 	);

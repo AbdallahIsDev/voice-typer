@@ -2078,6 +2078,8 @@
 		"deviceLostHint": "Reconnect it or pick another microphone, then retry.",
 		"llmPolishFailed": "AI polish failed — transcription delivered without grammar cleanup",
 		"llmPolishFailedHint": "Check your LLM provider settings and connection. Polish retries automatically on the next transcription.",
+		"textEnhancementFailed": "AI text enhancement failed — transcription delivered without cleanup",
+		"textEnhancementFailedHint": "Enhancement is a local rule-based pass and is retried on the next transcription. Check the log file for details.",
 		"asrBackendDisabled": "{backend} speech engine disabled after repeated failures",
 		"asrBackendDisabledHint": "Transcription falls back to another engine. Open Models to pick a different one."
 	},

@@ -2078,6 +2078,8 @@
 		"deviceLostHint": "Reconnectez-le ou choisissez un autre microphone, puis réessayez.",
 		"llmPolishFailed": "Échec du raffinement IA — transcription livrée sans correction grammaticale",
 		"llmPolishFailedHint": "Vérifiez les réglages de votre fournisseur LLM et la connexion. Le raffinement réessaie automatiquement à la prochaine transcription.",
+		"textEnhancementFailed": "Échec de l'amélioration du texte par IA — transcription livrée sans nettoyage",
+		"textEnhancementFailedHint": "L'amélioration est un passage local basé sur des règles et sera réessayée à la prochaine transcription. Consultez le fichier journal pour plus de détails.",
 		"asrBackendDisabled": "Moteur vocal {backend} désactivé après plusieurs échecs",
 		"asrBackendDisabledHint": "La transcription utilise un autre moteur. Ouvrez Modèles pour en choisir un différent."
 	},

@@ -2078,6 +2078,8 @@
 		"deviceLostHint": "Schließen Sie es erneut an oder wählen Sie ein anderes Mikrofon, und versuchen Sie es dann erneut.",
 		"llmPolishFailed": "KI-Optimierung fehlgeschlagen – Transkript ohne Grammatikkorrektur geliefert",
 		"llmPolishFailedHint": "Prüfen Sie Ihre LLM-Anbietereinstellungen und die Verbindung. Die Optimierung wird bei der nächsten Transkription automatisch wiederholt.",
+		"textEnhancementFailed": "KI-Textverbesserung fehlgeschlagen – Transkript ohne Bereinigung geliefert",
+		"textEnhancementFailedHint": "Die Verbesserung ist ein lokaler regelbasierter Durchlauf und wird bei der nächsten Transkription erneut versucht. Details finden Sie in der Logdatei.",
 		"asrBackendDisabled": "{backend}-Sprachengine nach wiederholten Fehlern deaktiviert",
 		"asrBackendDisabledHint": "Die Transkription fällt auf eine andere Engine zurück. Öffnen Sie „Modelle“, um eine andere zu wählen."
 	},

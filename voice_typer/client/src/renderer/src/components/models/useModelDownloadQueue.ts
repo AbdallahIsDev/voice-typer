@@ -21,6 +21,7 @@
  * or malformed snapshot is a silent no-op — the event path still works.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 
 /** Map of model name → 1-based FIFO position in the download queue. */
@@ -31,11 +32,22 @@ export function useModelDownloadQueue(): ModelDownloadQueuePositions {
 		useState<ModelDownloadQueuePositions>({});
 	const { call } = usePython();
 
+	// Ref mirror of `call` (canonical latest-ref) so the one-shot mount
+	// snapshot below does NOT depend on `call`'s identity. `call` is
+	// useCallback-stable in production, but a test mock that hands out
+	// a FRESH `call` per render would re-fire the snapshot effect on
+	// every render (call → setState → render → new call → effect → …,
+	// the OOM render-loop class). Reading `callRef.current` inside the
+	// effect always sees the LATEST `call`.
+	const callRef = useLatestRef(call);
+
 	// One-shot mount snapshot: restore chips immediately when remounting
 	// mid-queue instead of waiting for the next queue transition event.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
-		call<{ queue?: unknown }>("get_download_queue")
+		callRef
+			.current<{ queue?: unknown }>("get_download_queue")
 			.then((res) => {
 				if (cancelled) return;
 				const queue = Array.isArray(res?.queue)
@@ -63,7 +75,7 @@ export function useModelDownloadQueue(): ModelDownloadQueuePositions {
 		return () => {
 			cancelled = true;
 		};
-	}, [call]);
+	}, []);
 
 	usePythonEvent(
 		"download_progress",

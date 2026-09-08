@@ -30,6 +30,7 @@ import { usePython } from "@/hooks/usePython";
 import { useRouteChangeFocus } from "@/hooks/useRouteChangeFocus";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
+import { useTextEnhancementFailedToast } from "@/hooks/useTextEnhancementFailedToast";
 import { useTheme } from "@/hooks/useTheme";
 import { useWindowMaximized } from "@/hooks/useWindowMaximized";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
@@ -237,6 +238,7 @@ export default function App() {
 	//     own hook above).
 	useDeviceLostToast(t, () => navigate("microphone"));
 	useLlmPolishFailedToast(t);
+	useTextEnhancementFailedToast(t);
 	useAsrBackendDisabledToast(t, () => navigate("models"));
 
 	// asr_last_resort_unloaded toast — surfaces the Models-page pointer

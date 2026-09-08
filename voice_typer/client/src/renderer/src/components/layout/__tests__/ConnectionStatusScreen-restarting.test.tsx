@@ -140,6 +140,29 @@ describe("ConnectionStatusScreen — roleless wrapper + restarting spinner + for
 		expect(onRetry).toHaveBeenCalledTimes(1);
 	});
 
+	it("status='reconnecting' renders the shared recovering UI (GAP-A parity with restarting)", () => {
+		const onRetry = vi.fn();
+		render(
+			<ConnectionStatusScreen
+				status="reconnecting"
+				lastError={null}
+				onRetry={onRetry}
+				connectingProgress={null}
+			/>,
+		);
+		// Same spinner + restartingBackend title + force-retry as
+		// "restarting" (isRecoveringStatus) — never the disconnected
+		// lost-connection copy.
+		expect(screen.getByRole("status", { name: "a11y.loading" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "app.restartingBackend" }),
+		).toBeTruthy();
+		const forceRetry = screen.getByTestId("connection-status-force-retry");
+		expect(forceRetry.tagName).toBe("BUTTON");
+		forceRetry.click();
+		expect(onRetry).toHaveBeenCalledTimes(1);
+	});
+
 	it("status='connecting' does NOT render the force-retry button (restarting-only affordance)", () => {
 		render(
 			<ConnectionStatusScreen
