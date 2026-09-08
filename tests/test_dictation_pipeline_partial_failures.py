@@ -106,7 +106,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     pipeline._templates_applied = False
     return pipeline
 

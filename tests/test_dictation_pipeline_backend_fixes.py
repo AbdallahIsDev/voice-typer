@@ -149,7 +149,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     # ``_check_resources_throttled`` reads these — they're normally
     # set by ``__init__``. Initialize them so ``run()`` doesn't crash
     # on the resource-check fast-path.
@@ -205,7 +204,6 @@ class TestFinallyBlockUsesAtomicPop:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         # pop_streaming_session must be called from the finally
@@ -252,7 +250,6 @@ class TestFinallyBlockUsesAtomicPop:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         (
@@ -293,7 +290,6 @@ class TestFinallyBlockUsesAtomicPop:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         (
@@ -348,7 +344,6 @@ class TestFinallyBlockUsesAtomicPop:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         assert not app.recording.set_streaming_session.called, (
@@ -820,7 +815,6 @@ class TestRunCatchesBackendNotLoadedError:
             duration=0.0,
             recorded_rms=0.0,
             cycle_id="test-cycle",
-            watchdog=None,
         )
 
         # The tray must have been notified with the friendly "model
@@ -887,7 +881,6 @@ class TestRunCatchesBackendNotLoadedError:
             duration=0.0,
             recorded_rms=0.0,
             cycle_id="test-cycle",
-            watchdog=None,
         )
 
         assert not called_empty_handler, (

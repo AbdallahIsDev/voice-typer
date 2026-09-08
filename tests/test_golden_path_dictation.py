@@ -312,7 +312,6 @@ def test_golden_path_sine_to_final_text_history_and_recovery(golden_app, tmp_con
         duration=duration,
         recorded_rms=recorder.last_rms,
         cycle_id=cycle_id,
-        watchdog=None,
     )
 
     # ── Contract 1: recorder→engine seam (filtered audio + stats) ──
@@ -383,7 +382,6 @@ def test_golden_path_engine_receives_resampled_shape(golden_app, monkeypatch):
         duration=audio.shape[0] / _WHISPER_SR,
         recorded_rms=recorder.last_rms,
         cycle_id="golden-path-cycle-0002",
-        watchdog=None,
     )
 
     assert engine.received_audio.dtype == np.float32

@@ -1048,20 +1048,13 @@ def test_main_rs_sets_up_rust_host_tray(main_rs_source) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FIX-2 (CR-1) not yet landed in tray.rs — the emit-based pattern "
-        "is BROKEN; this test asserts the correct WS-write pattern that "
-        "FIX-2 will introduce. When FIX-2 lands, the xfail will XPASS "
-        "and the suite will fail (strict=True), prompting removal of "
-        "the marker."
-    ),
-)
 def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
     """ADR-0020 §6.5 + MIG-1.9 Phase 3 + CR-1/CR-2 fix: ``src-tauri/src/tray.rs``
     renders the sidecar's ``tray_menu`` event and routes item clicks back to the
-    sidecar via a DIRECT WS frame write (``{"type":"tray_click","data":{"id":<id>}}``).
+    sidecar through the SHARED ``dispatch_inner`` path (which delegates to
+    ``dispatch_frame`` — the same WS-send implementation the public
+    ``dispatch`` command uses, with its size caps, shutdown short-circuit,
+    timeouts, and log correlation).
 
     CR-1 finding: the previous implementation emitted a Tauri ``dispatch`` EVENT
     (``app.emit("dispatch", payload)``) and relied on a renderer-side listener
@@ -1069,20 +1062,13 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
     tray menu clicks were completely non-functional on the Tauri path. CR-2
     coordinated the test update with the FIX-2 production fix in tray.rs.
 
-    The new contract (post-FIX-2): on menu item click, tray.rs acquires the
-    SidecarState, fetches the ``ws_tx`` channel, allocates a fresh frame_id,
-    and sends a ``Message::Text`` frame directly to the WS writer. The frame
-    shape (``{"type":"tray_click","data":{"id":...},"id":N}``) mirrors what
-    the dispatch command builds, so the Python side's ``_dispatch`` sees a
-    normal request and routes it to ``_handle_tray_click`` via the
-    ``_COMMAND_REGISTRY``. The response is fire-and-forget (no pending entry
-    registered).
-
-    WR-7: this test is marked ``xfail(strict=True)`` because FIX-2 (CR-1)
-    has not yet landed in tray.rs. The strict WS-write assertions below
-    assert the correct pattern that FIX-2 will introduce. When FIX-2 lands,
-    the test will XPASS and the suite will fail — prompting removal of the
-    xfail marker.
+    Design note (E5 — documented fix was a suggestion): FIX-2 as originally
+    specified prescribed an inline ``ws_tx.send(Message::Text(...))`` in
+    tray.rs. The landed design is SUPERIOR: routing through ``dispatch_inner``
+    shares the single hardened WS-send implementation instead of forking a
+    second one that would bypass the payload cap + shutdown + timeout guards
+    and drift from it. Inlining the raw send now would be a downgrade, so
+    this test pins the shared-path contract instead of the inline pattern.
     """
     tray_rs = PROJECT_ROOT / "src-tauri" / "src" / "tray.rs"
     assert tray_rs.exists(), f"tray.rs not found: {tray_rs}"
@@ -1091,38 +1077,32 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
     assert 'app.listen("tray_menu"' in src, (
         "tray.rs must listen for the sidecar's `tray_menu` event to rebuild the native menu on demand."
     )
-    # On click, it must build a tray_click frame with the item id.
+    # On click, it must build a tray_click command with the item id.
     assert '"tray_click"' in src, (
-        "tray.rs must build a `tray_click` frame (with the menu item id) when "
+        "tray.rs must build a `tray_click` command (with the menu item id) when "
         "a tray menu item is clicked — this routes the click back to the "
         "Python sidecar (ADR-0020 §6.5 + MIG-1.9 Phase 3)."
     )
-    # the tray menu click must be forwarded DIRECTLY through the
-    # WS writer channel — NOT emitted as a Tauri event. The frame is written
-    # via `ws_tx.send(Message::Text(frame.to_string()))` after acquiring
-    # SidecarState's `ws_tx` mutex.
-    assert "ws_tx" in src, (
-        "tray.rs must acquire the SidecarState.ws_tx channel to forward the "
-        "tray_click frame directly to the WS writer (CR-1 fix). The old "
-        "emit-based pattern is broken — no listener exists for the dispatch "
-        "event in the renderer."
-    )
-    assert "Message::Text" in src, (
-        "tray.rs must build a WS Message::Text frame to forward tray_click "
-        "(CR-1 fix — direct WS write, not a Tauri event emit)."
+    # The click must go through the shared dispatch_inner path (which
+    # delegates to dispatch_frame — the hardened WS-send implementation),
+    # NOT through an inline ws_tx send and NOT emitted as a Tauri event.
+    assert "dispatch_inner" in src, (
+        "tray.rs must route tray_click through the shared `dispatch_inner` "
+        "path (CR-1 fix). An inline ws_tx.send would fork a second WS-send "
+        "implementation bypassing the payload cap + shutdown + timeout guards."
     )
     # regression guard: the OLD buggy `emit("dispatch", ...)` pattern
     # must NOT be present. If it ever returns, the tray menu will be
     # non-functional again (the renderer never listens for the dispatch event).
     assert 'emit("dispatch"' not in src, (
         "stale `emit('dispatch', ...)` pattern present in tray.rs — CR-1 "
-        "regression. The tray click must be forwarded via ws_tx.send(Message::Text(...)) "
-        "directly to the WS writer, not emitted as a Tauri event."
+        "regression. The tray click must go through `dispatch_inner`, "
+        "not emitted as a Tauri event."
     )
     assert 'app.emit("dispatch"' not in src, (
         "stale `app.emit('dispatch', ...)` pattern present in tray.rs — CR-1 "
-        "regression. The tray click must be forwarded via ws_tx.send(Message::Text(...)) "
-        "directly to the WS writer, not emitted as a Tauri event."
+        "regression. The tray click must go through `dispatch_inner`, "
+        "not emitted as a Tauri event."
     )
 
 

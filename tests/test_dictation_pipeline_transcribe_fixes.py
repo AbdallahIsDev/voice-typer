@@ -137,7 +137,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     # ``_check_resources_throttled`` reads these — they're normally
     # set by ``__init__``. Initialize them so ``run()`` doesn't crash
     # on the resource-check fast-path.
@@ -474,7 +473,6 @@ class TestPartialSavedToCrashRecovery:
             duration=0.0,
             recorded_rms=0.0,
             cycle_id="fix-j-cycle",
-            watchdog=None,
         )
 
         # The partial text must have been saved to crash recovery.
@@ -532,7 +530,6 @@ class TestPartialSavedToCrashRecovery:
             duration=0.0,
             recorded_rms=0.0,
             cycle_id="fix-j-cycle",
-            watchdog=None,
         )
 
         (
@@ -591,7 +588,6 @@ class TestPartialSavedToCrashRecovery:
             duration=0.0,
             recorded_rms=0.0,
             cycle_id="fix-j-cycle",
-            watchdog=None,
         )
 
         # text was "" when the boom fired → no save (gated on `if text`).

@@ -179,15 +179,31 @@ def _shutdown_sidecar_body() -> str:
     """Extract the body of `shutdown_sidecar` from sidecar_cmds.rs.
 
     Returns the source text of the function (from `pub async fn
-    shutdown_sidecar` through the closing brace). Used by every
+    shutdown_sidecar` through the closing brace), CONCATENATED with the
+    body of `shutdown_sidecar_inner` when present. Used by every
     source-inspection test for that function so the regex lives in one
     place (if the function signature changes, only this helper needs
     updating).
+
+    The command was split into a thin wrapper + `shutdown_sidecar_inner`
+    (the same convention as `dispatch_inner` — the command body is
+    callable/testable outside a Tauri command invocation), so the
+    cooperative-shutdown control flow now lives in the inner function.
+    Both the wrapper AND the inner function are returned so the
+    assertions below keep pinning the real control flow.
     """
     src = _read_sidecar_cmds_module()
     m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
     assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
-    return m.group(0)
+    body = m.group(0)
+    m_inner = re.search(
+        r"pub(?:\(super\))? async fn shutdown_sidecar_inner\b.*?\n\}",
+        src,
+        re.DOTALL,
+    )
+    if m_inner:
+        body += "\n\n" + m_inner.group(0)
+    return body
 
 
 # ─── Rust source-inspection: shutdown_sidecar command ─────────────────
@@ -212,19 +228,33 @@ class TestShutdownSidecarSource:
         assert _SIDECAR_CMDS_RS.is_file(), f"shutdown_sidecar source missing: {_SIDECAR_CMDS_RS}"
 
     def test_sets_shutting_down_atomic_flag(self):
-        """Step 1: `state.shutting_down.swap(true, Ordering::SeqCst)`.
+        """Step 1: set `state.shutting_down` (atomic flag) via `swap`/`store`
+        or the canonical `state.begin_shutdown()` routing.
 
         ADR-0020 §10: the flag MUST be set BEFORE sending the shutdown
         frame so the supervisor (which may see the sidecar exit
-        concurrently) doesn't try to respawn mid-shutdown.
+        concurrently) doesn't try to respawn mid-shutdown. The flag set
+        uses `swap` (not `store`) so a duplicate `shutdown_sidecar`
+        invocation can detect the already-in-progress shutdown via the
+        returned previous value and short-circuit; the command path
+        routes through `state.begin_shutdown()` (the swap + notify_one
+        pair in state.rs).
         """
         body = _shutdown_sidecar_body()
-        assert "shutting_down" in body, "shutdown_sidecar must reference state.shutting_down (the atomic flag)"
-        assert ".swap(true" in body, (
-            "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"  # noqa: E501
+        flag_match = re.search(
+            r"shutting_down\s*\.\s*(?:swap|store)\(true,\s*(?:std::sync::atomic::)?Ordering::SeqCst\)",
+            body,
+        )
+        begin_shutdown_match = re.search(r"state\.begin_shutdown\(\)", body)
+        assert flag_match is not None or begin_shutdown_match is not None, (
+            "shutdown_sidecar must set state.shutting_down = true (atomic flag) "
+            "via `shutting_down.swap(true, Ordering::SeqCst)` or "
+            "`shutting_down.store(true, Ordering::SeqCst)` or the canonical "
+            "`state.begin_shutdown()` routing (swap + notify_one, pinned by "
+            "state_tests.rs) so supervisor doesn't respawn during shutdown"
         )
         # The flag set must come BEFORE the WS frame send.
-        idx_flag = body.index(".swap(true")
+        idx_flag = flag_match.start() if flag_match is not None else begin_shutdown_match.start()
         idx_frame = body.index('json!({"type": "shutdown"})')
         assert idx_flag < idx_frame, (
             "shutting_down flag must be set BEFORE the shutdown frame is sent "

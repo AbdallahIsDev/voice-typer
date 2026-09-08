@@ -754,6 +754,22 @@ def test_icon_stub_generator_run_produces_all_expected_files(_serialize_icon_stu
     assert not leftover_icons, f"--clean deleted committed icons: {leftover_icons}"
     leftover_stubs = [p for p in expected_sidecars + expected_native if p.exists()]
     assert not leftover_stubs, f"--clean left binary stubs behind: {leftover_stubs}"
+    # Restore the stubs this test just cleaned: later steps (cargo check /
+    # cargo test) need them present, and no later hook can be relied on to
+    # re-create them (a session-finish net does not survive a hard kill —
+    # see the stub-loss guard in tests/tauri/conftest.py).
+    regen = subprocess.run(
+        [sys.executable, str(ICON_STUB_GENERATOR)],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        timeout=30,
+    )
+    assert regen.returncode == 0, (
+        f"post-clean stub restore failed:\n--- stdout ---\n{regen.stdout}\n--- stderr ---\n{regen.stderr}"
+    )
+    unrestored = [p for p in expected_sidecars + expected_native if not p.exists()]
+    assert not unrestored, f"stubs still missing after restore: {unrestored}"
 
 
 # ─── Known gaps (assert the gap is present; DO NOT fix) ──────────────────────

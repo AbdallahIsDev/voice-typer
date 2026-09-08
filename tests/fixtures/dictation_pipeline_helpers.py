@@ -110,5 +110,4 @@ def new_pipeline(app: Any) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     return pipeline

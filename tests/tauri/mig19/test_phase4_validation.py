@@ -312,6 +312,14 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "cancel_model_download",
         "pause_model_download",
         "resume_model_download",
+        # Pending-download FIFO queue snapshot (read-only, no payload)
+        # — hydrates the renderer's queue chips on mount; live updates
+        # flow via ``download_progress``. See the §16 addendum in
+        # ADR-0020. No-payload read: no ``_validate_dict_payload``
+        # schema required (same exemption as ``get_correction_usage``);
+        # dispatch-error coverage lives in
+        # ``tests/test_ipc_dispatch_errors.py``.
+        "get_download_queue",
         "get_model_catalog",
         # REMOVED: ``test_llm_connection`` — the renderer's Settings
         # page now uses the service-layer method directly (not over
@@ -377,7 +385,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 70, (
+assert len(EXPECTED_COMMANDS) == 71, (
     "ADR-0020 §2 freezes the command table. 69 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
@@ -390,7 +398,10 @@ assert len(EXPECTED_COMMANDS) == 70, (
     "plan §6.3 addendum — Cache Status card restored verbatim from 5a319872; ``run_prewarm`` "
     "re-implemented (in-process warm pass, no deleted-subprocess spawn); + 2 "
     "``get_correction_usage`` / ``test_vocabulary_correction`` §16 addendum 2026-08-16 "
-    "— vocabulary usage tracking + live correction test panel). The prior 76-command "
+    "— vocabulary usage tracking + live correction test panel; + "
+    "``get_download_queue`` §16 addendum 2026-09-08 — pending-download "
+    "FIFO queue snapshot, read-only mount hydration for the Models "
+    "page queue chips). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "

@@ -44,6 +44,7 @@ import tempfile
 import time
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import filelock
 import pytest
@@ -132,6 +133,27 @@ def _stub_paths() -> list[Path]:
     return paths
 
 
+def _ensure_stubs_present(expected: list[Path], attempts: int = 3) -> list[Path]:
+    """Regenerate stubs until every ``expected`` path exists again.
+
+    Returns the still-missing paths (empty = fully restored). ``generate``
+    preserves real binaries (``_write_stub_file_if_needed``), so re-running
+    it can only ADD missing stubs, never clobber a real artifact. Retries
+    ride out transient Windows write failures (AV / file-lock Errno 22 —
+    the same class as the committed-icon write flake handled below).
+    Pure query + ``_run`` calls (no pytest dependency) so unit tests can
+    pin the retry contract directly.
+    """
+    missing = [p for p in expected if not p.exists()]
+    for _ in range(attempts):
+        if not missing:
+            return []
+        _run()
+        time.sleep(0.5)
+        missing = [p for p in expected if not p.exists()]
+    return missing
+
+
 @pytest.fixture(autouse=True)
 def _serialize_and_cleanup():
     """Acquire a cross-process file lock for the duration of each test, then
@@ -165,6 +187,14 @@ def _serialize_and_cleanup():
     after ``--clean``, regenerates them — so the pre-test state is restored
     in a ``finally``-equivalent position and a fresh checkout (no stubs)
     still ends clean.
+
+    STUB-LOSS GUARD: an earlier form ran ``--clean`` + ``generate``
+    back-to-back with no verification, so a killed worker — or a transient
+    Windows write failure inside ``generate`` — left the tree stub-less and
+    every later ``cargo check`` failed with "resource path ... doesn't
+    exist". The restore is now VERIFIED via ``_ensure_stubs_present``
+    (retried 3x) and fails LOUDLY, so the suite flags the loss at the
+    point of loss instead of an unrelated later step.
     """
     lock = filelock.FileLock(str(_LOCK_PATH), timeout=60)
     with lock:
@@ -181,7 +211,13 @@ def _serialize_and_cleanup():
         # bring them back (``--clean`` just removed them). ``generate``
         # preserves real binaries, so this cannot clobber a real artifact.
         if pre_existing_stubs:
-            _run()
+            still_missing = _ensure_stubs_present(pre_existing_stubs)
+            if still_missing:
+                pytest.fail(
+                    "stub restore failed — these pre-existing stubs are "
+                    "still missing after --clean + 3x generate: "
+                    + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in still_missing)
+                )
         # Self-heal after each test too: if THIS test hit the transient
         # write failure and left an icon corrupt, the next test must not
         # read it (was the root cause of a 3-failure cascade in full-suite
@@ -1532,3 +1568,78 @@ def test_stub_sidecar_scripts_exit_nonzero_with_marker_windows():
             f"loudly if executed (Windows cannot run the POSIX "
             f"shell script directly)."
         )
+
+
+# ─── Stub-loss guard tests ──────────────────────────────────────────────
+# Pins the two guards that keep ``cargo check`` working after test runs:
+# ``_ensure_stubs_present`` (verified fixture-teardown restore) and the
+# session-finish net in ``tests/tauri/conftest.py``.
+
+
+def test_ensure_stubs_present_noop_when_all_exist(tmp_path, monkeypatch):
+    """All paths present → returns [] WITHOUT invoking generate."""
+    import sys as _sys
+
+    present = tmp_path / "a.exe"
+    present.write_bytes(b"x")
+    calls: list = []
+    monkeypatch.setattr(
+        _sys.modules[__name__],
+        "_run",
+        lambda *a: calls.append(a) or subprocess.CompletedProcess(args=a, returncode=0),
+    )
+    assert _ensure_stubs_present([present]) == []
+    assert calls == []
+
+
+def test_ensure_stubs_present_retries_then_reports_missing(tmp_path, monkeypatch):
+    """Persistently missing path → ``attempts`` generate calls, path returned."""
+    import sys as _sys
+
+    calls: list = []
+    monkeypatch.setattr(
+        _sys.modules[__name__],
+        "_run",
+        lambda *a: calls.append(a) or subprocess.CompletedProcess(args=a, returncode=0),
+    )
+    missing = tmp_path / "ghost.exe"
+    assert _ensure_stubs_present([missing], attempts=2) == [missing]
+    assert len(calls) == 2
+
+
+def _load_tauri_conftest():
+    """Load ``tests/tauri/conftest.py`` as a module (importlib precedent:
+    ``test_installer_naming.py`` loads the stub script the same way)."""
+    import importlib.util
+
+    path = PROJECT_ROOT / "tests" / "tauri" / "conftest.py"
+    spec = importlib.util.spec_from_file_location("_vt_tauri_conftest_guard", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_sessionfinish_restores_only_on_controller(tmp_path, monkeypatch, capsys):
+    """Controller sessionfinish re-runs generate for missing pre-session
+    stubs (best-effort); xdist workers skip (controller runs it once)."""
+    import subprocess as _subprocess
+
+    mod = _load_tauri_conftest()
+    ghost = tmp_path / "ghost.exe"
+    monkeypatch.setattr(mod, "_session_stub_paths", [str(ghost)])
+    calls: list = []
+    monkeypatch.setattr(
+        _subprocess,
+        "run",
+        lambda *a, **k: calls.append(a) or subprocess.CompletedProcess(args=a, returncode=0),
+    )
+    controller = SimpleNamespace(config=SimpleNamespace())
+    mod.pytest_sessionfinish(controller, 0)  # must not raise
+    assert len(calls) == 3  # 3 attempts, ghost never appears
+    assert not ghost.exists()
+    assert "stub-guard" in capsys.readouterr().out
+
+    worker = SimpleNamespace(config=SimpleNamespace(workerinput={"workerid": "gw0"}))
+    mod.pytest_sessionfinish(worker, 0)  # must not raise, must not run generate
+    assert len(calls) == 3

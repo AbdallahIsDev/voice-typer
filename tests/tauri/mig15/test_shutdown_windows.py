@@ -120,6 +120,37 @@ def _read_sidecar_cmds_module() -> str:
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
+def _shutdown_sidecar_body() -> str:
+    """Extract the body of ``shutdown_sidecar`` from sidecar_cmds.rs.
+
+    Returns the source text of the function (from ``pub async fn
+    shutdown_sidecar`` through the closing brace), CONCATENATED with the
+    body of ``shutdown_sidecar_inner`` when present. Used by every
+    source-inspection test for that function so the regex lives in one
+    place (if the function signature changes, only this helper needs
+    updating).
+
+    The command was split into a thin wrapper + ``shutdown_sidecar_inner``
+    (the same convention as ``dispatch_inner`` — the command body is
+    callable/testable outside a Tauri command invocation), so the
+    cooperative-shutdown control flow now lives in the inner function.
+    Both the wrapper AND the inner function are returned so the
+    assertions below keep pinning the real control flow.
+    """
+    src = _read_sidecar_cmds_module()
+    m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
+    assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
+    body = m.group(0)
+    m_inner = re.search(
+        r"pub(?:\(super\))? async fn shutdown_sidecar_inner\b.*?\n\}",
+        src,
+        re.DOTALL,
+    )
+    if m_inner:
+        body += "\n\n" + m_inner.group(0)
+    return body
+
+
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
@@ -160,25 +191,29 @@ class TestShutdownSidecarSource:
         frame so the supervisor (which may see the sidecar exit
         concurrently) doesn't try to respawn mid-shutdown.
         """
-        src = _read_sidecar_cmds_module()
-        # Find the shutdown_sidecar body and assert the flag set is the
-        # first statement (before the WS frame send).
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
-        body = m.group(0)
-        # The refactored implementation uses `swap(true, SeqCst)` (an
-        # atomic test-and-set) instead of `store(true, ...)` — the swap
-        # doubles as the duplicate-invocation re-entrancy guard (a
-        # second call sees the previous value already true and
-        # short-circuits). Both forms set the flag to true before the
-        # frame is sent; this is what the supervisor checks.
-        assert "shutting_down\n        .swap(true, std::sync::atomic::Ordering::SeqCst)" in body or (
-            "shutting_down.swap(true, Ordering::SeqCst)" in body
-        ), (
-            "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"  # noqa: E501
+        body = _shutdown_sidecar_body()
+        # The command path routes the flag set through `state.begin_shutdown()`
+        # (the canonical swap + notify_one pair in state.rs — the swap is an
+        # atomic test-and-set whose returned previous value doubles as the
+        # duplicate-invocation re-entrancy guard; the notify_one wakes a
+        # supervisor parked in its backoff sleep). Both the inline
+        # `shutting_down.swap/store(true, SeqCst)` forms (pre- and post-PVT-17)
+        # and the `begin_shutdown()` routing set the flag before the frame is
+        # sent; this is what the supervisor checks.
+        flag_match = re.search(
+            r"shutting_down\s*\.\s*(?:swap|store)\(true,\s*(?:std::sync::atomic::)?Ordering::SeqCst\)",
+            body,
+        )
+        begin_shutdown_match = re.search(r"state\.begin_shutdown\(\)", body)
+        assert flag_match is not None or begin_shutdown_match is not None, (
+            "shutdown_sidecar must set state.shutting_down = true (atomic flag) "
+            "via `shutting_down.swap(true, Ordering::SeqCst)` or "
+            "`shutting_down.store(true, Ordering::SeqCst)` or the canonical "
+            "`state.begin_shutdown()` routing (swap + notify_one, pinned by "
+            "state_tests.rs) so supervisor doesn't respawn during shutdown"
         )
         # The flag set must come BEFORE the WS frame send.
-        idx_flag = body.index("shutting_down")
+        idx_flag = flag_match.start() if flag_match is not None else begin_shutdown_match.start()
         idx_frame = body.index('json!({"type": "shutdown"})')
         assert idx_flag < idx_frame, (
             "shutting_down flag must be set BEFORE the shutdown frame is sent "
@@ -193,10 +228,7 @@ class TestShutdownSidecarSource:
         `{"type":"result","data":{"ack":true}}` but the host doesn't
         correlate via id, it just waits for process exit).
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # The frame literal.
         assert 'json!({"type": "shutdown"})' in body, 'shutdown_sidecar must send a {"type":"shutdown"} WS frame'
         # Sent via the WS writer channel (ws_tx), not via stdout/stdin.
@@ -216,10 +248,7 @@ class TestShutdownSidecarSource:
         at spawn time) and returns as soon as `Terminated` arrives
         (~50ms typical), instead of sleeping the full 2s unconditionally.
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # References the configured timeout constant.
         assert "SHUTDOWN_ACK_TIMEOUT_MS" in body, (
             "shutdown_sidecar must wait for SHUTDOWN_ACK_TIMEOUT_MS (the configured cooperative-shutdown deadline)"
@@ -244,10 +273,7 @@ class TestShutdownSidecarSource:
         (graceful path) but guarantees no zombie if the sidecar is stuck
         inside a native CTranslate2 call and cannot service the WS frame.
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # Takes the child out of the Option (single-use after kill). The
         # refactored implementation uses the `mutex_lock(&state.child)`
         # helper (the same pattern the supervisor uses) instead of the
@@ -283,10 +309,7 @@ class TestShutdownSidecarSource:
         the operator can tell from the log alone whether the sidecar
         acked+exited or had to be killed.
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # Graceful-exit log (Terminated received).
         assert "sidecar exited gracefully" in body, (
             "shutdown_sidecar must log '[SHUTDOWN] sidecar exited gracefully' "
@@ -314,10 +337,7 @@ class TestShutdownSidecarSource:
         for dev mode — it just can't poll Terminated, so it sleeps in
         SHUTDOWN_POLL_INTERVAL_MS increments up to the deadline.
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # The refactored dev-mode fallback sleeps once for the full
         # SHUTDOWN_ACK_TIMEOUT_MS deadline (a single bounded sleep — the
         # old SHUTDOWN_POLL_INTERVAL_MS constant was removed because the
@@ -363,10 +383,7 @@ class TestShutdownConstants:
         deadline (the old SHUTDOWN_POLL_INTERVAL_MS constant was removed when
         the incremental-poll fallback was replaced by a single bounded sleep).
         """
-        src = _read_sidecar_cmds_module()
-        m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
-        assert m, "shutdown_sidecar function not found"
-        body = m.group(0)
+        body = _shutdown_sidecar_body()
         # The dev-mode branch sleeps for the full deadline duration, then
         # falls through to the force-kill backstop.
         assert "tokio::time::sleep(deadline_dur)" in body, (

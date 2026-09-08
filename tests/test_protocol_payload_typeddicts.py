@@ -22,7 +22,6 @@ import pytest
 from voice_typer.server.config_applier import (
     ConfigApplier,
     SideEffectStatus,
-    apply_config_side_effects as module_level_apply_config_side_effects,
 )
 from voice_typer.server.history_db_internals.search import project_text_row
 from voice_typer.server.providers import (
@@ -53,14 +52,6 @@ def fake_app() -> MagicMock:
 
 
 class TestSideEffectStatus:
-    def test_module_level_entry_point_returns_empty_status(self) -> None:
-        """The module-level delegation seam returns the all-None status
-        dict with exactly the two documented keys."""
-        result = module_level_apply_config_side_effects({}, None)
-        assert set(result) == set(SideEffectStatus.__annotations__)
-        assert result["autostart_status"] is None
-        assert result["prewarm_status"] is None
-
     def test_dispatch_result_keys_match_typeddict(self, fake_app: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
         """``ConfigApplier.apply_config_side_effects`` accumulates a dict
         whose keys are exactly the ``SideEffectStatus`` fields."""

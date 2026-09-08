@@ -86,6 +86,10 @@ def _make_registry_and_manager(
     app.recorder.recording = False
     app._busy_event = threading.Event()
     app._busy_event.set()  # is_set() == True means NOT busy
+    # Production resets via the coordinator (``_busyness.set_idle()``),
+    # so wire the mock through to the real Event the asserts observe.
+    app._busyness.set_idle.side_effect = lambda: app._busy_event.set()
+    app._busyness.set_busy.side_effect = lambda: app._busy_event.clear()
     app._config_mutation_lock = threading.RLock()
     app._shutting_down = False
     app._pending_dictation = False

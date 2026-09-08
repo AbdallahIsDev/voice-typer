@@ -613,18 +613,45 @@ def test_spawn_rs_server_started_log_line_format(spawn_rs_source) -> None:
     """ADR-0020 §1 + §3: the server_started log line must NOT include the token.
 
     Per ADR-0020 §3 ("never logged"), the bearer token must not appear
-    in any log line. spawn.rs logs ``[SIDECAR] server_started port={}``
-    — port only, never the token. The token is rotated per launch and
-    per respawn and is only ever held in-memory in the Rust host.
+    in any log line. The release sidecar path logs
+    ``[SIDECAR] server_started port={}`` — port only, never the token.
+    The token is rotated per launch and per respawn and is only ever
+    held in-memory in the Rust host.
 
     On Linux this log line is grepped from
     ``~/.local/share/voice-typer/logs/sidecar.log`` (runbook §5 + §6
     pass criteria + 9-Point Validation Gate Summary, gate #1).
+
+    The four stdout-handshake loops were consolidated into
+    ``spawn/handshake_loop.rs``: the success line is emitted from ONE
+    shared template (``"{} {} port={}"``) parameterized by
+    ``HandshakeLabels``. The runtime line is therefore proven by (a)
+    the shared template in handshake_loop.rs plus (b) the release
+    path's label wiring (``log_tag: "[SIDECAR]"`` +
+    ``event_name: "server_started"``) — together they render exactly
+    ``[SIDECAR] server_started port=N``.
     """
-    port_log_re = re.compile(r"\[SIDECAR\]\s*server_started\s*port=\{[^}]*\}")
-    assert port_log_re.search(spawn_rs_source), (
-        "spawn.rs must log '[SIDECAR] server_started port={}' on success "
-        "(runbook §5 + §6 pass criteria greps for this line on Linux)"
+    # (a) The shared success-line template in the handshake loops.
+    template_re = re.compile(r'log::info!\("\{\} \{\} port=\{\}",\s*labels\.log_tag,\s*labels\.event_name')
+    assert template_re.search(spawn_rs_source), (
+        "handshake_loop.rs must log the handshake success line via the "
+        'shared template "{} {} port={}" (labels.log_tag, '
+        "labels.event_name, port) — the template that renders the "
+        "runbook's '[SIDECAR] server_started port=N' line on Linux."
+    )
+    # (b) The release path wires the labels that render that template
+    # as exactly '[SIDECAR] server_started port=N'.
+    release_mode_src = (_SPAWN_RS.parent / "spawn" / "release_mode.rs").read_text(encoding="utf-8")
+    assert re.search(r'log_tag:\s*"\[SIDECAR\]"', release_mode_src), (
+        'release_mode.rs must pass log_tag "[SIDECAR]" to the shared '
+        "handshake loop so the success line greps as '[SIDECAR] ...' "
+        "(runbook §5 + §6 pass criteria)."
+    )
+    assert re.search(r'event_name:\s*"server_started"', release_mode_src), (
+        'release_mode.rs must pass event_name "server_started" to the '
+        "shared handshake loop so the success line greps as "
+        "'[SIDECAR] server_started port=N' (runbook §5 + §6 pass "
+        "criteria)."
     )
     assert not re.search(
         r"log::\w+!\([^)]*token[^)]*\)",

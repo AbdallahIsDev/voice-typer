@@ -48,21 +48,12 @@ flow (real respawn → real banner appears) is documented in the
 KNOWN GAPS (report, do not fix)
 -------------------------------
 
-GAP-A (``ConnectionStatus`` is missing a ``"reconnecting"`` literal).
-ADR-0020 §10 + the MIG-1.9 task description call for a 4-status union
-of ``connected | disconnected | reconnecting | restarting``. The actual
-``ConnectionStatus`` union in ``appStore.ts`` is
-``connected | disconnected | connecting | restarting`` — note
-``"connecting"`` (initial backend-startup state) instead of
-``"reconnecting"`` (transient recovery state). The ``useConnection``
-hook handles the ``"reconnecting"`` event from the bridge, but it
-**maps that event onto the existing ``"restarting"`` status literal**
-(``setConnectionStatus("restarting" as ConnectionStatus)`` — the
-``as`` cast is a smell that the type doesn't admit the natural
-literal). Consequence: the UI cannot distinguish "initial cold start"
-from "transient reconnect after WS drop" — both render the same
-"Restarting Voice Typer backend…" spinner. Functionally OK (the user
-sees a spinner either way), but semantically imprecise. Not blocking.
+GAP-A (RESOLVED): ``ConnectionStatus`` now includes the ``"reconnecting"``
+literal alongside ``"connecting"`` (cold start), ``"restarting"`` (full
+respawn), ``"connected"`` and ``"disconnected"``. The ``useConnection``
+hook sets ``"reconnecting"`` directly on the bridge's ``"reconnecting"``
+event, and it renders through the shared recovering UI
+(``isRecoveringStatus``) with the same spinner copy as ``"restarting"``.
 
 GAP-B (Tauri bridge relies on ``as unknown as PythonPushEvent`` cast
 to inject the synthesised ``reconnecting`` / ``reconnected`` events).
@@ -221,15 +212,12 @@ _IPC_TS = _RENDERER_SRC / "types" / "ipc" / "push_events.ts"
 _SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 
-# ─── Expected connection-status literals (single source of truth) ──────
-# ADR-0020 §10 +  task spec call for these 4 states. The actual
-# ConnectionStatus union in appStore.ts uses "connecting" instead of
-# "reconnecting" — see GAP-A in the module docstring above.
-_REQUIRED_STATUS_LITERALS = ("connected", "disconnected", "restarting")
-# The "reconnecting" literal is desired (task spec) but NOT in the
-# actual union — the hook casts "restarting" via `as ConnectionStatus`.
-# Tracked as GAP-A; we still assert that the "reconnecting" EVENT name
-# is handled by useConnection (separate from the status literal).
+# Expected connection-status literals (single source of truth).
+# GAP-A resolved: the union carries both "connecting" (cold start) and
+# "reconnecting" (transient recovery) - see the module docstring.
+_REQUIRED_STATUS_LITERALS = ("connected", "disconnected", "restarting", "reconnecting")
+# The "reconnecting" EVENT name (bridge-synthesised) is handled by
+# useConnection separately from the status literal of the same name.
 _DESIRED_RECONNECTING_LITERAL = "reconnecting"
 
 # ─── Expected Tauri event names emitted by the Rust host ───────────────
@@ -389,18 +377,13 @@ def test_connection_status_union_includes_required_literals(
       - ``"restarting"``     — transient state during respawn,
                                 shows the "Restarting Voice Typer
                                 backend…" spinner.
-      - ``"reconnecting"``   — desired-but-missing (GAP-A): currently
-                                ``useConnection`` casts
-                                ``"restarting" as ConnectionStatus``
-                                when the bridge fires the
-                                ``"reconnecting"`` python-event, so
-                                both flows render the same UI branch.
-
-    We extract the ``ConnectionStatus`` union declaration via regex
-    and assert that the 3 required literals are present. We assert
-    the missing ``"reconnecting"`` literal separately (with a softer
-    skip-if-absent check) so a future fix that adds it doesn't break
-    this test.
+      - ``"reconnecting"``   - transient recovery state: set
+                                directly by ``useConnection`` on the
+                                bridge's ``"reconnecting"`` python-event
+                                and rendered through the shared
+                                recovering UI (``isRecoveringStatus``).
+    and assert that the 4 required literals are present (including
+    ``"reconnecting"`` since GAP-A landed).
     """
     # Extract: `export type ConnectionStatus = "a" | "b" | ... ;`
     union_re = re.compile(
@@ -424,15 +407,10 @@ def test_connection_status_union_includes_required_literals(
 def test_connection_status_union_documents_reconnecting_gap(
     app_store_source: str,
 ) -> None:
-    """GAP-A documentation: the desired ``"reconnecting"`` literal is
-    NOT in the ``ConnectionStatus`` union — the ``useConnection`` hook
-    currently casts ``"restarting" as ConnectionStatus`` to admit the
-    transient reconnect state.
-
-    This test is intentionally permissive: if a future fix adds the
-    ``"reconnecting"`` literal, this test will start PASSING with a
-    positive message ("GAP-A resolved"). Until then it asserts the
-    gap is documented in this test file's docstring.
+    """GAP-A resolved: the ``"reconnecting"`` literal IS in the
+    ``ConnectionStatus`` union - the ``useConnection`` hook sets it
+    directly (no ``"restarting"`` workaround cast) and it renders
+    through the shared recovering UI (``isRecoveringStatus``).
     """
     union_re = re.compile(
         r"export\s+type\s+ConnectionStatus\s*=\s*([^;]+);",
@@ -443,22 +421,14 @@ def test_connection_status_union_documents_reconnecting_gap(
     union_body = match.group(1)
     literals = re.findall(r'"([a-z_]+)"', union_body)
 
-    if _DESIRED_RECONNECTING_LITERAL in literals:
-        # GAP-A resolved — the literal was added.
-        pytest.fail(
-            "GAP-A appears resolved: 'reconnecting' is now in the "
-            "ConnectionStatus union. Update this test (and the GAP-A "
-            "note in the module docstring) to reflect the fix, then "
-            "convert this test to a positive assertion."
-        )
-    # GAP-A still open — assert the union uses "connecting" instead
-    # (the cold-start state). This documents the asymmetry: the
-    # backend-event name is "reconnecting" but the status-literal is
-    # "restarting" (and the cold-start literal is "connecting").
+    # GAP-A resolved - the literal was added (see test docstring).
+    assert _DESIRED_RECONNECTING_LITERAL in literals, (
+        f"GAP-A regression: 'reconnecting' must stay in the ConnectionStatus union. Found literals: {literals}"
+    )
+    # The cold-start literal coexists (distinct states, distinct copy).
     assert "connecting" in literals, (
-        "GAP-A: ConnectionStatus union should include 'connecting' "
-        "(cold-start state) since 'reconnecting' is currently mapped "
-        f"to 'restarting'. Found literals: {literals}"
+        "ConnectionStatus union must keep 'connecting' (cold-start) "
+        f"alongside 'reconnecting' (transient recovery). Found: {literals}"
     )
 
 
@@ -712,17 +682,6 @@ def test_use_connection_handles_reconnected_event(
 # ─── Test 4: bridge emits "restarting" event when supervisor relaunches app ─
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP-A: the ConnectionStatus union in appStore.ts is missing "
-        "the 'reconnecting' literal — the handler currently uses "
-        "'restarting' as a workaround. This test asserts the correct "
-        "'reconnecting' literal that GAP-A's fix will introduce. When "
-        "GAP-A lands, the xfail will XPASS and the suite will fail "
-        "(strict=True), prompting removal of the marker."
-    ),
-)
 def test_use_connection_maps_reconnecting_event_to_restarting_status(
     use_connection_source: str,
 ) -> None:
@@ -731,21 +690,10 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
     emits when the Rust host fires ``supervisor_relaunching``) and transition
     the status to ``"reconnecting"``.
 
-    The handler at ``useConnection.ts:237-243`` currently calls
-    ``setConnectionStatus("restarting" as ConnectionStatus)`` — the
-    ``as`` cast is GAP-A: ``"reconnecting"`` is not in the
-    ``ConnectionStatus`` union, so the hook casts ``"restarting"`` to
-    admit the transient state. Functionally correct (the UI branch at
-    ``App.tsx`` for ``"restarting"`` shows the spinner); semantically
-    imprecise.
-
-    WR-7: this test is marked ``xfail(strict=True)`` because GAP-A
-    has not yet added 'reconnecting' to the ConnectionStatus union in
-    appStore.ts. The handler currently uses 'restarting' as a
-    workaround. This test asserts the correct 'reconnecting' literal
-    that GAP-A's fix will introduce. When GAP-A lands, the xfail will
-    XPASS and the suite will fail (strict=True), prompting removal of
-    the marker.
+    GAP-A landed: ``"reconnecting"`` is a first-class member of the
+    ``ConnectionStatus`` union (appStore.ts) and renders through the
+    shared recovering UI (``isRecoveringStatus``) alongside
+    ``"restarting"`` — no workaround cast remains.
     """
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
@@ -759,20 +707,15 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
     )
 
     # The handler must transition to "reconnecting" (the literal GAP-A
-    # will add to the ConnectionStatus union). The current workaround
-    # uses "restarting" as a cast — this xfail asserts the correct
-    # "reconnecting" literal that GAP-A's fix will introduce.
+    # added to the ConnectionStatus union).
     handler_re = re.compile(
         r'setConnectionStatus\s*\(\s*["\']reconnecting["\']',
         re.MULTILINE,
     )
     assert handler_re.search(use_connection_source), (
         "useConnection.ts must call setConnectionStatus('reconnecting') "
-        "inside the usePythonEvent('reconnecting', ...) handler — this "
-        "transitions the UI to the 'Restarting Voice Typer backend…' "
-        "spinner branch. WR-7: GAP-A has not yet added 'reconnecting' "
-        "to the ConnectionStatus union in appStore.ts; the handler "
-        "currently uses 'restarting' as a workaround."
+        "inside the usePythonEvent('reconnecting', ...) handler - this "
+        "transitions the UI to the shared recovering spinner branch."
     )
 
 

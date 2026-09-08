@@ -237,7 +237,7 @@ class TestDictationPipelineSentinelAtomicWrite:
             patch.object(Path, "write_text", autospec=True) as spy_write_text,
             pytest.raises(RuntimeError, match="test-short-circuit"),
         ):
-            pipeline.run(b"audio", 1.0, 0.5, "cycle-7f3a", None)
+            pipeline.run(b"audio", 1.0, 0.5, "cycle-7f3a")
 
         assert spy_atomic.called, "_secure_atomic_write must be called for the .dictation-in-flight sentinel"
         assert spy_atomic.call_args.kwargs.get("durability") is False

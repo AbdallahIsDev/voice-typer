@@ -133,7 +133,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False
@@ -226,12 +225,12 @@ class TestEachHelperCallableInIsolation:
         # Default: pop_streaming_session returns None → cancel branch skipped.
         assert pipeline._cleanup_streaming_session_cancel() is None
 
-    def test_cleanup_busy_event_clear_callable_in_isolation(self) -> None:
+    def test_cleanup_busyness_idle_callable_in_isolation(self) -> None:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         pipeline = _new_pipeline(app)
-        assert pipeline._cleanup_busy_event_clear() is None
-        assert app._busy_event.set.called
+        assert pipeline._cleanup_busyness_idle() is None
+        assert app._busyness.set_idle.called
 
     def test_cleanup_transcription_thread_clear_callable_in_isolation(self) -> None:
         app = _TestApp()
@@ -264,14 +263,14 @@ class TestFailureInOneHelperDoesNotBlockNext:
     slot.
     """
 
-    def test_busy_event_clear_failure_does_not_block_transcription_thread_clear(self, caplog) -> None:
-        """If ``_busy_event.set()`` raises, the next helper
+    def test_busyness_idle_failure_does_not_block_transcription_thread_clear(self, caplog) -> None:
+        """If ``_busyness.set_idle()`` raises, the next helper
         (``_cleanup_transcription_thread_clear``) must STILL run and
         clear the thread reference."""
         app = _TestApp()
         _configure_recording_for_helpers(app)
-        # Inject a failure in the busy_event helper.
-        app._busy_event.set.side_effect = RuntimeError("simulated busy_event torn down")
+        # Inject a failure in the busyness-idle helper.
+        app._busyness.set_idle.side_effect = RuntimeError("simulated coordinator torn down")
         pipeline = _new_pipeline(app)
         # Reset the recording._transcription_thread to a non-None sentinel
         # so we can verify the helper N+1 actually cleared it.
@@ -282,23 +281,23 @@ class TestFailureInOneHelperDoesNotBlockNext:
             caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"),
             contextlib.suppress(Exception),
         ):
-            pipeline._cleanup_busy_event_clear()
+            pipeline._cleanup_busyness_idle()
             pipeline._cleanup_transcription_thread_clear()
 
-        # Helper N (busy_event) failed — log emitted.
+        # Helper N (busyness) failed — log emitted.
         busy_fail_logs = [
             r
             for r in caplog.records
-            if r.levelno == logging.DEBUG and "finally cleanup step busy_event_clear failed" in r.getMessage()
+            if r.levelno == logging.DEBUG and "finally cleanup step busyness idle failed" in r.getMessage()
         ]
         assert busy_fail_logs, (
-            "busy_event_clear failure must emit the byte-identical "
-            "DEBUG log line '[PIPELINE] finally cleanup step busy_event_clear "
+            "busyness idle failure must emit the byte-identical "
+            "DEBUG log line '[PIPELINE] finally cleanup step busyness idle "
             "failed' (per C-LOG-1)."
         )
         # Helper N+1 (transcription_thread) STILL ran — cleared the thread.
         assert app.recording._transcription_thread is None, (
-            "a failure in _cleanup_busy_event_clear must NOT prevent "
+            "a failure in _cleanup_busyness_idle must NOT prevent "
             "_cleanup_transcription_thread_clear from running. The "
             "transcription_thread field must be cleared regardless."
         )
@@ -328,7 +327,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
                 caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"),
                 contextlib.suppress(Exception),
             ):
-                pipeline._cleanup_busy_event_clear()
+                pipeline._cleanup_busyness_idle()
                 pipeline._cleanup_transcription_thread_clear()
                 pipeline._cleanup_gc_collect()
         finally:
@@ -338,7 +337,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
                 sys.modules.pop("gc", None)
 
         # Prior helpers ran — busy_event was set and thread was cleared.
-        assert app._busy_event.set.called, "gc.collect failure must not block prior busy_event clear."
+        assert app._busyness.set_idle.called, "gc.collect failure must not block prior busyness-idle clear."
         assert app.recording._transcription_thread is None, (
             "gc.collect failure must not block prior transcription_thread clear."
         )
@@ -517,7 +516,6 @@ class TestFinallyRunsOnAbortCancelAndException:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
     def test_finally_runs_on_abort_empty(self) -> None:
@@ -526,9 +524,9 @@ class TestFinallyRunsOnAbortCancelAndException:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_empty")
-        assert app._busy_event.set.called, (
+        assert app._busyness.set_idle.called, (
             "finally block must run on _PipelineAbortEmpty — "
-            "busy_event.set() must be called (cleanup_busy_event_clear helper)."
+            "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
 
     def test_finally_runs_on_abort_cancelled(self) -> None:
@@ -538,9 +536,9 @@ class TestFinallyRunsOnAbortCancelAndException:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_cancelled")
-        assert app._busy_event.set.called, (
+        assert app._busyness.set_idle.called, (
             "finally block must run on _PipelineAbortCancelled — "
-            "busy_event.set() must be called (cleanup_busy_event_clear helper)."
+            "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
 
     def test_finally_runs_on_device_loss_exception(self) -> None:
@@ -550,9 +548,9 @@ class TestFinallyRunsOnAbortCancelAndException:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "device_loss")
-        assert app._busy_event.set.called, (
+        assert app._busyness.set_idle.called, (
             "finally block must run on generic Exception — "
-            "busy_event.set() must be called (cleanup_busy_event_clear helper)."
+            "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
         assert app.recording._reset_watchdog.called, (
             "finally block must run on generic Exception — "
@@ -582,7 +580,7 @@ class TestLogLineTextPinned:
                 "_cleanup_streaming_session_cancel",
                 "[PIPELINE] finally cleanup step streaming_session_cancel failed",
             ),
-            ("_cleanup_busy_event_clear", "[PIPELINE] finally cleanup step busy_event_clear failed"),
+            ("_cleanup_busyness_idle", "[PIPELINE] finally cleanup step busyness idle failed"),
             (
                 "_cleanup_transcription_thread_clear",
                 "[PIPELINE] finally cleanup step transcription_thread_clear_unsafe failed",
@@ -660,10 +658,10 @@ class TestLogLineTextPinned:
             # is the INNER one — to exercise the inner, we'd need a session
             # whose .cancel() raises. We test the inner separately below.
             expected_log_substring = "[TRANSCRIBE] finally: session cleanup failed"
-        elif helper_name == "_cleanup_busy_event_clear":
-            app._busy_event.set.side_effect = RuntimeError("pinned-log test: busy_event.set fails")
+        elif helper_name == "_cleanup_busyness_idle":
+            app._busyness.set_idle.side_effect = RuntimeError("pinned-log test: set_idle fails")
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
-                pipeline._cleanup_busy_event_clear()
+                pipeline._cleanup_busyness_idle()
         elif helper_name == "_cleanup_transcription_thread_clear":
             # Remove the _watchdog_lock so the AttributeError path fires.
             del app.recording._watchdog_lock

@@ -54,8 +54,8 @@ class _TestApp:
     """Minimal app stub for ``DictationPipeline._copy_and_paste``.
 
     Mirrors the pattern in ``tests/app/test_notify_once_flags.py``
-    but specialized for the paste-failure path: we need ``clipboard``,
-    ``_crash_recovery``, ``_waveform_bubble``, ``tray``, ``_busy_event``,
+    but     specialized for the paste-failure path: we need ``clipboard``,
+    ``_crash_recovery``, ``_waveform_bubble``, ``tray``, ``_busyness``,
     and ``_schedule_timer`` to be controllable mocks. Other attributes
     the pipeline touches (history_db, models, etc.) are NOT needed for
     ``_copy_and_paste`` — that method only touches the clipboard and
@@ -78,8 +78,10 @@ class _TestApp:
         # str()s to a plausible path. Individual tests override this.
         self._crash_recovery._path = "/fake/recovery/recovery.json"
         self._waveform_bubble = MagicMock()
-        self._busy_event = MagicMock()
-        self._busy_event.set = MagicMock()
+        # BP-90: production routes the post-paste reset through the
+        # BusynessCoordinator (``_busyness.set_idle()``), not the legacy
+        # ``_busy_event`` — the fake mirrors the real app (app.py).
+        self._busyness = MagicMock()
         self._device_info = "test-device"
 
         # _schedule_timer accepts (delay, callback) — store them so
@@ -321,9 +323,9 @@ class TestPublishFailureDoesNotBreakPipeline:
             "tray.notify must fire even if event_bus.publish raises — "
             "the publish is wrapped in try/except for defence in depth."
         )
-        # busy_event.set was called (so the UI doesn't get stuck in
+        # _busyness.set_idle was called (so the UI doesn't get stuck in
         # "transcribing…" state).
-        assert app._busy_event.set.called, "_busy_event.set must fire even if event_bus.publish raises."
+        assert app._busyness.set_idle.called, "_busyness.set_idle must fire even if event_bus.publish raises."
 
     def test_pipeline_does_not_raise_when_event_bus_module_missing(self, monkeypatch):
         """Even an ImportError on the inline ``from voice_typer.server

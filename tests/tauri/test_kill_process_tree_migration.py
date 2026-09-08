@@ -11,11 +11,11 @@ method referenced it. With the migration complete:
   to the shim in the same module).
 * the spawn module (``spawn.rs`` + the ``spawn/*.rs`` submodules from the
   EO-33 split) MUST NOT reference ``crate::state::kill_process_tree`` any more.
-* the spawn module MUST reference ``crate::platform::process::kill_process_tree``
-  exactly six times (the four original spawn-timeout / Terminated / Error
-  cleanup call sites that previously went through the shim, PLUS two
-  later additions: a dev-mode server-started-deadline fallback and a
-  shared-process cleanup path that were added after the shim removal).
+* the spawn module MUST route every process-tree kill through the shared
+  ``kill_process_tree_off_thread`` helper in ``spawn/handshake_loop.rs``
+  (the handshake-loop consolidation) — the helper holds the single
+  ``crate::platform::process::kill_process_tree`` call site and is
+  invoked once per handshake cleanup path.
 
 These checks are static (read-the-source) so they run in the Linux sandbox
 without needing a real sidecar process.
@@ -153,34 +153,38 @@ def test_spawn_rs_does_not_reference_state_shim() -> None:
 def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     """All spawn-module cleanup callers must route through the platform module.
 
-    The call sites (across the EO-33 submodules + the Phase 2b worker
-    spawn module) are:
-      1. release-path ``Terminated`` arm — spawn-failure cleanup.
-      2. release-path ``Error`` arm — spawn-failure cleanup.
-      3. release-path server-started-deadline fallback — kill after timeout.
-      4. dev-mode server-started-deadline fallback — kill after timeout.
-      5. worker release-path ``Terminated`` arm — Phase 2b.
-      6. worker release-path ``Error`` arm — Phase 2b.
-      7. worker release-path shutting-down short-circuit — Phase 2b.
-      8. worker release-path server-started-deadline fallback — Phase 2b.
-      9. worker dev-mode shutting-down short-circuit — Phase 2b.
-     10. worker dev-mode server-started-deadline fallback — Phase 2b.
-    (The worker's six call sites mirror the sidecar's kill-tree cleanup
-    paths 1:1 — see ``src-tauri/src/sidecar/spawn/worker.rs``.)
+    The four stdout-handshake loops (sidecar release/dev + worker
+    release/dev) were copy-paste twins; their kill/drain/deadline
+    semantics were consolidated into ``spawn/handshake_loop.rs``. All
+    process-tree kills now route through ONE shared off-thread helper
+    — ``kill_process_tree_off_thread`` — which contains the single
+    ``crate::platform::process::kill_process_tree`` call site, and is
+    invoked once per handshake cleanup path (release-path
+    ``Terminated`` / ``Error`` arms, the server-started-deadline
+    fallbacks, and the worker-path siblings). The platform module
+    remains the ONLY tree-kill implementation in the spawn module —
+    the state.rs shim must stay dead (guarded by the tests above).
     """
     body = _read_spawn_module()
-    matches = re.findall(r"crate::platform::process::kill_process_tree\s*\(", body)
-    # Twelve call sites: the original four sidecar spawn-timeout /
-    # Terminated / Error cleanup paths (which migrated off the state.rs
-    # shim) + two later sidecar additions (a dev-mode
-    # server-started-deadline fallback wrapped in spawn_blocking, and a
-    # shared-process cleanup helper) + six worker spawn paths added by
-    # Phase 2b (spawn/worker.rs). Bump this pin deliberately when
-    # adding ANOTHER kill path — the point is that the spawn module
-    # must route through the platform module, never resurrect the
-    # state.rs shim.
-    assert len(matches) == 12, (
+    # The platform-module call now appears exactly ONCE — inside the
+    # shared off-thread helper. Any NEW direct call site (bypassing
+    # the helper) would show up here as a count > 1 and should be
+    # routed through the helper instead.
+    platform_matches = re.findall(r"crate::platform::process::kill_process_tree\s*\(", body)
+    assert len(platform_matches) == 1, (
         f"the spawn module must call `crate::platform::process::kill_process_tree` "
-        f"exactly 12 times (6 sidecar spawn paths + 6 worker spawn "
-        f"paths, Phase 2b); found {len(matches)}."
+        f"exactly once (inside the shared `kill_process_tree_off_thread` helper in "
+        f"spawn/handshake_loop.rs); found {len(platform_matches)}. Route any new "
+        f"kill path through the helper — do not duplicate the platform call."
+    )
+    # The helper is defined once and invoked from exactly six cleanup
+    # paths (the handshake-loop arms enumerated in the docstring above).
+    # Bump this pin deliberately when adding ANOTHER kill path — the
+    # point is that every spawn kill routes through the shared helper,
+    # never resurrects the state.rs shim, and never re-duplicates the
+    # platform call.
+    helper_calls = re.findall(r"(?<!fn )kill_process_tree_off_thread\s*\(", body)
+    assert len(helper_calls) == 6, (
+        f"the spawn module must invoke `kill_process_tree_off_thread` exactly 6 "
+        f"times (one per handshake cleanup path); found {len(helper_calls)}."
     )

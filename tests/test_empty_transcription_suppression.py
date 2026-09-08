@@ -34,6 +34,7 @@ the new diagnostic logs.
 from __future__ import annotations
 
 import logging
+import threading
 from unittest.mock import MagicMock
 
 from voice_typer.server.dictation_pipeline import DictationPipeline
@@ -96,7 +97,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     return pipeline
 
 
@@ -333,3 +333,54 @@ class TestAsrRegistryUnloadedBackendDiagnostic:
         assert result is loaded_backend
         unload_warnings = [r for r in caplog.records if "returning unloaded backend" in r.getMessage()]
         assert not unload_warnings, "Loaded backend must NOT trigger the unloaded-backend warning"
+
+
+# ─── ESC-cancelled cycles must not surface "No speech detected" ────
+
+
+class TestCancelledCycleEmptyHandling:
+    """An ESC-cancelled cycle that aborts before the first
+    segment flows into ``_handle_empty_transcription`` with an empty
+    result. Without the cancelled-cycle check it surfaces the
+    misleading "No speech detected — check your microphone" message
+    (the user pressed ESC deliberately; their mic is fine). Cancelled
+    cycles must end QUIETLY.
+    """
+
+    def _cancelled_app(self, cancelled: bool = True) -> _TestApp:
+        app = _TestApp()
+        # Simulate recording_lifecycle ESC path:
+        # ``_mark_cycle_cancelled`` added the cycle id to the bounded
+        # registry.
+        if cancelled:
+            app.recording._cancelled_cycle_ids = {"test-cycle"}
+        else:
+            app.recording._cancelled_cycle_ids = {"other-cycle"}
+        app.recording._cancelled_cycle_ids_lock = threading.Lock()
+        return app
+
+    def test_cancelled_cycle_is_quiet(self):
+        """Long recording with real audio (the notify branch) + cancelled
+        → no tray status, no notification, no misleading message."""
+        app = self._cancelled_app(cancelled=True)
+        pipeline = _new_pipeline(app)
+        pipeline._duration = 20.0  # past the 15s grace — would notify
+        pipeline._recorded_rms = 0.01  # real audio — would notify
+
+        pipeline._handle_empty_transcription()
+
+        app.tray.set_state.assert_not_called()
+        app.tray.notify.assert_not_called()
+        app._schedule_timer.assert_not_called()
+
+    def test_active_cycle_keeps_existing_behavior(self):
+        """A non-cancelled cycle with the same empty result keeps the
+        existing "check your microphone" notification."""
+        app = self._cancelled_app(cancelled=False)
+        pipeline = _new_pipeline(app)
+        pipeline._duration = 20.0
+        pipeline._recorded_rms = 0.01
+
+        pipeline._handle_empty_transcription()
+
+        app.tray.notify.assert_called_once()

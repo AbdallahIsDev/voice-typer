@@ -138,7 +138,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False
@@ -223,7 +222,6 @@ class TestAudioReleaseAfterTranscribe:
             duration=1.0,
             recorded_rms=0.5,
             cycle_id="jb66-cycle",
-            watchdog=None,
         )
 
         # The spy stage ran AFTER TranscribeStage. At that point,
@@ -284,7 +282,6 @@ class TestAudioReleaseAfterTranscribe:
             duration=1.0,
             recorded_rms=0.5,
             cycle_id="jb66-zero",
-            watchdog=None,
         )
 
         # The pipeline's audio reference is None (verified by the spy).
@@ -324,7 +321,6 @@ class TestAudioReleaseAfterTranscribe:
             duration=1.0,
             recorded_rms=0.5,
             cycle_id="jb66-finally",
-            watchdog=None,
         )
 
         # After run() returns, self._audio must be None (released by
@@ -716,10 +712,11 @@ class TestVocabSuggestionDeltaPublish:
 
 
 class TestSharedStageList:
-    """: the 11-stage list is cached as a class attribute
-       (``_SHARED_STAGES``) and reused across all pipeline instances.
-    Pre-, each ``__init__`` allocated 11 new stage objects — 11k
-       allocations for 1000 cycles.
+    """: the 11-stage template is cached as a class attribute
+    (``_SHARED_STAGES``), but every pipeline instance receives its
+    OWN list copy - a shared mutable list would let one pipeline's
+    insert/remove corrupt every other pipeline (the factory
+    promises a fresh mutable list).
     """
 
     def test_shared_stages_class_attribute_exists(self):
@@ -732,7 +729,8 @@ class TestSharedStageList:
 
     def test_init_populates_shared_stages(self):
         """The first ``__init__`` call must populate ``_SHARED_STAGES``
-        (lazy-init). Subsequent ``__init__`` calls must reuse it."""
+        (lazy-init), but each instance must receive its OWN list copy —
+        never a reference to the shared template."""
         # Reset to ensure a clean state (other tests may have populated it).
         original_shared = _OrchestratorMixin._SHARED_STAGES
         try:
@@ -744,17 +742,23 @@ class TestSharedStageList:
             assert _OrchestratorMixin._SHARED_STAGES is not None, (
                 ": the first __init__ call must populate _SHARED_STAGES (lazy-init)."
             )
-            assert pipeline1._stages is _OrchestratorMixin._SHARED_STAGES, (
-                ": pipeline._stages must reference the shared class attribute, not a fresh list."
+            assert pipeline1._stages is not _OrchestratorMixin._SHARED_STAGES, (
+                ": pipeline._stages must be an instance-owned copy, not a "
+                "reference to the shared template (a shared mutable list "
+                "lets one pipeline's insert/remove corrupt the others)."
+            )
+            assert [s.name for s in pipeline1._stages] == [s.name for s in _OrchestratorMixin._SHARED_STAGES], (
+                ": the instance copy must match the template content."
             )
 
-            # Second __init__ must reuse the SAME list (no new allocation).
+            # Second __init__ must reuse the SAME template (no rebuild)
+            # while still handing out a fresh list.
             shared_after_first = _OrchestratorMixin._SHARED_STAGES
             pipeline2 = DictationPipeline(app)
-            assert pipeline2._stages is shared_after_first, (
-                ": the second __init__ call must reuse the shared stage "
-                "list — a fresh list would mean the cache is broken."
+            assert pipeline2._stages is not shared_after_first, (
+                ": the second __init__ call must also hand out an instance-owned copy, not the template itself."
             )
+            assert pipeline2._stages is not pipeline1._stages, ": two pipelines must never share one mutable list."
             assert _OrchestratorMixin._SHARED_STAGES is shared_after_first, (
                 ": _SHARED_STAGES must not be re-allocated on the second __init__ call (the cache must persist)."
             )
@@ -778,10 +782,11 @@ class TestSharedStageList:
             _OrchestratorMixin._SHARED_STAGES = original_shared
 
     def test_stages_are_stateless(self):
-        """Each stage's ``run`` must read from ``ctx``, not ``self`` —
-        this is the invariant that makes the shared-list safe. Verified
-        by inspecting the stage classes' ``run`` method source (no
-        ``self._`` attribute writes)."""
+        """Each stage's ``run`` must read from ``ctx``, not ``self`` -
+        this is the invariant that makes sharing the stage OBJECTS
+        across instances safe (each instance still gets its own list).
+        Verified by inspecting the stage classes' ``run`` method
+        source (no ``self._`` attribute writes)."""
         import inspect
 
         from voice_typer.server import dictation_stages

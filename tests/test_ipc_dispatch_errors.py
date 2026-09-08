@@ -722,3 +722,45 @@ class TestMicrophoneTestReadAudioValidation:
         _send_line(client, {"id": 131, "type": "get_status"})
         resp2 = _read_response_line(client, timeout=2.0)
         assert resp2["type"] == "status", f"Connection did not survive: {resp2}"
+
+
+class TestGetDownloadQueueDispatchError:
+    """ADR-0020 §16 item (4): ``get_download_queue`` must behave under
+    the dispatch-level exception safety net like every other registered
+    command — a buggy handler yields a structured error response (not a
+    torn-down connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_get_download_queue`` must produce the
+        generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client.
+        """
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated get_download_queue crash")
+
+        monkeypatch.setattr(server, "_handle_get_download_queue", boom)
+
+        _send_line(client, {"id": 99, "type": "get_download_queue"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 99
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal response afterwards.
+        original = server._handle_get_download_queue
+
+        def ok_handler(data, resp):
+            resp["type"] = "ack"
+            resp["data"] = {"queue": ["tiny"]}
+            return resp
+
+        monkeypatch.setattr(server, "_handle_get_download_queue", ok_handler)
+        _send_line(client, {"id": 100, "type": "get_download_queue"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 100
+        monkeypatch.setattr(server, "_handle_get_download_queue", original)

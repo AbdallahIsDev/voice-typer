@@ -4,9 +4,11 @@ Split from the former catch-all module
 ``tests/test_dictation_pipeline_review_fixes.py``. ``_timed_stage``
 replaces the 10
 duplicated ``_stage_t0 = time.perf_counter()`` /
-``_<name>_ms = (...) * 1000`` blocks in ``DictationPipeline.run`` with
-a single DRY primitive (implementation:
-``voice_typer/server/dictation_pipeline/_stage_timer.py``).
+``_<name>_ms = (...) * 1000`` blocks in ``DictationPipeline.run``with a
+single DRY primitive (implementation:
+``voice_typer/server/dictation_pipeline/helpers.py`` —
+``_timed_stage``; the former ``_stage_timer.py`` dead copy was
+removed 2026-09-08).
 
 These tests pin the contract: writes to the supplied dict, records a
 positive duration, preserves exception propagation (with timing still

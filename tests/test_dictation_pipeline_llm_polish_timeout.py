@@ -93,7 +93,6 @@ def _new_pipeline(app) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False

@@ -844,65 +844,59 @@ class TestDroppedChunksLogging:
 
         lm._level_worker_stop_event.clear()
 
-    @pytest.mark.xfail(
-        reason="Worker thread drain timing: cumulative counter is correctly incremented "
-        "in production (worker.py _total_dropped_level_chunks += dropped) but the "
-        "test cannot reliably trigger the worker's 5s-throttled drain cycle. "
-        "The companion test_total_dropped_level_chunks_is_cumulative_across_drains "
-        "covers the same contract via direct worker invocation.",
-        strict=False,
-    )
-    def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(self, monkeypatch):
+    def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(self, monkeypatch, caplog):
         """XV-58 + the PortAudio callback increments
         ``_dropped_level_chunks`` when the ring buffer is full, and the
         cumulative ``_total_dropped_level_chunks`` counter is incremented
         by the worker when it drains the per-burst delta.
 
-        The per-burst ``_dropped_level_chunks`` is a since-last-log delta
-        (the worker resets it to 0 every 5s after logging) — asserting
-        on it directly flakes when the worker drains between the
-        snapshot and the check. The cumulative counter is NEVER reset in
-        production, so it's the stable field for "did the overflow
-        actually register?".
+        Deterministic by construction: the background worker is JOINED
+        before the flood, so no consumer can drain (or pop) mid-test —
+        every append past capacity counts a drop on the single test
+        thread. The drain is then driven DIRECTLY (past-throttle
+        timestamp + one ``_level_worker_loop()`` pass, mirroring the
+        companion cumulative test) instead of waiting on the worker's
+        5s-throttled cycle — the previous wait-based form flaked under
+        load and carried this xfail marker.
         """
+        import logging
+
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.level_monitor import worker as _lm_worker
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
         lm.start_monitoring(mic_id=None)
+        # Park the background worker: it pops chunks off the same ring
+        # buffer, so a flood raced it — under full-suite load it could
+        # drain every excess chunk before the assertion (the flake this
+        # rewrite eliminates). ``_stop_level_worker`` joins it; the
+        # forced drain below runs the loop function directly instead.
+        _lm_worker._stop_level_worker()
         try:
-            # Fill the ring buffer to capacity.
+            # Fill the ring buffer to capacity (no drops yet — and with
+            # the worker joined, nothing can drain underneath us).
             cap = lm._LEVEL_RING_BUFFER_CAPACITY
+            chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             for _ in range(cap):
-                chunk = np.ones((512, 1), dtype=np.float32) * 0.25
                 holder["callback"](chunk, 512, None, None)
 
-            # Snapshot the CUMULATIVE counter (not the per-burst delta)
-            # before triggering the overflow. The cumulative counter is
-            # NEVER reset in production, so it monotonically increases
-            # as drops happen — a stable baseline for the assertion.
+            # Baseline AFTER the fill: every callback below overflows
+            # into the per-burst delta.
             initial_total = _lm_worker._total_dropped_level_chunks
+            for _ in range(5):
+                holder["callback"](chunk, 512, None, None)
 
-            # The next callback should overflow and increment the
-            # per-burst delta. The worker (woken by the RT callback's
-            # ``_level_worker_wake_event.set()``) drains the delta and
-            # accumulates it into the cumulative counter.
-            chunk = np.ones((512, 1), dtype=np.float32) * 0.25
-            holder["callback"](chunk, 512, None, None)
-            # Wait for the worker to wake + drain the delta into the
-            # cumulative counter (replaces a fixed time.sleep(0.1) that
-            # was too short under CI load). No assert here — the
-            # assertion below owns the failure; this test is xfail.
-            wait_until(
-                lambda: _lm_worker._total_dropped_level_chunks > initial_total,
-                timeout=2.0,
-            )
+            # Drive the drain directly: backdate past the 5s throttle
+            # and run one worker-loop pass (stop pre-set, as in the
+            # companion test).
+            lm._last_drop_log_time = time.monotonic() - 10.0
+            lm._level_worker_stop_event.set()
+            lm._level_worker_wake_event.set()
+            with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
+                lm._level_worker_loop()
 
             # The cumulative counter MUST have increased — proving the
-            # overflow registered AND the worker drained the per-burst
-            # delta into the cumulative total. Asserting ``>``
-            # (strictly greater) avoids false positives if no overflow
-            # happened (the cumulative counter is the same as before).
+            # overflow registered AND drained into the cumulative total.
             assert _lm_worker._total_dropped_level_chunks > initial_total, (
                 f"_total_dropped_level_chunks should have increased "
                 f"after the ring-buffer overflow (was {initial_total}, "

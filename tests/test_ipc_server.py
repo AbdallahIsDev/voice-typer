@@ -2832,7 +2832,9 @@ class TestRegistryExtraction:
         # — 2026-08-14) brought it to 70.
         # run_prewarm (plan §6.3 addendum 2nd half, 2026-08-14 —
         # re-implemented to re-run the warm phase in-process instead of
-        # The registry holds ALL commands: the 71 forwarded ones (the
+        # spawning the deleted standalone-prewarm subprocess) brought it
+        # to 71.
+        # The registry holds ALL commands: the 73 forwarded ones (the
         # allowlist in allowed-commands.ts — pinned in SECURITY.md) plus
         # the 2 python-only commands (shutdown, tray_click) that never
         # cross the Electron bridge. The count is deliberately pinned
@@ -2840,9 +2842,12 @@ class TestRegistryExtraction:
         # together. Adding a command to the registry WITHOUT the TS
         # allowlist fails the parity test
         # (test_electron_ipc_and_build.py::test_allowlist_matches_server_commands).
-        assert len(registry._COMMAND_REGISTRY) == 74, (
-            f"registry._COMMAND_REGISTRY must contain 73 entries "
-            f"(71 forwarded in allowed-commands.ts + shutdown + "
+        # get_download_queue (pending-download FIFO queue snapshot —
+        # hydrates the renderer's queue chips on mount; live updates
+        # flow via download_progress) brought it to 75.
+        assert len(registry._COMMAND_REGISTRY) == 75, (
+            f"registry._COMMAND_REGISTRY must contain 75 entries "
+            f"(73 forwarded in allowed-commands.ts + shutdown + "
             f"tray_click python-only); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "

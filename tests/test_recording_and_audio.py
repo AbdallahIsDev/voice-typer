@@ -89,14 +89,14 @@ class TestWatchdogForceRecover:
         ctrl._cancelled_cycle_ids = set()
 
         app = MagicMock()
-        app._busy_event.is_set.return_value = False
+        app._busy_event.is_set.return_value = False  # busy = True (force-recover guard still reads the legacy event)
         app._cycle_id = None  # avoid _cancelled_cycle_ids path
         ctrl._app = app
 
         ctrl._force_recover_from_stuck_transcription(force=True)
 
         app.tray.set_state.assert_called()
-        app._busy_event.set.assert_called_once()
+        app._busyness.set_idle.assert_called_once()
 
     def test_non_force_re_arms_when_worker_alive(self):
         from voice_typer.server.recording_controller import RecordingController
@@ -114,11 +114,11 @@ class TestWatchdogForceRecover:
         # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
-        app._busy_event.is_set.return_value = False
+        app._busy_event.is_set.return_value = False  # busy = True (force-recover guard still reads the legacy event)
         ctrl._app = app
 
         ctrl._force_recover_from_stuck_transcription(force=False)
-        app._busy_event.set.assert_not_called()
+        app._busyness.set_idle.assert_not_called()
         ctrl._watchdog_stop_event.set.assert_not_called()
         app.tray.set_state.assert_called()
         app.tray.notify.assert_called()
@@ -141,11 +141,11 @@ class TestWatchdogForceRecover:
         # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
-        app._busy_event.is_set.return_value = False
+        app._busy_event.is_set.return_value = False  # busy = True (force-recover guard still reads the legacy event)
         ctrl._app = app
 
         ctrl._force_recover_from_stuck_transcription(force=False)
-        app._busy_event.set.assert_not_called()
+        app._busyness.set_idle.assert_not_called()
         ctrl._watchdog_stop_event.set.assert_not_called()
         app.tray.set_state.assert_called()
         app.tray.notify.assert_not_called()
@@ -297,6 +297,8 @@ class TestPendingModelChange:
         mm._pending_model_change = None
         app = MagicMock()
         app.recorder.recording = True
+        # NOTE: ModelManager still reads the legacy ``_busy_event``
+        # (not yet coordinator-migrated) - keep this mock on the event.
         app._busy_event.is_set.return_value = False
         app.config.asr_backend = "whisper"
         app.config.model_size = "tiny.en"
@@ -557,7 +559,9 @@ class TestCancelGuaranteesTrayReset:
         app._cancel_streaming_session = MagicMock()
         app._restore_volume = MagicMock()
         app.config.bubble_behavior = "auto_hide"
-        app._busy_event = MagicMock()
+        # cancel() resets via the BusynessCoordinator, not the
+        # legacy ``_busy_event``.
+        app._busyness = MagicMock()
         ctrl._app = app
 
         ctrl.cancel()
@@ -565,7 +569,7 @@ class TestCancelGuaranteesTrayReset:
         tray_calls = [c.args for c in app.tray.set_state.call_args_list]
         assert any(args[0] == AppState.CANCELLING for args in tray_calls)
         assert any(args[0] == AppState.IDLE for args in tray_calls)
-        app._busy_event.set.assert_called()
+        app._busyness.set_idle.assert_called()
 
 
 class TestCancelSetsCancellingState:
@@ -595,7 +599,7 @@ class TestCancelSetsCancellingState:
         app._cancel_streaming_session = MagicMock()
         app._restore_volume = MagicMock()
         app.config.bubble_behavior = "auto_hide"
-        app._busy_event = MagicMock()
+        app._busyness = MagicMock()
         ctrl._app = app
 
         ctrl.cancel()

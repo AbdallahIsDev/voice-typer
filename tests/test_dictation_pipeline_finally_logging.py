@@ -120,7 +120,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    pipeline._watchdog = None
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False
@@ -224,7 +223,6 @@ class TestSentinelUnlinkFailureLogged:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         debug_logs = [
@@ -249,27 +247,28 @@ class TestSentinelUnlinkFailureLogged:
         )
 
 
-# ─── Busy_event clear failure is logged at DEBUG ───────────────────────
+# ─── Busyness idle failure is logged at DEBUG ──────────────────────────
 
 
-class TestBusyEventClearFailureLogged:
-    """When ``_busy_event.set()`` raises in the finally block
-    (e.g. the app was torn down mid-cycle and the Event object is in a
-    half-destroyed state), a DEBUG log line must be emitted.
+class TestBusynessIdleFailureLogged:
+    """When the finally block's busyness-idle step raises (e.g. the
+    app was torn down mid-cycle), a DEBUG log line must be emitted.
 
     Pre-fix: the silent ``contextlib.suppress(Exception)`` meant the
     app stayed stuck in BUSY forever — the watchdog would eventually
-    force-recover, but with no log entry explaining WHY the busy_event
-    never cleared. Post-fix: the failure is logged at DEBUG.
+    force-recover, but with no log entry explaining WHY the busy flag
+    never cleared. Post-fix: the failure is logged at DEBUG. BP-90: the
+    write now goes through the ``BusynessCoordinator``
+    (``app._busyness.set_idle()``) instead of the raw ``_busy_event``.
     """
 
-    def test_busy_event_set_failure_emits_debug_log(self, caplog):
-        """``_busy_event.set()`` raising RuntimeError → DEBUG log."""
+    def test_busyness_idle_failure_emits_debug_log(self, caplog):
+        """``_busyness.set_idle()`` raising RuntimeError → DEBUG log."""
 
         app = _TestApp()
         _configure_recording_for_finally(app)
-        # Force the busy_event clear step (line ~723) to raise.
-        app._busy_event.set.side_effect = RuntimeError("simulated torn-down Event")
+        # Force the finally busyness-idle step to raise.
+        app._busyness.set_idle.side_effect = RuntimeError("simulated torn-down coordinator")
         pipeline = _new_pipeline(app)
 
         with (
@@ -281,21 +280,20 @@ class TestBusyEventClearFailureLogged:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
 
         debug_logs = [
             r
             for r in caplog.records
-            if r.levelno == logging.DEBUG and "finally cleanup step busy_event_clear failed" in r.getMessage()
+            if r.levelno == logging.DEBUG and "finally cleanup step busyness idle failed" in r.getMessage()
         ]
         assert debug_logs, (
-            "When _busy_event.set() raises in the finally block, "
-            "a DEBUG log line with 'finally cleanup step busy_event_clear "
+            "When _busyness.set_idle() raises in the finally block, "
+            "a DEBUG log line with 'finally cleanup step busyness idle "
             "failed' must be emitted (pre-fix this was silently swallowed)."
         )
         assert debug_logs[0].exc_info is not None, (
-            "The DEBUG log for busy_event_clear failure must carry exc_info=True so operators can see the traceback."
+            "The DEBUG log for busyness idle failure must carry exc_info=True so operators can see the traceback."
         )
 
 
@@ -339,7 +337,6 @@ class TestGcCollectFailureLogged:
                     duration=0.0,
                     recorded_rms=0.0,
                     cycle_id="test-cycle",
-                    watchdog=None,
                 )
 
             debug_logs = [
@@ -416,7 +413,6 @@ class TestFinallyBlockDoesNotRaise:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
         except BaseException as e:  # noqa: BLE001 — we WANT to catch everything
             propagated.append(e)
@@ -427,14 +423,14 @@ class TestFinallyBlockDoesNotRaise:
             f"preserved. Got propagated exception: {propagated!r}"
         )
 
-    def test_finally_does_not_raise_when_busy_event_set_fails(self):
-        """A busy_event clear failure must NOT propagate out of
-        ``run()`` — the finally block catches it and logs at DEBUG.
+    def test_finally_does_not_raise_when_busyness_idle_fails(self):
+        """A busyness-idle failure must NOT propagate out of ``run()``
+        — the finally block catches it and logs at DEBUG.
         """
 
         app = _TestApp()
         _configure_recording_for_finally(app)
-        app._busy_event.set.side_effect = RuntimeError("simulated Event failure")
+        app._busyness.set_idle.side_effect = RuntimeError("simulated coordinator failure")
         pipeline = _new_pipeline(app)
 
         propagated: list[BaseException] = []
@@ -444,13 +440,12 @@ class TestFinallyBlockDoesNotRaise:
                 duration=0.0,
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
-                watchdog=None,
             )
         except BaseException as e:  # noqa: BLE001
             propagated.append(e)
 
         assert not propagated, (
             "Non-regression: the finally block must NOT raise when "
-            "_busy_event.set() fails — the original exception path must be "
+            "_busyness.set_idle() fails — the original exception path must be "
             f"preserved. Got propagated exception: {propagated!r}"
         )

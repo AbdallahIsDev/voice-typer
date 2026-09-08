@@ -58,6 +58,10 @@ def _make_controller() -> RecordingController:
     app.config.hotkey = "<f2>"
     app._busy_event = threading.Event()
     app._busy_event.set()  # not busy = set (per the project's convention)
+    # Production resets via the coordinator (``_busyness.set_idle()``) -
+    # wire the mock through to this real Event so assertions observe it.
+    app._busyness.set_idle.side_effect = lambda: app._busy_event.set()
+    app._busyness.set_busy.side_effect = lambda: app._busy_event.clear()
     app._cycle_counter = 0
     app._cycle_id = "#0"
     app.recorder = MagicMock()
