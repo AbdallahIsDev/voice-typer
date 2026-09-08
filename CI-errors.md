@@ -7,5 +7,5 @@
 ### 1. `pytest-results.xml.<unparseable-xml>`
 
 ```
-junk after document element: line 72, column 1248071
+not well-formed (invalid token): line 35, column 634247
 ```
