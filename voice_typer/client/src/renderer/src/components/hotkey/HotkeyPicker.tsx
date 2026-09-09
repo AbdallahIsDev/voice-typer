@@ -1,4 +1,8 @@
-import { Cancel01Icon, KeyboardIcon } from "@hugeicons/core-free-icons";
+import {
+	Cancel01Icon,
+	ChevronDownIcon,
+	KeyboardIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -188,21 +192,17 @@ export function HotkeyPicker({
 										);
 									})()}
 								</span>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width="16"
-									height="16"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									className="h-4 w-4 opacity-50"
+								{/* Dropdown affordance — the app-standard
+                                                                        hugeicons chevron (same glyph as the shared
+                                                                        SelectTrigger), replacing the former
+                                                                        hand-rolled chevron SVG. Muted to match
+                                                                        the trigger's secondary affordance. */}
+								<HugeiconsIcon
+									icon={ChevronDownIcon}
+									strokeWidth={1.625}
+									className="pointer-events-none h-4 w-4 opacity-50"
 									aria-hidden="true"
-								>
-									<path d="m6 9 6 6 6-6" />
-								</svg>
+								/>
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent className="min-w-40" align="start">

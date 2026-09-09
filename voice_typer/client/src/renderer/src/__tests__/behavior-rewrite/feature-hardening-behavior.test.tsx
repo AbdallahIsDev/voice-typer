@@ -419,7 +419,7 @@ describe("useSnackbar — rewrite (DX-013: no Snackbar component returned)", () 
 
 		// Runtime: render the real hook and verify the returned object's
 		// keys are exactly ['clearSnack', 'showSnack'] — no Snackbar
-		// component (which was removed in DX-013).
+		// component (which was removed in the rewrite).
 		const { result } = renderHook(() => useSnackbar());
 		expect(Object.keys(result.current).sort()).toEqual([
 			"clearSnack",

@@ -32,6 +32,7 @@ import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
 const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
@@ -94,46 +95,52 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 	// Section-level hide-when-empty (Settings search filter).
 	const sectionVisible =
 		isVisible(title, description, title) ||
-		RESOURCE_LINKS.some((link) => isVisible(t(link.label), undefined, title));
+		anyRowVisible(
+			isVisible,
+			title,
+			RESOURCE_LINKS.map((link) => ({ label: t(link.label) })),
+		);
 	if (!sectionVisible) return null;
 
 	return (
 		<SettingsSection title={title} description={description}>
 			<div className="grid grid-cols-2 gap-2 px-3.5 py-3.5">
-				{RESOURCE_LINKS.map((link, index) => (
-					<Button
-						key={link.href}
-						asChild
-						variant="outline"
-						size="sm"
-						className={cn(
-							// 7 links after the bug/feature split: 3 tidy
-							// rows of 2, plus the last link (Contributing)
-							// spanning the full row so nothing orphans at
-							// half width.
-							index === RESOURCE_LINKS.length - 1 ? "col-span-2" : "",
-							"w-full justify-start gap-2 text-(--text-muted) hover:text-(--text-primary)",
-						)}
-					>
-						<a href={link.href} target="_blank" rel="noreferrer noopener">
-							<HugeiconsIcon
-								icon={link.icon}
-								strokeWidth={2}
-								aria-hidden="true"
-								className="size-4 shrink-0"
-							/>
-							<span className="min-w-0 truncate">{t(link.label)}</span>
-							{/* external-link indicator — all of these
+				{RESOURCE_LINKS.map((link, index) =>
+					isVisible(t(link.label), undefined, title) ? (
+						<Button
+							key={link.href}
+							asChild
+							variant="outline"
+							size="sm"
+							className={cn(
+								// 7 links after the bug/feature split: 3 tidy
+								// rows of 2, plus the last link (Contributing)
+								// spanning the full row so nothing orphans at
+								// half width.
+								index === RESOURCE_LINKS.length - 1 ? "col-span-2" : "",
+								"w-full justify-start gap-2 text-(--text-muted) hover:text-(--text-primary)",
+							)}
+						>
+							<a href={link.href} target="_blank" rel="noreferrer noopener">
+								<HugeiconsIcon
+									icon={link.icon}
+									strokeWidth={2}
+									aria-hidden="true"
+									className="size-4 shrink-0"
+								/>
+								<span className="min-w-0 truncate">{t(link.label)}</span>
+								{/* external-link indicator — all of these
 								    navigate away from the app. */}
-							<HugeiconsIcon
-								icon={ArrowUpRight01Icon}
-								strokeWidth={2.25}
-								aria-hidden="true"
-								className="size-3 shrink-0 opacity-60"
-							/>
-						</a>
-					</Button>
-				))}
+								<HugeiconsIcon
+									icon={ArrowUpRight01Icon}
+									strokeWidth={2.25}
+									aria-hidden="true"
+									className="size-3 shrink-0 opacity-60"
+								/>
+							</a>
+						</Button>
+					) : null,
+				)}
 			</div>
 		</SettingsSection>
 	);

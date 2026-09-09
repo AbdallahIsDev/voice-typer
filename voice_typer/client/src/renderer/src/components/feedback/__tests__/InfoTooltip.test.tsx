@@ -1,7 +1,7 @@
 /**
  * InfoTooltip unit tests.
  *
- *  (sub-agent 21 follow-up): the ``contextLabel`` prop was
+ * The ``contextLabel`` prop was
  * introduced so screen-reader users can distinguish multiple
  * InfoTooltips on the same page (e.g. a Settings tab may have a dozen
  * rows each with an InfoTooltip — without ``contextLabel`` they all

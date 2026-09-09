@@ -14,9 +14,9 @@
 //   2. `tauri-plugin-network` on the Rust side.
 //
 // We pick option (1) because:
-//   - Sub-agent 10 owns Rust spawn + the Rust file surface; touching
-//     `src-tauri/` to add `tauri-plugin-network` would collide with
-//     their changes.
+//   - keeping the trigger renderer-side avoids coupling it to the
+//     Rust surface (no extra `tauri-plugin-network` dependency in
+//     `src-tauri/`).
 //   - The `online` / `offline` browser events are stable, well-
 //     documented, and fire on both Electron (Chromium) and Tauri v2
 //     (WebView2 / WKWebView) — no platform-specific code needed.
@@ -25,15 +25,15 @@
 //
 // ── Subscribes to browser events, calls into useOfflinePackDownload's API ────
 //
-// The hook does NOT directly call `useOfflinePackDownload` (Sub-agent 9 owns
-// that hook and it exposes only read state — `{ status, error, isReady }`).
+// The hook does NOT directly call `useOfflinePackDownload`
+// (that hook exposes only read state — `{ status, error, isReady }`).
 // Instead, the hook consumes `useOfflinePackDownload`'s STATE indirectly:
 //   - When `online` fires, the hook calls `call("check_offline_pack_update", {})`.
 //   - The Python side (`update_check.py`) re-fetches the manifest + may
 //     trigger `pack.download_pack_with_resume`, which publishes
 //     `offline_pack_download_started` / `offline_pack_download_progress` /
 //     `offline_pack_download_completed` events.
-//   - `useOfflinePackDownload` (Sub-agent 9's hook) is ALREADY subscribed to
+//   - `useOfflinePackDownload` is ALREADY subscribed to
 //     those events and updates its `status` accordingly.
 //
 // So the chain is:
@@ -42,9 +42,9 @@
 //   → event_bus publishes `offline_pack_download_started` → `useOfflinePackDownload`
 //   updates `status` → UI re-renders.
 //
-// This keeps the network-online trigger in its OWN file (Sub-agent 13's
-// ownership) while delegating the pack-lifecycle state machine to
-// `useOfflinePackDownload` (Sub-agent 9's ownership). No file collision.
+// This keeps the network-online trigger in its OWN file while
+// delegating the pack-lifecycle state machine to
+// `useOfflinePackDownload`. No coupling between the two hooks.
 //
 // ── Registration status ───────────────────────────────────────────────
 //

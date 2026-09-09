@@ -21,7 +21,7 @@
  *   - Onboarding
  *   - Dashboard
  *
- *  (Sub-agent 16): previously 5 of the 9 promised pages
+ * Previously 5 of the 9 promised pages
  * (Home, Settings, Models, Microphone, Dashboard) were listed in the
  * header comment but had no `it()` blocks — the file only scanned
  * About, Onboarding, History, Vocabulary, and Templates.  The missing
@@ -429,7 +429,7 @@ describe("axe-core automated WCAG scan — all pages", () => {
 		await expectNoAxeViolations(container);
 	});
 
-	//(Sub-agent 16): the 5 missing page scans ────────────
+	// The 5 missing page scans ────────────────────────────────
 
 	it("Home page (idle): no axe violations", async () => {
 		const HomePage = (await import("@/pages/Home")).default;

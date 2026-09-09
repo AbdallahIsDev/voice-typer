@@ -44,8 +44,8 @@ export function rmsToNorm(rms: number): number {
  * `errorMessage` is currently unused — it's accepted in the signature
  * (typed `string | null` to match `useBubbleStateMachine`'s return
  * type) so a future a11y improvement can surface the error reason to
- * AT users (e.g. `"Voice Typer error indicator: microphone
- * disconnected"`) without churning call sites. The current output is
+ * AT users (e.g. appending the error reason to the error indicator
+ * label) without churning call sites. The current output is
  * intentionally identical to the previous inline ternary chain in
  * `Bubble.tsx`.
  */
@@ -65,22 +65,13 @@ export function getBubbleAriaLabel(
 		case "error":
 			return t("bubble.errorIndicatorAria");
 		case "blocked":
-			return tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator");
+			return t("bubble.blockedIndicatorAria");
 		case "cancelling":
-			return tf(
-				"bubble.cancellingIndicatorAria",
-				"Voice Typer cancelling indicator",
-			);
+			return t("bubble.cancellingIndicatorAria");
 		case "permission_revoked":
-			return tf(
-				"bubble.permissionRevokedIndicatorAria",
-				"Voice Typer microphone permission revoked indicator",
-			);
+			return t("bubble.permissionRevokedIndicatorAria");
 		case "paste_failed":
-			return tf(
-				"bubble.pasteFailedIndicatorAria",
-				"Voice Typer paste failed indicator",
-			);
+			return t("bubble.pasteFailedIndicatorAria");
 		default:
 			return t("bubble.idleIndicatorAria");
 	}

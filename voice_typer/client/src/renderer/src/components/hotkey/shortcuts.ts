@@ -32,6 +32,8 @@
  * enforces that contract.
  */
 
+import { DISMISS_SHORTCUT } from "../../../../shared/dismiss-shortcut";
+
 /** The five in-app shortcuts the keyboard hook implements (help overlay rows). */
 export interface InAppShortcut {
 	/** User-facing key combination string (e.g. "Ctrl+B"). */
@@ -192,11 +194,13 @@ export const SHORTCUTS = {
 	},
 	dismissBubble: {
 		// OS-global accelerator registered in the Electron main process
-		// (`shortcuts/global-shortcuts.ts`, accelerator form
-		// "CommandOrControl+Shift+D"). Displayed as plain keycap chips —
-		// no eventKeys: the renderer never dispatches this binding, the
-		// main process owns it.
-		keys: "Ctrl+Shift+D",
+		// (`shortcuts/global-shortcuts.ts`). The binding is defined ONCE
+		// in the cross-process shared constant
+		// (`src/shared/dismiss-shortcut.ts`): this catalog consumes the
+		// display form, the main process registers the accelerator form.
+		// Displayed as plain keycap chips — no eventKeys: the renderer
+		// never dispatches this binding, the main process owns it.
+		keys: DISMISS_SHORTCUT.display,
 		handledBy: "main",
 		labelKey: "help.shortcuts.dismissBubble",
 		category: "dictation",

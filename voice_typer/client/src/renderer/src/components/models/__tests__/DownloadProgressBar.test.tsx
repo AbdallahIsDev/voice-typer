@@ -1,22 +1,21 @@
 /**
- *  / MDL-12 / A11Y-8: i18n aria-label test for DownloadProgressBar.
+ * i18n aria-label test for DownloadProgressBar.
  *
- * The pre-fix component used a hardcoded English aria-label
+ * The component previously used a hardcoded English aria-label
  * ("Model download progress"). After the fix the label comes from the
  * `models.download.progressAria` i18n key, so non-English users get a
  * localized progress-bar announcement from screen readers.
  *
- * ──  (sub-agent 15) additions ────────────────────────────────────
- * The suite now ALSO covers the four deferred sub-items implemented in
- * this pass:
+ * ── Failure-state additions ─────────────────────────────────────────
+ * The suite now ALSO covers the failure/queued sub-items:
  *
- *   •   — throttling boundary coverage (0/5/15/50/95/100).
- *   •   — explicit error state (role="alert" region + red fill
+ *   • throttling boundary coverage (0/5/15/50/95/100).
+ *   • explicit error state (role="alert" region + red fill
  *                 + Pause disabled).
- *   •   — `models.progress.paused` chip rendered when isPaused.
- *   • Priority #3 — Retry button renders iff (error && onRetry) and
+ *   • `models.progress.paused` chip rendered when isPaused.
+ *   • Retry button renders iff (error && onRetry) and
  *                 invokes onRetry on click.
- *   • Priority #4 — modelName disambiguates the aria-label.
+ *   • modelName disambiguates the aria-label.
  *
  * Tests are written to be robust to the new i18n keys being absent
  * from the catalogue (they will be added by the primary agent): they
@@ -76,7 +75,7 @@ const baseProps = {
 	onCancel: vi.fn(),
 };
 
-describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
+describe("DownloadProgressBar — i18n aria-label", () => {
 	afterEach(() => {
 		cleanup();
 		useSentinel = false;
@@ -117,7 +116,7 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		expect(bar).toHaveAttribute("aria-label", "SENTINEL_PROGRESS_ARIA");
 	});
 
-	it("status <p> is an aria-live=polite region (BG-75: announce download status changes to SR users)", () => {
+	it("status <p> is an aria-live=polite region (announce download status changes to SR users)", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		// The status line shows the human-readable status string + the
 		// downloaded/total/speed/ETA spans. SR users need to hear updates
@@ -146,7 +145,7 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 // These tests pin the formula at every boundary so a future "round to
 // nearest 5" change (or a Math.floor regression) is caught.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — XA-13-M2 (aria-valuenow throttle boundaries)", () => {
+describe("DownloadProgressBar — aria-valuenow throttle boundaries", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -181,7 +180,7 @@ describe("DownloadProgressBar — XA-13-M2 (aria-valuenow throttle boundaries)",
 // turns the fill red via the `bg-destructive` class, and (c) disables
 // the Pause button (pausing a failed download is a no-op).
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — XA-13-M5 (explicit error state)", () => {
+describe("DownloadProgressBar — explicit error state", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -276,14 +275,14 @@ describe("DownloadProgressBar — XA-13-M5 (explicit error state)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-//priority #3: in-place Retry button. Before this fix the only
+// In-place Retry button. Before it existed the only
 // recovery path for a failed download was to re-navigate to the model
-// card and click Download again — particularly painful for the Parakeet
-//case () where a multi-GB download fails at 90%+. Now when
+// card and click Download again — particularly painful when
+// a multi-GB download fails at 90%+. Now when
 // `error` is set AND `onRetry` is provided, a Retry button renders
 // next to Cancel.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — XA-13 priority #3 (in-place Retry button)", () => {
+describe("DownloadProgressBar — in-place Retry button", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -341,7 +340,7 @@ describe("DownloadProgressBar — XA-13 priority #3 (in-place Retry button)", ()
 // invisible to SR users and easy to miss for sighted users. The fix
 // prepends the chip to the status line when `isPaused` is true.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — XA-13-M8 (render models.progress.paused chip)", () => {
+describe("DownloadProgressBar — render models.progress.paused chip", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -373,13 +372,13 @@ describe("DownloadProgressBar — XA-13-M8 (render models.progress.paused chip)"
 });
 
 // ─────────────────────────────────────────────────────────────────────
-//priority #4: model-specific aria-label. The pre-fix aria-label
+// Model-specific aria-label. The generic aria-label
 // was always "Model download: N% complete" — useless when two models
 // are downloading concurrently (e.g. Whisper + Parakeet on the same
 // Models page). When `modelName` is provided the label becomes
 // "{name} download: N% complete" so SR users can disambiguate.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — XA-13 priority #4 (model-specific aria-label)", () => {
+describe("DownloadProgressBar — model-specific aria-label", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -394,7 +393,7 @@ describe("DownloadProgressBar — XA-13 priority #4 (model-specific aria-label)"
 		);
 		const bar = screen.getByRole("progressbar");
 		const label = bar.getAttribute("aria-label") ?? "";
-		// The model name must appear in the label (priority #4).
+		// The model name must appear in the label.
 		expect(label).toContain("Parakeet TDT");
 		// The percent must still be interpolated (regression guard
 		// against the new key dropping the {percent} placeholder).

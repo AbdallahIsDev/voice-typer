@@ -1,15 +1,15 @@
 /**
  * useModelDownload — download-progress slice of the Models page.
  *
- *  (Phase 4.5 spaghetti split): extracted from the former
+ * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * download progress state machine and the three actions that drive it:
  *   • `downloadModel` — kicks off a model download + surfaces failures
- *     via a sonner toast with a "Retry" action button ( —
+ *     via a sonner toast with a "Retry" action button —
  *     `showSnack` has no action-button affordance so we bypass it for
- *     the retry-toast path). Failures are ALSO recorded in
+ *     the retry-toast path. Failures are ALSO recorded in
  *     `failedDownload` so the inline `<DownloadProgressBar>` can show
- *     an in-place error UI + Retry button ( priority #3) —
+ *     an in-place error UI + Retry button —
  *     previously the bar vanished on failure and the only recovery
  *     path was the 8-second ephemeral toast.
  *   • `retryDownload` — clears `failedDownload` and re-invokes
@@ -17,9 +17,9 @@
  *     button so users can recover a failed download in place.
  *   • `installDeps` — fires the optional `install_parakeet_deps` IPC
  *     and falls back to the manual-install hint when the IPC is
- *     unavailable ( fix #7). Tracks `installingDepsModel` so
+ *     unavailable. Tracks `installingDepsModel` so
  *     the `<ModelCardActions>` Download Deps button can show
- *     `aria-busy` + a "Downloading…" label swap ().
+ *     `aria-busy` + a "Downloading…" label swap.
  *   • `handleTogglePause` / `handleCancelDownload` — pause/resume/cancel
  *     the in-flight download. Cancel ALSO clears `failedDownload` so
  *     the bar unmounts cleanly. With a model name (the queued-model
@@ -98,13 +98,13 @@ export interface UseModelDownloadResult {
 	etaSeconds: number | null;
 	/** When set, the in-flight download has failed. The
 	 * `<DownloadProgressBar>` consumes this to render the inline error
-	 * state + Retry button ( / priority #3). The bar stays
+	 * state + Retry button. The bar stays
 	 * mounted because `downloadingModel` is NOT cleared on failure. */
 	failedDownload: FailedDownload | null;
 	/** Name of the model currently installing dependencies (drives the
 	 * `isInstallingDepsThis` prop on `<ModelCardActions>` so the
 	 * Download Deps button can show `aria-busy` + a "Downloading…"
-	 * label swap — ). */
+	 * label swap. */
 	installingDepsModel: string | null;
 	downloadModel: (model: ModelInfo) => Promise<void>;
 	retryDownload: (model: ModelInfo) => Promise<void>;
@@ -303,13 +303,13 @@ export function useModelDownload({
 		setState(withResetProgress);
 	}, []);
 
-	//Action: downloadModel ( retry on failure) ────────────
+	//Action: downloadModel (retry on failure) ────────────
 	//
 	// On failure: keep `downloadingModel` set so the
 	// `<DownloadProgressBar>` stays mounted, and record the failure in
 	// `failedDownload` so the bar can render the inline error state +
-	//Retry button ( priority #3). The toast with the Retry
-	//action button () is preserved as a secondary affordance.
+	//Retry button. The toast with the Retry
+	//action button is preserved as a secondary affordance.
 	// On success: clear `downloadingModel` (unmount the bar) and
 	// `failedDownload` (clear any stale failure for a re-download).
 	const downloadModel = useCallback(
@@ -539,7 +539,7 @@ export function useModelDownload({
 		[call, resetProgress, showSnack, setModels, reconcileAfterDownload],
 	);
 
-	//Action: retryDownload ( priority #3) ───────────────────
+	//Action: retryDownload ───────────────────
 	//
 	// Wired to the `<DownloadProgressBar>` Retry button. Clears the
 	// failure state and re-invokes `downloadModel`. `downloadModel`
@@ -554,14 +554,14 @@ export function useModelDownload({
 		[downloadModel],
 	);
 
-	//Action: installDeps ( fix #7) ────────────────────────
+	//Action: installDeps ─────────────────────────────────
 	//
 	// Triggered by the "Download Deps" button on dep-gated models
 	// (currently Parakeet). The backend may or may not expose an
 	// `install_parakeet_deps` IPC — if it doesn't, we fall back to the
 	// existing instruction snackbar so the user knows how to proceed
 	// manually. Tracks `installingDepsModel` so the button can show
-	//`aria-busy` + a "Downloading…" label swap ().
+	//`aria-busy` + a "Downloading…" label swap.
 	const installDeps = useCallback(
 		async (model: ModelInfo) => {
 			setState((prev) => ({ ...prev, installingDepsModel: model.name }));

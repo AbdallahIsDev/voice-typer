@@ -1,5 +1,5 @@
 //localStorage cache helpers extracted from
-// Home.tsx. Each helper takes the component-scoped `MutableRefObject`
+// Home.tsx. Each helper takes the component-scoped `RefObject`
 // that owns the in-memory hit-avoidance cache, so the helpers remain
 // pure (no module-level mutable state — the previous `let _cachedRecent`
 // / `let _cachedStats` bindings leaked across HMR / test re-mounts and
@@ -8,24 +8,48 @@
 // localStorage is still the persistence layer; the ref is purely an
 // in-memory hit-avoidance cache for the current component instance.
 
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 import { RECENT_CACHE_KEY, STATS_CACHE_KEY } from "./constants";
 
 /**
+ * Per-entry shape guard for the cached recent-activity list.
+ *
+ * A corrupted / hand-edited / older-schema localStorage payload must not
+ * reach the render tree as a `HistoryRecord`: `ActivityList` reads
+ * `item.text.length` / `item.timestamp` / `item.id` unguarded, so a
+ * non-string `text` (or missing `timestamp`) would throw during Home's
+ * mount. Mirror of `loadCachedStats`' shape sanity-check, applied
+ * per-entry (the payload is a list).
+ */
+function isCacheableHistoryRecord(value: unknown): value is HistoryRecord {
+	if (typeof value !== "object" || value === null) return false;
+	const r = value as { id?: unknown; text?: unknown; timestamp?: unknown };
+	return (
+		typeof r.id === "number" &&
+		typeof r.text === "string" &&
+		typeof r.timestamp === "string"
+	);
+}
+
+/**
  * Read the cached recent-activity list from the ref (if populated) or
  * fall back to localStorage. The ref is populated on first read so
- * subsequent calls skip the JSON.parse cost.
+ * subsequent calls skip the JSON.parse cost. Each entry is validated
+ * (see `isCacheableHistoryRecord`) so a corrupted cache degrades to a
+ * shorter / empty list instead of crashing Home's mount.
  */
 export function loadCachedRecent(
-	ref: MutableRefObject<HistoryRecord[]>,
+	ref: RefObject<HistoryRecord[]>,
 ): HistoryRecord[] {
 	if (ref.current.length > 0) return ref.current;
 	try {
 		const raw = localStorage.getItem(RECENT_CACHE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) ref.current = parsed as HistoryRecord[];
+			if (Array.isArray(parsed)) {
+				ref.current = parsed.filter(isCacheableHistoryRecord);
+			}
 		}
 	} catch (e) {
 		// localStorage unavailable or payload malformed — non-fatal.
@@ -40,7 +64,7 @@ export function loadCachedRecent(
  * guards against partial / stale payloads from older renderer versions.
  */
 export function loadCachedStats(
-	ref: MutableRefObject<TodayStats | null>,
+	ref: RefObject<TodayStats | null>,
 ): TodayStats | null {
 	if (ref.current !== null) return ref.current;
 	try {
@@ -68,7 +92,7 @@ export function loadCachedStats(
  * (the ref still holds the value for the current mount).
  */
 export function persistRecent(
-	ref: MutableRefObject<HistoryRecord[]>,
+	ref: RefObject<HistoryRecord[]>,
 	recent: HistoryRecord[],
 ): void {
 	ref.current = recent;
@@ -86,7 +110,7 @@ export function persistRecent(
  * (the ref still holds the value for the current mount).
  */
 export function persistStats(
-	ref: MutableRefObject<TodayStats | null>,
+	ref: RefObject<TodayStats | null>,
 	stats: TodayStats,
 ): void {
 	ref.current = stats;

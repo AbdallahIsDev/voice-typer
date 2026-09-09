@@ -8,7 +8,7 @@
  *     close — whether the user clicked Cancel, pressed Escape, focused
  *     away and hit Tab, etc.  Without a discriminator, every close
  *     would call both onConfirm and onCancel — bad.
- *   - The fix (DX-014) flips a `confirmedRef` to true only inside the
+ *   - The fix flips a `confirmedRef` to true only inside the
  *     Confirm action's onClick.  When `onOpenChange(false)` fires, the
  *     dialog reads the ref: if true → onConfirm was the cause (and
  *     already invoked); if false → close was via Cancel/Escape →

@@ -45,7 +45,7 @@
  */
 import { Alert02Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Fragment, useState } from "react";
+import { Fragment, memo, useState } from "react";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
 import { ModelCardActions } from "@/components/models/ModelCardActions";
@@ -92,14 +92,14 @@ export interface LocalModelsPanelProps {
 	totalBytes: number | null;
 	speedBps: number | null;
 	etaSeconds: number | null;
-	//priority #3: when set, the in-flight download has failed
-	// and the `<DownloadProgressBar>` enters its inline error state.
+	// When set, the in-flight download has failed and the
+	// `<DownloadProgressBar>` enters its inline error state.
 	// The bar stays mounted because `downloadingModel` is NOT cleared
 	// on failure. Wired through to the bar's `error` + `modelName` props.
 	// Optional so direct mounts / tests can omit it — the canonical
 	// consumer (Models.tsx) always passes it.
 	failedDownload?: { modelName: string; error: string } | null;
-	//name of the model currently installing deps (drives the
+	// Name of the model currently installing deps (drives the
 	// `isInstallingDepsThis` prop on `<ModelCardActions>`). Optional for
 	// the same backwards-compat reason as `failedDownload`.
 	installingDepsModel?: string | null;
@@ -108,7 +108,7 @@ export interface LocalModelsPanelProps {
 	onDownloadModel: (model: ModelInfo) => void;
 	onDeleteModel: (model: ModelInfo) => void;
 	onInstallDeps: (model: ModelInfo) => void;
-	//priority #3: wired to <DownloadProgressBar>'s Retry button.
+	// Wired to <DownloadProgressBar>'s Retry button.
 	// Optional so direct mounts / tests can omit it — the canonical
 	// consumer (Models.tsx) always passes it; when absent, the bar's
 	// Retry button simply doesn't render (the toast's Retry action
@@ -137,7 +137,13 @@ export interface LocalModelsPanelProps {
 	onAccordionValueChange?: (value: string[]) => void;
 }
 
-export function LocalModelsPanel({
+// Wrapped in `React.memo` (same pattern as the memo'd settings
+// sections): the download-progress props churn 2-10× per second during
+// a transfer, and this panel re-renders with them — but the memo'd
+// per-row children (ModelCardActions) receive stable handler refs
+// (passed straight through, NOT wrapped in per-row closures), so only
+// the active row's progress bar re-renders on a tick.
+export const LocalModelsPanel = memo(function LocalModelsPanel({
 	modelFamilies,
 	modelCatalog,
 	selectingModel,
@@ -267,7 +273,7 @@ export function LocalModelsPanel({
 									// active download (backend event-derived — see
 									// useModelDownloadQueue).
 									const queuePosition = queuedPositions[model.name] ?? null;
-									//priority #3: the bar's error prop is
+									// The bar's error prop is
 									// populated only when the failure is for THIS
 									// model. Failures for other models don't render
 									// an error UI on this card (the bar would be
@@ -317,14 +323,16 @@ export function LocalModelsPanel({
 														queuePosition={queuePosition}
 														// Queued-model Cancel affordance: removes THIS model
 														// from the pending queue (the named-cancel shape) —
-														// the active transfer is untouched.
-														onCancelQueued={() => onCancelDownload(model.name)}
+														// the active transfer is untouched. Passed by
+														// reference (stable) so the memo'd row skips re-renders
+														// on progress ticks.
+														onCancelQueued={onCancelDownload}
 														anyInstallingDeps={installingDepsModel != null}
 														isInstallingDepsThis={isInstallingDepsThis}
-														onSelect={() => onSelectModel(model)}
-														onDownload={() => onDownloadModel(model)}
-														onDelete={() => onDeleteModel(model)}
-														onInstallDeps={() => onInstallDeps(model)}
+														onSelect={onSelectModel}
+														onDownload={onDownloadModel}
+														onDelete={onDeleteModel}
+														onInstallDeps={onInstallDeps}
 													/>
 												}
 											/>
@@ -340,10 +348,12 @@ export function LocalModelsPanel({
 														etaSeconds={etaSeconds}
 														onTogglePause={onTogglePause}
 														onCancel={onCancelDownload}
-														//priority #3 + #4: forward the model
-														// name + error state + retry handler so the
-														// bar can render the inline error UI + Retry
-														// button instead of vanishing on failure.
+														// Forward the model name + error state + retry
+														// handler so the bar can render the inline error UI
+														// + Retry button instead of vanishing on failure.
+														// The retry closure is per-render — acceptable: the
+														// bar is mounted ONLY for the active download, which
+														// re-renders with every progress tick anyway.
 														modelName={model.name}
 														error={failedThis}
 														onRetry={
@@ -364,9 +374,9 @@ export function LocalModelsPanel({
 			</div>
 		</div>
 	);
-}
+});
 
-// ── Metadata line (points 6 + 8) ──────────────────────────────────────
+// ── Metadata line (label+value pairs vs standalone tags) ─────────────
 //
 // Distinguishes label+value pairs (VRAM, WER — muted label, colon,
 // primary value) from standalone descriptive tags (Multilingual /

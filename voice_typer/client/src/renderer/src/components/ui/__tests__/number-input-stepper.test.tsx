@@ -1,5 +1,5 @@
 /**
- * NumberInputStepper tests — covers  (RTL: physical `right-1` /
+ * NumberInputStepper tests — covers RTL logical positioning (physical `right-1` /
  * `pr-8` were replaced with logical `inset-e-1` / `pe-8` so the steppers
  * sit at the inline-end edge in both LTR and RTL locales).
  *
@@ -25,7 +25,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
+describe("NumberInputStepper — RTL logical positioning", () => {
 	it("uses logical `inset-e-1` (not physical `right-1`) for the stepper container", () => {
 		render(
 			<NumberInputStepper

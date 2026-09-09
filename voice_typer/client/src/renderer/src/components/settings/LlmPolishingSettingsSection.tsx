@@ -12,7 +12,6 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
-import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { SettingsSkeleton } from "./SettingsSkeleton";
+import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -155,8 +155,10 @@ export const LlmPolishingSettingsSection = memo(
 			{ label: t("settings.model"), info: t("settings.modelInfo") },
 			{ label: t("settings.preset"), info: t("settings.presetInfo") },
 		];
-		const llmPolishingVisible = llmPolishingItems.some((item) =>
-			isVisible(item.label, item.info, llmPolishingTitle),
+		const llmPolishingVisible = anyRowVisible(
+			isVisible,
+			llmPolishingTitle,
+			llmPolishingItems,
 		);
 
 		if (!llmPolishingVisible) return null;
@@ -166,7 +168,9 @@ export const LlmPolishingSettingsSection = memo(
 				title={llmPolishingTitle}
 				description={t("settings.llmPolishingDescription2")}
 			>
-				<SettingRow
+				<GatedSettingRow
+					isVisible={isVisible}
+					sectionTitle={llmPolishingTitle}
 					label={t("settings.enable")}
 					info={t("settings.enableInfo")}
 				>
@@ -175,11 +179,13 @@ export const LlmPolishingSettingsSection = memo(
 						onCheckedChange={handleLlmPolishChange}
 						aria-label={t("settings.llmPolishing")}
 					/>
-				</SettingRow>
+				</GatedSettingRow>
 
 				{config.llm_polish && (
 					<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
-						<SettingRow
+						<GatedSettingRow
+							isVisible={isVisible}
+							sectionTitle={llmPolishingTitle}
 							label={t("settings.apiKey")}
 							info={t("settings.apiKeyInfo")}
 						>
@@ -224,9 +230,11 @@ export const LlmPolishingSettingsSection = memo(
 									{llmKeyVisible ? t("settings.hide") : t("settings.show")}
 								</Button>
 							</div>
-						</SettingRow>
+						</GatedSettingRow>
 
-						<SettingRow
+						<GatedSettingRow
+							isVisible={isVisible}
+							sectionTitle={llmPolishingTitle}
 							label={t("settings.apiUrl")}
 							info={t("settings.apiUrlInfo")}
 						>
@@ -259,9 +267,11 @@ export const LlmPolishingSettingsSection = memo(
 									</span>
 								)}
 							</div>
-						</SettingRow>
+						</GatedSettingRow>
 
-						<SettingRow
+						<GatedSettingRow
+							isVisible={isVisible}
+							sectionTitle={llmPolishingTitle}
 							label={t("settings.model")}
 							info={t("settings.modelInfo")}
 						>
@@ -272,9 +282,11 @@ export const LlmPolishingSettingsSection = memo(
 								className="w-44"
 								aria-label={t("settings.model")}
 							/>
-						</SettingRow>
+						</GatedSettingRow>
 
-						<SettingRow
+						<GatedSettingRow
+							isVisible={isVisible}
+							sectionTitle={llmPolishingTitle}
 							label={t("settings.preset")}
 							info={t("settings.presetInfo")}
 						>
@@ -296,7 +308,7 @@ export const LlmPolishingSettingsSection = memo(
 									))}
 								</SelectContent>
 							</Select>
-						</SettingRow>
+						</GatedSettingRow>
 					</div>
 				)}
 			</SettingsSection>

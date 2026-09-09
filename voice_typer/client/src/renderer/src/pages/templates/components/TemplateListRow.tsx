@@ -124,7 +124,12 @@ export const TemplateListRow = memo(function TemplateListRow({
                             (same rule as the Vocabulary rows) so the edit affordance
                             sits consistently at the far edge of every row across
                             pages. Buttons stop propagation so they don't toggle
-                            selection. */}
+                            selection. NO native tooltips (title) on either button:
+                            the Vocabulary rows removed them deliberately (they
+                            rendered over the adjacent icons while moving the cursor)
+                            and the aria-labels carry the accessible names — the
+                            unified row-button language is icon-xs + text-only
+                            hovers + no tooltips on BOTH pages. */}
 			<div className="flex shrink-0 items-center justify-self-end gap-0.5">
 				<Button
 					variant="ghost"
@@ -133,13 +138,13 @@ export const TemplateListRow = memo(function TemplateListRow({
 						e.stopPropagation();
 						onDelete(row);
 					}}
-					className="text-(--text-muted) hover:text-destructive"
-					title={t("templates.deleteTemplate")}
+					className="text-(--text-muted) transition-colors hover:text-destructive"
 					aria-label={t("templates.deleteAria", { name: row.trigger })}
 				>
 					<HugeiconsIcon
 						icon={Delete01Icon}
 						strokeWidth={2.25}
+						aria-hidden="true"
 						className="size-4"
 					/>
 				</Button>
@@ -150,13 +155,13 @@ export const TemplateListRow = memo(function TemplateListRow({
 						e.stopPropagation();
 						onEdit(row);
 					}}
-					className="text-(--text-muted) hover:text-(--text-secondary)"
-					title={t("templates.editTemplate")}
+					className="text-(--text-muted) transition-colors hover:text-(--text-primary)"
 					aria-label={t("templates.editAria", { name: row.trigger })}
 				>
 					<HugeiconsIcon
 						icon={PencilEdit02Icon}
 						strokeWidth={2.25}
+						aria-hidden="true"
 						className="size-4"
 					/>
 				</Button>

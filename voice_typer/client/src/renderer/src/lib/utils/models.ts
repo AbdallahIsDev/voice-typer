@@ -58,7 +58,7 @@ export interface ModelInfo {
 	// (`downloaded`). Do NOT re-add an always-available concept without
 	// a backend `network_behavior` value that actually auto-downloads.
 	/**
-	 *  fix #7: model requires extra system dependencies that
+	 * Model requires extra system dependencies that
 	 * can be installed via a dedicated action (e.g. Parakeet's torch
 	 * dependency). When true and `depsOk === false`, the card renders
 	 * a "Download Deps" button next to (or instead of) the Select
@@ -291,7 +291,7 @@ export function formatModelSpeed(speed: string): string {
 // `voice_typer/client/src`, so there is nothing to wire — the helper
 // was genuinely dead. Verified via:
 //   rg 'models\.displayNames' voice_typer/client/src
-//   rg 'getModelDisplayName' voice_typer  (only the definition matched)
+//   rg 'getModelDisplayName' voice_typer (only the definition matched)
 //
 // VRAM formatting: re-exported from the shared ``lib/format.ts`` so
 // call sites that import from ``@/lib/utils/models`` (LocalModelsPanel,
@@ -484,7 +484,7 @@ export function applyActiveState(
  * Returns the family ID that contains the currently active model,
  * or null if no model is active or no family match is found.
  *
- *  fix #2: previously this function inlined a duplicate copy
+ * Previously this function inlined a duplicate copy
  * of `INITIAL_MODELS` (the `candidates` array) — a 30-line verbatim
  * duplicate that drifted whenever a new model was added. Now it
  * imports the single source of truth from `INITIAL_MODELS`.

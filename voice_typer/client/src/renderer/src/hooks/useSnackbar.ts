@@ -14,7 +14,7 @@
 // (or directly via ``toast.success(...)`` from ``sonner``); both go
 // through the same renderer.
 //
-// DX-013: the bespoke ``Snackbar`` component that this hook used to
+// The bespoke ``Snackbar`` component that this hook used to
 // return was removed — it was a no-op that made pages render dead
 // ``<Snackbar />`` JSX and, once the component stopped being exported,
 // crashed those pages at render time.  There is no longer a ``Snackbar``
@@ -102,7 +102,7 @@ function resolveDuration(
  * Unified snackbar hook.  All toasts are rendered by sonner's global
  * ``<Toaster />`` mounted in App.tsx.  This hook returns only
  * ``showSnack`` / ``clearSnack`` — there is no ``Snackbar`` component
- * to render (see DX-013).
+ * to render (the bespoke Snackbar component was removed).
  */
 export function useSnackbar() {
 	const showSnack = useCallback(

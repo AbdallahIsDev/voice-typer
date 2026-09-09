@@ -20,8 +20,8 @@
  *
  * Rationale for the allowlist pattern (vs. a hard "no physical classes
  * anywhere" rule):
- *   - The finding cites 30 files; the migration is in progress across
- *     multiple sub-agents. A hard rule would break the build today.
+ *   - The original audit cited 30 files; the migration is in progress
+ *     across multiple areas. A hard rule would break the build today.
  *   - The allowlist shrinks monotonically: each migration PR removes
  *     one entry. The size-bound assertion below makes any GROWTH a
  *     CI failure so the ratchet direction is enforced.
@@ -31,8 +31,8 @@
  *     `document.documentElement.dir`).
  *   - Logical-property utilities are downstream of that contract: they
  *     only "do the right thing" because the i18n layer sets `dir`.
- *   - The sub-agent () that owns the i18n module also owns the
- *     RTL contract end-to-end, so the regression guard belongs here.
+ *   - The i18n module owns the RTL contract
+ *     end-to-end, so the regression guard belongs here.
  *
  * Platform: Linux sandbox / Windows host / macOS host (the test is a
  * pure static-source check — no runtime CSS evaluation, no platform
@@ -59,7 +59,7 @@ const RENDERER_SRC = resolve(__dirname, "..", "..");
  * that's already in the set is silently tolerated (the migration is
  * still in progress there).
  *
- * Last audited: 2026-07-27 by  (client_root_i18n).
+ * Last audited: 2026-07-27 by the client-root i18n sweep.
  */
 const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 	// `pages/About.tsx` was previously in this set for `text-right` on a

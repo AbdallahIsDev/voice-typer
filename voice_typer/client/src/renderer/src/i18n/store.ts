@@ -9,7 +9,7 @@
 //   - ``_localeLoadPromises``   — Map of in-flight dynamic-import
 //                                  promises (await dedup)
 //
-//sub-finding (1-N Finding 4): no module-load side effects live
+// No module-load side effects live
 // here. The localStorage restore + browser-locale detection + async
 // load kickoff that USED to run at module eval time has moved to
 // ``initI18n()`` in ``./index.ts``. That function is auto-called on

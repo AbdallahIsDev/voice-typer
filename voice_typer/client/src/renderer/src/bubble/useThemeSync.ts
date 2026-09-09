@@ -40,7 +40,7 @@
  * the main process to push `bubble:config` in the bubble window's
  * `did-finish-load` listener (so the config arrives before the
  * React tree mounts) — that work is owned by the `main/windows/`
- * sub-agent. Until then, the inline-script + this hook's runtime
+ * side. Until then, the inline-script + this hook's runtime
  * sync provide a best-effort first paint + correct steady state.
  */
 import { useCallback, useEffect, useRef, useState } from "react";

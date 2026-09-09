@@ -94,7 +94,7 @@ if (lsDesc === undefined || lsIsStub || ssDesc === undefined || ssIsStub) {
 	}
 }
 
-// SEGMENTED-CTRL-FIX: polyfill ResizeObserver for jsdom (used by
+// Polyfill ResizeObserver for jsdom (used by
 // SegmentedControl to position the animated indicator).
 // jsdom doesn't implement ResizeObserver, so we provide a minimal stub.
 if (typeof globalThis.ResizeObserver === "undefined") {

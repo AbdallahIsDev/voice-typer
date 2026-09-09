@@ -2,18 +2,18 @@
  * NumberInputStepper — number input with custom up/down stepper buttons.
  *
  * Replaces the default browser number spinners (ugly white background,
- * cramped arrows) with themed SVG chevron buttons that match the app's
- * design system. The native spinners are hidden via CSS.
+ * cramped arrows) with themed stepper buttons rendered through the
+ * app-standard hugeicons glyphs (ArrowUp01Icon / ArrowDown01Icon — the
+ * same icons the shared Select uses for its scroll controls). The
+ * native spinners are hidden via CSS.
  *
- *  (restored): the component re-exports the same parse/range
- * validation API the original `NumberInput` had — `onInvalid` callback
- * fired with `"parse" | "range" | null`, and `aria-invalid` set on the
- * underlying input so screen readers announce the error state and the
- * destructive Tailwind variants in `Input` (aria-invalid:border-
- * destructive, aria-invalid:ring-destructive) light up. The previous
- * refactor (commit 3c2b5d6) replaced `NumberInput` with this component
- * but dropped the API; this restores it without re-implementing the
- * underlying input rendering (still composes `<Input>` for DRY).
+ * Validation API: `onInvalid` callback fired with `"parse" | "range" |
+ * null`, and `aria-invalid` set on the underlying input so screen
+ * readers announce the error state and the destructive Tailwind
+ * variants in `Input` (aria-invalid:border-destructive,
+ * aria-invalid:ring-destructive) light up. (Restored after the
+ * component split that originally dropped it — composes `<Input>` for
+ * DRY rather than re-implementing the input rendering.)
  *
  * Usage:
  *   <NumberInputStepper
@@ -28,6 +28,8 @@
  *   />
  */
 
+import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "#utils";
 import { Input } from "@/components/ui/input";
@@ -45,64 +47,19 @@ export interface NumberInputStepperProps
 	/** Maximum value. */
 	max?: number;
 	onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-	/**
-	 * : optional callback fired when the user types a value that
+	/** Optional callback fired when the user types a value that
 	 * cannot be parsed as a number, or that falls outside [min, max].
 	 * Use this to surface an inline error message in the parent form.
 	 * If omitted, out-of-range values are still clamped silently (legacy
 	 * behavior) but no error state is shown.
 	 */
 	onInvalid?: (reason: "parse" | "range" | null) => void;
-	/**
-	 *  / : id of the error element this input
-	 * describes. When provided, the component forwards it as
-	 * aria-errormessage on the underlying <input> so screen
-	 * readers announce the error description. Takes precedence
-	 * over a directly-passed aria-errormessage prop.
+	/** Id of the error element this input describes. When provided, the
+	 * component forwards it as aria-errormessage on the underlying
+	 * <input> so screen readers announce the error description. Takes
+	 * precedence over a directly-passed aria-errormessage prop.
 	 */
 	errorId?: string;
-}
-
-function ArrowUpIcon() {
-	return (
-		<svg
-			width="10"
-			height="6"
-			viewBox="0 0 10 6"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-hidden="true"
-		>
-			<path
-				d="M1 5L5 1L9 5"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-function ArrowDownIcon() {
-	return (
-		<svg
-			width="10"
-			height="6"
-			viewBox="0 0 10 6"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-hidden="true"
-		>
-			<path
-				d="M1 1L5 5L9 1"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
 }
 
 function NumberInputStepper({
@@ -287,7 +244,15 @@ function NumberInputStepper({
 						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}
 				>
-					<ArrowUpIcon />
+					{/* App-standard hugeicons glyph (same icon the
+                                                shared Select uses for its up scroll control) — replaces
+                                                the former hand-rolled chevron SVG. */}
+					<HugeiconsIcon
+						icon={ArrowUp01Icon}
+						strokeWidth={1.625}
+						className="size-3.5"
+						aria-hidden="true"
+					/>
 				</button>
 				<button
 					type="button"
@@ -305,7 +270,12 @@ function NumberInputStepper({
 						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}
 				>
-					<ArrowDownIcon />
+					<HugeiconsIcon
+						icon={ArrowDown01Icon}
+						strokeWidth={1.625}
+						className="size-3.5"
+						aria-hidden="true"
+					/>
 				</button>
 			</div>
 		</div>

@@ -3,7 +3,7 @@
 //supplementary IPC contracts for the Models page:
 // `get_model_status` response shape + `get_disk_info` response shape.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 
 /**
@@ -70,8 +70,8 @@ export type ModelStatusMap = Record<string, ModelStatusEntry>;
  *
  * NOTE: `lib/utils/models.ts` declares a richer `DiskInfo` interface
  * (with an additional `total_bytes: number` field and `models_dir?`
- * optional). That interface is owned by sub-agent 6 and is NOT modified
- * here — this file declares the IPC-level contract per the fix brief.
+ * optional). That interface is NOT modified
+ * here — this file declares the IPC-level contract.
  * The two shapes are intentionally compatible: the richer object
  * satisfies this interface (the extra `total_bytes` field is allowed by
  * TypeScript's structural typing, and `models_dir` is required here but

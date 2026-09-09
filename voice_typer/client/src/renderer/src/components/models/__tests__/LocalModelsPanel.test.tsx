@@ -17,9 +17,9 @@
  *   5. (UI/UX overhaul point 4) the HuggingFace consent banner is GONE
  *      — the panel never renders persistent consent UI (consent moved
  *      to a just-in-time toast at download time).
- *   6. : the panel forwards `modelName`, `error`, and `onRetry` to
+ *   6. the panel forwards `modelName`, `error`, and `onRetry` to
  *      <DownloadProgressBar> so the inline error UI + Retry button
- *      render ( priority #3 + #4).
+ *      render.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -85,9 +85,9 @@ vi.mock("@/components/models/ModelCardActions", () => ({
 	),
 }));
 
-//capture the props forwarded to <DownloadProgressBar> so we can
-// assert that `modelName`, `error`, and `onRetry` are wired through
-//( priority #3 + #4). Previously the panel forwarded only 9 of
+// Capture the props forwarded to <DownloadProgressBar> so we can
+// assert that `modelName`, `error`, and `onRetry` are wired through.
+// Previously the panel forwarded only 9 of
 // the 12 props — the inline error UI + Retry button were dead code.
 vi.mock("@/components/models/DownloadProgressBar", () => ({
 	DownloadProgressBar: (props: Record<string, unknown>) => (
@@ -197,7 +197,7 @@ const baseProps = {
 	onOpenModelsFolder: noop,
 };
 
-describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", () => {
+describe("LocalModelsPanel — low-disk banner uses correct i18n keys", () => {
 	afterEach(() => cleanup());
 
 	it("low-disk banner shows 'Low disk space' title (NOT 'Dependencies required')", () => {
@@ -288,7 +288,7 @@ describe("LocalModelsPanel — HuggingFace consent is NOT a persistent banner", 
 	});
 });
 
-describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
+describe("LocalModelsPanel — Open models folder button", () => {
 	afterEach(() => cleanup());
 
 	it("renders 'Open models folder' button (NOT 'Import Model') when modelsFolderSupported=true", () => {
@@ -425,7 +425,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 	});
 });
 
-describe("LocalModelsPanel — BG-21 line 261 (insufficient-disk badge per model)", () => {
+describe("LocalModelsPanel — insufficient-disk badge per model", () => {
 	afterEach(() => cleanup());
 
 	it("renders 'Insufficient disk space' badge when model size > free_bytes (NOT 'Dependencies required')", () => {
@@ -455,13 +455,13 @@ describe("LocalModelsPanel — BG-21 line 261 (insufficient-disk badge per model
 });
 
 // ─────────────────────────────────────────────────────────────────────
-//the panel forwards `modelName`, `error`, and `onRetry` to
-// <DownloadProgressBar> so the inline error UI + Retry button render
-//( priority #3 + #4). Previously the panel forwarded only 9 of
+// The panel forwards `modelName`, `error`, and `onRetry` to
+// <DownloadProgressBar> so the inline error UI + Retry button render.
+// Previously the panel forwarded only 9 of
 // the 12 props — the inline retry affordance was dead code in
 // production.
 // ─────────────────────────────────────────────────────────────────────
-describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to DownloadProgressBar)", () => {
+describe("LocalModelsPanel — forward error/modelName/onRetry to DownloadProgressBar", () => {
 	afterEach(() => cleanup());
 
 	it("forwards modelName to <DownloadProgressBar> when the model is downloading", () => {

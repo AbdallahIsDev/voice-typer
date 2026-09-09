@@ -60,8 +60,8 @@
 // canonical "Preparing offline engine…" copy. The aria-label is
 // `t("pack.preparingOfflineEngineAria")` and includes the status
 // (`{status}` placeholder) so AT users get the same diagnostic
-// context as the `data-pack-status` attribute. Sub-agent 14 will add
-// these keys to all 8 locale files.
+// context as the `data-pack-status` attribute. These keys are
+// present in all 8 locale files.
 
 import type { OfflinePackStatus } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";

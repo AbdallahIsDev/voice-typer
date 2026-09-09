@@ -7,14 +7,13 @@
 // file); behaviour is unchanged.
 //
 // Cross-module dependency note:
-//   - `computeDailyActivity` calls `dayAbbr` / `dayLabel` from `./format`,
-//     and `./format`'s `dayLabel` imports `localDateKey` from
-//     `@/lib/format` (where the date helpers now live) — no module
-//     cycle exists between `./format` and this file.
+//   - `buildActivityBars` calls `dayAbbr` from `./format`; `./format`
+//     imports only from `@/i18n/i18n` — no module cycle exists between
+//     `./format` and this file.
 
 import { dateKey, localDateKey, parseUtcTimestamp } from "@/lib/format";
 import type { HistoryRecord } from "@/types/ipc";
-import { dayAbbr, dayLabel } from "./format";
+import { dayAbbr } from "./format";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -80,37 +79,6 @@ function addDays(now: Date, days: number): Date {
 }
 
 // ── Daily-activity / streak computations ─────────────────────────────
-
-/** Build the 7-day activity array from a list of history records. */
-export function computeDailyActivity(
-	records: HistoryRecord[],
-): { date: string; count: number; label: string; dayName: string }[] {
-	const counts = new Map<string, number>();
-	for (const r of records) {
-		const key = dateKey(r.timestamp);
-		counts.set(key, (counts.get(key) ?? 0) + 1);
-	}
-	const result: {
-		date: string;
-		count: number;
-		label: string;
-		dayName: string;
-	}[] = [];
-	const now = new Date();
-	for (let i = 6; i >= 0; i--) {
-		const d = addDays(now, -i);
-		//use localDateKey (not toISOString().slice) so the
-		// 7-day chart buckets honor the user's local calendar day.
-		const key = localDateKey(d);
-		result.push({
-			date: key,
-			count: counts.get(key) ?? 0,
-			label: dayLabel(key),
-			dayName: dayAbbr(key),
-		});
-	}
-	return result;
-}
 
 /** Compute consecutive-day streak from history records. */
 export function computeStreaks(records: HistoryRecord[]): {

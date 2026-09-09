@@ -10,7 +10,7 @@
  * a11y scanning, see the @axe-core integration used by the renderer
  * test setup.
  *
- *  (Sub-agent 16): the previous version of this file pointed
+ * The previous version of this file pointed
  * at stale paths for ConfirmDialog (`components/ConfirmDialog.tsx`)
  * and ErrorBoundary (`components/ErrorBoundary.tsx`) and guarded the
  * reads with `fs.existsSync`, so when the files moved into
@@ -18,7 +18,7 @@
  * no-op'd. The guards are removed so a future move breaks the test
  * loudly instead of silently passing.
  *
- *  (Sub-agent 16): the "All Switch components" test was a
+ * The "All Switch components" test was a
  * source-pattern scan that only looked at `pages/{Home,Settings,
  * Models,About}.tsx` — but the actual Switch call sites live in
  * `components/settings/*Section.tsx` (28 of 29 Switches were
@@ -681,7 +681,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// the wrong reason.  With the canonical mock providing every icon,
 	// Home renders and this behavioral assertion passes on its own
 	// merits — Home wraps `lastText` in an aria-live region (see the
-	// PVT-047 source-pattern test below, which is a regular `it`).
+	// source-pattern test below, which is a regular `it`).
 	describe("BG-R19 #7: behavioral Home aria-live region for transcription_final", () => {
 		let capturedTranscriptionFinalHandler:
 			| ((data?: Record<string, unknown>) => unknown)
@@ -759,7 +759,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		});
 	});
 
-	//(Sub-agent 16): the previous "All Switch components" test
+	// The previous "All Switch components" test
 	// scanned only `pages/{Home,Settings,Models,About}.tsx` for `<Switch`
 	// occurrences and checked that each was either accompanied by an
 	// `aria-label` or wrapped in `<SettingRow label="…">`.  But the
@@ -898,7 +898,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 });
 
 describe("NEW-UX-012: Dialog accessibility", () => {
-	//(Sub-agent 16): the previous version pointed at
+	// The previous version pointed at
 	// `components/ConfirmDialog.tsx` and `components/ErrorBoundary.tsx`
 	// and guarded with `fs.existsSync`, so when the files moved into
 	// `components/common/` and `components/feedback/` the tests silently
@@ -948,7 +948,7 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 	});
 });
 
-//(Sub-agent 16): Home.tsx renders the most recent transcription
+// Home.tsx renders the most recent transcription
 // result (`lastText`) inside a `<p>` element so sighted users see what
 // was just pasted, but the surrounding container has no `aria-live`
 // attribute — so screen-reader users get NO announcement when a
@@ -989,12 +989,12 @@ describe("PVT-047: Home transcription result is in a live region", () => {
 	});
 });
 
-// Item 8 (Sub-agent 16): assert the renderer stylesheet declares the
+// Assert the renderer stylesheet declares the
 // three WCAG-mandated @media blocks for user preference overrides.
 // Source-pattern is appropriate here because we're asserting the
 // PRESENCE of the rules themselves, not their computed style on a
 // mounted component (jsdom doesn't actually apply @media queries).
-describe("Item 8: index.css declares user-preference @media blocks", () => {
+describe("index.css declares user-preference @media blocks", () => {
 	const cssPath = path.resolve(__dirname, "..", "index.css");
 
 	it("declares @media (prefers-reduced-motion: reduce) — WCAG 2.3.3", () => {
@@ -1013,7 +1013,7 @@ describe("Item 8: index.css declares user-preference @media blocks", () => {
 	});
 });
 
-// Item 9 (Sub-agent 16): Dashboard a11y.  The 7-day activity chart is
+// Dashboard a11y.  The 7-day activity chart is
 // visually a heatmap (rows of bars coloured by intensity) and must be
 // exposed to AT as a single `role="img"` with a descriptive aria-label
 // (so screen readers hear "7-day activity chart" instead of "button,
@@ -1029,7 +1029,7 @@ describe("Item 8: index.css declares user-preference @media blocks", () => {
 // This test was `it.fails` while the fix was pending; it is now a
 // regular `it` regression spec — a future refactor that drops the
 // role/label on the container fails the suite.
-describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
+describe("Dashboard a11y — heatmap role + stat card names", () => {
 	it('Dashboard 7-day activity chart container has role="img" + aria-label', () => {
 		// The activity chart lives in the extracted
 		// SevenDayActivityChart.tsx component (split out of
@@ -1071,7 +1071,7 @@ describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 	});
 });
 
-// Item 10 (Sub-agent 16): TitleBar.tsx previously rendered
+// TitleBar.tsx previously rendered
 // `<title>` elements inside `aria-hidden` SVGs (the MinimizeIcon,
 // MaximizeIcon, RestoreIcon, and CloseIcon helper components).  A
 // `<title>` inside an `aria-hidden` SVG is INACCESSIBLE to assistive
@@ -1083,7 +1083,7 @@ describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 // including the back/forward arrows). This test is now a regular
 // `it` regression spec: any future <title> inside an aria-hidden SVG
 // in TitleBar.tsx fails the suite.
-describe("Item 10: TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs (agent 3's scope)", () => {
+describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () => {
 	it("TitleBar.tsx contains no <title> elements inside aria-hidden SVGs", () => {
 		const titleBarPath = path.resolve(
 			__dirname,

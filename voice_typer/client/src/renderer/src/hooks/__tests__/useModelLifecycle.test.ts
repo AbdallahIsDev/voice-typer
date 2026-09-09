@@ -1,6 +1,7 @@
 /**
  * unit tests for `hooks/useModelLifecycle.ts` — the facade composing
- * the Models-page sub-hooks (Phase 4.5 spaghetti split).
+ * the Models-page sub-hooks (split from the former App-level
+ * monolith).
  *
  * The facade wires 5 sub-hooks together:
  *   1. `useModelConfig`     → config + models + catalog + apiKeys + 4

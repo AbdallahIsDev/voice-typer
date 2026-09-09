@@ -2,7 +2,7 @@
 //
 // Primitive enums / string-literal unions for the IPC layer.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // This module owns the three foundational unions that other domain files
 // build on:
 //   - `RecordingState` — the 6-state backend lifecycle union.

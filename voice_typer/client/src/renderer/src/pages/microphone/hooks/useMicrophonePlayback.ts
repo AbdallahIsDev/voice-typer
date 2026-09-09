@@ -16,7 +16,7 @@
 // — only the three sibling hooks coordinate via it.
 
 import {
-	type MutableRefObject,
+	type RefObject,
 	useCallback,
 	useEffect,
 	useRef,
@@ -29,7 +29,7 @@ export interface UseMicrophonePlaybackResult {
 	playingEnhanced: boolean;
 	playingOriginal: boolean;
 	/** Ref-to-latest "is audio playing" flag — read by ``useMicrophoneLevelMonitor``. */
-	playingRef: MutableRefObject<boolean>;
+	playingRef: RefObject<boolean>;
 	playAudio: (base64: string, isEnhanced: boolean) => void;
 	stopPlayback: () => void;
 }
@@ -118,7 +118,7 @@ export function useMicrophonePlayback(): UseMicrophonePlaybackResult {
 					audioRef.current.pause();
 				} catch (e) {
 					/* noop — audio element may already be in a
-					   closed/stopped state */
+                                           closed/stopped state */
 					console.warn(
 						"[renderer:useMicrophonePlayback] cleanup pause failed:",
 						e,

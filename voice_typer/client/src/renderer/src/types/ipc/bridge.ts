@@ -5,7 +5,7 @@
 // `window.window_` API surface for the custom title bar + GDPR export
 // helpers + native pickers).
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // Imports `PythonPushEvent` from `./push_events` for the `onEvent`

@@ -4,8 +4,8 @@
 // regression tests pinning the TS `VoiceTyperConfig` interface to the
 // Python `Config` dataclass + IPC validator constraints.
 //
-// The Python side (config.py, config_validators.py) is owned by other
-//sub-agents ( / ). The cross-agent contract is:
+// The Python side (config.py, config_validators.py) is owned by the
+// server-side scope. The cross-language contract is:
 //   • TS `ModelSize` union must mirror Python `ALLOWED_USER_MODELS`.
 //   • TS `audio_preset` union must mirror the Python IPC validator's
 //     `_make_enum_validator({"auto", "studio", "noisy_room", "off",

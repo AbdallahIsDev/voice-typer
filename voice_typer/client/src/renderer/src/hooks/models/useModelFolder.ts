@@ -1,7 +1,7 @@
 /**
  * useModelFolder — disk-space probe + import / open-folder slice.
  *
- *  (Phase 4.5 spaghetti split): extracted from the former
+ * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
  *   • `diskInfo` — always `null` today. Historically the result of an
  *     optional `get_disk_info` IPC probe; the probe was removed

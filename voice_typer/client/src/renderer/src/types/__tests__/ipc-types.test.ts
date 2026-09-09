@@ -1,6 +1,6 @@
 // src/renderer/src/types/__tests__/ipc-types.test.ts
 //
-//(d-review): regression guard for the removal of the dead
+// Regression guard for the removal of the dead
 // ``ModelLoadedEvent`` type.
 //
 // Background
@@ -145,7 +145,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		//+3 (asr_backend_disabled + asr_last_resort_unloaded +
 		// llm_polish_failed) = 32.
 		// relaunch_app added (was documented in comment but missing from list) = 33.
-		// +1 (text_enhancement_failed — BP-86 rule-based enhancement
+		// +1 (text_enhancement_failed — rule-based enhancement
 		// failure event) = 34.
 		expect(acceptedTypes).toHaveLength(34);
 	});
@@ -535,7 +535,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// NOTE: the existing `acceptedTypes` list in the FIRST
 		// `describe` block above (line ~73) has only 32 entries —
 		// it is missing `relaunch_app` (a pre-existing oversight
-		//from the  fix that removed `relaunch_electron` but
+		//from the fix that removed `relaunch_electron` but
 		// never added the canonical `relaunch_app` to the list).
 		// This parity test's `PYTHON_EMITTER_TYPE_LITERALS` list
 		// DOES include `relaunch_app` (34 entries) because the
@@ -602,7 +602,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 	});
 
 	it("TranscriptionFinalEvent is in the PythonPushEvent union", () => {
-		//Sanity: the event is still in the union (the  fix
+		// Sanity: the event is still in the union (the fix
 		// removed a field, not the event itself).
 		type InUnion = TranscriptionFinalEvent extends PythonPushEvent
 			? true
@@ -612,7 +612,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 	});
 });
 
-describe("XZ-CC-6 / XZ-CC-16: dead response types stay removed (compile-time guards)", () => {
+describe("dead response types stay removed (compile-time guards)", () => {
 	//(Medium): the previous ``ToggleDictationResult`` interface
 	// declared ``recording: boolean`` as a REQUIRED field. The Python
 	// handler for ``toggle_dictation`` returns ``{type: "ack"}`` with NO

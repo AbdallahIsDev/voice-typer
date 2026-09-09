@@ -40,7 +40,7 @@
  * idle threshold can be crossed deterministically.
  */
 import { act, cleanup, render } from "@testing-library/react";
-import type { MutableRefObject, ReactNode, RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -110,12 +110,12 @@ function fireNextFrame(): boolean {
 }
 
 function makeRefs(): {
-	playingRef: MutableRefObject<boolean>;
-	testRunningRef: MutableRefObject<boolean>;
+	playingRef: RefObject<boolean>;
+	testRunningRef: RefObject<boolean>;
 	meterRef: RefObject<HTMLElement | null>;
 } {
-	const playingRef: MutableRefObject<boolean> = { current: false };
-	const testRunningRef: MutableRefObject<boolean> = { current: false };
+	const playingRef: RefObject<boolean> = { current: false };
+	const testRunningRef: RefObject<boolean> = { current: false };
 	const meterDiv = document.createElement("div");
 	const progress = document.createElement("div");
 	progress.setAttribute("role", "progressbar");

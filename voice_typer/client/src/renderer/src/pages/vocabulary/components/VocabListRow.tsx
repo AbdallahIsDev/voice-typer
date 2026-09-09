@@ -6,16 +6,22 @@
 //     → "Corrected to" per the column headers; the connector arrow was
 //     removed — the columns are clearly labeled and positioned
 //     left/right)
-//   - direct Edit + Test + Delete icon buttons on the right (larger
-//     touch target, hover states, aria-labels) — no overflow menu and
-//     NO tooltips (they rendered over the adjacent icons while moving
-//     the cursor); Delete is LAST (destructive actions never lead the
-//     group)
+//   - direct Test + Delete + Edit icon buttons on the right (aria-labels,
+//     text-only hovers) — no overflow menu and NO tooltips (they rendered
+//     over the adjacent icons while moving the cursor); Delete is LAST
+//     (destructive actions never lead the group)
 //   - the WHOLE row toggles selection on click (bulk-select pattern) —
 //     action buttons and the checkbox stop propagation so they keep
 //     working independently
 //   - responsive: on narrow widths the corrected half stacks below the
 //     original instead of overflowing
+//
+// The row action buttons use the app-wide compact row-button language
+// (shared with the History/ActivityList and Models rows, and the
+// TemplateListRow): `size="icon-xs"` (24×24 — the WCAG 2.5.8 AA target
+// minimum) + text-only `hover:text-*` color shifts, no hover background
+// washes. 24px also leaves the fixed 6.25rem actions column comfortable
+// slack for three buttons (3×24 + 2×2px gaps = 76px).
 //
 // The row is memoized — the parent passes stable useCallback handlers
 // so a search keystroke (which re-renders the page but changes no row
@@ -107,7 +113,8 @@ export const VocabListRow = memo(function VocabListRow({
 	// actions column: with ``auto`` the header's short "Actions" label
 	// would split the 1fr columns differently than the rows' wider icon
 	// cluster and the header's "Corrected to" label would sit to the
-	// right of the row values (see VocabListHeader for the invariant).
+	// right of the row values (the invariant lives in the shared
+	// CollectionListHeader's header note).
 	//
 	// The row is clickable as a whole (toggle selection) — that's what
 	// the hover background implies. Action buttons and the checkbox
@@ -130,10 +137,10 @@ export const VocabListRow = memo(function VocabListRow({
 			)}
 		>
 			{/* Checkbox (col 1) — bulk selection. Its own click already
-			    toggles selection; the onClick stops propagation so the
-			    row's click-to-toggle handler doesn't double-toggle. (The
-			    design-system Checkbox is a <button> — its click never
-			    bubbles past this point.) */}
+                            toggles selection; the onClick stops propagation so the
+                            row's click-to-toggle handler doesn't double-toggle. (The
+                            design-system Checkbox is a <button> — its click never
+                            bubbles past this point.) */}
 			<Checkbox
 				checked={selected}
 				onCheckedChange={() => onToggleSelect(entry._id)}
@@ -142,9 +149,9 @@ export const VocabListRow = memo(function VocabListRow({
 				className="self-start pt-0.5 sm:self-center sm:pt-0"
 			/>
 			{/* Original (col 2) — what the recognizer mishears, styled
-			    red to signal "incorrect". Below it, the server-tracked
-			    usage line ("Used N× · last used …") when the correction
-			    has actually fired during dictation. */}
+                            red to signal "incorrect". Below it, the server-tracked
+                            usage line ("Used N× · last used …") when the correction
+                            has actually fired during dictation. */}
 			<div className="flex min-w-0 flex-col items-start gap-0.5">
 				<span
 					title={entry.original}
@@ -166,7 +173,7 @@ export const VocabListRow = memo(function VocabListRow({
 				)}
 			</div>
 			{/* Corrected (col 3 on sm+; row 2 on mobile) — bold/primary
-			    to signal "correct". */}
+                            to signal "correct". */}
 			<span className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<span
 					title={entry.correction}
@@ -176,21 +183,22 @@ export const VocabListRow = memo(function VocabListRow({
 				</span>
 			</span>
 			{/* Actions (col 4 on sm+; col 3 on mobile, same row as the
-			    checkbox): Test + Delete + Edit (Edit RIGHTMOST — the
-			    app-wide action-icon ordering convention: the edit pencil
-			    is always the last icon in the group, on every page that
-			    uses this pattern). Test is a diagnostic — it runs the
-			    wrong phrase through the LIVE server engine and shows the
-			    authoritative result inline below the row. */}{" "}
+                            checkbox): Test + Delete + Edit (Edit RIGHTMOST — the
+                            app-wide action-icon ordering convention: the edit pencil
+                            is always the last icon in the group, on every page that
+                            uses this pattern). Test is a diagnostic — it runs the
+                            wrong phrase through the LIVE server engine and shows the
+                            authoritative result inline below the row. */}{" "}
 			<div className="flex items-center justify-self-end gap-0.5">
 				{/* Test → Delete → Edit (Edit rightmost, matching the
-				    app-wide convention). NO tooltips on any of the three:
-				    hover tooltips rendered over the adjacent icons while
-				    moving the cursor between them, and the shapes +
-				    aria-labels carry the meaning. */}
+                                    app-wide convention). NO tooltips on any of the three:
+                                    hover tooltips rendered over the adjacent icons while
+                                    moving the cursor between them, and the shapes +
+                                    aria-labels carry the meaning (every button keeps
+                                    its accessible name). */}
 				<Button
 					variant="ghost"
-					size="icon-sm"
+					size="icon-xs"
 					aria-label={t("vocabulary.testEntryAria", {
 						name: entry.original,
 					})}
@@ -204,7 +212,7 @@ export const VocabListRow = memo(function VocabListRow({
 						if (testResult) return;
 						onTest(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-accent"
+					className="text-(--text-muted) transition-colors hover:text-accent"
 				>
 					<HugeiconsIcon
 						icon={TestTube01Icon}
@@ -215,13 +223,13 @@ export const VocabListRow = memo(function VocabListRow({
 				</Button>
 				<Button
 					variant="ghost"
-					size="icon-sm"
+					size="icon-xs"
 					aria-label={t("vocabulary.deleteAria", { name: entry.original })}
 					onClick={(e) => {
 						e.stopPropagation();
 						onDelete(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:bg-destructive/10 hover:text-destructive"
+					className="text-(--text-muted) transition-colors hover:text-destructive"
 				>
 					<HugeiconsIcon
 						icon={Delete01Icon}
@@ -232,13 +240,13 @@ export const VocabListRow = memo(function VocabListRow({
 				</Button>
 				<Button
 					variant="ghost"
-					size="icon-sm"
+					size="icon-xs"
 					aria-label={t("vocabulary.editAria", { name: entry.original })}
 					onClick={(e) => {
 						e.stopPropagation();
 						onEdit(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary)"
+					className="text-(--text-muted) transition-colors hover:text-(--text-primary)"
 				>
 					<HugeiconsIcon
 						icon={PencilEdit02Icon}
@@ -249,8 +257,8 @@ export const VocabListRow = memo(function VocabListRow({
 				</Button>
 			</div>
 			{/* Inline live-engine test result — spans the full row width
-			    below the pairing. role="status" announces the transition
-			    (running → result/error) to screen readers. */}
+                            below the pairing. role="status" announces the transition
+                            (running → result/error) to screen readers. */}
 			{testResult && (
 				<div
 					data-testid="vocab-entry-test-result"

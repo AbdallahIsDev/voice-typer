@@ -242,7 +242,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 	});
 });
 
-describe("ModelCardActions — BG-76 (aria-busy + aria-label swap on async buttons)", () => {
+describe("ModelCardActions — aria-busy + aria-label swap on async buttons", () => {
 	afterEach(() => {
 		cleanup();
 	});

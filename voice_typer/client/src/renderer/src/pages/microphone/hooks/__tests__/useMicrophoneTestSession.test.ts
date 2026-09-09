@@ -124,9 +124,7 @@ function makeHookArgs() {
 	const testRunningRef = { current: false };
 	const selectMicrophoneRef = {
 		current: vi.fn().mockResolvedValue(undefined),
-	} as unknown as React.MutableRefObject<
-		(micId: string | null) => Promise<void>
-	>;
+	} as unknown as React.RefObject<(micId: string | null) => Promise<void>>;
 
 	return {
 		call: callMock as unknown as <T = unknown>(

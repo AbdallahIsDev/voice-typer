@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { mockCall, mockPythonEvent, mockRecordingState } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
-	// PVT-fix #6 (Sub-agent 16): per-test override of `recordingState`
+	// Per-test override of `recordingState`
 	// so we can drive the App-level aria-live region through every
 	// value in the RecordingState union and assert the announced
 	// text matches the expected `t(...)` string.
@@ -223,7 +223,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
-		// PVT-fix #6 (Sub-agent 16): reset the per-test
+		// Reset the per-test
 		// recordingState override to "idle" before each test
 		// so the previous test's value doesn't leak in.
 		mockRecordingState.current = "idle";
@@ -262,7 +262,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
 	});
 
-	//PVT-fix #6 (Sub-agent 16): the  test above only asserts
+	//The test above only asserts
 	// the live region EXISTS — it never checks that the announced
 	// text actually changes when `recordingState` changes.  The
 	// App.tsx live region (see App.tsx:608-636) renders one of six

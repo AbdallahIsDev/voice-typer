@@ -1,12 +1,12 @@
 /**
  * Focus-ring WCAG 1.4.11 regression test.
  *
- * The interactive primitives (``Button``, ``Input``, ``SelectTrigger``)
- * previously declared ``focus-visible:ring-ring/30`` — a 30% alpha ring
- * composited over the surface behind it. Programmatic WCAG audit found
- * the composite contrast sat at 1.15:1–2.45:1 across all 12 themes —
- * far below the WCAG 1.4.11 "Non-text Contrast" 3:1 minimum, so the
- * focus indicator was effectively invisible in every theme.
+ * The interactive primitives (``Button``, ``Input``, ``Textarea``,
+ * ``SelectTrigger``) previously declared ``focus-visible:ring-ring/30`` —
+ * a 30% alpha ring composited over the surface behind it. Programmatic
+ * WCAG audit found the composite contrast sat at 1.15:1–2.45:1 across all
+ * 12 themes — far below the WCAG 1.4.11 "Non-text Contrast" 3:1 minimum,
+ * so the focus indicator was effectively invisible in every theme.
  *
  * The fix is to drop the ``/30`` alpha modifier so the ring paints at
  * the full ``--ring`` token opacity (which the theme files tune for
@@ -19,12 +19,19 @@
  * 2. The focus ring thickness (``ring-3``) and the ``focus-visible:``
  *    qualifier are preserved — we are only tightening the alpha, not
  *    re-architecting the focus indicator.
+ *
+ * ``Checkbox`` and ``RadioGroupItem`` joined the sweep later: the two
+ * controls came from a different code lineage and shipped the same
+ * ``focus-visible:ring-ring/30`` token — the blocks below pin the same
+ * full-opacity contract for them (WCAG 1.4.11 applies to every
+ * interactive primitive, not just the text-input family).
  */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectTrigger } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -163,6 +170,55 @@ describe("focus ring WCAG 1.4.11 (3:1) — full-opacity ring-ring", () => {
 				container.querySelector("[data-slot='select-trigger']")?.className ??
 				"";
 			expect(cls).toMatch(/focus-visible:ring-3/);
+		});
+	});
+
+	describe("Checkbox", () => {
+		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
+			const { container } = render(<Checkbox aria-label="checkbox" />);
+			const checkbox = container.querySelector("[data-slot='checkbox']");
+			expect(checkbox).toBeTruthy();
+			const cls = checkbox?.className ?? "";
+			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
+		});
+
+		it("preserves focus ring thickness (ring-3) and border token", () => {
+			const { container } = render(<Checkbox aria-label="checkbox" />);
+			const cls =
+				container.querySelector("[data-slot='checkbox']")?.className ?? "";
+			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:border-ring/);
+		});
+	});
+
+	describe("RadioGroupItem", () => {
+		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
+			const { container } = render(
+				<RadioGroup aria-label="options">
+					<RadioGroupItem value="a" aria-label="option a" />
+				</RadioGroup>,
+			);
+			const item = container.querySelector("[data-slot='radio-group-item']");
+			expect(item).toBeTruthy();
+			const cls = item?.className ?? "";
+			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
+			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
+		});
+
+		it("preserves focus ring thickness (ring-3) and border token", () => {
+			const { container } = render(
+				<RadioGroup aria-label="options">
+					<RadioGroupItem value="a" aria-label="option a" />
+				</RadioGroup>,
+			);
+			const cls =
+				container.querySelector("[data-slot='radio-group-item']")?.className ??
+				"";
+			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:border-ring/);
 		});
 	});
 });

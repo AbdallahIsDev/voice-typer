@@ -143,7 +143,7 @@ export function useConnection({
 	// etc.). Updated by every `usePythonEvent` subscriber below via the
 	// shared `_markEventReceived` callback. Used by the periodic health
 	// check to skip the redundant `get_status` probe when a push event
-	//has landed recently (the backend's  heartbeat + push events
+	//has landed recently (the backend's heartbeat + push events
 	// already prove liveness; the 15s poll is belt-and-suspenders for
 	// the case where pushes stop entirely). Stored in a ref (not state)
 	// because it doesn't need to trigger a re-render — only the
@@ -304,7 +304,7 @@ export function useConnection({
 	// Periodic health check while connected
 	//use ``get_status`` (lightweight — returns only state +
 	// xrun counter) instead of ``get_config`` (serializes the entire
-	//config dict).  The  heartbeat (5s backend→frontend check)
+	//config dict). The heartbeat (5s backend→frontend check)
 	// detects Electron crashes; this renderer→backend check detects
 	// backend crashes.  Together they provide bidirectional crash
 	// detection without config serialization churn.
@@ -321,7 +321,7 @@ export function useConnection({
 	//
 	//the previous 60s interval was too coarse — a dead
 	// backend could sit undetected for up to a minute before the
-	//user saw any feedback (the  backend→frontend heartbeat
+	//user saw any feedback (the backend→frontend heartbeat
 	// only catches ELECTRON crashes, not Python-side crashes). The
 	// 15s interval catches a dead backend within ~15s of the last
 	// successful probe, which is the threshold at which users

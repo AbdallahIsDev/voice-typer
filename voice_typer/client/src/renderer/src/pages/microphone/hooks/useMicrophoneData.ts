@@ -21,7 +21,7 @@
 
 import {
 	type Dispatch,
-	type MutableRefObject,
+	type RefObject,
 	type SetStateAction,
 	useCallback,
 	useEffect,
@@ -96,9 +96,7 @@ interface UseMicrophoneDataOptions {
 	 * ``microphones_changed`` handler so we don't need to re-subscribe
 	 * on every render.
 	 */
-	selectMicrophoneRef: MutableRefObject<
-		(micId: string | null) => Promise<void>
-	>;
+	selectMicrophoneRef: RefObject<(micId: string | null) => Promise<void>>;
 }
 
 export interface UseMicrophoneDataResult {

@@ -80,6 +80,35 @@ const localeFlats: Record<keyof typeof LOCALES, Map<string, string>> = {
 	zh: flatten(zh as TranslationDict),
 };
 
+// The mid-flow dictation-bubble aria keys. These announce state changes
+// (blocked / cancelling / microphone permission revoked / paste failed)
+// to screen-reader users. They previously existed in NO locale file —
+// the renderer shipped hardcoded English fallbacks with a hardcoded
+// brand instead (see bubble/helpers.ts). This block pins three
+// properties the generic set-parity check above cannot express on its
+// own:
+//   1. the keys exist in ALL 8 files INCLUDING en.json (set parity is
+//      en-vs-each-locale, so a key deleted from every file at once
+//      would still pass the parity loop);
+//   2. every value carries the `{appName}` placeholder (the brand flows
+//      through the load-time substitution — C-BRAND-1 — never a literal
+//      brand string, not even in en.json);
+//   3. every value is a non-empty string (an empty value would render
+//      as a silent aria-label).
+const MID_FLOW_INDICATOR_ARIA_KEYS = [
+	"bubble.blockedIndicatorAria",
+	"bubble.cancellingIndicatorAria",
+	"bubble.permissionRevokedIndicatorAria",
+	"bubble.pasteFailedIndicatorAria",
+] as const;
+
+// All 8 locale tables including the English reference — the mid-flow
+// key assertions below check en.json too (see point 1 above).
+const allLocaleFlats: Record<string, Map<string, string>> = {
+	en: enFlat,
+	...localeFlats,
+};
+
 describe("locale-key parity with en.json (C-I18N-1)", () => {
 	// Sanity guard: if a future locale is added to the imports above
 	// but not to SUPPORTED_LOCALES (or vice versa), this assertion
@@ -138,6 +167,38 @@ describe("locale-key parity with en.json (C-I18N-1)", () => {
 						`translation — C-I18N-2) and remove the extra keys.`,
 				).toEqual({ missingInLocale: [], extraInLocale: [] });
 			});
+		});
+	}
+});
+
+// Direct coverage of the mid-flow bubble indicator aria keys. The
+// generic set-parity loop above covers ordinary drift, but these four
+// keys shipped with NO locale coverage at all (hardcoded English
+// fallbacks in the renderer) — so they get an explicit, key-by-key
+// guard: present in every one of the 8 files, `{appName}` placeholder
+// in every value (C-BRAND-1), non-empty string (a real aria
+// announcement).
+describe("mid-flow bubble indicator aria keys (all 8 locales)", () => {
+	for (const [locale, table] of Object.entries(allLocaleFlats)) {
+		describe(`${locale}.json`, () => {
+			for (const key of MID_FLOW_INDICATOR_ARIA_KEYS) {
+				it(`${key} exists, is non-empty, and uses the {appName} placeholder`, () => {
+					const value = table.get(key);
+					expect(
+						value,
+						`${locale}.json is missing ${key} — add a genuine ` +
+							`translation (C-I18N-2) with the {appName} placeholder ` +
+							`(C-BRAND-1).`,
+					).toBeTruthy();
+					expect(value).not.toBe("");
+					expect(
+						value,
+						`${locale}.json ${key} must carry the brand via the ` +
+							`{appName} placeholder, not a literal brand string ` +
+							`(C-BRAND-1).`,
+					).toContain("{appName}");
+				});
+			}
 		});
 	}
 });

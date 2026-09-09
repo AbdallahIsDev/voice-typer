@@ -16,7 +16,7 @@
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  They are NOT deleted.
  *
- *  (Sub-agent 16): the original  vitest tests below
+ * The original vitest tests below
  * asserted the renderer-side `window.addEventListener("keydown", ...)`
  * handler in `Bubble.tsx` was called on arrow keys.  That handler was
  * DEAD CODE in production because the bubble BrowserWindow is created
@@ -137,10 +137,10 @@ function dispatchArrowKey(key: string, opts: { shiftKey?: boolean } = {}) {
 	});
 }
 
-//DECISION: the original  tests below are SKIPPED because the
+//DECISION: the original tests below are SKIPPED because the
 // keyboard-move feature was DELIBERATELY NOT RE-IMPLEMENTED.  The
 // renderer-side `window.addEventListener("keydown", ...)` handler was
-//removed by agent 12 ( + ) because it was dead code in
+//removed because it was dead code in
 // production (the bubble BrowserWindow is `focusable: false`, so
 // renderer keydown events never fire in the shipped app).
 //
@@ -343,7 +343,7 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 	});
 });
 
-// Item 7 (Sub-agent 16): when the Bubble transitions from
+// When the Bubble transitions from
 // "transcribing" → "idle" (always_visible mode), it renders an
 // sr-only `<span>` containing the i18n string "Transcription
 // complete." (t("a11y.transcriptionComplete")) so screen-reader

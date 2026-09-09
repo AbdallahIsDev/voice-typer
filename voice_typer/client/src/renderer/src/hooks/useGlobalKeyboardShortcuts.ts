@@ -1,7 +1,7 @@
 /**
  * useGlobalKeyboardShortcuts — app-wide keyboard + Ctrl+Wheel shortcuts.
  *
- * Extracted from App.tsx (Phase 4.5 spaghetti split) to keep
+ * Extracted from App.tsx (App.tsx slimming split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the original
  * inline effect:
  *

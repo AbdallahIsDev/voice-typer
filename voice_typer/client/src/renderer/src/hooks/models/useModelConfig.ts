@@ -1,15 +1,15 @@
 /**
  * useModelConfig — config + models + catalog slice of the Models page.
  *
- *  (Phase 4.5 spaghetti split): extracted from the former
+ * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * page's "core" state — the active config, the local model list, the
  * model catalog, the API-key cache, and the per-mount config cache ref
  * — plus the actions that fetch and persist them:
  *   • `loadConfig` — parallelized `get_config` + `get_model_status` +
- *     `get_model_catalog` ( fix #4).
+ *     `get_model_catalog` in parallel.
  *   • `refreshModelStatus` — the extracted `get_model_status` + active-
- *     model reconciliation helper ( fix #8).
+ *     model reconciliation helper.
  *   • `updateConfig` — `set_config` wrapper (: re-throws on error
  *     so callers can branch success vs. failure).
  *   • The `config_changed` event subscription (merges partial payload
@@ -127,13 +127,13 @@ export function useModelConfig({
 	>({});
 	const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
 
-	//fix #9: per-mount config cache (replaces module-level
+	// Per-mount config cache (replaces module-level
 	// `_cachedConfig`). The ref lets the `config_changed` event handler
 	// merge incoming partial updates without re-fetching the whole
 	// config — and without leaking state across HMR / test mounts.
 	const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
 
-	//fix #8: refresh-model-status helper ─────────────────
+	// Refresh-model-status helper ─────────────────────────
 	//
 	// Previously the `get_model_status` IPC + the "force-active
 	// downloaded/depsOk = true" reconciliation block was duplicated
@@ -175,7 +175,7 @@ export function useModelConfig({
 		}
 	}, []);
 
-	//fix #4: parallelized loadConfig ─────────────────────
+	// Parallelized loadConfig ─────────────────────────────
 	//
 	// Previously this function awaited `get_config`, then awaited
 	// `get_model_status`, then awaited `get_model_catalog` — strictly

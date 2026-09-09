@@ -1,7 +1,7 @@
 /**
  * useCloudProviders — cloud-provider API keys + consent slice.
  *
- *  (Phase 4.5 spaghetti split): extracted from the former
+ * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * cloud-provider test results and the actions that persist API keys +
  * consent flags:
@@ -87,7 +87,7 @@ export interface UseCloudProvidersResult {
 // ── Helpers (module-level — `safeApiKey` is re-exported) ──────────────
 
 /**
- *  fix #6 helper: translate the cloud-provider key into the
+ *  helper: translate the cloud-provider key into the
  * matching `cloud_*_consent` config field. Returns the config key
  * (typed as a keyof VoiceTyperConfig so callers can index safely).
  * Exported so presentational consumers (CloudProvidersPanel) reuse
@@ -100,7 +100,7 @@ export function consentKeyFor(provider: string): keyof VoiceTyperConfig {
 }
 
 /**
- *  fix #6 helper: translate the cloud-provider key into the
+ *  helper: translate the cloud-provider key into the
  * matching `*_api_key` config field.
  */
 function apiKeyConfigField(provider: string): keyof VoiceTyperConfig {

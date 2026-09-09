@@ -10,17 +10,17 @@
 // Module split:
 //   - locale.ts    — SUPPORTED_LOCALES, Locale type, LOCALE_LABELS,
 //                     getLocaleLabel, detectBrowserLocale
-//rtl.ts       — RTL_LOCALES, isRtlLocale ( 1-N Finding 7)
+//   - rtl.ts       — RTL_LOCALES, isRtlLocale
 //   - store.ts     — translation state, flatten, registerTranslations,
 //                     ensureLocaleLoaded, getLocale, setLocale
 //   - translate.ts — t, tChoice, interpRegex cache, PluralRules cache
-//( 1-N Finding 6: dead PluralRules stub removed)
+// (dead PluralRules stub removed)
 //   - hooks.ts     — useT, useTChoice, subscriber set,
 //                     getLocaleSnapshot, subscribeLocale
 //   - push.ts      — trayLabelsForLocale, pushLocaleToMainProcess,
 //                     pushLocaleToPythonBackend
 //index.ts     — public-surface re-exports + initI18n() (
-//                     1-N Finding 4: explicit init replaces module-load
+//                     explicit init replaces module-load
 //                     side effects; auto-called on first import for
 //                     backwards compat)
 // ──────────────────────────────────────────────────────────────────

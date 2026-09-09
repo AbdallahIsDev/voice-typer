@@ -4,7 +4,7 @@
 // augmentation that exposes `window.python` / `window.window_` /
 // `window.bubble` to renderer code.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // TypeScript merges `declare global { interface Window { ... } }` blocks
@@ -21,7 +21,7 @@ import type { PythonBridge, WindowBridge } from "./bridge";
 
 // ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
 //
-// DX-012: The ``WindowBubble`` interface was split into three
+// The ``WindowBubble`` interface was split into three
 // composable types so the main renderer's `window.bubble` (typed as
 // ``MainRendererBubbleMutators`` only) gets a compile-time error if it
 // tries to call bubble-only methods OR subscribe to bubble-only events:
@@ -95,7 +95,7 @@ export interface MainRendererBubbleMutators {
 	setDraggable?: (v: boolean) => void;
 	show?: () => void;
 	// NOTE: ``hide`` and ``setLevel`` were intentionally removed from this
-	// main-renderer subset (DX-012 residual).  Neither preload implements
+	// main-renderer subset (intentional split residual). Neither preload implements
 	// them — ``preload/index.ts`` exposes no ``hide``/``setLevel``, and
 	// ``preload/bubble.ts`` does the same.  Keeping them here would make the
 	// type over-promise a silent runtime no-op.  Bubble-window-only methods
@@ -204,7 +204,7 @@ export type BubbleWindowBubble = MainRendererBubbleMutators &
 	BubbleEventSubscriptions &
 	BubbleWindowExtras;
 
-// DX-012: Each window declares its own Window.bubble type:
+// Each window declares its own Window.bubble type:
 //   - Main renderer (``vite-env.d.ts``): ``bubble?: MainRendererBubbleMutators``
 //     (mutators only — no event subscriptions, no bubble-only extras)
 //   - Bubble window (``Bubble.tsx``): ``bubble?: BubbleWindowBubble`` (cast)

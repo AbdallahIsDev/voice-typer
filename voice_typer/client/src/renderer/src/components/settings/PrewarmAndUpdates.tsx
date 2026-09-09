@@ -237,8 +237,12 @@ export default function PrewarmAndUpdates({
 				await fetchPrewarmStatus();
 			}
 		} catch (err) {
+			// Run-failure copy — NOT the View-Log handler's
+			// `prewarmLogOpenFailed` string (a user who clicked
+			// "Run Prewarm Now" must be told the RUN failed, not
+			// that opening a log failed).
 			showSnack(
-				t("about.prewarmLogOpenFailed") +
+				t("about.prewarmRunFailed") +
 					(err instanceof Error ? `: ${err.message}` : ""),
 				"error",
 			);
@@ -275,9 +279,9 @@ export default function PrewarmAndUpdates({
 		<>
 			{/* ── Cache Status (ADR-0009 Issue 3) ─────────────────────── */}
 			{/* section-level hide-when-empty check — when no row
-				matches the active search query, hide the whole section
-				(including its action buttons) so the tab doesn't show a
-				lonely header above an empty body. */}
+                                matches the active search query, hide the whole section
+                                (including its action buttons) so the tab doesn't show a
+                                lonely header above an empty body. */}
 			{[
 				t("about.prewarmStatus"),
 				t("about.lastRun"),
@@ -355,9 +359,9 @@ export default function PrewarmAndUpdates({
 					)}
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
 						{/* "Run Prewarm Now" button (RESTORED 2026-08-14 §6.3
-						addendum 2nd half). Disabled while the run_prewarm IPC
-						is in flight; the in-process warm pass is fast, so no
-						long-running state. */}
+                                                addendum 2nd half). Disabled while the run_prewarm IPC
+                                                is in flight; the in-process warm pass is fast, so no
+                                                long-running state. */}
 						<Button
 							variant="default"
 							size="sm"
@@ -379,7 +383,7 @@ export default function PrewarmAndUpdates({
 								: t("about.refreshCacheStatus")}
 						</Button>
 						{/* "View prewarm log" button. Opens the worker log
-						(the prewarm record) in the OS default text editor. */}
+                                                (the prewarm record) in the OS default text editor. */}
 						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
 							{t("about.viewPrewarmLog")}
 						</Button>
@@ -389,12 +393,12 @@ export default function PrewarmAndUpdates({
 
 			{/* ── Updates (offline notice) ──────────────────────────── */}
 			{/* The "Check for Updates" button was removed because the
-				offline-by-default UX was preferred; if a future iteration
-				wants to add it back (user-initiated GitHub API check),
-				C-DATA-1 permits it under the auto-update category — see
-				docs/auto-update-feature.md. The section now shows the
-				installed version plus a static offline message + a
-				user-clicked external link to the GitHub releases page. */}
+                                offline-by-default UX was preferred; if a future iteration
+                                wants to add it back (user-initiated GitHub API check),
+                                C-DATA-1 permits it under the auto-update category — see
+                                docs/auto-update-feature.md. The section now shows the
+                                installed version plus a static offline message + a
+                                user-clicked external link to the GitHub releases page. */}
 			{[
 				t("about.installedVersion"),
 				t("about.offlineUpdatesMessage"),
@@ -416,23 +420,23 @@ export default function PrewarmAndUpdates({
 					)}
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
 						{/* The "Check for Updates" button was removed because
-						the offline-by-default UX was preferred; if a future
-						iteration wants to add it back (user-initiated GitHub
-						API check), C-DATA-1 permits it under the auto-update
-						category — see docs/auto-update-feature.md. A static
-						offline notice now directs the user to open the
-						GitHub releases page in their own browser. */}
+                                                the offline-by-default UX was preferred; if a future
+                                                iteration wants to add it back (user-initiated GitHub
+                                                API check), C-DATA-1 permits it under the auto-update
+                                                category — see docs/auto-update-feature.md. A static
+                                                offline notice now directs the user to open the
+                                                GitHub releases page in their own browser. */}
 						<p className="text-sm text-(--text-muted) mr-auto">
 							{t("about.offlineUpdatesMessage")}
 						</p>
 						{/* "View Changelog" — an `<a href>` link the user
-						clicks to open the GitHub releases page in their
-						browser. This is NOT a renderer network call: it's
-						an anchor the user explicitly activates, routed by
-						Electron to the system browser (or a new
-						BrowserWindow). C-DATA-1 forbids automated network
-						calls; user-clicked external links are the user's
-						browser making the call, not Voice Typer. */}
+                                                clicks to open the GitHub releases page in their
+                                                browser. This is NOT a renderer network call: it's
+                                                an anchor the user explicitly activates, routed by
+                                                Electron to the system browser (or a new
+                                                BrowserWindow). C-DATA-1 forbids automated network
+                                                calls; user-clicked external links are the user's
+                                                browser making the call, not Voice Typer. */}
 						<Button asChild variant="ghost" size="sm">
 							<a href={RELEASES_URL} target="_blank" rel="noreferrer noopener">
 								<HugeiconsIcon

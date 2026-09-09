@@ -4,13 +4,13 @@
  * Background
  * ----------
  * Pre-fix: the `animate()` callback's reduced-motion branch called
- * `renderReducedMotion()` (writes static `height`/`opacity` to the 7
- * dot elements) and then UNCONDITIONALLY scheduled the next frame via
- * `frameRef.current = requestAnimationFrame(animate)`. The loop spun
- * at 60 fps writing the SAME static styles every frame — pure waste
- * (the bars are motionless, so re-writing `height`/`opacity` to the
- * same values 60 times per second costs CPU + keeps the renderer
- * process out of idle).
+ * `renderReducedMotion()` (writes the static mid-height scale + opacity
+ * to the 7 dot elements) and then UNCONDITIONALLY scheduled the next
+ * frame via `frameRef.current = requestAnimationFrame(animate)`. The
+ * loop spun at 60 fps writing the SAME static styles every frame —
+ * pure waste (the bars are motionless, so re-writing the transform /
+ * opacity to the same values 60 times per second costs CPU + keeps the
+ * renderer process out of idle).
  *
  * Post-fix: the reduced-motion branch calls
  * `renderReducedMotion()` ONCE and then `return`s WITHOUT scheduling
@@ -36,11 +36,17 @@
  * "loop stops after one frame" assertion.
  */
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { createElement, type MutableRefObject, type ReactNode } from "react";
+import { createElement, type ReactNode, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DOT_COUNT, MAX_HEIGHT, MIN_HEIGHT } from "@/bubble/constants";
 import { useAudioLevels } from "@/bubble/useAudioLevels";
 import { BubbleBridgeProvider } from "@/bubble/useBubbleBridge";
+
+/** Parse the scaleY factor out of an inline `transform: scaleY(s)`. */
+function parseScaleY(transform: string): number {
+	const m = transform.match(/scaleY\(([\d.eE+-]+)\)/);
+	return m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
+}
 
 // ── Mock window.bubble API ──────────────────────────────────────────
 // Mirrors the mock in useAudioLevels-rAF-gating.test.tsx but stripped
@@ -135,7 +141,7 @@ async function flushMacrotasks(count = 5) {
 	}
 }
 
-function makeDotRefs(): MutableRefObject<(HTMLSpanElement | null)[]> {
+function makeDotRefs(): RefObject<(HTMLSpanElement | null)[]> {
 	const dots: (HTMLSpanElement | null)[] = [];
 	for (let i = 0; i < DOT_COUNT; i++) {
 		const el = document.createElement("span");
@@ -191,10 +197,14 @@ describe("useAudioLevels reduced-motion rAF stop", () => {
 		await flushMacrotasks(3);
 
 		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
+		const midScale = midHeight / MAX_HEIGHT;
 		for (const el of dotRefs.current) {
 			if (!el) continue;
-			// The bars should be at the static mid-height with opacity 0.5.
-			expect(parseFloat(el.style.height)).toBeCloseTo(midHeight, 5);
+			// The bars render via a transform on a full-height box:
+			// the box sits at MAX_HEIGHT and the scale lands the visual
+			// bar at the static mid-height, opacity 0.5.
+			expect(el.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(parseScaleY(el.style.transform)).toBeCloseTo(midScale, 5);
 			expect(el.style.opacity).toBe("0.5");
 		}
 	});

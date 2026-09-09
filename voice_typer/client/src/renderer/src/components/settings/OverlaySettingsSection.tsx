@@ -10,12 +10,12 @@
 // check.
 
 import { memo } from "react";
-import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
+import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -62,8 +62,10 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 			info: t("settings.bubbleMicButtonDescription"),
 		},
 	];
-	const overlayVisible = overlayItems.some((item) =>
-		isVisible(item.label, item.info, overlaySectionTitle),
+	const overlayVisible = anyRowVisible(
+		isVisible,
+		overlaySectionTitle,
+		overlayItems,
 	);
 
 	// ── Inline handler extraction ─────────────────────────────────
@@ -93,7 +95,9 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 			description={t("settings.overlayDescription")}
 		>
 			{/* ── Dropdowns ──────────────────────────────────────── */}
-			<SettingRow
+			<GatedSettingRow
+				isVisible={isVisible}
+				sectionTitle={overlaySectionTitle}
 				label={t("settings.bubbleBehaviorLabel")}
 				info={t("settings.bubbleBehaviorInfo")}
 			>
@@ -106,9 +110,11 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 					onChange={handleBubbleBehaviorChange}
 					ariaLabel={t("settings.bubbleBehaviorLabel")}
 				/>
-			</SettingRow>
+			</GatedSettingRow>
 
-			<SettingRow
+			<GatedSettingRow
+				isVisible={isVisible}
+				sectionTitle={overlaySectionTitle}
 				label={t("settings.bubblePositionLabel")}
 				info={t("settings.bubblePositionInfo")}
 			>
@@ -121,12 +127,14 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 					onChange={handleBubblePositionChange}
 					ariaLabel={t("settings.bubblePositionLabel")}
 				/>
-			</SettingRow>
+			</GatedSettingRow>
 
 			{/* ── Switches ───────────────────────────────────────── */}
 			{/* Show on app startup toggle — only visible when Always Visible is selected */}
 			{config.bubble_behavior === "always_visible" && (
-				<SettingRow
+				<GatedSettingRow
+					isVisible={isVisible}
+					sectionTitle={overlaySectionTitle}
 					label={t("settings.showOnAppStartup")}
 					info={t("settings.showOnAppStartupInfo")}
 				>
@@ -135,14 +143,16 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 						onCheckedChange={handleBubbleStartupChange}
 						aria-label={t("settings.showOnAppStartup")}
 					/>
-				</SettingRow>
+				</GatedSettingRow>
 			)}
 
 			{/*mic button toggle — only visible when Always Visible is
                 selected. Lets the user disable the clickable mic button
                 (reverting the bubble to non-interactive). */}
 			{config.bubble_behavior === "always_visible" && (
-				<SettingRow
+				<GatedSettingRow
+					isVisible={isVisible}
+					sectionTitle={overlaySectionTitle}
 					label={t("settings.bubbleMicButton")}
 					info={t("settings.bubbleMicButtonDescription")}
 				>
@@ -151,10 +161,12 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 						onCheckedChange={handleBubbleMicButtonChange}
 						aria-label={t("settings.bubbleMicButton")}
 					/>
-				</SettingRow>
+				</GatedSettingRow>
 			)}
 
-			<SettingRow
+			<GatedSettingRow
+				isVisible={isVisible}
+				sectionTitle={overlaySectionTitle}
 				label={t("settings.dragToMove")}
 				info={t("settings.dragToMoveInfo")}
 			>
@@ -163,7 +175,7 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 					onCheckedChange={handleDragToMoveChange}
 					aria-label={t("settings.dragToMove")}
 				/>
-			</SettingRow>
+			</GatedSettingRow>
 		</SettingsSection>
 	);
 });

@@ -34,6 +34,7 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
+import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
 interface TroubleshootingSettingsSectionProps {
@@ -142,16 +143,16 @@ export const TroubleshootingSettingsSection = memo(
 		// title OR at least one button label matches the active search query.
 		const sectionVisible =
 			isVisible(title, description, title) ||
-			[
-				openLogFolderLabel,
-				helpFaqLabel,
-				keyboardShortcutsLabel,
-				reportBugLabel,
-				reRunWizardLabel,
-				resetToDefaultsLabel,
-				...(isMac ? [resetAccessibilityLabel] : []),
-				...(isLinux ? [resetLinuxLabel] : []),
-			].some((label) => isVisible(label, undefined, title));
+			anyRowVisible(isVisible, title, [
+				{ label: openLogFolderLabel },
+				{ label: helpFaqLabel },
+				{ label: keyboardShortcutsLabel },
+				{ label: reportBugLabel },
+				{ label: reRunWizardLabel },
+				{ label: resetToDefaultsLabel },
+				...(isMac ? [{ label: resetAccessibilityLabel }] : []),
+				...(isLinux ? [{ label: resetLinuxLabel }] : []),
+			]);
 
 		if (!sectionVisible) return null;
 
@@ -285,93 +286,105 @@ export const TroubleshootingSettingsSection = memo(
 		return (
 			<SettingsSection title={title} description={description}>
 				<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={handleOpenLogs}
-						aria-label={t("settings.troubleshooting.openLogFolderAria")}
-						title={t("settings.troubleshooting.openLogFolderHint")}
-					>
-						<HugeiconsIcon
-							icon={File02Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{openLogFolderLabel}
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={() =>
-							window.open(
-								"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-								"_blank",
-								"noopener,noreferrer",
-							)
-						}
-						aria-label={t("settings.troubleshooting.openDocsAria")}
-						title={t("settings.troubleshooting.openDocsHint")}
-					>
-						<HugeiconsIcon
-							icon={Book02Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{helpFaqLabel}
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={() =>
-							window.open(
-								"https://github.com/AbdallahIsDev/voice-typer/issues",
-								"_blank",
-								"noopener,noreferrer",
-							)
-						}
-						aria-label={t("settings.troubleshooting.reportBugAria")}
-						title={t("settings.troubleshooting.reportBugHint")}
-					>
-						<HugeiconsIcon
-							icon={Bug02Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{reportBugLabel}
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={onOpenHelp}
-						aria-label={t("help.title")}
-						title={t("help.description")}
-						data-testid="keyboard-shortcuts-button"
-					>
-						<HugeiconsIcon
-							icon={KeyboardIcon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{keyboardShortcutsLabel}
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={handleReRunWizard}
-						aria-label={t("settings.troubleshooting.reRunWizardAria")}
-						title={t("settings.troubleshooting.reRunWizardHint")}
-					>
-						<HugeiconsIcon
-							icon={ArrowTurnBackwardIcon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{reRunWizardLabel}
-					</Button>
-					<p className="text-xs text-muted-foreground">
-						{t("settings.troubleshooting.reRunWizardHint")}
-					</p>
-					{isMac && (
+					{isVisible(openLogFolderLabel, undefined, title) && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={handleOpenLogs}
+							aria-label={t("settings.troubleshooting.openLogFolderAria")}
+							title={t("settings.troubleshooting.openLogFolderHint")}
+						>
+							<HugeiconsIcon
+								icon={File02Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{openLogFolderLabel}
+						</Button>
+					)}
+					{isVisible(helpFaqLabel, undefined, title) && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={() =>
+								window.open(
+									"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
+									"_blank",
+									"noopener,noreferrer",
+								)
+							}
+							aria-label={t("settings.troubleshooting.openDocsAria")}
+							title={t("settings.troubleshooting.openDocsHint")}
+						>
+							<HugeiconsIcon
+								icon={Book02Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{helpFaqLabel}
+						</Button>
+					)}
+					{isVisible(reportBugLabel, undefined, title) && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={() =>
+								window.open(
+									"https://github.com/AbdallahIsDev/voice-typer/issues",
+									"_blank",
+									"noopener,noreferrer",
+								)
+							}
+							aria-label={t("settings.troubleshooting.reportBugAria")}
+							title={t("settings.troubleshooting.reportBugHint")}
+						>
+							<HugeiconsIcon
+								icon={Bug02Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{reportBugLabel}
+						</Button>
+					)}
+					{isVisible(keyboardShortcutsLabel, undefined, title) && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={onOpenHelp}
+							aria-label={t("help.title")}
+							title={t("help.description")}
+							data-testid="keyboard-shortcuts-button"
+						>
+							<HugeiconsIcon
+								icon={KeyboardIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{keyboardShortcutsLabel}
+						</Button>
+					)}
+					{isVisible(reRunWizardLabel, undefined, title) && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={handleReRunWizard}
+							aria-label={t("settings.troubleshooting.reRunWizardAria")}
+							title={t("settings.troubleshooting.reRunWizardHint")}
+						>
+							<HugeiconsIcon
+								icon={ArrowTurnBackwardIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{reRunWizardLabel}
+						</Button>
+					)}
+					{isVisible(reRunWizardLabel, undefined, title) && (
+						<p className="text-xs text-muted-foreground">
+							{t("settings.troubleshooting.reRunWizardHint")}
+						</p>
+					)}
+					{isMac && isVisible(resetAccessibilityLabel, undefined, title) && (
 						<div className="flex flex-col gap-1">
 							<Button
 								variant="outline"
@@ -399,7 +412,7 @@ export const TroubleshootingSettingsSection = memo(
 							)}
 						</div>
 					)}
-					{isLinux && (
+					{isLinux && isVisible(resetLinuxLabel, undefined, title) && (
 						<Button
 							variant="outline"
 							className="gap-2"
@@ -418,32 +431,34 @@ export const TroubleshootingSettingsSection = memo(
 					{/*visually separate the destructive Reset to Defaults
                                                 button from the 5 non-destructive buttons above with a
                                                 top border + padding so users don't click it by accident. */}
-					<div className="flex w-full flex-col gap-1 border-t border-border/5 pt-3">
-						<Button
-							variant="destructive"
-							className="gap-2 self-start"
-							onClick={onResetClick}
-							aria-label={t("settings.troubleshooting.resetToDefaultsAria")}
-							title={t("settings.troubleshooting.resetToDefaultsHint")}
-						>
-							<HugeiconsIcon
-								//use a trash/delete icon
-								// for the destructive Reset to Defaults
-								// action so it's visually distinct from
-								// the non-destructive "Re-run Wizard"
-								// button (ArrowTurnBackwardIcon). The
-								// previous RefreshIcon was too similar
-								// to a benign "reload" affordance.
-								icon={Delete02Icon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							{resetToDefaultsLabel}
-						</Button>
-						<p className="text-xs text-muted-foreground">
-							{t("settings.troubleshooting.resetToDefaultsHint")}
-						</p>
-					</div>
+					{isVisible(resetToDefaultsLabel, undefined, title) && (
+						<div className="flex w-full flex-col gap-1 border-t border-border/5 pt-3">
+							<Button
+								variant="destructive"
+								className="gap-2 self-start"
+								onClick={onResetClick}
+								aria-label={t("settings.troubleshooting.resetToDefaultsAria")}
+								title={t("settings.troubleshooting.resetToDefaultsHint")}
+							>
+								<HugeiconsIcon
+									//use a trash/delete icon
+									// for the destructive Reset to Defaults
+									// action so it's visually distinct from
+									// the non-destructive "Re-run Wizard"
+									// button (ArrowTurnBackwardIcon). The
+									// previous RefreshIcon was too similar
+									// to a benign "reload" affordance.
+									icon={Delete02Icon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								{resetToDefaultsLabel}
+							</Button>
+							<p className="text-xs text-muted-foreground">
+								{t("settings.troubleshooting.resetToDefaultsHint")}
+							</p>
+						</div>
+					)}
 				</div>
 			</SettingsSection>
 		);

@@ -70,7 +70,6 @@
 
 import {
 	type Dispatch,
-	type MutableRefObject,
 	type RefObject,
 	type SetStateAction,
 	useCallback,
@@ -118,14 +117,14 @@ interface UseMicrophoneLevelMonitorOptions {
 	 * push handler suppresses level updates during playback without
 	 * rebinding on every render.
 	 */
-	playingRef: MutableRefObject<boolean>;
+	playingRef: RefObject<boolean>;
 	/**
 	 * Ref-to-latest "is test running" flag, owned by
 	 * ``useMicrophoneTestSession``. Read at event-fire time so the
 	 * push handler respects the ``testRunning || micMonitoring``
 	 * gate without rebinding.
 	 */
-	testRunningRef: MutableRefObject<boolean>;
+	testRunningRef: RefObject<boolean>;
 	/**
 	 *  Ref-to-the-meter wrapper element. The hook's rAF loop
 	 * imperatively writes the latest level/peak to the ``LevelBar``'s
@@ -172,9 +171,9 @@ export interface UseMicrophoneLevelMonitorResult {
 	 * NOT by setState). Consumers that need to read the latest value
 	 * (e.g. for text labels) can access ``.current`` directly.
 	 */
-	levelRef: MutableRefObject<number>;
+	levelRef: RefObject<number>;
 	/**  live peak ref (mutated at ≤30 Hz by ``mic_level`` events). */
-	peakRef: MutableRefObject<number>;
+	peakRef: RefObject<number>;
 	/** Exposed so the session hook can reset the meter on test start/stop. */
 	setLevel: Dispatch<SetStateAction<number>>;
 	/** Exposed so the session hook can reset the meter on test start/stop. */

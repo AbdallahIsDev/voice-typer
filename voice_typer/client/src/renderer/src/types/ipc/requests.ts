@@ -3,7 +3,7 @@
 // All Python-request interfaces + the `PythonRequest` discriminated
 // union. Sent via `window.python.call(...)`.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // The response-data shapes for `get_history_count` and
@@ -217,8 +217,8 @@ export interface GetCorrectionUsageRequest {
 // shape that may drift. Tighten individual interfaces to bare
 // (no-data) or stricter ``data:`` shapes as the wire contracts are
 // verified against the Python ``_COMMAND_REGISTRY`` (out of lane for
-// this slice — the server-side enum lives in another sub-agent's
-// scope; see review.md (Python-side plan) for the Python-side plan).
+// this slice — the server-side enum lives outside this renderer
+// scope; see review.md for the Python-side plan).
 //
 // Commands surveyed via ``rg 'call<...>\("..."'`` across
 // ``src/renderer/src``. The parity test in
@@ -247,7 +247,7 @@ export interface ForceCancelTranscriptionRequest {
 // that may drift. Tighten individual interfaces to bare (no-data) or
 // stricter ``data:`` shapes as the wire contracts are verified
 // against the Python handler signatures (out of lane for this slice
-// — the Python-side enum lives in another sub-agent's scope).
+// — the Python-side enum lives outside this renderer scope).
 
 export interface GetDefaultsRequest {
 	type: "get_defaults";
@@ -658,7 +658,7 @@ export type PythonRequest =
 
 // ── Helper: map request type to its response data ─────────────────
 //
-//removed the dead ``ResponseData<T extends
+// removed the dead ``ResponseData<T extends
 // PythonRequest["type"]>`` mapped type.  The 26-line conditional-types
 // cascade (mapping each request type to its response-data shape) had
 // ZERO consumers — ``usePython.call`` is generic over ``<T = unknown>``
@@ -674,4 +674,4 @@ export type PythonRequest =
 // ``call<T>('set_config', data)`` and never sends ``restart_app`` from
 // the renderer anyway.  ``set_config`` returns ``{type: "ack", data: {}}``
 // on success (or ``{type: "ack", data: {accepted: [...], rejected: [...]}}``
-//when some keys were silently dropped — see  in the server).
+// when some keys were silently dropped — see the server-side validator).

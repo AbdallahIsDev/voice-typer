@@ -207,4 +207,35 @@ describe("PrewarmAndUpdates", () => {
 		});
 		expect(mockShowSnack).toHaveBeenCalled();
 	});
+
+	// Honest error copy: when the run_prewarm IPC itself fails, the
+	// toast must say RUNNING the prewarm failed — not the View-Log
+	// handler's "Could not open prewarm log" copy (a user who clicked
+	// "Run Prewarm Now" is told the log couldn't be opened, which is
+	// a lie about what failed). The run handler uses the dedicated
+	// `about.prewarmRunFailed` key; the log handler keeps
+	// `about.prewarmLogOpenFailed`.
+	it("shows the run-failure toast (not the log-open copy) when run_prewarm rejects", async () => {
+		mockCall.mockImplementation(async (type: string) => {
+			if (type === "run_prewarm") throw new Error("worker busy");
+			return PREWARM_HOT;
+		});
+		render(<PrewarmAndUpdates />);
+		screen.getByText("Run Prewarm Now").click();
+		await waitFor(() => {
+			expect(mockShowSnack).toHaveBeenCalled();
+		});
+		// The run-failure copy (English default locale), with the
+		// underlying error message appended.
+		expect(mockShowSnack).toHaveBeenCalledWith(
+			"Failed to run prewarm: worker busy",
+			"error",
+		);
+		// The View-Log handler's copy must NOT leak into the Run
+		// failure path.
+		const calls = mockShowSnack.mock.calls as [string, string][];
+		expect(
+			calls.some(([message]) => message.includes("Could not open prewarm log")),
+		).toBe(false);
+	});
 });

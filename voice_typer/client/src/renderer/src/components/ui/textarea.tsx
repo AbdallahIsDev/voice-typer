@@ -1,39 +1,29 @@
 import type * as React from "react";
-import { useState } from "react";
 
 import { cn } from "#utils";
+import {
+	POINTER_FOCUS_CLASSES,
+	usePointerFocusModality,
+} from "@/hooks/usePointerFocusModality";
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-	// Pointer vs keyboard focus modality — the SAME contract as Input.
-	// Text fields always match `:focus-visible` on click (browser
-	// heuristic: "a text box needing user input has focus" — MDN
-	// :focus-visible), so the full-opacity ring (WCAG 1.4.11 3:1
-	// contract) would paint on every mouse click. Track the input
-	// modality and suppress the ring on pointer (mouse/touch)
-	// interaction, keeping only a subtle border tint. Keyboard/AT
+	// Pointer vs keyboard focus modality — the shared C-FOCUS-3 contract
+	// (see `hooks/usePointerFocusModality.ts` for the full rationale):
+	// text fields always match `:focus-visible` on click, so the
+	// full-opacity ring would paint on every mouse click. The modality
+	// state machine suppresses it for pointer focus while keyboard/AT
 	// navigation keeps the clear ring.
-	const [pointerActive, setPointerActive] = useState(false);
+	const { pointerActive, pointerFocusProps } = usePointerFocusModality();
 
 	return (
 		<textarea
 			data-slot="textarea"
-			onPointerDown={() => setPointerActive(true)}
-			onKeyDown={(e) => {
-				if (e.key === "Tab" || e.key.startsWith("Arrow")) {
-					setPointerActive(false);
-				}
-			}}
-			onBlur={() => setPointerActive(false)}
+			{...pointerFocusProps}
 			className={cn(
 				"min-h-16 w-full rounded-xl border border-transparent bg-input/50 px-3 py-2 text-base transition-[color,box-shadow,background-color] outline-hidden placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
 				pointerActive
-					? // Pointer focus: no heavy ring (the caret marks the
-						// active field). A subtle border tint keeps the state
-						// legible.
-						"focus:border-ring/60 focus-visible:ring-0"
-					: // Keyboard/AT focus: the clear full-opacity ring
-						// (WCAG 1.4.11 3:1).
-						"focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring",
+					? POINTER_FOCUS_CLASSES.pointer
+					: POINTER_FOCUS_CLASSES.keyboard,
 				className,
 			)}
 			{...props}

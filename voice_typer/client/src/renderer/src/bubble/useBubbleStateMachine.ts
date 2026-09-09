@@ -22,7 +22,7 @@
  *     process are extended to forward error reasons. The defensive
  *     runtime check below handles both shapes so this hook is
  *     forward-compatible without a type-system change to
- *     `BubbleWindowExtras.onSetState` (owned by another sub-agent).
+ *     `BubbleWindowExtras.onSetState` (owned by the bubble-bridge types).
  *   - `transcript` is an optional short partial-transcription string
  *     surfaced from the same `bubble:set-state` payload when in
  *     transcribing mode. The main-process handler at

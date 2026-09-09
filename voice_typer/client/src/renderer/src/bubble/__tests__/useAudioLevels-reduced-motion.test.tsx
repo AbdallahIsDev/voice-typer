@@ -35,6 +35,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Bubble } from "@/Bubble";
 import { MAX_HEIGHT, MIN_HEIGHT } from "@/bubble/constants";
 
+/** Parse the scaleY factor out of an inline `transform: scaleY(s)`. */
+function parseScaleY(transform: string): number {
+	const m = transform.match(/scaleY\(([\d.eE+-]+)\)/);
+	return m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
+}
+
 // ── Mock window.bubble API ──────────────────────────────────────────
 // Mirrors the mock in useAudioLevels-rAF-gating.test.tsx.
 
@@ -195,7 +201,7 @@ async function tickFrames(count = 5) {
 describe("reduced-motion gating (prefers-reduced-motion)", () => {
 	it("renders bars at static mid-height with opacity 0.5 when reduced-motion is set at mount", async () => {
 		// Pre-set the matchMedia mock to match BEFORE the component mounts
-		// so the initial `reducedMotionRef.current = mq.matches` reads `true`.
+		// so the initial `reducedMotionMql.matches` read gets `true`.
 		reducedMotionMql.matches = true;
 
 		render(<Bubble />);
@@ -216,10 +222,14 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		expect(bars.length).toBe(7);
 
 		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
+		const midScale = midHeight / MAX_HEIGHT;
 		for (const bar of bars) {
-			// The bar height should be the static mid-height, NOT the
+			// The bar animates via a transform on a full-height box:
+			// the box height is the constant MAX_HEIGHT and the scale
+			// lands the VISUAL bar at the static mid-height, NOT the
 			// level-driven animated height.
-			expect(parseFloat(bar.style.height)).toBeCloseTo(midHeight, 5);
+			expect(bar.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(parseScaleY(bar.style.transform)).toBeCloseTo(midScale, 5);
 			expect(bar.style.opacity).toBe("0.5");
 		}
 	});
@@ -275,8 +285,10 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		expect(bars.length).toBe(7);
 
 		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
+		const midScale = midHeight / MAX_HEIGHT;
 		for (const bar of bars) {
-			expect(parseFloat(bar.style.height)).toBeCloseTo(midHeight, 5);
+			expect(bar.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(parseScaleY(bar.style.transform)).toBeCloseTo(midScale, 5);
 			expect(bar.style.opacity).toBe("0.5");
 		}
 	});
@@ -284,9 +296,26 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 	it("does NOT gate when reduced-motion is not set (no false positive)", async () => {
 		reducedMotionMql.matches = false;
 
+		// Deterministic rAF driver (see the transform-writes test for
+		// the rationale — jsdom's real rAF clock is not flushed
+		// reliably by setTimeout(0) ticks).
+		const rafQueue: FrameRequestCallback[] = [];
+		const rafSpy = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((cb: FrameRequestCallback) => {
+				rafQueue.push(cb);
+				return rafQueue.length;
+			});
+		const flushFrames = (count: number) => {
+			for (let i = 0; i < count; i++) {
+				const cbs = rafQueue.splice(0);
+				for (const cb of cbs) cb(performance.now());
+			}
+		};
+
 		render(<Bubble />);
 		showBubble();
-		await tickFrames(5);
+		flushFrames(3);
 
 		// Push audio levels so bars animate to non-mid-height values.
 		act(() => {
@@ -294,18 +323,83 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 				cb({ rms: 0.9, peak: 0.99 });
 			}
 		});
-		await tickFrames(5);
+		flushFrames(6);
 
 		const bars =
 			document.querySelectorAll<HTMLSpanElement>(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 
 		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
+		const midScale = midHeight / MAX_HEIGHT;
 		// At least one bar should NOT be at the static mid-height — the
 		// animation is running normally.
 		const atMid = Array.from(bars).filter(
-			(b) => Math.abs(parseFloat(b.style.height) - midHeight) < 0.01,
+			(b) =>
+				Math.abs(parseScaleY(b.style.transform) - midScale) < 0.01 / MAX_HEIGHT,
 		);
 		expect(atMid.length).toBeLessThan(bars.length);
+
+		rafSpy.mockRestore();
+	});
+
+	it("animates bars via transform writes, never per-frame height/layout geometry", async () => {
+		reducedMotionMql.matches = false;
+
+		// jsdom's real `requestAnimationFrame` fires on a ~16 ms
+		// internal clock that `setTimeout(0)` flushes only race
+		// against — the loop's DOM writes would be timing-flaky.
+		// Drive the frames deterministically instead: collect the
+		// callbacks in a queue and flush them manually (the loop's
+		// self-rescheduling lands in the NEXT flush iteration).
+		const rafQueue: FrameRequestCallback[] = [];
+		const rafSpy = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((cb: FrameRequestCallback) => {
+				rafQueue.push(cb);
+				return rafQueue.length;
+			});
+		const flushFrames = (count: number) => {
+			for (let i = 0; i < count; i++) {
+				const cbs = rafQueue.splice(0);
+				for (const cb of cbs) cb(performance.now());
+			}
+		};
+
+		render(<Bubble />);
+		showBubble();
+		flushFrames(3);
+
+		// Push audio levels so the loop animates through several frames.
+		act(() => {
+			for (const cb of mockBubble._listeners.level) {
+				cb({ rms: 0.8, peak: 0.9 });
+			}
+		});
+		flushFrames(6);
+
+		const bars =
+			document.querySelectorAll<HTMLSpanElement>(".gap-0\\.75 > span");
+		expect(bars.length).toBe(7);
+		for (const bar of bars) {
+			// Base layout box: reserved ONCE at the full height — a
+			// per-frame height write would force layout on the pill
+			// (the LevelBar-style compositor-only contract).
+			expect(bar.style.height).toBe(`${MAX_HEIGHT}px`);
+			// The animated value lives in the transform...
+			const scale = parseScaleY(bar.style.transform);
+			expect(Number.isNaN(scale)).toBe(false);
+			const visual = scale * MAX_HEIGHT;
+			expect(visual).toBeGreaterThanOrEqual(MIN_HEIGHT - 1e-9);
+			expect(visual).toBeLessThanOrEqual(MAX_HEIGHT + 1e-9);
+			// ...plus the cap-radius var consumed by the prepared
+			// counter-scaled border-radius.
+			const barScaleVar = bar.style.getPropertyValue("--bar-scale");
+			expect(barScaleVar).not.toBe("");
+			expect(Number.parseFloat(barScaleVar)).toBeCloseTo(scale, 5);
+			// The prepared radius keeps the counter-scaled form.
+			expect(bar.style.borderRadius).toContain("max(var(--bar-scale)");
+		}
+
+		rafSpy.mockRestore();
 	});
 });

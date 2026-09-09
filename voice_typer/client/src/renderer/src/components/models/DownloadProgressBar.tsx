@@ -5,7 +5,7 @@
  * plus Pause/Resume and Cancel controls. Extracted from Models.tsx so it
  * can be placed independently of the model list.
  *
- * ──  (sub-agent 15) additions ────────────────────────────────────
+ * ── Failure-state additions ─────────────────────────────────────────
  * The original component only handled the "downloading" state — when a
  * download failed, the consumer (useModelLifecycle) unmounted the bar
  * and surfaced the failure via a toast, leaving no in-place error UI.
@@ -17,23 +17,23 @@
  *   • `modelName`        — when provided, the progressbar's aria-label
  *                          becomes "{name} download: {percent}% complete"
  *                          so SR users hear WHICH model is in flight
- *                          ( priority #4: model-specific messaging).
+ *                          (model-specific messaging).
  *   • `error`            — when set, the bar enters an error state:
  *                          the fill turns red, the status <p> switches
  *                          to a `role="alert"` region announcing the
  *                          failure, and the Pause button is disabled
- *                          (: no partial-download / error state
- *                          existed before).
+ *                          (no partial-download / error state existed
+ *                          before).
  *   • `onRetry`          — when provided AND `error` is set, a "Retry"
  *                          button renders next to Cancel so the user
- *                          can recover in place ( priority #3).
+ *                          can recover in place.
  *   • `isPaused`         — already existed; now ALSO drives the
  *                          `models.progress.paused` chip in the status
  *                          line so the paused state is visually
- *                          announced (: the i18n key was
- *                          defined but never rendered).
+ *                          announced (the i18n key was defined but
+ *                          never rendered before).
  *
- * New i18n keys consumed (to be added by primary agent in en.json):
+ * New i18n keys consumed (added to every locale catalogue):
  *   • models.download.errorMessage        — "Download failed: {error}"
  *   • models.download.errorMessageWithName — "{name} download failed: {error}"
  *   • models.download.retry               — "Retry"
@@ -48,7 +48,7 @@
  */
 import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -64,16 +64,16 @@ interface DownloadProgressBarProps {
 	etaSeconds: number | null;
 	onTogglePause: () => void;
 	onCancel: () => void;
-	/**  priority #4: optional model name. When provided, the
-	 * progressbar's aria-label includes the model name so SR users
-	 * hear WHICH model is in flight. */
+	/** Optional model name. When provided, the progressbar's
+	 * aria-label includes the model name so SR users hear WHICH model
+	 * is in flight. */
 	modelName?: string;
-	/** : when set, the bar enters the error state. The fill
-	 * turns red, the status <p> switches to a role="alert" region,
-	 * and the Pause button is disabled. */
+	/** When set, the bar enters the error state. The fill turns
+	 * red, the status <p> switches to a role="alert" region, and the
+	 * Pause button is disabled. */
 	error?: string | null;
-	/**  priority #3: when provided AND `error` is set, a "Retry"
-	 * button renders next to Cancel. */
+	/** When provided AND `error` is set, a "Retry" button renders
+	 * next to Cancel. */
 	onRetry?: () => void;
 }
 
@@ -88,12 +88,12 @@ function formatEta(seconds: number | null | undefined): string {
 }
 
 /**
- *  priority #4: builds the progressbar's aria-label. When
- * `modelName` is provided, SR users hear "{name} download: N% complete"
- * — disambiguating between concurrent downloads (e.g. Whisper + Parakeet
- * shown on the same Models page). Falls back to the generic
+ * Builds the progressbar's aria-label. When `modelName` is provided,
+ * SR users hear "{name} download: N% complete" — disambiguating
+ * between concurrent downloads (e.g. Whisper + Parakeet shown on the
+ * same Models page). Falls back to the generic
  * `models.download.progressAria` when no name is supplied (preserves
- * the pre-fix behaviour for callers that haven't been updated).
+ * the behaviour for callers that don't pass a name).
  */
 function progressAriaLabel(progress: number, modelName?: string): string {
 	const percent = String(Math.round(progress));
@@ -106,7 +106,11 @@ function progressAriaLabel(progress: number, modelName?: string): string {
 	return t("models.download.progressAria", { percent });
 }
 
-export function DownloadProgressBar({
+// Wrapped in `React.memo`: the bar re-renders when its own progress
+// props change (every download_progress tick — which is REQUIRED, the
+// bar is the tick's destination) and skips re-renders when unrelated
+// panel state changes with identical progress props.
+export const DownloadProgressBar = memo(function DownloadProgressBar({
 	progress,
 	status,
 	isPaused,
@@ -134,7 +138,7 @@ export function DownloadProgressBar({
 			? "bg-warning"
 			: "bg-accent";
 
-	//when in the error state, the status <p> becomes an
+	// When in the error state, the status <p> becomes an
 	// alert region. role="alert" is implicitly aria-live="assertive",
 	// so SR users hear the failure announcement as soon as the error
 	// prop is set — without needing to focus the bar.
@@ -155,7 +159,7 @@ export function DownloadProgressBar({
 				aria-label={progressAriaLabel(progress, modelName)}
 				aria-valuemin={0}
 				aria-valuemax={100}
-				//throttle aria-valuenow to the nearest 10% so screen
+				// Throttle aria-valuenow to the nearest 10% so screen
 				// readers don't broadcast a stream of percentage updates every
 				// frame (the visual bar still updates smoothly via the width
 				// style below).
@@ -171,26 +175,26 @@ export function DownloadProgressBar({
 					className={`min-w-0 flex-1 truncate text-xs ${
 						hasError ? "text-destructive font-medium" : "text-(--text-muted)"
 					}`}
-					//truncated status line gets a native tooltip with the full text.
+					// Truncated status line gets a native tooltip with the
 					title={statusText}
-					//in the error state this region becomes an
-					// assertive live region so the failure is announced
-					// automatically. In the normal state it remains a polite
-					//live region () so STATUS TRANSITIONS are announced
-					// without interrupting the user. ONLY the status text (+ paused
-					// chip) lives inside the region — the bytes/speed/ETA spans below
-					// update several times per second and previously re-announced the
-					// whole line on every download_progress event.
+					// In the error state this region becomes an assertive
+					// live region so the failure is announced automatically.
+					// In the normal state it remains a polite live region so
+					// STATUS TRANSITIONS are announced without interrupting
+					// the user. ONLY the status text (+ paused chip) lives
+					// inside the region — the bytes/speed/ETA spans below
+					// update several times per second and previously
+					// re-announced the whole line on every download_progress
 					role={hasError ? "alert" : undefined}
 					aria-live={hasError ? "assertive" : "polite"}
 				>
 					{statusText}
 					{!hasError && isPaused && (
-						//render the `models.progress.paused` chip
-						// (catalog value: "· Paused"). The i18n key has existed
-						//since  but was never rendered — the only paused
-						// cue was the amber bar fill, which is invisible to SR
-						// users and easy to miss for sighted users.
+						// Render the `models.progress.paused` chip
+						// (catalog value: "· Paused"). The i18n key existed in
+						// every catalogue but was never rendered — the only
+						// paused cue was the amber bar fill, which is invisible
+						// to SR users and easy to miss for sighted users.
 						<span className="ms-2 whitespace-nowrap">
 							{t("models.progress.paused")}
 						</span>
@@ -216,12 +220,11 @@ export function DownloadProgressBar({
 				)}
 				<div className="flex items-center gap-2 shrink-0">
 					{hasError && onRetry && (
-						//priority #3: in-place retry. Without this
-						// button the only recovery path is to re-navigate to
-						// the model card and click Download again — which is
-						//particularly painful for the Parakeet case ()
-						// where the user has just watched a multi-GB download
-						// fail at 90%+.
+						// In-place retry. Without this button the only
+						// recovery path is to re-navigate to the model card
+						// and click Download again — which is particularly
+						// painful when the user has just watched a multi-GB
+						// download fail at 90%+.
 						<Button
 							variant="outline"
 							size="sm"
@@ -236,12 +239,11 @@ export function DownloadProgressBar({
 						variant="outline"
 						size="sm"
 						onClick={onTogglePause}
-						//pausing a failed download is a no-op —
-						// disable the affordance so users don't waste a click
-						// expecting it to do something. We keep the button
-						// visible (rather than hiding it) so the layout doesn't
-						// shift and the existing Pause/Resume aria-label is
-						// still discoverable.
+						// Pausing a failed download is a no-op — disable
+						// the affordance so users don't waste a click expecting
+						// it to do something. We keep the button visible
+						// (rather than hiding it) so the layout doesn't shift
+						// and the existing Pause/Resume aria-label is still
 						disabled={hasError}
 						aria-label={
 							isPaused
@@ -285,4 +287,4 @@ export function DownloadProgressBar({
 			/>
 		</div>
 	);
-}
+});

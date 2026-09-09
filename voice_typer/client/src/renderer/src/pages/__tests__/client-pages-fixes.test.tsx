@@ -1,6 +1,6 @@
 /**
- *  (client_pages) — regression tests for the fixes applied in this
- * sub-agent session. Each describe block pins one finding so a future
+ * Regression tests for the client-pages fix batch.
+ * Each describe block pins one fix so a future
  * regression points at the exact contract that broke.
  *
  *   -   Onboarding mic auto-select prefers `default: true`
@@ -411,18 +411,20 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 	});
 
 	it("every shared-pattern destructive-hover button restates dark:hover:bg-destructive", async () => {
-		// Vocabulary / Templates / History Clear All + the Home discard
-		// button share the muted-at-rest → solid-red-hover contract. The
-		// outline/ghost variants carry dark:hover:bg-input/30 (resp.
-		// dark:hover:bg-muted/50), which out-specifies a plain
-		// hover:bg-destructive under Tailwind v4's `&:is(.dark *)` dark
-		// variant — each call site must therefore restate
-		// dark:hover:bg-destructive or dark mode hovers grey, not red.
+		// History Clear All + the shared collection toolbar (which
+		// renders the Vocabulary / Templates toolbars' Clear All —
+		// the former per-page mirrors were deleted) + the Home
+		// discard button share the muted-at-rest →
+		// solid-red-hover contract. The outline/ghost variants
+		// carry dark:hover:bg-input/30 (resp. dark:hover:bg-muted/50),
+		// which out-specifies a plain hover:bg-destructive under
+		// Tailwind v4's `&:is(.dark *)` dark variant — each call
+		// site must therefore restate dark:hover:bg-destructive or
+		// dark mode hovers grey, not red.
 		const fs = await import("node:fs");
 		const files = [
 			"src/renderer/src/pages/History.tsx",
-			"src/renderer/src/pages/templates/components/TemplateToolbar.tsx",
-			"src/renderer/src/pages/vocabulary/components/VocabToolbar.tsx",
+			"src/renderer/src/components/common/CollectionToolbar.tsx",
 			"src/renderer/src/pages/home/components/LastTranscriptionPreview.tsx",
 		];
 		for (const file of files) {

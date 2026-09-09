@@ -1,23 +1,33 @@
-// Templates import / export handlers.
+// Templates import / export — domain adapter over the shared
+// :func:`useCollectionImportExport` round-trip skeleton.
 //
-// Owns:
-//   - ``importInputRef`` (hidden ``<input type="file">`` ref — re-used
-//     for every import so we don't pay the cost of remounting it)
-//   - ``doExport`` (uses the optional ``window_.exportTemplates`` IPC
-//bridge —  GDPR right-to-export)
-//   - ``handleImportFile`` (parses + de-dupes by trigger|output|match_mode
-//     so re-importing the same file doesn't create duplicate rows)
-//   - ``handleImportClick`` (delegates to the hidden input's ``.click()``)
+// The skeleton owns the import/export FLOW (hidden-input ref → file.text()
+// → domain parse → de-duplicated merge → persist → success/error toasts →
+// input reset; export items → IPC bridge → saved/not-available/rejected
+// toast mapping). THIS hook supplies only the Templates domain specifics:
+//
+//   - ``parseImportedTemplates`` (bare-array JSON or the ``{templates:
+//     [...]}`` export shape — see lib/transform.ts)
+//   - the ``trigger|output|match_mode`` de-duplication key (re-importing
+//     the same file must not create duplicate rows)
+//   - persistence via ``saveTemplates`` + ``loadRows`` (the page decides
+//     how the UI state is rebuilt after the save)
+//   - the ``window_.exportTemplates`` IPC bridge invocation
+//   - the templates i18n message keys
+//   - ``notifyOnExportRejected`` — a rejected export (IPC returned
+//     ``success: false``) toasts the failure so the button is never a
+//     silent dead control
 //
 // Kept in its own hook (rather than in ``useTemplates``) so the
 // import-file event handler doesn't re-create when the templates list
 // changes (which would re-render the hidden ``<input>`` and reset its
-// value mid-flight).
+// value mid-flight). The hidden ``<input type="file">`` ELEMENT renders
+// inside the shared CollectionToolbar shell; this hook owns the ref it
+// attaches to, so re-selecting the same file fires onChange again.
 
-import { useCallback, useRef } from "react";
-import { toast } from "sonner";
+import { useCallback } from "react";
+import { useCollectionImportExport } from "@/hooks/useCollectionImportExport";
 import type { PythonCall } from "@/hooks/usePython";
-import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../../../shared/export-format";
 import { saveTemplates } from "../lib/storage";
 import { parseImportedTemplates, rowsToTemplates } from "../lib/transform";
@@ -36,11 +46,11 @@ interface UseTemplateImportExportResult {
 	handleImportClick: () => void;
 }
 
-//bridge.exportTemplates in types/ipc.ts doesn't yet accept a
-// `format` parameter (F20 owns types/ipc.ts and will extend the
-// signature). We pass `format` at runtime anyway so the IPC payload
-// reaches the backend correctly once F20 ships the type extension;
-// this local alias keeps TypeScript happy in the meantime.
+//bridge.exportTemplates in types/ipc/bridge.ts doesn't yet accept a
+// `format` parameter (the types/ipc owner will extend the signature).
+// We pass `format` at runtime anyway so the IPC payload reaches the
+// backend correctly once the type extension ships; this local alias
+// keeps TypeScript happy in the meantime.
 type ExportTemplatesWithFormat = (
 	data: unknown,
 	format: ExportFormat,
@@ -51,123 +61,63 @@ export function useTemplateImportExport({
 	loadRows,
 	templatesRef,
 }: UseTemplateImportExportArgs): UseTemplateImportExportResult {
-	const importInputRef = useRef<HTMLInputElement | null>(null);
-
-	// ── Import / Export ──────────────────────────────────────────────
-	//
-	// Export: uses the optional ``window_.exportTemplates`` IPC
-	//( GDPR right-to-export) when available.  Falls back
-	// to a no-op toast if the bridge is missing (e.g. running outside
-	// Electron) so the button isn't a silent dead control.
-	//
-	//``format`` is forwarded from the ExportFormatMenu (JSON /
-	// CSV).  Defaults to ``"json"`` so callers that don't care about
-	// the format (e.g. an ad-hoc test or a future "quick-export"
-	// shortcut) preserve the previous behaviour bit-for-bit.
-	const doExport = useCallback(
-		async (format: ExportFormat = "json", rows?: TemplateRow[]) => {
-			try {
-				// Bulk "Export selected" passes the exact rows; the
-				// toolbar export passes none (→ all templates).
-				const items = rowsToTemplates(rows ?? templatesRef.current);
-				const bridge = window.window_;
-				if (!bridge?.exportTemplates) {
-					toast.error(t("templates.exportNotAvailable"));
-					return;
-				}
-				//pass ``format`` to the IPC bridge so the
-				// backend can pick the right serialiser. The
-				// WindowBridge type in types/ipc.ts doesn't yet
-				// declare the second arg (F20 owns that file) — the
-				// local cast above is the temporary bridge.
-				const result = await (
-					bridge.exportTemplates as ExportTemplatesWithFormat
-				)({ templates: items }, format);
-				if (result.success) {
-					const path = result.path ?? "";
-					const filename = path.split(/[\\/]/).pop() || "untitled";
-					toast.success(t("templates.exportSaved", { filename }));
-				} else {
-					toast.error(result.error || t("templates.exportFailed"));
-				}
-			} catch (err) {
-				console.error(
-					"[renderer:useTemplateImportExport] Templates export failed:",
-					err,
-				);
-				toast.error(t("templates.exportFailed"));
-			}
-		},
+	// Read the current items in the PERSISTED shape (row ids and the
+	// index/expansion view-model fields are client-side concerns —
+	// rowsToTemplates maps them back).
+	const readExisting = useCallback(
+		() => rowsToTemplates(templatesRef.current),
 		[templatesRef],
 	);
-	// Import: hidden ``<input type="file">`` opens the OS-native picker.
-	// We read the file via ``File.text()`` (Chromium ≥ 76, Electron
-	// renderer), parse it via ``parseImportedTemplates`` (which accepts
-	// both bare-array and ``{templates: [...]}`` shapes), then merge
-	// with the existing list (de-duplicating by trigger+output to avoid
-	// accidental double-imports) and persist via ``saveTemplates``.
-	const handleImportFile = useCallback(
-		async (file: File | undefined | null) => {
-			if (!file) return;
-			try {
-				const text = await file.text();
-				const imported = parseImportedTemplates(text);
-				if (imported.length === 0) {
-					toast.error(t("templates.importEmpty"));
-					return;
-				}
-				const existing = rowsToTemplates(templatesRef.current);
-				// De-duplicate by ``trigger|output|match_mode`` so re-importing
-				// the same file doesn't create duplicate rows.
-				const key = (tp: Template) =>
-					`${tp.trigger}\u0000${tp.output}\u0000${tp.match_mode}`;
-				const existingKeys = new Set(existing.map(key));
-				const merged = [...existing];
-				let added = 0;
-				for (const tp of imported) {
-					if (!existingKeys.has(key(tp))) {
-						merged.push(tp);
-						existingKeys.add(key(tp));
-						added++;
-					}
-				}
-				await saveTemplates(merged, call);
-				await loadRows();
-				if (added === 1) {
-					toast.success(t("templates.importSuccessSingular"));
-				} else {
-					toast.success(
-						t("templates.importSuccessPlural", { count: String(added) }),
-					);
-				}
-			} catch (err) {
-				console.error(
-					"[renderer:useTemplateImportExport] Templates import failed:",
-					err,
-				);
-				toast.error(
-					t("templates.importFailed", {
-						error: err instanceof Error ? err.message : String(err),
-					}),
-				);
-			} finally {
-				// Reset the input so re-selecting the same file fires
-				// ``onChange`` again (otherwise the OS picker suppresses
-				// the event if the path is unchanged).
-				if (importInputRef.current) importInputRef.current.value = "";
-			}
+
+	// Persist the merged list via the shared save path (localStorage
+	// mirror + save_templates IPC), then reload so the UI reflects
+	// the merged state with fresh row ids.
+	const persistMerged = useCallback(
+		async (merged: Template[]) => {
+			await saveTemplates(merged, call);
+			await loadRows();
 		},
-		[call, loadRows, templatesRef],
+		[call, loadRows],
 	);
 
-	const handleImportClick = useCallback(() => {
-		importInputRef.current?.click();
+	// Bulk "Export selected" passes the exact rows; the toolbar export
+	// passes none (→ all templates from the ref).
+	const getExportItems = useCallback(
+		(rows?: TemplateRow[]) => rowsToTemplates(rows ?? templatesRef.current),
+		[templatesRef],
+	);
+
+	// The GDPR export IPC bridge. Returns null when the bridge (or its
+	// exportTemplates member) is unavailable — e.g. running outside
+	// Electron — so the skeleton shows the not-available toast instead
+	// of a silent dead control. The cast mirrors the local alias above
+	// (the declared type doesn't carry the format arg yet).
+	const exportFile = useCallback((items: Template[], format: ExportFormat) => {
+		const bridge = window.window_;
+		if (!bridge?.exportTemplates) return Promise.resolve(null);
+		return (bridge.exportTemplates as ExportTemplatesWithFormat)(
+			{ templates: items },
+			format,
+		);
 	}, []);
 
-	return {
-		importInputRef,
-		doExport,
-		handleImportFile,
-		handleImportClick,
-	};
+	return useCollectionImportExport<TemplateRow, Template>({
+		debugLabel: "Templates",
+		parseImported: parseImportedTemplates,
+		rowKey: (tp) => `${tp.trigger}\u0000${tp.output}\u0000${tp.match_mode}`,
+		readExisting,
+		persistMerged,
+		notifyOnExportRejected: true,
+		getExportItems,
+		exportFile,
+		messages: {
+			importEmpty: "templates.importEmpty",
+			importSuccessSingular: "templates.importSuccessSingular",
+			importSuccessPlural: "templates.importSuccessPlural",
+			importFailed: "templates.importFailed",
+			exportNotAvailable: "templates.exportNotAvailable",
+			exportSaved: "templates.exportSaved",
+			exportFailed: "templates.exportFailed",
+		},
+	});
 }

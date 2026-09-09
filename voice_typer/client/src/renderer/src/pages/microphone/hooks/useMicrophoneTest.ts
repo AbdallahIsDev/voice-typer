@@ -14,7 +14,6 @@
 
 import {
 	type Dispatch,
-	type MutableRefObject,
 	type RefObject,
 	type SetStateAction,
 	useCallback,
@@ -39,9 +38,7 @@ interface UseMicrophoneTestOptions {
 	microphones: MicrophoneDevice[];
 	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
-	selectMicrophoneRef: MutableRefObject<
-		(micId: string | null) => Promise<void>
-	>;
+	selectMicrophoneRef: RefObject<(micId: string | null) => Promise<void>>;
 	/**
 	 * consumer-attached ref to the meter wrapper element. The
 	 * level monitor's rAF loop imperatively writes the latest level to
@@ -73,9 +70,9 @@ export interface UseMicrophoneTestResult {
 	level: number;
 	peak: number;
 	/** Live level ref (mutated at ≤30 Hz by ``mic_level`` events). */
-	levelRef: MutableRefObject<number>;
+	levelRef: RefObject<number>;
 	/** Live peak ref (mutated at ≤30 Hz by ``mic_level`` events). */
-	peakRef: MutableRefObject<number>;
+	peakRef: RefObject<number>;
 	micMonitoring: boolean;
 	showAdvanced: boolean;
 	filtersSinceLastTest: string;

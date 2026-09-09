@@ -219,8 +219,8 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// Under Electron this routes via `renderer:log-error` IPC and
 		// the main process appends to `electron-renderer-errors.log`.
 		//
-		//implemented at `commands/system_cmds.rs::renderer_log_error`
-		//(), registered in `main.rs:244-245` (`renderer_log_error`
+		//implemented at `commands/system_cmds.rs::renderer_log_error`,
+		// registered in `main.rs:244-245` (`renderer_log_error`
 		// entry in the `generate_handler!` list). The Rust command
 		// serializes the payload via `serde_json::to_string` and writes
 		// it to the host file log via `log::error!("[RENDERER_ERROR] {}")`

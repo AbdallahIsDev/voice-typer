@@ -57,7 +57,7 @@
 //     controls. On Tauri these use the core window API. On Electron
 //     these route through `ipcRenderer.invoke`.
 //
-//The  guard in `usePython.ts` (d-review ) is
+//The error-envelope guard in `usePython.ts` is
 // Electron-path-only in practice:
 //   - The `_error` field check catches Electron's not-connected /
 //     send-exception envelopes (`{_error: "..."}` from index.ts:1908/

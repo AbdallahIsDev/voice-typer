@@ -3,7 +3,7 @@
 // All Python-push-event interfaces + the `PythonPushEvent` discriminated
 // union.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // Imports `ErrorCodes` from `./enums.ts` for the `ErrorEvent` payload.
@@ -135,7 +135,7 @@ export interface RecordingStoppedEvent {
 	type: "recording_stopped";
 }
 
-//(d-review): the dead `ModelLoadedEvent` type was REMOVED.
+// The dead `ModelLoadedEvent` type was REMOVED.
 // The server never published `model_loaded` via `event_bus.publish(...)`
 // (the only `model_loaded` symbol in the Python tree is a LOCAL log variable
 // in `recording_controller.py:145`), and ZERO renderer code subscribed to
@@ -174,7 +174,7 @@ export interface HistoryChangedEvent {
 	data: { reason: string };
 }
 
-//Additional Python push events ( / ) ───────
+// Additional Python push events ───────
 //
 // The Python backend emits 24+ distinct event `type` literals (see
 // `voice_typer/server/event_bus.py:36-95`). The previous union typed
@@ -892,8 +892,8 @@ export interface AuthFrame {
 // from `./enums.ts`) because the renderer does not branch on this
 // specific code today — it surfaces as a generic auth-failure toast.
 // Adding it to the `ErrorCodes` union in `./enums.ts` is tracked as
-// a separate cross-language parity task (the file is owned by another
-// sub-agent's slice).
+// a separate cross-language parity task (that file is owned by a
+// separate slice).
 export interface ProtocolVersionMismatchError {
 	type: "error";
 	data: {

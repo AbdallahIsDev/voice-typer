@@ -78,8 +78,7 @@ import { makeListener, type TauriGlobal } from "./detect";
  *
  * Unknown labels default to "main" — the safer (smaller) subset, so a
  * misconfigured window label never accidentally exposes bubble-only
- * methods on the main renderer (SEC-026 regression — see  /
- * ).
+ * methods on the main renderer (SEC-026 regression).
  */
 function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
 	const win = tauri.window.getCurrentWindow() as unknown as { label?: string };
@@ -89,7 +88,7 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
 /**
  * Build the `window.bubble` namespace using Tauri's global API.
  *
- *  /  (SEC-026 regression): the previous version installed
+ * (SEC-026 regression): the previous version installed
  * the FULL bubble API on BOTH windows — no window-label check. A
  * compromised main renderer could invoke `bubble_resize` /
  * `bubble_toggle_dictation` directly, bypassing the bubble-window
@@ -357,8 +356,8 @@ export function createBubbleNamespace(
 				);
 		},
 
-		//+ : toggle dictation from the bubble's own mic
-		//button. The bubble is sandboxed (SEC-026 / ) with NO
+		//Toggle dictation from the bubble's own mic
+		//button. The bubble is sandboxed (SEC-026) with NO
 		// `dispatch` access — the Rust `check_dispatch_window_label`
 		// guard rejects any `dispatch` call from a non-main window. So
 		// instead of `invoke('dispatch', ...)`, the bubble invokes this

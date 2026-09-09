@@ -20,12 +20,7 @@
  *      cleanup's ``level_monitor_stop`` owns teardown).
  */
 import { act, cleanup, render } from "@testing-library/react";
-import {
-	type MutableRefObject,
-	type ReactNode,
-	type RefObject,
-	StrictMode,
-} from "react";
+import { type ReactNode, type RefObject, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -68,12 +63,12 @@ afterEach(() => {
 });
 
 function makeRefs(): {
-	playingRef: MutableRefObject<boolean>;
-	testRunningRef: MutableRefObject<boolean>;
+	playingRef: RefObject<boolean>;
+	testRunningRef: RefObject<boolean>;
 	meterRef: RefObject<HTMLElement | null>;
 } {
-	const playingRef: MutableRefObject<boolean> = { current: false };
-	const testRunningRef: MutableRefObject<boolean> = { current: false };
+	const playingRef: RefObject<boolean> = { current: false };
+	const testRunningRef: RefObject<boolean> = { current: false };
 	const meterDiv = document.createElement("div");
 	const meterRef: RefObject<HTMLElement | null> = { current: meterDiv };
 	return { playingRef, testRunningRef, meterRef };

@@ -9,7 +9,7 @@
  *    them in the wizard UI, instead of overwriting with hardcoded
  *    defaults.
  *
- * 2.  ( / ): the renderer must include a Permissions
+ * 2. The renderer must include a Permissions
  *    step at index 2 (between Microphone and Hotkey), matching the
  *    server's 6-step wizard declared in
  *    `voice_typer/server/onboarding.py:124-141`. The Permissions step
@@ -1206,9 +1206,9 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	});
 
 	it("Microphone step: Continue is DISABLED when no microphones are detected", async () => {
-		//Reuse the  regression: no mics → isMicStepBlocked.
+		//Reuse the no-mics regression: no mics → isMicStepBlocked.
 		// This is the "Continue disabled when no selection" guard
-		//for  (b): when the user has no mic to select,
+		//for case (b): when the user has no mic to select,
 		// Continue is blocked so they can't silently bypass the
 		// step with an empty selection.
 		mockStartAtStepWithDefaults(1, { microphones: [] });

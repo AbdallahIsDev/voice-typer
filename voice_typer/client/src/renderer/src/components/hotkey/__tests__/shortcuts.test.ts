@@ -57,6 +57,23 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		expect(SHORTCUTS.dismissBubble.keys).toBe("Ctrl+Shift+D");
 	});
 
+	it("dismissBubble.keys is sourced from the shared cross-process constant", async () => {
+		// The dismiss-bubble binding is defined ONCE in
+		// `src/shared/dismiss-shortcut.ts` — the accelerator form is
+		// consumed by the Electron main process
+		// (`main/shortcuts/global-shortcuts.ts`), the display form by
+		// this catalog. Pinning the equality here (plus the main-side
+		// runtime pin in `global-shortcuts.test.ts` and the source
+		// contracts in `main/__tests__/dismiss-shortcut-import.test.ts`)
+		// means the two processes can never drift apart silently.
+		const { SHORTCUTS } = await importCatalog();
+		const { DISMISS_SHORTCUT } = await import(
+			"../../../../../shared/dismiss-shortcut"
+		);
+		expect(SHORTCUTS.dismissBubble.keys).toBe(DISMISS_SHORTCUT.display);
+		expect(SHORTCUTS.dismissBubble.handledBy).toBe("main");
+	});
+
 	it("pins the ARIA keyshortcuts forms exposed on controls", async () => {
 		const { SHORTCUTS } = await importCatalog();
 		expect(SHORTCUTS.toggleSidebar.ariaKeyshortcuts).toBe("Control+B");

@@ -41,6 +41,7 @@ import type { ModelStatusMap } from "@/types/ipc";
 // VERSION-SOURCE-FIX: import the version directly from package.json so
 // it stays in sync with the single source of truth.
 import pkg from "../../../../../package.json";
+import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
 const APP_VERSION = pkg.version as string;
@@ -54,8 +55,8 @@ function StatusDot({ connected }: { connected: boolean }) {
 			}
 		>
 			{/* the colored dot is purely decorative — the adjacent
-			    "Connected" / "Disconnected" text conveys the state to
-			    assistive tech. */}
+                            "Connected" / "Disconnected" text conveys the state to
+                            assistive tech. */}
 			<span
 				aria-hidden="true"
 				className={
@@ -315,22 +316,35 @@ export const DiagnosticsSettingsSection = memo(
 			showSnack,
 		]);
 
-		// Section-level hide-when-empty (Settings search filter).
+		// Section-level hide-when-empty (Settings search filter). The row
+		// labels resolve once per render and feed this check AND the
+		// per-row gates below (the same strings the rows render).
 		const title = t("about.diagnosticsTitle");
 		const description = t("about.diagnosticsDescription");
 		const copyLabel = t("about.copyDiagnostics");
+		const appVersionLabel = t("about.appVersion");
+		// Row label for the backend row — distinct from the pre-existing
+		// `backendLabel` status string (Connected/Disconnected) below.
+		const backendRowLabel = t("about.backend");
+		const configDirectoryLabel = t("about.configDirectory");
+		const asrBackendLabel = t("about.asrBackend");
+		const deviceLabel = t("about.device");
+		const loadedViaLabel = t("about.loadedVia");
+		const hotkeyLabel = t("about.hotkey");
+		const microphoneLabel = t("about.microphone");
 		const sectionVisible =
 			isVisible(title, description, title) ||
-			[
-				copyLabel,
-				t("about.appVersion"),
-				t("about.backend"),
-				t("about.configDirectory"),
-				t("about.asrBackend"),
-				t("about.device"),
-				t("about.hotkey"),
-				t("about.microphone"),
-			].some((label) => isVisible(label, undefined, title));
+			anyRowVisible(isVisible, title, [
+				{ label: copyLabel },
+				{ label: appVersionLabel },
+				{ label: backendRowLabel },
+				{ label: configDirectoryLabel },
+				{ label: asrBackendLabel },
+				{ label: deviceLabel },
+				{ label: hotkeyLabel },
+				{ label: microphoneLabel },
+				...(loadedVia ? [{ label: loadedViaLabel }] : []),
+			]);
 		if (!sectionVisible) return null;
 
 		return (
@@ -354,40 +368,50 @@ export const DiagnosticsSettingsSection = memo(
 					</Button>
 				}
 			>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.appVersion")}
-					value={t("about.versionValue", { version: APP_VERSION })}
-				/>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.backend")}
-					value={backendStatus}
-				/>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.configDirectory")}
-					value={configDirValue}
-				/>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.asrBackend")}
-					value={asrBackend}
-				/>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.device")}
-					value={device}
-				/>
+				{isVisible(appVersionLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={appVersionLabel}
+						value={t("about.versionValue", { version: APP_VERSION })}
+					/>
+				)}
+				{isVisible(backendRowLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={backendRowLabel}
+						value={backendStatus}
+					/>
+				)}
+				{isVisible(configDirectoryLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={configDirectoryLabel}
+						value={configDirValue}
+					/>
+				)}
+				{isVisible(asrBackendLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={asrBackendLabel}
+						value={asrBackend}
+					/>
+				)}
+				{isVisible(deviceLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={deviceLabel}
+						value={device}
+					/>
+				)}
 				{/* show which device/compute_type the model actually
-				    loaded via. Hidden entirely when the backend reported
-				    nothing (no model loaded yet) — a bare "—" would be
-				    confusing. */}
-				{loadedVia && (
+                                    loaded via. Hidden entirely when the backend reported
+                                    nothing (no model loaded yet) — a bare "—" would be
+                                    confusing. */}
+				{loadedVia && isVisible(loadedViaLabel, undefined, title) && (
 					<>
 						<ReadonlyRow
 							variant="label-emphasized"
-							label={t("about.loadedVia")}
+							label={loadedViaLabel}
 							value={<LiveValue present>{loadedVia}</LiveValue>}
 						/>
 						<p className="px-3.5 pb-2.5 text-xs text-(--text-muted)">
@@ -395,16 +419,20 @@ export const DiagnosticsSettingsSection = memo(
 						</p>
 					</>
 				)}
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.hotkey")}
-					value={<HotkeyChips keys={formatHotkey(hotkey)} />}
-				/>
-				<ReadonlyRow
-					variant="label-emphasized"
-					label={t("about.microphone")}
-					value={microphone}
-				/>
+				{isVisible(hotkeyLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={hotkeyLabel}
+						value={<HotkeyChips keys={formatHotkey(hotkey)} />}
+					/>
+				)}
+				{isVisible(microphoneLabel, undefined, title) && (
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={microphoneLabel}
+						value={microphone}
+					/>
+				)}
 			</SettingsSection>
 		);
 	},

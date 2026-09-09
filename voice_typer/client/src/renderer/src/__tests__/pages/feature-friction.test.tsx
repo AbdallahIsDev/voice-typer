@@ -1,7 +1,7 @@
 /**
  * W1-A4 / XA-5 feature-friction regression suite.
  *
- * Verifies the specific XA-5 fixes the W1-A4 sub-agent owns:
+ * Verifies the specific XA-5 fixes covered by this suite:
  *
  *   • XA-5-6 — the Cancel-download button is wrapped in a
  *     ``ConfirmDialog`` with ``variant="destructive"``. A single
@@ -75,10 +75,14 @@ vi.mock("@/components/feedback/InfoTooltip", () => ({
 	),
 }));
 
+// The former per-page VocabToolbar mirror was replaced by the shared
+// CollectionToolbar shell (the page injects its label keys); the XA-5-15
+// sort-in-toolbar contract now pins the shared shell wired with the
+// Vocabulary page's keys — exactly what pages/Vocabulary.tsx renders.
+import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
 import { PresetAccordionSelector } from "@/pages/microphone/components/PresetAccordionSelector";
-import { VocabToolbar } from "@/pages/vocabulary/components/VocabToolbar";
 
 const LOCALES: Record<string, typeof en> = {
 	en,
@@ -327,7 +331,7 @@ describe("XA-5-12 — preset selector keeps the primary CTA outside any disclosu
 // ─────────────────────────────────────────────────────────────────────
 // W3-A6 / XA-5 friction-items continuation.
 //
-// Verifies the additional XA-5 items implemented in Wave 3 Agent 6:
+// Verifies the additional XA-5 items implemented in the follow-up batch:
 //   • XA-5-4 — useFilterState persists values across re-mounts via
 //     sessionStorage.
 //   • XA-5-8 — TestReviewPanel renders a recommendation block per
@@ -499,23 +503,31 @@ describe("XA-5-13 — useMicrophoneTestSession exposes a cache-reset helper", ()
 	});
 });
 
-describe("XA-5-15 — VocabToolbar merges the sort control into the single toolbar row", () => {
+describe("XA-5-15 — the collection toolbar keeps the sort control in the single toolbar row", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
 	it("renders the sort Select inside the toolbar, no count badge", () => {
 		render(
-			<VocabToolbar
+			<CollectionToolbar
 				importInputRef={createRef<HTMLInputElement>()}
+				importAccept="application/json,.json,.csv,text/csv"
 				onImportClick={vi.fn()}
 				onImportFile={vi.fn()}
+				importAriaLabelKey="common.importAria"
+				importLabelKey="common.import"
+				importTitleKey="vocabulary.importFormatHint"
 				onExport={vi.fn()}
-				onAdd={vi.fn()}
 				exportDisabled={false}
-				addDisabled={false}
 				onClearAll={vi.fn()}
 				clearAllDisabled={false}
+				clearAllAriaLabelKey="vocabulary.clearAllAria"
+				clearAllLabelKey="vocabulary.clearAll"
+				addAriaLabelKey="vocabulary.addNewAria"
+				addLabelKey="vocabulary.addWord"
+				addDisabled={false}
+				onAdd={vi.fn()}
 				sortOrder="newest"
 				onSortOrderChange={vi.fn()}
 				hasEntries
@@ -546,32 +558,23 @@ describe("XA-5-17 — Models page computes an active-model summary", () => {
 });
 
 describe("XA-5-20 — Import buttons carry a format-hint title attribute", () => {
-	it("VocabToolbar Import button title points at the importFormatHint key", () => {
+	it("Vocabulary page wires the importFormatHint key into the shared toolbar's Import title", () => {
 		const src = fs.readFileSync(
-			path.join(
-				RENDERER_SRC_ROOT,
-				"pages",
-				"vocabulary",
-				"components",
-				"VocabToolbar.tsx",
-			),
+			path.join(RENDERER_SRC_ROOT, "pages", "Vocabulary.tsx"),
 			"utf8",
 		);
-		expect(src).toMatch(/title=\{t\("vocabulary\.importFormatHint"\)\}/);
+		// The title attr renders inside the shared CollectionToolbar shell;
+		// the KEY is injected by the page (the shell test pins the
+		// key→title wiring, this pins the page passes the right key).
+		expect(src).toMatch(/importTitleKey="vocabulary\.importFormatHint"/);
 	});
 
-	it("TemplateToolbar Import button title points at the importFormatHint key", () => {
+	it("Templates page wires the importFormatHint key into the shared toolbar's Import title", () => {
 		const src = fs.readFileSync(
-			path.join(
-				RENDERER_SRC_ROOT,
-				"pages",
-				"templates",
-				"components",
-				"TemplateToolbar.tsx",
-			),
+			path.join(RENDERER_SRC_ROOT, "pages", "Templates.tsx"),
 			"utf8",
 		);
-		expect(src).toMatch(/title=\{t\("templates\.importFormatHint"\)\}/);
+		expect(src).toMatch(/importTitleKey="templates\.importFormatHint"/);
 	});
 });
 

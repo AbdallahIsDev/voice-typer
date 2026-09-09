@@ -126,9 +126,7 @@ function makeConfig(
 function makeSelectMicrophoneRef() {
 	return {
 		current: vi.fn().mockResolvedValue(undefined),
-	} as unknown as React.MutableRefObject<
-		(micId: string | null) => Promise<void>
-	>;
+	} as unknown as React.RefObject<(micId: string | null) => Promise<void>>;
 }
 
 function getEventHandler(eventName: string) {

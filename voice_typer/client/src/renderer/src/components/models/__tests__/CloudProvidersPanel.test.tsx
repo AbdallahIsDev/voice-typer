@@ -209,7 +209,7 @@ describe("CloudProvidersPanel — provider brand logos + collapsible groups", ()
 	});
 });
 
-describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", () => {
+describe("CloudProvidersPanel — test-result span is a live region", () => {
 	afterEach(() => cleanup());
 
 	it("test-result span exposes role=status + aria-live=polite (so SR users hear the outcome)", () => {
@@ -242,7 +242,7 @@ describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", ()
 	});
 });
 
-describe("CloudProvidersPanel — three test-result color branches (BG-77 invalid syntax fixed)", () => {
+describe("CloudProvidersPanel — three test-result color branches", () => {
 	afterEach(() => cleanup());
 
 	it("success branch uses text-primary", () => {
@@ -409,7 +409,7 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 // that `safeApiKey` substitutes for the `<redacted>` sentinel on
 // every config fetch).
 // ─────────────────────────────────────────────────────────────────────
-describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => {
+describe("CloudProvidersPanel — Save Key button disabled guard", () => {
 	afterEach(() => cleanup());
 
 	it("disables the Save Key button when the API key input is empty", () => {
@@ -451,7 +451,7 @@ describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => 
 // Stale results are cleared via `onClearTestResult` whenever the
 // API-key Input changes.
 // ─────────────────────────────────────────────────────────────────────
-describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-on-key-change)", () => {
+describe("CloudProvidersPanel — Test Connection pending state + clear-on-key-change", () => {
 	afterEach(() => cleanup());
 
 	it("disables the Test Connection button + sets aria-busy when testResult.status is 'pending'", () => {

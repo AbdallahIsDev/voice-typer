@@ -1,4 +1,4 @@
-// Canonical latest-ref mirror, shared app-wide (BP-16 phase 1).
+// Canonical latest-ref mirror, shared app-wide.
 //
 // The "latest-ref mirror" keeps a callback/value readable inside effects
 // and event handlers without re-running the effect when its identity

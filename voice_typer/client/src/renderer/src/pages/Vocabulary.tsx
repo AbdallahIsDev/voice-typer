@@ -4,7 +4,14 @@
 // into:
 //   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
 //   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
-//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabListRow, VocabListHeader, VocabBulkBar, VocabInlineForm)
+//   - ``./vocabulary/components/`` — presentational (VocabListRow, VocabInlineForm, VocabDuplicateBanner)
+//
+// The Toolbar / BulkBar / ListHeader render through the SHARED
+// collection-page family (components/common/Collection*.tsx) — the
+// page injects its i18n keys + drift-decision props (the replacement
+// for the former per-page VocabToolbar / VocabBulkBar /
+// VocabListHeader mirrors, which were byte-identical except for those
+// keys).
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / inline-form wiring). All state + business logic lives in the
@@ -25,6 +32,9 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CollectionBulkBar } from "@/components/common/CollectionBulkBar";
+import { CollectionListHeader } from "@/components/common/CollectionListHeader";
+import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -33,12 +43,9 @@ import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
-import { VocabBulkBar } from "./vocabulary/components/VocabBulkBar";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
-import { VocabListHeader } from "./vocabulary/components/VocabListHeader";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
-import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
 import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyEdit } from "./vocabulary/hooks/useVocabularyEdit";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
@@ -284,36 +291,50 @@ export default function VocabularyPage() {
 	return (
 		<>
 			{/* The page column is centered (max-w-4xl mx-auto) in the main
-			    content area, so anything sticky/centered inside it (the
-			    floating bulk bar) stays centered relative to the CONTENT
-			    in both sidebar states — the column recenters when the
-			    sidebar expands/collapses. */}
+                            content area, so anything sticky/centered inside it (the
+                            floating bulk bar) stays centered relative to the CONTENT
+                            in both sidebar states — the column recenters when the
+                            sidebar expands/collapses. */}
 			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
-				    it (not inside PageHeading's children slot).
-				    PageHeading wraps children in a content-sized,
-				    shrink-0 flex wrapper — inside it, the toolbar's
-				    `justify-between` had zero free space to distribute
-				    (the wrapper hugs the buttons), so Add Word never
-				    reached the far right across three prior attempts.
-				    As a direct child of the page column (max-w-4xl
-				    w-full) the toolbar spans the full header width and
-				    the left group / right Add Word separation is real. */}
+                                    it (not inside PageHeading's children slot).
+                                    PageHeading wraps children in a content-sized,
+                                    shrink-0 flex wrapper — inside it, the toolbar's
+                                    `justify-between` had zero free space to distribute
+                                    (the wrapper hugs the buttons), so Add Word never
+                                    reached the far right across three prior attempts.
+                                    As a direct child of the page column (max-w-4xl
+                                    w-full) the toolbar spans the full header width and
+                                    the left group / right Add Word separation is real. */}
 				<PageHeading
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
 				/>
 				<div className="flex flex-col gap-4">
-					<VocabToolbar
+					{/* Shared collection toolbar shell — the page injects
+                                                every label key + the two drift-decision values
+                                                (Add disabled while saving; JSON+CSV import
+                                                accept because the Vocabulary parser reads CSV).
+                                                The hidden file input for Import renders inside
+                                                the shell and re-uses the page hook's ref. */}
+					<CollectionToolbar
 						importInputRef={importInputRef}
+						importAccept="application/json,.json,.csv,text/csv"
 						onImportClick={handleImportClick}
 						onImportFile={handleImportFile}
+						importAriaLabelKey="common.importAria"
+						importLabelKey="common.import"
+						importTitleKey="vocabulary.importFormatHint"
 						onExport={doExport}
-						onAdd={() => quickAdd.openQuickAdd()}
 						exportDisabled={entries.length === 0}
-						addDisabled={saving}
 						onClearAll={() => setShowClearConfirm(true)}
 						clearAllDisabled={entries.length === 0}
+						clearAllAriaLabelKey="vocabulary.clearAllAria"
+						clearAllLabelKey="vocabulary.clearAll"
+						addAriaLabelKey="vocabulary.addNewAria"
+						addLabelKey="vocabulary.addWord"
+						addDisabled={saving}
+						onAdd={() => quickAdd.openQuickAdd()}
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
 						hasEntries={entries.length > 0}
@@ -329,7 +350,7 @@ export default function VocabularyPage() {
 					)}
 
 					{/* Inline quick-add row. NOT gated on entries.length —
-						"Add Word" must work from the empty state too. */}
+                                                "Add Word" must work from the empty state too. */}
 					{quickAdd.open && (
 						<VocabInlineForm
 							trigger={quickAdd.trigger}
@@ -362,10 +383,17 @@ export default function VocabularyPage() {
 						) : (
 							<>
 								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-									<VocabListHeader
+									{/* Shared column-header shell — keys + the
+                                                                                page-unique testid are injected. */}
+									<CollectionListHeader
+										testId="vocab-list-header"
 										visibleIds={filteredSorted.map((e) => e._id)}
 										selectedIds={selection.selectedIds}
 										onSelectAll={selection.setSelectMany}
+										selectAllAriaKey="vocabulary.selectAll"
+										primaryColumnKey="vocabulary.columnOriginal"
+										secondaryColumnKey="vocabulary.columnCorrected"
+										actionsColumnKey="vocabulary.columnActions"
 									/>
 									<div className="divide-y divide-border/5">
 										{filteredSorted.slice(0, displayCount).map((entry) =>
@@ -422,33 +450,40 @@ export default function VocabularyPage() {
 					</div>
 				</div>
 
-				{/* Floating bulk bar — appears when rows are selected. It is a
-				    DIRECT child of the page column with ``sticky bottom-4``
-				    (no absolute wrapper): sticky pins it near the viewport
-				    bottom while the column (taller than the viewport when
-				    the list is long) stays in view — true floating, it does
-				    NOT scroll away. ``mx-auto w-fit`` centers it on the
-				    column, which is itself centered (max-w-4xl mx-auto) in
-				    the main content area, so the bar stays centered relative
-				    to the CONTENT in both sidebar states (the column
-				    recenters when the sidebar expands/collapses). */}
+				{/* Floating bulk bar — appears when rows are selected;
+                                    rendered through the shared shell (keys + the
+                                    page-unique testid are injected). It is a DIRECT
+                                    child of the page column with ``sticky bottom-4``
+                                    (no absolute wrapper): sticky pins it near the viewport
+                                    bottom while the column (taller than the viewport when
+                                    the list is long) stays in view — true floating, it does
+                                    NOT scroll away. ``mx-auto w-fit`` centers it on the
+                                    column, which is itself centered (max-w-4xl mx-auto) in
+                                    the main content area, so the bar stays centered relative
+                                    to the CONTENT in both sidebar states (the column
+                                    recenters when the sidebar expands/collapses). */}
 				{selection.selectedCount > 0 && (
-					<VocabBulkBar
+					<CollectionBulkBar
+						testId="vocab-bulk-bar"
 						selectedCount={selection.selectedCount}
+						selectedCountKey="vocabulary.selectedCount"
 						onDeleteSelected={selection.bulkDeleteSelected}
+						deleteLabelKey="vocabulary.bulkDelete"
+						exportSelectedKey="vocabulary.exportSelected"
 						onExportSelected={(format) =>
 							doExport(format, selection.selectedRows)
 						}
+						deselectAllKey="vocabulary.deselectAll"
 						onClearSelection={selection.clearSelection}
 					/>
 				)}
 			</div>
 
 			{/* Backdrop click = Cancel (dismiss without data change),
-			    matching standard modal behavior. Escape still closes via
-			    the same onCancel path. Opt-in per dialog — the
-			    ConfirmDialog default keeps the strict AlertDialog
-			    contract (explicit acknowledge only). */}
+                            matching standard modal behavior. Escape still closes via
+                            the same onCancel path. Opt-in per dialog — the
+                            ConfirmDialog default keeps the strict AlertDialog
+                            contract (explicit acknowledge only). */}
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("vocabulary.clearAllTitle")}

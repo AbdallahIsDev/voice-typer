@@ -4,12 +4,12 @@
 // `onboarding_check_permissions`, `get_autostart_status`,
 // `check_microphone_permission`.
 //
-//Split out from the original monolithic `types/ipc.ts` ( / ).
+// Split out from the original monolithic `types/ipc.ts`.
 // No behaviour change vs. the original file — pure structural refactor.
 
 /**
- * : response shape for the `onboarding_check_permissions`
- * IPC command ( / ).
+ * Response shape for the `onboarding_check_permissions`
+ * IPC command.
  *
  * Mirrors `voice_typer/server/onboarding.py::check_permissions` (lines
  * 218-314): the backend probes the OS-level keyboard-monitoring

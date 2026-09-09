@@ -113,7 +113,7 @@ export interface VoiceTyperConfig {
 	corrections_path: string | null;
 	log_transcriptions: boolean;
 
-	//( / ): paste-safety toggles. Both default
+	// Paste-safety toggles. Both default
 	// to true in the Python `Config` dataclass
 	// (`voice_typer/server/config.py:643-645`) and are in the IPC
 	// allowlist. When true, the renderer surfaces a confirmation
@@ -288,7 +288,7 @@ export interface VoiceTyperConfig {
 	volume_duck_enabled: boolean;
 	volume_duck_level: number;
 	/**
-	 * @deprecated  /  / : REMOVED from the Python Config
+	 * @deprecated REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:775-781`) — ducking now
 	 * always applies to the master volume cross-platform. Existing
 	 * `config.json` files that still carry the key are silently
@@ -300,13 +300,13 @@ export interface VoiceTyperConfig {
 	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
-	 * deferred because the test fixtures are owned by other
-	 * sub-agents.
+	 * deferred because the test fixtures live in separate test
+	 * files.
 	 */
 	volume_duck_per_session?: boolean;
 	volume_duck_fade_ms: number;
 	/**
-	 * @deprecated  /  / : REMOVED from the Python Config
+	 * @deprecated REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:784-786`) — smart duck
 	 * is now ALWAYS ON when `volume_duck_enabled` is True. Existing
 	 * `config.json` files that still carry the key are silently
@@ -318,8 +318,8 @@ export interface VoiceTyperConfig {
 	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
-	 * deferred because the test fixtures are owned by other
-	 * sub-agents.
+	 * deferred because the test fixtures live in separate test
+	 * files.
 	 */
 	volume_duck_smart?: boolean;
 	volume_duck_smart_poll_interval_ms: number;
@@ -345,7 +345,7 @@ export interface VoiceTyperConfig {
 	noise_filter_highpass_cutoff_hz: number;
 	noise_filter_gate: boolean;
 	/**
-	 * @deprecated  / : REMOVED from the Python Config
+	 * @deprecated REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:837-840`) — replaced
 	 * by the open/close threshold pair below per ADR 0007. Existing
 	 * `config.json` files that still carry the key are silently
@@ -358,8 +358,8 @@ export interface VoiceTyperConfig {
 	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
-	 * deferred because the test fixtures are owned by other
-	 * sub-agents.
+	 * deferred because the test fixtures live in separate test
+	 * files.
 	 */
 	noise_filter_gate_threshold?: number; // DEPRECATED
 	noise_filter_gate_hold_ms: number;

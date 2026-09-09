@@ -1,6 +1,6 @@
 /**
- *  regression guard: the `ErrorCodes` union in `enums.ts` MUST
- * include the cross-language parity codes added by the  fix.
+ * Regression guard: the `ErrorCodes` union in `enums.ts` MUST
+ * include the cross-language parity codes.
  *
  * Background: the Rust host (``src-tauri/src/commands/sidecar_cmds.rs``)
  * emits two ad-hoc error codes inside ``json!({"code": "..."})`` envelopes
@@ -20,7 +20,7 @@
  *     code literal into the union (adding
  *     ``| "server.protocol_version_mismatch"``).
  *
- * Separately,  added the host-bridge-only ``respawn_exhausted``
+ * Separately, a host-bridge change added the ``respawn_exhausted``
  * code (synthesized by ``python-namespace.ts`` when the supervisor's
  * respawn loop is exhausted) to the union so the renderer's
  * ``useConnection`` error handler can branch on the typed code.

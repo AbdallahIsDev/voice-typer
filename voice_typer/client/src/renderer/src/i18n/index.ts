@@ -6,7 +6,7 @@
 // from ``@/i18n/i18n`` (or update to ``@/i18n``) without touching call
 // sites.
 //
-//sub-finding (1-N Finding 4): the module-load side effects that
+// The module-load side effects that
 // used to run at i18n.ts import time (read localStorage, detect
 // browser locale, set DOM dir/lang, kick off async chunk load) are
 // now wrapped in ``initI18n()``. The function is:
@@ -51,7 +51,7 @@ export {
 	pushLocaleToPythonBackend,
 	trayLabelsForLocale,
 } from "./push";
-//rtl.ts — RTL helpers ( 1-N Finding 7: extracted for layout-component reuse).
+// rtl.ts — RTL helpers (extracted for layout-component reuse).
 export { isRtlLocale, RTL_LOCALES } from "./rtl";
 // store.ts — translation state container + locale orchestrator.
 export {
@@ -82,7 +82,7 @@ let _initCalled = false;
  * attributes, and kick off the async dynamic-import of the selected
  * locale's translation table.
  *
- *  sub-finding (1-N Finding 4): this replaces the module-load
+ * This replaces the module-load
  * side effects that used to live at the top of i18n.ts (the
  * localStorage restore + browser-detect + DOM dir/lang set + async
  * load kickoff). The function is:
@@ -191,7 +191,7 @@ export function initI18n(): void {
 
 // ── Auto-initialization (preserves prior behavior) ───────────────
 //
-//sub-finding (1-N Finding 4) asked for the side-effect
+// The explicit-init design asked for the side-effect
 // orchestration to move into ``initI18n()`` called explicitly from
 // ``main.tsx`` / test setup. We do BOTH:
 //

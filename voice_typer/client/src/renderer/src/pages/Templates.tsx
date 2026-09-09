@@ -4,7 +4,13 @@
 // into:
 //   - ``./templates/lib/``        — pure helpers (types, storage, transform, sanitize)
 //   - ``./templates/hooks/``      — state + handlers (useTemplates, useTemplateDialog, useTemplateImportExport)
-//   - ``./templates/components/`` — presentational (TemplateToolbar, TemplateListRow, TemplateDialog)
+//   - ``./templates/components/`` — presentational (TemplateListRow, TemplateDialog)
+//
+// The Toolbar / BulkBar / ListHeader render through the SHARED
+// collection-page family (components/common/Collection*.tsx) — the page
+// injects its i18n keys + drift-decision props (the replacement for the
+// former per-page TemplateToolbar / TemplateBulkBar / TemplateListHeader
+// mirrors, which were byte-identical except for those keys).
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
@@ -13,6 +19,9 @@
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CollectionBulkBar } from "@/components/common/CollectionBulkBar";
+import { CollectionListHeader } from "@/components/common/CollectionListHeader";
+import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -21,11 +30,8 @@ import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 
-import TemplateBulkBar from "./templates/components/TemplateBulkBar";
 import { TemplateDialog } from "./templates/components/TemplateDialog";
-import TemplateListHeader from "./templates/components/TemplateListHeader";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
-import { TemplateToolbar } from "./templates/components/TemplateToolbar";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
 import { useTemplateSelection } from "./templates/hooks/useTemplateSelection";
@@ -155,22 +161,37 @@ export default function TemplatesPage() {
 		<>
 			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
-				    it (not inside PageHeading's children slot) — mirrors
-				    the Vocabulary page layout exactly. */}
+                                    it (not inside PageHeading's children slot) — mirrors
+                                    the Vocabulary page layout exactly. */}
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
 				/>
 				<div className="flex flex-col gap-4">
-					<TemplateToolbar
+					{/* Shared collection toolbar shell — the page injects
+                                                every label key + the drift-decision values (Add is
+                                                never disabled — the dialog owns its own save
+                                                gating; JSON-only import accept because the
+                                                templates parser reads JSON only). The hidden file
+                                                input for Import renders inside the shell and
+                                                re-uses the page hook's ref. */}
+					<CollectionToolbar
 						importInputRef={importInputRef}
+						importAccept="application/json,.json"
 						onImportClick={handleImportClick}
 						onImportFile={handleImportFile}
-						onExport={(format) => doExport(format)}
-						onAdd={openAddDialog}
+						importAriaLabelKey="common.importAria"
+						importLabelKey="common.import"
+						importTitleKey="templates.importFormatHint"
+						onExport={doExport}
 						exportDisabled={templates.length === 0}
 						onClearAll={() => setShowClearAllConfirm(true)}
 						clearAllDisabled={templates.length === 0}
+						clearAllAriaLabelKey="templates.clearAllAria"
+						clearAllLabelKey="templates.clearAll"
+						addAriaLabelKey="templates.addNewAria"
+						addLabelKey="templates.addTemplate"
+						onAdd={openAddDialog}
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
 						hasEntries={templates.length > 0}
@@ -199,12 +220,21 @@ export default function TemplatesPage() {
 						) : (
 							<>
 								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-									<TemplateListHeader
+									{/* Shared column-header shell — keys + the
+                                                                                page-unique testid are injected.
+                                                                                visibleIds is capped at displayCount to
+                                                                                mirror the rows actually mounted. */}
+									<CollectionListHeader
+										testId="template-list-header"
 										visibleIds={filteredSortedTemplates
 											.slice(0, displayCount)
 											.map((r) => r.id)}
 										selectedIds={selection.selectedIds}
 										onSelectAll={selection.setSelectMany}
+										selectAllAriaKey="templates.selectAll"
+										primaryColumnKey="templates.columnTrigger"
+										secondaryColumnKey="templates.columnOutput"
+										actionsColumnKey="templates.columnActions"
 									/>
 									<div className="divide-y divide-border/5">
 										{filteredSortedTemplates
@@ -236,17 +266,23 @@ export default function TemplatesPage() {
 					</div>
 				</div>
 
-				{/* Floating bulk bar — appears when templates are selected.
-				    Direct child of the page column (sticky bottom-4) so it
-				    stays pinned near the viewport bottom, mirroring the
-				    Vocabulary page. */}
+				{/* Floating bulk bar — appears when templates are
+                                    selected; rendered through the shared shell (keys +
+                                    the page-unique testid are injected). Direct child
+                                    of the page column (sticky bottom-4) so it stays
+                                    pinned near the viewport bottom. */}
 				{selection.selectedCount > 0 && (
-					<TemplateBulkBar
+					<CollectionBulkBar
+						testId="template-bulk-bar"
 						selectedCount={selection.selectedCount}
+						selectedCountKey="templates.selectedCount"
 						onDeleteSelected={selection.bulkDeleteSelected}
+						deleteLabelKey="templates.bulkDelete"
+						exportSelectedKey="templates.exportSelected"
 						onExportSelected={(format) =>
 							doExport(format, selection.selectedRows)
 						}
+						deselectAllKey="templates.deselectAll"
 						onClearSelection={selection.clearSelection}
 					/>
 				)}

@@ -10,7 +10,6 @@ import { PlayIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
-import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { HotkeyPicker } from "@/components/hotkey/HotkeyPicker";
 import {
@@ -38,6 +37,7 @@ import {
 	setSoundVolume,
 } from "@/lib/sound-manager";
 import { SettingsSkeleton } from "./SettingsSkeleton";
+import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -122,13 +122,17 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		(h: string) => updateConfig({ hotkey: h }),
 		[updateConfig],
 	);
-	const handleDictationCaptureStart = useCallback(() => {
+	// While EITHER hotkey picker is capturing a key, the ESC-to-cancel
+	// hotkey path is paused so ESC itself can be recorded. Both pickers
+	// share this one pair (previously two identical copies, one per
+	// picker).
+	const handleHotkeyCaptureStart = useCallback(() => {
 		void window.python?.call({
 			type: "set_esc_cancel_paused",
 			data: { paused: true },
 		});
 	}, []);
-	const handleDictationCaptureEnd = useCallback(() => {
+	const handleHotkeyCaptureEnd = useCallback(() => {
 		void window.python?.call({
 			type: "set_esc_cancel_paused",
 			data: { paused: false },
@@ -139,18 +143,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		(h: string) => updateConfig({ repaste_hotkey: h }),
 		[updateConfig],
 	);
-	const handleRepasteCaptureStart = useCallback(() => {
-		void window.python?.call({
-			type: "set_esc_cancel_paused",
-			data: { paused: true },
-		});
-	}, []);
-	const handleRepasteCaptureEnd = useCallback(() => {
-		void window.python?.call({
-			type: "set_esc_cancel_paused",
-			data: { paused: false },
-		});
-	}, []);
 
 	const handleSilenceWarningChange = (e: React.ChangeEvent<HTMLInputElement>) =>
 		updateConfigDebounced("silence_warning_seconds", Number(e.target.value));
@@ -316,8 +308,10 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
 		{ label: maxRecordingTimeLabel, info: maxRecordingTimeInfoSearch },
 	];
-	const recordingVisible = recordingItems.some((item) =>
-		isVisible(item.label, item.info, recordingTitle),
+	const recordingVisible = anyRowVisible(
+		isVisible,
+		recordingTitle,
+		recordingItems,
 	);
 
 	return (
@@ -329,9 +323,12 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					description={t("settings.hotkeySection.recordingDescription")}
 				>
 					{/* ── Dropdowns ──────────────────────────────────────── */}
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={dictationKeyLabel}
 						info={t("settings.hotkeySection.dictationKeyInfo")}
+						searchInfo={dictationKeyInfoSearch}
 					>
 						<HotkeyPicker
 							value={config.hotkey}
@@ -342,12 +339,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								config.repaste_hotkey ? [config.repaste_hotkey] : undefined
 							}
 							aria-label={t("settings.hotkeySection.dictationKeyAria")}
-							onCaptureStart={handleDictationCaptureStart}
-							onCaptureEnd={handleDictationCaptureEnd}
+							onCaptureStart={handleHotkeyCaptureStart}
+							onCaptureEnd={handleHotkeyCaptureEnd}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={recordingModeLabel}
 						//use the corrected tooltip text that
 						// names the visible SegmentedControl labels
@@ -361,11 +360,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							onChange={handleRecordingModeChange}
 							ariaLabel={t("settings.hotkeySection.recordingModeAria")}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={stopOnSilenceLabel}
 						info={t("settings.hotkeySection.stopOnSilenceInfo")}
+						searchInfo={stopOnSilenceInfoSearch}
 					>
 						<Select
 							value={String(config.stop_on_silence_seconds ?? 60)}
@@ -385,11 +387,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								))}
 							</SelectContent>
 						</Select>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={repasteKeyLabel}
 						info={t("settings.hotkeySection.repasteKeyInfo")}
+						searchInfo={repasteKeyInfoSearch}
 					>
 						<HotkeyPicker
 							value={config.repaste_hotkey ?? "<ctrl>+<alt>+v"}
@@ -398,13 +403,15 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							presets={repasteKeyPresets}
 							occupiedHotkeys={config.hotkey ? [config.hotkey] : undefined}
 							aria-label={t("settings.hotkeySection.repasteKeyAria")}
-							onCaptureStart={handleRepasteCaptureStart}
-							onCaptureEnd={handleRepasteCaptureEnd}
+							onCaptureStart={handleHotkeyCaptureStart}
+							onCaptureEnd={handleHotkeyCaptureEnd}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
 					{/* ── Switches ───────────────────────────────────────── */}
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={escToCancelLabel}
 						info={t("settings.hotkeySection.escToCancelInfo")}
 					>
@@ -413,9 +420,11 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							onCheckedChange={handleEscCancelChange}
 							aria-label={t("settings.hotkeySection.escToCancelAria")}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={autoPasteLabel}
 						info={t("settings.hotkeySection.autoPasteInfo")}
 					>
@@ -424,14 +433,16 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							onCheckedChange={handleAutoPasteChange}
 							aria-label={t("settings.hotkeySection.autoPasteAria")}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
 					{/*Paste-safety rows (previously config.json-only
                                             fields, now user-tunable). unsafe_paste_on_unknown_focus is
                                             an escape hatch (paste into unidentified windows); the two
                                             warn_* toggles gate the confirmation dialogs for elevated
                                             (admin) windows and password fields. */}
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={unsafePasteLabel}
 						info={t("settings.hotkeySection.unsafePasteInfoSearch")}
 					>
@@ -441,9 +452,11 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							aria-label={t("settings.hotkeySection.unsafePasteAria")}
 							data-testid="unsafe-paste-switch"
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={warnElevatedLabel}
 						info={t("settings.hotkeySection.warnElevatedPasteInfoSearch")}
 					>
@@ -453,9 +466,11 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							aria-label={t("settings.hotkeySection.warnElevatedPasteAria")}
 							data-testid="warn-elevated-paste-switch"
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={warnPasswordLabel}
 						info={t("settings.hotkeySection.warnPasswordPasteInfoSearch")}
 					>
@@ -465,28 +480,34 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							aria-label={t("settings.hotkeySection.warnPasswordPasteAria")}
 							data-testid="warn-password-paste-switch"
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
 					{/*Audio cue on record start/stop for accessibility
                                         and confirmation.  Especially useful for blind users who
                                         can't see the visual indicator change. */}
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={soundFeedbackLabel}
 						info={t("settings.hotkeySection.soundFeedbackInfo")}
+						searchInfo={soundFeedbackInfoSearch}
 					>
 						<Switch
 							checked={config.sound_feedback_enabled ?? true}
 							onCheckedChange={handleSoundFeedbackChange}
 							aria-label={t("settings.hotkeySection.soundFeedbackAria")}
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
 					{/*Volume multiplier for the cues above + a one-click
                                             preview. Both rows are disabled while sound feedback is off —
                                             the cues (and the preview) are no-ops then anyway. */}
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={soundVolumeLabel}
 						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
+						searchInfo={soundVolumeInfoSearch}
 					>
 						<RangeSlider
 							value={Math.round((config.sound_volume ?? 1) * 100)}
@@ -498,11 +519,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							disabled={!(config.sound_feedback_enabled ?? true)}
 							suffix="%"
 						/>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={testSoundLabel}
 						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
+						searchInfo={soundVolumeInfoSearch}
 					>
 						<Button
 							variant="outline"
@@ -520,9 +544,11 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							/>
 							{testSoundLabel}
 						</Button>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={silenceWarningLabel}
 						info={t("settings.hotkeySection.silenceWarningInfo")}
 					>
@@ -566,11 +592,14 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								</span>
 							)}
 						</div>
-					</SettingRow>
+					</GatedSettingRow>
 
-					<SettingRow
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
 						label={maxRecordingTimeLabel}
 						info={t("settings.hotkeySection.maxRecordingTimeInfo")}
+						searchInfo={maxRecordingTimeInfoSearch}
 					>
 						<div className="flex flex-col items-end gap-1">
 							<div className="flex items-center gap-2">
@@ -609,7 +638,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								</span>
 							)}
 						</div>
-					</SettingRow>
+					</GatedSettingRow>
 
 					{/*dead_air_timeout setting REMOVED. It was redundant with
                                             stop_on_silence_seconds — auto-stop already resets on every speech

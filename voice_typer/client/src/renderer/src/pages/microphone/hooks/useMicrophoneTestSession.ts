@@ -32,7 +32,7 @@
 
 import {
 	type Dispatch,
-	type MutableRefObject,
+	type RefObject,
 	type SetStateAction,
 	useCallback,
 	useEffect,
@@ -205,7 +205,7 @@ interface UseMicrophoneTestSessionOptions {
 	 * without rebinding on every render. This hook syncs it via an
 	 * effect whenever ``testRunning`` changes.
 	 */
-	testRunningRef: MutableRefObject<boolean>;
+	testRunningRef: RefObject<boolean>;
 	/**
 	 * Optional ref-to-latest-``selectMicrophone`` owned by the page,
 	 * shared with ``useMicrophoneData`` so the
@@ -213,9 +213,7 @@ interface UseMicrophoneTestSessionOptions {
 	 * closure. Assigned via an effect (not on every render) now that
 	 * ``selectMicrophone`` is ``useCallback``-stable.
 	 */
-	selectMicrophoneRef?: MutableRefObject<
-		(micId: string | null) => Promise<void>
-	>;
+	selectMicrophoneRef?: RefObject<(micId: string | null) => Promise<void>>;
 	// NOTE: the former ``onOpenPrivacySettings`` prop was REMOVED when
 	// the consent-required snackbar was replaced by the unified
 	// point-of-use consent dialog (ConsentGateDialog) — the dialog's

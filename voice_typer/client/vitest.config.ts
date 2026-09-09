@@ -71,6 +71,13 @@ export default defineConfig({
 			"src/renderer/src/**/*.{test,spec}.{ts,tsx}",
 			"src/main/**/*.{test,spec}.ts",
 			"src/preload/**/*.{test,spec}.ts",
+			// Shared cross-scope modules (export-format,
+			// python-call-error-code, ...) carry their own
+			// contract/parity guards under src/shared/__tests__ —
+			// without this glob they were never collected (dead
+			// guards). Same tsconfig coverage as main/preload
+			// (both tsconfig.{node,web}.json include src/shared).
+			"src/shared/**/*.{test,spec}.ts",
 		],
 		coverage: {
 			provider: "istanbul",

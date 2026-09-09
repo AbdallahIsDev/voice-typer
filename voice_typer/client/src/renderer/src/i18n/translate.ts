@@ -1,6 +1,6 @@
 // ``t`` (translate) and ``tChoice`` (pluralize) functions + their caches.
 //
-//sub-finding (1-N Finding 6): the dead PluralRules stub at the
+// The dead PluralRules stub at the
 // old i18n.ts L648-664 has been deleted. The fallback path now uses
 // ``new Intl.PluralRules("en")`` as the single fallback; if even that
 // throws (no Intl runtime), a clear error is raised rather than
@@ -71,7 +71,7 @@ export const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
  * Get (or create) an Intl.PluralRules instance for the given locale.
  * Returns the cached instance if available.
  *
- *  sub-finding (1-N Finding 6): the dead PluralRules stub fallback
+ * The dead PluralRules stub fallback
  * has been removed. If the requested locale fails AND the English
  * fallback fails (no Intl runtime), we rethrow with a clear message
  * instead of silently degrading — silent degradation hid a real

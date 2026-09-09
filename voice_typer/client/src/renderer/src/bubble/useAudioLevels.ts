@@ -31,6 +31,66 @@ import { useBubbleBridge } from "./useBubbleBridge";
 // the bars are visible but static.
 const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 
+// ── Transform-based bar animation (compositor-only writes) ─────────
+//
+// The per-frame rAF loop animates each bar by writing
+// ``transform: scaleY(...)`` — NOT ``height``. A per-frame ``height``
+// write forces a layout pass on the bubble pill every frame; a scale
+// write runs on the compositor. This mirrors the app's LevelBar rAF
+// contract (``components/feedback/LevelBar.tsx``): the loop writes the
+// transform (plus the cap-radius CSS var and the compositor-only
+// ``opacity``), never layout-inducing geometry.
+//
+// Geometry preservation: each bar element is prepared ONCE at its FULL
+// box height (``MAX_HEIGHT``) with a default (center) transform origin.
+// The visualizer wrapper is a fixed-height flex container that centers
+// its children, so a centered ``scaleY(h / MAX_HEIGHT)`` renders the
+// same centered ``h``-pixel bar the old height write produced — at every
+// level, with no re-anchoring.
+
+// Half the dot's 3px width (``w-0.75`` in BubbleVisualizer.tsx). Kept as
+// a local literal for the same reason the LevelBar pins its own 3px cap:
+// the width lives in the component's class list, and the counter-scale
+// below must divide by the exact cap radius.
+const BAR_CAP_RADIUS_PX = 1.5;
+
+/**
+ * Prepare a bar element for transform-based animation: reserve the full
+ * layout-box height and install the counter-scaled cap radius.
+ *
+ * Idempotent and cheap to re-check: a re-mounted element (React
+ * re-applies its 5px inline height on mount) is re-prepared on the next
+ * frame. Returns ``true`` when the element was (re)initialized, so the
+ * caller resets its per-dot easing state to ``MIN_HEIGHT``.
+ */
+function prepareBarElement(el: HTMLElement): boolean {
+	const baseHeight = `${MAX_HEIGHT}px`;
+	if (el.style.height === baseHeight) return false;
+	el.style.height = baseHeight;
+	// COUNTER-SCALED CAPS: a transform scales painted geometry, so a
+	// fixed 1.5px cap on a 3px-wide dot compresses vertically at low
+	// scales (the caps read as squared-off). Dividing the VERTICAL
+	// radius by the current scale keeps the post-transform cap a
+	// 1.5px half-round at every level — the same counter-scale family
+	// the LevelBar uses for its right cap. The horizontal radius
+	// stays a plain 1.5px (scaleY never touches the horizontal axis).
+	el.style.borderRadius = `${BAR_CAP_RADIUS_PX}px / calc(${BAR_CAP_RADIUS_PX}px / max(var(--bar-scale), 0.03))`;
+	return true;
+}
+
+/**
+ * Write a bar's current visual height as a compositor-only transform
+ * (plus the cap-radius CSS var that the prepared border-radius calc
+ * consumes — a style/paint-level write, geometry stays fixed).
+ * ``opacity`` is a compositor-only property and rides along.
+ */
+function writeBarLevel(el: HTMLElement, height: number, opacity: number): void {
+	const scale = height / MAX_HEIGHT;
+	el.style.transform = `scaleY(${scale})`;
+	el.style.setProperty("--bar-scale", String(scale));
+	el.style.opacity = `${opacity}`;
+}
+
 function prefersReducedMotion(): boolean {
 	if (
 		typeof window === "undefined" ||
@@ -52,6 +112,16 @@ export function useAudioLevels(
 	visibleRef.current = isVisible;
 	const recordingRef = useRef(true);
 	const barColorRef = useRef<string | null>(null);
+	// Per-dot easing state: the last visual height (px) written for each
+	// bar. The loop reads/writes this instead of parsing the DOM style
+	// back — the element's inline ``height`` now holds the constant FULL
+	// box height (see ``prepareBarElement``), not the animated value.
+	// A ref (not effect-local state) so the easing continuity survives
+	// effect re-runs, exactly like the DOM value did before the
+	// transform conversion.
+	const barHeightsRef = useRef<number[]>(
+		Array.from({ length: DOT_COUNT }, () => MIN_HEIGHT),
+	);
 	// `wake` function ref (re-armed by the recording-mode effect).
 	const wakeRef = useRef<(() => void) | null>(null);
 	// rAF handle used to debounce `refreshBarColor` writes so a burst of
@@ -213,8 +283,16 @@ export function useAudioLevels(
 			for (let i = 0; i < DOT_COUNT; i++) {
 				const el = dots[i];
 				if (!el) continue;
-				el.style.height = `${REDUCED_MOTION_HEIGHT}px`;
-				el.style.opacity = "0.5";
+				// Ensure the full-box base geometry exists before the
+				// static-scale write (a fresh element still carries its
+				// 5px inline height).
+				prepareBarElement(el);
+				writeBarLevel(el, REDUCED_MOTION_HEIGHT, 0.5);
+				// Keep the easing state at the rendered height so a
+				// later reduced-motion → animated transition eases
+				// FROM mid-height (continuity with the pre-transform
+				// behavior, which read this value back from the DOM).
+				barHeightsRef.current[i] = REDUCED_MOTION_HEIGHT;
 			}
 		};
 
@@ -222,16 +300,6 @@ export function useAudioLevels(
 			// Clear the frame handle so `wake()` can re-schedule.
 			frameRef.current = null;
 
-			// `prefers-reduced-motion`: render bars ONCE at a fixed
-			// mid-height, then keep the rAF loop SPINNING (but doing no
-			// per-frame DOM mutation). The loop must stay alive so the
-			// visibility / recording gates and the media-query `change`
-			// event can still be reacted to without a remount — stopping
-			// the loop entirely was a previous regression. The CSS-side
-			// `@media (prefers-reduced-motion: reduce)` block in
-			// `index.css` disables the wider animation policy; this JS
-			// gate ensures the bars are motionless (the CSS block can't
-			// reach into JS-driven direct-DOM writes).
 			// If either gate is closed, do NOT schedule the next frame.
 			if (!visibleRef.current || !recordingRef.current) return;
 
@@ -265,12 +333,24 @@ export function useAudioLevels(
 			for (let i = 0; i < DOT_COUNT; i++) {
 				const el = dots[i];
 				if (!el) continue;
+				// A freshly (re)mounted element re-anchors its easing
+				// state at MIN_HEIGHT — matching the pre-transform
+				// behavior, which fell back to the element's 5px inline
+				// height when no animated value had been written yet.
+				if (prepareBarElement(el)) {
+					barHeightsRef.current[i] = MIN_HEIGHT;
+				}
 				const weight = DOT_WEIGHTS[i] ?? 1;
 				const target = MIN_HEIGHT + level * weight * (MAX_HEIGHT - MIN_HEIGHT);
-				const cur = parseFloat(el.style.height) || MIN_HEIGHT;
+				const cur = barHeightsRef.current[i] ?? MIN_HEIGHT;
 				const next = cur + (target - cur) * 0.36;
-				el.style.height = `${Math.max(MIN_HEIGHT, next)}px`;
-				el.style.opacity = `${0.35 + level * 0.65}`;
+				const height = Math.max(MIN_HEIGHT, next);
+				barHeightsRef.current[i] = height;
+				// Compositor-only writes — the per-frame set is
+				// transform + the cap-radius var + opacity (no
+				// layout-inducing geometry; see the module-level
+				// transform-contract note).
+				writeBarLevel(el, height, 0.35 + level * 0.65);
 			}
 
 			// Schedule the next frame ONLY if both gates are still open.

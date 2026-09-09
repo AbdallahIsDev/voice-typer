@@ -1,7 +1,7 @@
 /**
  * HelpOverlay — Modal-based keyboard-shortcut reference overlay.
  *
- * Extracted from App.tsx (Phase 4.5 spaghetti split) to keep App.tsx
+ * Extracted from App.tsx (spaghetti split) to keep App.tsx
  * a pure layout shell. Behaviour is byte-identical to the original inline
  * `<Modal>` block: renders the same shortcut list in the same order,
  * the same `PunctuationCheatSheet`, and the same "press Esc to close"

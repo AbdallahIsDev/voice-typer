@@ -27,6 +27,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
+import { MAX_HEIGHT } from "@/bubble/constants";
 
 // ── Mock window.bubble API ──────────────────────────────────────────
 // Mirrors the mock in Bubble.test.tsx but adds the `onSetState`
@@ -186,8 +187,27 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 				}) as unknown as CSSStyleDeclaration,
 		);
 
+		// Deterministic rAF driver: jsdom's real rAF fires on a ~16 ms
+		// internal clock that setTimeout(0) ticks only race against, so
+		// the loop's per-frame writes would be timing-flaky. Collect the
+		// callbacks and flush them manually (self-rescheduling lands in
+		// the NEXT flush iteration).
+		const rafQueue: FrameRequestCallback[] = [];
+		const rafSpy = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((cb: FrameRequestCallback) => {
+				rafQueue.push(cb);
+				return rafQueue.length;
+			});
+		const flushFrames = (count: number) => {
+			for (let i = 0; i < count; i++) {
+				const cbs = rafQueue.splice(0);
+				for (const cb of cbs) cb(performance.now());
+			}
+		};
+
 		render(<Bubble />);
-		await tickFrames(2);
+		flushFrames(2);
 		gcsSpy.mockClear();
 
 		// recording → idle → recording. After returning to recording,
@@ -196,20 +216,19 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// MutationObserver already populated it on mount, the per-frame
 		// path skips getComputedStyle. The point of this test is just
 		// to verify the gating flips back: the loop's early-return no
-		// longer fires, so the per-frame loop body runs and writes
-		// `el.style.height` / `el.style.opacity`).
+		// longer fires, so the per-frame loop body runs and writes the
+		// bars' transform).
 		setBubbleState("idle");
-		await tickFrames(3);
+		flushFrames(3);
 		setBubbleState("recording");
-		await tickFrames(3);
+		flushFrames(3);
 
 		// The visualizer bars are remounted on the recording transition
 		// (BubbleVisualizer is conditionally rendered only in recording
-		// mode). Their initial `style.height` is `MIN_HEIGHT` (5px).
-		// After a few rAF ticks in recording mode with rawLevel=0, the
-		// smoothing loop should leave them at or near MIN_HEIGHT — but
-		// the key assertion is that the bars exist and have a non-zero
-		// height (i.e. the rAF loop DID run).
+		// mode). Their initial `style.height` is `MIN_HEIGHT` (5px) from
+		// React; once the rAF loop runs, each bar is prepared at the full
+		// box height (`MAX_HEIGHT`, 22px) and animated via an inline
+		// `transform: scaleY(...)` write.
 		//
 		// Selector: the bars are the 7 `<span>` children of the
 		// `gap-0.75` wrapper div in BubbleVisualizer (same stable
@@ -219,10 +238,14 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 		for (const bar of bars) {
-			const h = parseFloat((bar as HTMLElement).style.height || "0");
-			expect(h).toBeGreaterThan(0);
+			const el = bar as HTMLElement;
+			// The loop DID run: the base box was reserved at the full
+			// height and an animated transform was written.
+			expect(el.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(el.style.transform).toMatch(/^scaleY\(/);
 		}
 
+		rafSpy.mockRestore();
 		gcsSpy.mockRestore();
 	});
 

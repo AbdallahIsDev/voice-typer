@@ -23,6 +23,17 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
+import { MAX_HEIGHT } from "@/bubble/constants";
+
+/**
+ * Parse the scaleY factor out of an inline `transform: scaleY(s)` write.
+ * The visualizer animates bars by scaling a full-height (MAX_HEIGHT) box,
+ * so the VISUAL bar height is `s * MAX_HEIGHT`.
+ */
+function parseScaleY(transform: string): number {
+	const m = transform.match(/scaleY\(([\d.eE+-]+)\)/);
+	return m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
+}
 
 // ── Mock window.bubble API ──────────────────────────────────────────
 // Mirrors the mock in Bubble.test.tsx + adds `onSetState`'s richer
@@ -195,15 +206,20 @@ describe("bubble: prefers-reduced-motion", () => {
 		});
 
 		// The visualizer bars are the 7 spans inside .gap-0.75. They
-		// should all be at the fixed mid-height (13.5px) with opacity
-		// 0.5 — the reduced-motion fallback render (matches the
+		// should all be at the fixed mid-height (13.5px visual — the
+		// full-height box scaled to mid) with opacity 0.5 — the
+		// reduced-motion fallback render (matches the
 		// reduced-motion gating contract: static mid-height bars at
 		// opacity 0.5, see useAudioLevels-reduced-motion.test.tsx).
 		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
+		const midScale = 13.5 / MAX_HEIGHT;
 		for (const bar of Array.from(bars)) {
 			const el = bar as HTMLElement;
-			expect(el.style.height).toBe("13.5px");
+			// Base box reserved at full height; the transform lands
+			// the VISUAL bar at the static mid-height.
+			expect(el.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(parseScaleY(el.style.transform)).toBeCloseTo(midScale, 5);
 			expect(el.style.opacity).toBe("0.5");
 		}
 	});

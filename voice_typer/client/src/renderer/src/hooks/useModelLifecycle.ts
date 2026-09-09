@@ -1,7 +1,7 @@
 /**
  * useModelLifecycle — facade composing the Models-page sub-hooks.
  *
- *  (Phase 4.5 spaghetti split): the former 995-line monolith has
+ *  (monolith split): the former 995-line monolith has
  * been decomposed into 5 cohesive sub-hooks, each owning one concern:
  *
  *   • `useModelConfig`     — config + models + catalog state, the

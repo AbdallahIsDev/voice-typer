@@ -1,6 +1,6 @@
 /**
  * unit tests for `lib/theme-draft-storage.ts` — localStorage
- * draft-backup helpers for the custom-theme colour picker (partial split).
+ * draft-backup helpers for the custom-theme colour picker.
  *
  * The module exposes three pure functions (no React / no module state):
  *   • `saveDraftToLS(data)`   — persists a CustomThemeData draft.

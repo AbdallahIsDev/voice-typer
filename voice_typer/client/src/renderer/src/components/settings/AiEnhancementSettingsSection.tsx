@@ -25,11 +25,11 @@
 
 import { memo } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
-import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
+import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 
 import type { SettingsSectionSharedProps } from "./types";
 export const AiEnhancementSettingsSection = memo(
@@ -126,9 +126,7 @@ export const AiEnhancementSettingsSection = memo(
 			{ label: aiAutoPunctuateLabel, info: aiAutoPunctuateInfoSearch },
 			{ label: aiAutoCapitalizeLabel, info: aiAutoCapitalizeInfoSearch },
 		];
-		const aiVisible = aiItems.some((item) =>
-			isVisible(item.label, item.info, aiSectionTitle),
-		);
+		const aiVisible = anyRowVisible(isVisible, aiSectionTitle, aiItems);
 
 		//section-level visibility check for Vocabulary Automation section.
 		const vocabSectionTitle = t("settings.vocabAutomation.title");
@@ -137,8 +135,10 @@ export const AiEnhancementSettingsSection = memo(
 			{ label: vocabSuggestLabel, info: vocabSuggestInfoSearch },
 			{ label: vocabAutoApplyLabel, info: vocabAutoApplyInfoSearch },
 		];
-		const vocabVisible = vocabItems.some((item) =>
-			isVisible(item.label, item.info, vocabSectionTitle),
+		const vocabVisible = anyRowVisible(
+			isVisible,
+			vocabSectionTitle,
+			vocabItems,
 		);
 
 		return (
@@ -151,21 +151,27 @@ export const AiEnhancementSettingsSection = memo(
 					>
 						<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
 							{/* ── Master toggle ── */}
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={aiSectionTitle}
 								label={aiEnableLabel}
 								info={t("settings.aiEnhancement.enableInfo")}
+								searchInfo={aiEnableInfoSearch}
 							>
 								<Switch
 									checked={aiMasterOn}
 									onCheckedChange={handleAiEnableChange}
 									aria-label={t("settings.aiEnhancement.enableAria")}
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 
 							{/* ── Sub-toggles (disabled when master is off) ── */}
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={aiSectionTitle}
 								label={aiFixGrammarLabel}
 								info={t("settings.aiEnhancement.fixGrammarInfo")}
+								searchInfo={aiFixGrammarInfoSearch}
 							>
 								<Switch
 									checked={config.fix_grammar_basics ?? true}
@@ -173,11 +179,14 @@ export const AiEnhancementSettingsSection = memo(
 									disabled={!aiMasterOn}
 									aria-label={t("settings.aiEnhancement.fixGrammarAria")}
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={aiSectionTitle}
 								label={aiAutoPunctuateLabel}
 								info={t("settings.aiEnhancement.autoPunctuateInfo")}
+								searchInfo={aiAutoPunctuateInfoSearch}
 							>
 								<Switch
 									checked={config.auto_punctuate ?? true}
@@ -185,11 +194,14 @@ export const AiEnhancementSettingsSection = memo(
 									disabled={!aiMasterOn}
 									aria-label={t("settings.aiEnhancement.autoPunctuateAria")}
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={aiSectionTitle}
 								label={aiAutoCapitalizeLabel}
 								info={t("settings.aiEnhancement.autoCapitalizeInfo")}
+								searchInfo={aiAutoCapitalizeInfoSearch}
 							>
 								<Switch
 									checked={config.auto_capitalize ?? true}
@@ -197,7 +209,7 @@ export const AiEnhancementSettingsSection = memo(
 									disabled={!aiMasterOn}
 									aria-label={t("settings.aiEnhancement.autoCapitalizeAria")}
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 						</div>
 					</SettingsSection>
 				)}
@@ -210,21 +222,27 @@ export const AiEnhancementSettingsSection = memo(
 					>
 						<div className="animate-fade-in flex flex-col gap-0 divide-y divide-border/5">
 							{/* ── Master toggle ── */}
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={vocabSectionTitle}
 								label={vocabEnableLabel}
 								info={t("settings.vocabAutomation.enableInfo")}
+								searchInfo={vocabEnableInfoSearch}
 							>
 								<Switch
 									checked={vocabMasterOn}
 									onCheckedChange={handleVocabEnableChange}
 									aria-label={t("settings.vocabAutomation.enableAria")}
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 
 							{/* ── Confidence threshold ── */}
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={vocabSectionTitle}
 								label={vocabSuggestLabel}
 								info={t("settings.vocabAutomation.suggestBelowConfidenceInfo")}
+								searchInfo={vocabSuggestInfoSearch}
 							>
 								<RangeSlider
 									value={config.vocabulary_auto_confidence_threshold ?? 0.7}
@@ -238,12 +256,15 @@ export const AiEnhancementSettingsSection = memo(
 									disabled={!vocabMasterOn}
 									suffix=""
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 
 							{/* ── Auto-apply threshold ── */}
-							<SettingRow
+							<GatedSettingRow
+								isVisible={isVisible}
+								sectionTitle={vocabSectionTitle}
 								label={vocabAutoApplyLabel}
 								info={t("settings.vocabAutomation.autoApplyConfidenceInfo")}
+								searchInfo={vocabAutoApplyInfoSearch}
 							>
 								<RangeSlider
 									value={config.vocabulary_auto_apply_threshold ?? 0.95}
@@ -257,7 +278,7 @@ export const AiEnhancementSettingsSection = memo(
 									disabled={!vocabMasterOn}
 									suffix=""
 								/>
-							</SettingRow>
+							</GatedSettingRow>
 						</div>
 					</SettingsSection>
 				)}

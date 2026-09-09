@@ -34,10 +34,11 @@
 // future tweak to one propagates to the other automatically.
 //
 // The constants live under `pages/` (not `components/common/PageTabs.tsx`
-// as the finding originally suggested) because the latter is owned by
-// Fix-C; keeping the file under `pages/_tabBarStyles.ts` keeps it within
-// this sub-agent's file scope while still providing a single source of
-// truth for the two pages that need it.
+// as originally suggested) because the latter is a shared common
+// component with its own owner; keeping the file under
+// `pages/_tabBarStyles.ts` keeps it co-located with its only consumers
+// while still providing a single source of truth for the two pages
+// that need it.
 
 /**
  * Standard SegmentedControl visual overrides for the Models page tab
