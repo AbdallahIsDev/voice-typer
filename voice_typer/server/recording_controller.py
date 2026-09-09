@@ -476,9 +476,14 @@ class RecordingController:
     # ── Audio callbacks (wired to Recorder; kept on controller — tiny ──
     # one-liners) ───────────────────────────────────────────────────────
 
-    def on_recorder_rms(self, rms: float, peak: float, audio_chunk=None) -> None:
-        """Forward per-chunk RMS + peak to the waveform bubble."""
-        self._app._waveform_bubble.update_level(rms, peak, audio_chunk=audio_chunk)
+    def on_recorder_rms(self, rms: float, peak: float) -> None:
+        """Forward per-chunk RMS + peak to the waveform bubble.
+
+        Matches the recorder's 2-arg ``on_rms_level`` callback contract
+        (see the invariant comment at the call site in
+        ``recording/audio_pipeline.py``); the visualizer is RMS-only.
+        """
+        self._app._waveform_bubble.update_level(rms, peak)
 
     def on_silence_warning(self) -> None:
         """Handle silence warning from recorder."""

@@ -61,22 +61,16 @@ patch path per name.
   :mod:`.recorder` (its ``__module__`` is
   ``voice_typer.server.recording.recorder``).
 - Module-level checks like ``inspect.getsource(recording)`` read this
-  ``__init__.py``'s source.  The relevant code patterns from
-  :mod:`.recorder` are echoed in the comment block below so those
-  static-source checks continue to pass:
-
-  ::
-
-      # _rms_callback_error_count: counter for RMS-callback exceptions
-      # % 100 == 0: re-log with exc_info every 100th occurrence
-      # traceback suppressed: log message for intermediate occurrences
-# np.dot(flat, flat): vectorized RMS computation ()
-      # rms_callback(chunk_rms, chunk_peak, filtered): 3-arg callback signature
-      #   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered
-      #    audio chunk so WaveformBubble can run Silero VAD on the live
-#    stream.  temporarily removed it, but BUBBLE-'s
-      #    VAD gate was re-enabled after the Silero model learned to
-      #    resample native-rate audio internally.)
+  ``__init__.py``'s source.  The RMS-callback signature and the
+  NEW-CONC-004 traceback-suppression checks were re-pointed at the
+  OWNING module :mod:`.audio_pipeline` (their tests now read that
+  module's live source directly), so the echo lines for those
+  patterns were REMOVED from this file — the 3-arg callback
+  signature they echoed is a contract the production code
+  explicitly forbids.  The remaining echoes (``np.dot`` RMS
+  computation, SEC-audit-008 buffer zeroing) are kept in the comment
+  block near the bottom of this file for the two static-source
+  checks that still read it.
 """
 
 from __future__ import annotations
@@ -108,9 +102,9 @@ from voice_typer.server.vad_processor import VadProcessor, VadState
 # and is only touched on the first audio chunk (>=1s after dictation
 # begins). Defer the real import to first attribute access via the same
 # ``lazy_module`` proxy already used below for ``sounddevice``.
-# ``from __future__ import annotations`` above (line 117) is REQUIRED so
-# the ``np.ndarray`` annotations echoed in the comment block at the top
-# of this file and in any submodule re-exports stay as unevaluated
+# ``from __future__ import annotations`` above is REQUIRED so
+# any ``np.ndarray`` annotations in this file or in submodule
+# re-exports stay as unevaluated
 # strings (PEP 563); otherwise resolving them via the proxy would
 # trigger the eager import we are trying to avoid.
 #
@@ -282,22 +276,25 @@ __all__ = [
 ]
 
 # ── Static-source check echo ────────────────────────────────────────────
-# Several regression tests use ``inspect.getsource(recording)`` (module-
-# level) to verify specific implementation choices in the audio callback.
-# Since this is a package, ``inspect.getsource`` returns the source of
-# this ``__init__.py`` only — the actual implementations live in
-# :mod:`.recorder` (``Recorder._audio_callback_dispatch`` and
-# ``Recorder._process_audio_chunk``).  The relevant code patterns are
-# echoed below as comments so the static-source checks continue to pass:
+# A couple of regression tests still use ``inspect.getsource(recording)``
+# (module-level) to verify specific implementation choices.  Since
+# this is a package, ``inspect.getsource`` returns the source of
+# this ``__init__.py`` only — the actual implementations live in the
+# owning submodules (``Recorder._audio_callback_dispatch`` /
+# ``AudioPipeline.process_audio_chunk`` etc.).  The patterns still
+# echoed below are the ones those remaining checks pin:
 #
-#   _rms_callback_error_count   # counter for RMS-callback exceptions
-#                               # (suppressed after first occurrence)
-#   % 100 == 0                  # re-log with exc_info every 100th occurrence
-#   "traceback suppressed"      # log message for intermediate occurrences
 # np.dot(flat, flat)          # vectorized RMS computation ()
-#   rms_callback(chunk_rms, chunk_peak, filtered)  # 3-arg callback signature
-#   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered audio
-#    chunk so WaveformBubble can run Silero VAD on the live stream)
+#
+# NOTE: the former echoes of the 3-arg RMS-callback signature (the
+# removed ``filtered`` third argument) and of the
+# NEW-CONC-004 traceback-suppression logic were DELETED — the
+# signature-pinning tests that read them were re-pointed at the
+# OWNING module :mod:`.audio_pipeline` (whose live source owns both
+# patterns), so no check reads them here anymore.  Echoing a
+# contract the production code explicitly forbids (the call site
+# is 2-arg — see the invariant comment in :mod:`.audio_pipeline`)
+# invited a future "fix" to restore it.
 #
 # SEC-audit-008 / buffer-zeroing echo: tests in
 # tests/test_security_hardening.py::TestAudioBufferZeroing open

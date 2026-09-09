@@ -103,22 +103,30 @@ class TestEndToEndSmoke:
         progress_events = [e for e in events if e.get("type") == "download_progress"]
         assert any(e["data"]["progress"] == 100 for e in progress_events)
 
-    def test_recorder_rms_forwards_audio_chunk_to_waveform(self):
-        """T021: RecordingController.on_recorder_rms forwards audio_chunk to update_level.
+    def test_recorder_rms_forwards_to_waveform(self):
+        """RecordingController.on_recorder_rms forwards (rms, peak) to update_level.
 
         The RMS callback was moved from VoiceTyperApp._on_recorder_rms to
         RecordingController.on_recorder_rms as part of the RecordingController
-        extraction (commit 9e53ffe). The forwarded audio_chunk is what
-        WaveformBubble.update_level uses to run Silero VAD on the live stream.
+        extraction (commit 9e53ffe). The callback is 2-arg
+        (``rms_callback(chunk_rms, chunk_peak)`` — see the invariant comment
+        in ``recording/audio_pipeline.py``); the historical
+        ``audio_chunk=`` backward-compat kwarg was removed from both
+        ``on_recorder_rms`` and ``WaveformBubble.update_level`` after its
+        only consumer (the deps-era VAD gate) was deleted — the live
+        recorder callback never populated it and the visualizer is
+        RMS-only (BUBBLE-FIX-4.1: the Silero gate fed native-rate audio
+        to the 16 kHz model and biased the bars low).
 
-        S2-CR-64: the previous test asserted
+        The earlier revision of this test asserted
         ``"rms_callback(chunk_rms, chunk_peak, filtered)" in inspect.getsource(recording)``
         — but production code uses the 2-arg call ``rms_callback(chunk_rms, chunk_peak)``
-        (per G4-L-04 comment); the 3-arg form appears only in a comment near the
-        call site, giving false coverage. Replaced with a behavioral test that
-        constructs a RecordingController, invokes ``on_recorder_rms`` with a
-        sentinel chunk, and asserts the bubble's ``update_level`` received it
-        by identity.
+        (per the invariant comment at the call site); the 3-arg form appeared
+        only in a stale echo comment in the package ``__init__.py`` (since
+        deleted), giving false coverage. Replaced with a behavioral test that
+        constructs a RecordingController, invokes ``on_recorder_rms``, and
+        asserts the bubble's ``update_level`` received the values by
+        identity/position.
         """
         import inspect
         from unittest.mock import MagicMock
@@ -128,18 +136,17 @@ class TestEndToEndSmoke:
 
         # Check signatures — these are stable shape assertions, not source text.
         app_sig = inspect.signature(RecordingController.on_recorder_rms)
-        assert "audio_chunk" in app_sig.parameters
+        assert "audio_chunk" not in app_sig.parameters
         bubble_sig = inspect.signature(WaveformBubble.update_level)
-        assert "audio_chunk" in bubble_sig.parameters
+        assert "audio_chunk" not in bubble_sig.parameters
 
-        # Behavioral check: the controller must forward the exact chunk
-        # object it received (identity, not string match) to the bubble's
-        # update_level — proving the wiring is intact end-to-end.
-        sentinel_chunk = object()
+        # Behavioral check: the controller must forward the exact values
+        # it received (positionally, 2-arg) to the bubble's update_level —
+        # proving the wiring is intact end-to-end.
         mock_app = MagicMock()
         controller = RecordingController(mock_app)
-        controller.on_recorder_rms(0.42, 0.7, audio_chunk=sentinel_chunk)
-        mock_app._waveform_bubble.update_level.assert_called_once_with(0.42, 0.7, audio_chunk=sentinel_chunk)
+        controller.on_recorder_rms(0.42, 0.7)
+        mock_app._waveform_bubble.update_level.assert_called_once_with(0.42, 0.7)
 
     def test_asr_registry_create_handler_exists(self):
         """ARCH-007: AsrBackendRegistry.create() method exists."""

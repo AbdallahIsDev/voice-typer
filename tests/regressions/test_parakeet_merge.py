@@ -20,9 +20,10 @@ New behaviour:
 Class/method names, assertion logic, and imports below are preserved
 verbatim from the original monolith — only file location has changed.
 
-NOTE: ``TestSourceCheck`` (which statically inspects ``recording.py``
-for the NEW-CONC-004 RMS suppression logic) is included here per the
-split plan — it was originally placed between
+NOTE: ``TestSourceCheck`` (which statically inspects the owning module
+:mod:`voice_typer.server.recording.audio_pipeline` for the
+NEW-CONC-004 RMS suppression logic) is included here per the split
+plan — it was originally placed between
 ``TestRmsCallbackErrorSuppression`` and ``TestMergeChunksRegression``
 in the monolith, and the split assigns it to this file.
 """
@@ -64,22 +65,31 @@ def engine_no_global_chunks_safe_2(eng, a, b):
 
 
 class TestSourceCheck:
-    """Static check: the recording.py source must implement the
-    suppression logic."""
+    """Static check: the owning module (recording/audio_pipeline.py)
+    must implement the NEW-CONC-004 RMS-callback error-suppression
+    logic.
+
+    Re-pointed at the OWNING submodule: ``inspect.getsource(recording)``
+    reads only the package ``__init__.py``'s source, which merely
+    ECHOED these code patterns (the echo-substrate
+    anti-pattern). The live suppression logic — the counter, the
+    every-100th re-log, and the "traceback suppressed" branch — is
+    implemented in ``AudioPipeline.process_audio_chunk``.
+    """
 
     def test_source_has_suppression_logic(self):
         import inspect
 
-        from voice_typer.server import recording
+        from voice_typer.server.recording import audio_pipeline
 
-        source = inspect.getsource(recording)
+        source = inspect.getsource(audio_pipeline)
         assert "_rms_callback_error_count" in source, (
-            "recording.py must track _rms_callback_error_count to "
+            "audio_pipeline.py must track _rms_callback_error_count to "
             "suppress traceback formatting after the first occurrence"
         )
-        assert "% 100 == 0" in source, "recording.py must re-log with exc_info every 100th occurrence"
+        assert "% 100 == 0" in source, "audio_pipeline.py must re-log with exc_info every 100th occurrence"
         assert "traceback suppressed" in source, (
-            "recording.py must log a 'traceback suppressed' message for intermediate occurrences"
+            "audio_pipeline.py must log a 'traceback suppressed' message for intermediate occurrences"
         )
 
 

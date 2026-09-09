@@ -636,20 +636,23 @@ class TestWaveformVADGate:
         assert bubble.is_speaking is True  # 0.045 > 0.01 threshold
 
     def test_update_level_with_silent_audio_chunk(self, bubble, monkeypatch):
-        """With a silent audio chunk but non-zero RMS, the RMS-only path
+        """With a silent-looking input but non-zero RMS, the RMS-only path
         fires (VAD gate removed in BUBBLE-FIX-4.1).  is_speaking tracks
-        the smoothed RMS level, not VAD output."""
-        # VAD is no longer consulted; the audio_chunk argument is accepted
-        # for backward-compat with callers but ignored.
-        bubble.update_level(0.15, 0.3, audio_chunk=np.zeros(16000, dtype=np.float32))
+        the smoothed RMS level, not any VAD output.
+
+        The historical ``audio_chunk=`` kwarg (silent zeros) was removed
+        with the dead backward-compat parameter — the visualizer never
+        consumed the chunk.
+        """
+        bubble.update_level(0.15, 0.3)
         # RMS-only path: smoothed level is 0.5 * 0 (initial) + 0.5 * 0.15 = 0.075
         assert bubble.rms_level > 0
         assert bubble.is_speaking is True  # 0.075 > 0.005 threshold
 
     def test_update_level_with_speech_audio_chunk(self, bubble, monkeypatch):
-        """With speech audio chunk, the RMS-only path updates normally
+        """With speech-level RMS input, the RMS-only path updates normally
         (VAD gate removed in BUBBLE-FIX-4.1)."""
-        bubble.update_level(0.15, 0.3, audio_chunk=np.full(16000, 0.1, dtype=np.float32))
+        bubble.update_level(0.15, 0.3)
         assert bubble.rms_level > 0
         assert bubble.is_speaking is True
 
@@ -667,12 +670,22 @@ class TestWaveformVADGate:
 
 
 class TestProductionWiring:
-    """T021: verify the audio_chunk path is wired end-to-end.
+    """Pin the recorder→controller→bubble RMS-callback wiring as it
+    exists today (post BUBBLE-FIX-4.1).
 
-    The VAD gate existed in waveform.py but was inert in production
-    because the recorder RMS callback didn't pass audio_chunk to
-    WaveformBubble.update_level. These tests verify the wiring is
-    now in place.
+    Contract:
+
+    - The recorder fires ``on_rms_level`` with EXACTLY two positional
+      arguments ``(chunk_rms, chunk_peak)`` — the 3-arg form that also
+      forwarded the filtered audio chunk was REMOVED (feeding the
+      device's native-rate audio to the 16 kHz Silero model biased VAD
+      probabilities low and collapsed the waveform bars).
+    - ``RecordingController.on_recorder_rms`` is 2-arg
+      ``(rms, peak)`` and forwards exactly those to
+      ``WaveformBubble.update_level`` — the dead
+      ``audio_chunk=None`` backward-compat kwarg was removed from
+      both signatures (no production caller ever passed it; the
+      visualizer is RMS-only, the VAD gate was removed entirely).
 
     REFACTOR: the old ``VoiceTyperApp._on_recorder_rms`` was extracted
     into ``RecordingController.on_recorder_rms`` (see
@@ -681,59 +694,121 @@ class TestProductionWiring:
     ``RecordingController.wire()``.
     """
 
-    def test_app_on_recorder_rms_accepts_audio_chunk(self):
-        """RecordingController.on_recorder_rms must accept audio_chunk
-        and forward it to WaveformBubble.update_level for VAD gating."""
+    def test_app_on_recorder_rms_is_two_arg_and_forwards(self):
+        """RecordingController.on_recorder_rms must be a 2-arg
+        ``(rms, peak)`` callback matching the recorder's ``on_rms_level``
+        contract, forwarding exactly those values to
+        WaveformBubble.update_level.
+
+        The historical ``audio_chunk`` kwarg is GONE (dead
+        backward-compat surface — the live recorder callback is 2-arg
+        and the bubble is RMS-only). Reintroducing it MUST fail this
+        test.
+        """
         import inspect
         from unittest.mock import MagicMock
 
         from voice_typer.server.recording_controller import RecordingController
 
         sig = inspect.signature(RecordingController.on_recorder_rms)
-        assert "audio_chunk" in sig.parameters, (
-            "on_recorder_rms must accept audio_chunk kwarg to forward "
-            "audio to WaveformBubble.update_level for VAD gating"
+        assert "audio_chunk" not in sig.parameters, (
+            "on_recorder_rms must NOT carry the dead audio_chunk kwarg — "
+            "no production caller passes it and update_level is RMS-only"
+        )
+        assert list(sig.parameters) == ["self", "rms", "peak"], (
+            "on_recorder_rms must match the recorder's 2-arg on_rms_level callback contract (rms, peak)"
         )
 
         # Production wiring assertion: on_recorder_rms must route the
-        # rms/peak/audio_chunk through to the bubble's update_level.
+        # rms/peak through to the bubble's update_level, positionally.
         controller = MagicMock(spec=RecordingController)
         controller._app = MagicMock()
-        chunk = np.full(512, 0.1, dtype=np.float32)
-        RecordingController.on_recorder_rms(controller, 0.05, 0.12, audio_chunk=chunk)
-        controller._app._waveform_bubble.update_level.assert_called_once_with(
-            0.05,
-            0.12,
-            audio_chunk=chunk,
-        )
+        RecordingController.on_recorder_rms(controller, 0.05, 0.12)
+        controller._app._waveform_bubble.update_level.assert_called_once_with(0.05, 0.12)
 
-    def test_recorder_callback_passes_three_args(self):
-        """Recorder.on_rms_level callback receives 3 args: rms, peak, audio_chunk.
+    def test_recorder_rms_callback_invoked_with_exactly_two_args(self):
+        """The live RMS-callback call site fires ``on_rms_level`` with
+        EXACTLY two positional arguments ``(chunk_rms, chunk_peak)``.
 
-        Reads the source of the recording module to confirm the callback
-        is invoked with 3 positional arguments (not 2). The callback
-        is a nested function inside Recorder.start(), so we read the
-        whole module source as a static check.
+        Behavioral pin for the BUBBLE-FIX-4.1 contract: the third
+        ``filtered`` (``audio_chunk``) argument was REMOVED from the
+        callback — it forwarded the device's native-sample-rate audio
+        to a Silero model that assumes 16 kHz, biasing VAD
+        probabilities low and collapsing the waveform bars, and no
+        consumer reads it (see the invariant comment at the call site
+        in ``voice_typer/server/recording/audio_pipeline.py``).
+        Reintroducing the 3-arg form MUST fail this test.
+
+        The heavy collaborators are stubbed on the pipeline instance
+        (same pattern as ``tests/test_audio_pipeline_process_chunk.py``);
+        the orchestration body under test — including the callback
+        invocation — is the real ``AudioPipeline.process_audio_chunk``
+        code, so an arity regression at the real call site is caught.
         """
-        import inspect
+        import collections
+        import threading
 
-        from voice_typer.server import recording
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        src = inspect.getsource(recording)
-        assert "rms_callback(chunk_rms, chunk_peak, filtered)" in src, (
-            "Recorder's audio callback must pass the filtered audio chunk "
-            "as the 3rd argument to rms_callback so VAD can run on it"
+        recorder = MagicMock(name="RecorderStub")
+        pipeline = AudioPipeline(recorder)
+        # Stub the heavy helpers (no real audio I/O, no VAD model, no
+        # PortAudio); the orchestration body stays live.
+        pipeline.detect_device_disconnect = MagicMock(return_value=False)
+        pipeline.handle_xrun_status = MagicMock(return_value=False)
+        pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.1, -0.2, 0.3], dtype=np.float32))
+        pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
+        pipeline.compute_rms_and_peak = MagicMock(return_value=(0.05, 0.12, 0.032))
+        pipeline.run_vad_state_machine = MagicMock()
+        pipeline.detect_and_emit_clipping = MagicMock()
+        # Real lock/deque: the body uses ``with self._lock:`` and
+        # ``recorder._recent_rms_values.append(...)`` with real
+        # semantics (a MagicMock would not honor the with-statement /
+        # append contract).
+        pipeline._lock = threading.Lock()
+        recorder._recent_rms_values = collections.deque(maxlen=10)
+        recorder._last_rms = None
+        recorder._rms_callback_error_count = 0
+        # VAD caches off: skips the np.dot branch in raw mode.
+        recorder._cached_vad_enabled = False
+        recorder.on_rms_level = MagicMock(name="on_rms_level")
+        recorder.on_silence_warning = None
+        recorder.on_silence_auto_stop = None
+        recorder.on_max_duration_auto_stop = None
+        recorder._recording_start_time = 100.0
+
+        indata = np.array([[0.1], [-0.2], [0.3]], dtype=np.float32)
+        pipeline.process_audio_chunk(indata, 3, None, 0, 12345.0)
+
+        recorder.on_rms_level.assert_called_once()
+        args, kwargs = recorder.on_rms_level.call_args
+        assert kwargs == {}, "on_rms_level must be invoked with positional args only"
+        assert len(args) == 2, (
+            "on_rms_level must receive EXACTLY 2 arguments (chunk_rms, chunk_peak) — "
+            "the 3-arg form was removed in BUBBLE-FIX-4.1 (forwarding the filtered "
+            "chunk re-opens the native-rate→16 kHz Silero bias)"
         )
+        assert args[0] == 0.05  # chunk_rms from compute_rms_and_peak
+        assert args[1] == 0.12  # chunk_peak from compute_rms_and_peak
 
-    def test_update_level_signature_accepts_audio_chunk(self):
-        """WaveformBubble.update_level must accept audio_chunk kwarg."""
+    def test_update_level_signature_has_no_audio_chunk(self):
+        """WaveformBubble.update_level must be 2-arg (rms, peak).
+
+        The historical ``audio_chunk`` parameter was accepted-and-ignored
+        (``del audio_chunk``) after the Silero VAD gate was removed from
+        the visualizer — the visualizer is RMS-only. The dead
+        backward-compat parameter has been removed; the signature is
+        pinned so any reintroduction (re-opening the native-rate→16 kHz
+        Silero bias) MUST fail this test.
+        """
         import inspect
 
         from voice_typer.server.waveform import WaveformBubble
 
         sig = inspect.signature(WaveformBubble.update_level)
-        assert "audio_chunk" in sig.parameters, (
-            "WaveformBubble.update_level must accept audio_chunk kwarg to run VAD on the incoming audio"
+        assert "audio_chunk" not in sig.parameters, (
+            "WaveformBubble.update_level must NOT carry the dead audio_chunk "
+            "parameter — the VAD gate is removed and the visualizer is RMS-only"
         )
 
 

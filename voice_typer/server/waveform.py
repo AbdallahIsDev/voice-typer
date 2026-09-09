@@ -143,7 +143,7 @@ class WaveformBubble:
 
     # ── Live level updates (called from the audio callback thread) ──
 
-    def update_level(self, rms: float, peak: float = 0.0, audio_chunk=None) -> None:
+    def update_level(self, rms: float, peak: float = 0.0) -> None:
         """Push a new RMS/peak sample to subscribers.
 
                 The ``rms`` value is typically in ``[0, ~0.3]`` for speech and
@@ -158,14 +158,14 @@ class WaveformBubble:
                 interpreted as 32 ms, systematically biasing probabilities low
                 and collapsing the bars on most chunks.  The VAD gate is
                 cosmetic (the renderer's attack/release smoothing already
-                handles ambient noise), so we disable it entirely and rely on
-                the RMS-only path below.  This is simpler and more robust than
-                resampling on the audio thread, and removes a torch dependency
-                from the visualizer critical path.
+                handles ambient noise), so it is disabled entirely and the
+                RMS-only path below is used instead.  This is simpler and more
+                robust than resampling on the audio thread, and removes a
+                torch dependency from the visualizer critical path.  The
+                dead ``audio_chunk`` backward-compat parameter was later
+                removed (no production caller ever passed it — the
+                recorder fires the 2-arg ``on_rms_level`` callback).
         """
-        # VAD gate intentionally removed (BUBBLE-).  See docstring.
-        del audio_chunk  # accepted for backward-compat with callers
-
         with self._lock:
             # Cheap low-pass smoothing so the bubble doesn't jitter
             # chunk-to-chunk; the visualizer still reacts quickly to
