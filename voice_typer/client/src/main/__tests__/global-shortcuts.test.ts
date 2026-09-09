@@ -124,6 +124,20 @@ describe("global-shortcuts: bubble-dismiss accelerator", () => {
 		expect(BUBBLE_DISMISS_ACCELERATOR).toBe("CommandOrControl+Shift+D");
 	});
 
+	it("the accelerator is sourced from the shared cross-process constant (src/shared/dismiss-shortcut.ts)", async () => {
+		// The dismiss-bubble binding is defined ONCE in the shared
+		// module — the accelerator form here, the display form
+		// ("Ctrl+Shift+D") in the renderer's hotkey catalog. This pin
+		// (plus the renderer-side pin in
+		// `components/hotkey/__tests__/shortcuts.test.ts`) keeps the
+		// two processes from drifting apart silently.
+		const { BUBBLE_DISMISS_ACCELERATOR } = await import(
+			"../shortcuts/global-shortcuts"
+		);
+		const { DISMISS_SHORTCUT } = await import("../../shared/dismiss-shortcut");
+		expect(BUBBLE_DISMISS_ACCELERATOR).toBe(DISMISS_SHORTCUT.accelerator);
+	});
+
 	it("registers the accelerator with a function callback", async () => {
 		const { registerGlobalShortcuts } = await import(
 			"../shortcuts/global-shortcuts"

@@ -9,6 +9,7 @@ import type { Socket } from "node:net";
 import { TCP_FRAME_MAX_BYTES } from "../../constants";
 import { log } from "../../logging";
 import { state } from "../../state";
+import { PythonIpcError } from "../errors";
 import { handleMessage } from "../handle-message";
 
 export function handleTcpData(client: Socket, chunk: Buffer): void {
@@ -35,7 +36,16 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 		// close handler's `state.pendingRequests` loop finds
 		// an empty map (we delete each entry as we reject it)
 		// and skips its own rejection.
-		const overflowErr = new Error(
+		//
+		// Typed `PythonIpcError("command_failed", ...)`: an
+		// oversized reply is a command-level failure (the command
+		// ran but produced an unusable reply), not a disconnect or
+		// timeout — `command_failed` is the matching
+		// PythonCallErrorCode, and the typed class lets the
+		// `python-call` bridge classify via `err.code` instead of
+		// the bare-Error fallback.
+		const overflowErr = new PythonIpcError(
+			"command_failed",
 			`Python reply exceeded ${capMiB} MiB limit (possible malformed frame or oversized reply)`,
 		);
 		for (const [id, entry] of state.pendingRequests) {

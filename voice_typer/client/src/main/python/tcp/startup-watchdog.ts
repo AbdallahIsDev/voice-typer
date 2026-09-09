@@ -10,7 +10,7 @@ import { mainT } from "../../i18n";
 import { log } from "../../logging";
 import { state } from "../../state";
 
-//startup timeout. If Python doesn't connect within 60s
+// Startup timeout. If Python doesn't connect within 60s
 // of the first tryConnect(), show a clear error dialog and quit.
 // This covers the case where Python spawns successfully but hangs
 // during torch import without exiting — the retry loop would otherwise
@@ -23,10 +23,10 @@ export const TCP_STARTUP_TIMEOUT_MS = 60_000;
 let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * : clear the TCP startup timeout timer. Exported so
- * `stopPython()` / `relaunchApp()` / `startPython()` can clear the
- * 60s window: `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
- * guard then lets the next `tcpConnect()` arm a fresh timer.
+ * Clear the TCP startup timeout timer. Exported so `stopPython()` /
+ * `relaunchApp()` / `startPython()` can clear the 60s window:
+ * `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)` guard then
+ * lets the next `tcpConnect()` arm a fresh timer.
  *
  * Without this export, the timer set in `tcpConnect()` continues
  * counting even after Python is already gone (stopPython path) or
@@ -36,9 +36,9 @@ let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
  * — BUT the timer still pins the event loop alive for up to 60s after
  * the app should have exited.
  *
- * The `.unref()` part of the  plan is INTENTIONALLY SKIPPED:
- * `tests/__tests__/main-process-fixes.test.ts` asserts
- * `_tcpStartupTimeoutTimer is NOT unref'd` ( rationale: the
+ * The `.unref()` part of the original plan is INTENTIONALLY SKIPPED:
+ * `main/__tests__/main-process-fixes.test.ts` asserts
+ * `_tcpStartupTimeoutTimer is NOT unref'd` (rationale: the
  * timer must keep Electron alive so the "Python backend failed to
  * start" dialog actually renders before exit). The explicit
  * `clearTcpStartupTimeout()` calls from every teardown / restart
@@ -64,7 +64,7 @@ export function armTcpStartupTimeout(): void {
 			_tcpStartupTimeoutTimer = null;
 			// Safety checks: if Python already connected, the app is
 			// quitting, or a stop was explicitly initiated, skip the
-			// error dialog. NOTE: ``state.pythonProcess === null`` is
+			// error dialog. NOTE: `state.pythonProcess === null` is
 			// deliberately NOT a short-circuit here — a null process
 			// with no stop in flight means the spawn failed (or the
 			// adopted backend never appeared) and the TCP retry loop

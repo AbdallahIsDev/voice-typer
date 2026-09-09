@@ -144,6 +144,12 @@ export function flushPendingOutbound(): void {
  * is true (the process is about to exit — queued calls would never be
  * flushed) and from tests for isolation.
  *
+ * The rejection is a typed ``PythonIpcError("command_failed", reason)``:
+ * the sole production caller drains the queue during a full app
+ * relaunch, the same failure class as the pre-flight ``_relaunching``
+ * rejection in ``sendToPython`` below, so both paths carry the same
+ * typed code through the ``python-call`` bridge's classification.
+ *
  * Exported because its callers live outside this module (the TCP close
  * handler plus test isolation); production teardown paths that close
  * the socket reach it via the close handler as well (stopPython
@@ -153,7 +159,7 @@ export function resetPendingOutbound(reason: string): void {
 	while (_pendingOutbound.length > 0) {
 		const entry = _pendingOutbound.shift();
 		if (!entry) break;
-		entry.reject(new Error(reason));
+		entry.reject(new PythonIpcError("command_failed", reason));
 	}
 }
 

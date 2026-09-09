@@ -32,7 +32,13 @@
  *      `src/renderer/src/i18n/i18n.ts`.
  *
  * The shape of every locale entry MUST match the `en` entry (same keys).
- * TypeScript enforces this via the `MainStrings` mapped type.
+ * This parity is NOT enforced by TypeScript — the JSON tables are
+ * typed `Record<string, string>`, which cannot express per-locale key
+ * sets — it is enforced by the contract tests:
+ * `main/__tests__/i18n-locale-contract.test.ts` (every locale must
+ * provide the full English key set) and
+ * `main/__tests__/i18n-main-keys-contract.test.ts` (the `MAIN_KEYS`
+ * list must match `MAIN_STRINGS.en` exactly).
  *
  * Dead-code cleanup: `getMainLocale()` and the
  * `export` modifier on the `MainLocale` type were removed — no consumer

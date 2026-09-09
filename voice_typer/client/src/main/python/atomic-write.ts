@@ -1,5 +1,5 @@
 /**
- * : atomic file-write helper with `fsync`.
+ * Atomic file-write helper with `fsync`.
  *
  * Writes data to a sibling temp file, calls `fs.fsyncSync` to flush
  * kernel buffers to disk, then `fs.renameSync` for an atomic
@@ -47,9 +47,23 @@ export function atomicWriteFile(
 	// page cache to disk could leave the temp file empty or partial
 	// — and the subsequent `renameSync` would then atomically replace
 	// the destination with that partial content.
+	//
+	// The fsync handle is opened "r+" (O_RDWR), NOT "r" (O_RDONLY):
+	// on Windows, libuv implements `fs.fsyncSync` as Win32
+	// `FlushFileBuffers`, which REQUIRES a handle opened with
+	// GENERIC_WRITE. A read-only "r" handle (GENERIC_READ only) made
+	// `fsyncSync` throw EACCES/EPERM BEFORE the rename — the sole
+	// caller's catch-block logged a warning and swallowed it, so
+	// `restart_history.json` (the Electron crash-loop breaker state)
+	// never persisted on Windows and the 3-restarts-in-60s cap
+	// silently never fired on the primary platform. "r+" satisfies
+	// GENERIC_WRITE and is POSIX-equivalent (fsync on O_RDWR is legal
+	// on every platform); it does not truncate the just-written temp
+	// file. Mirrors the Rust `atomic_write_bytes` fsync fix (the same
+	// class of Windows-only durability bug).
 	let fd: number | undefined;
 	try {
-		fd = fs.openSync(tmpPath, "r");
+		fd = fs.openSync(tmpPath, "r+");
 		fs.fsyncSync(fd);
 	} finally {
 		if (fd !== undefined) {

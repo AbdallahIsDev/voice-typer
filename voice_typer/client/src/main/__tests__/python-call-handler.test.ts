@@ -181,6 +181,90 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		expect(result._error).toContain("Timeout after 15s");
 	});
 
+	it("mid-flight backend_not_connected: passes the typed code through instead of collapsing to command_failed", async () => {
+		// A mid-flight disconnect (socket close handler / backend
+		// crash) rejects the sendToPython promise with a typed
+		// PythonIpcError("backend_not_connected"). The catch-block
+		// classification must pass the code through so the renderer
+		// sees the SAME curated "lost connection" message the
+		// pre-flight checks produce — not the generic
+		// "command failed" fallback.
+		const { PythonIpcError } = await import("../python/errors");
+		mocks.sendToPython.mockRejectedValueOnce(
+			new PythonIpcError("backend_not_connected", "Python socket closed"),
+		);
+
+		const result = (await handler({}, { type: "get_config" })) as {
+			_error: string;
+			_code: string;
+		};
+
+		expect(result._code).toBe("backend_not_connected");
+		// Per-code English fallback (HU-26: the raw message is NOT
+		// forwarded — the curated per-code message replaces it).
+		expect(result._error).toBe("Python backend is not connected.");
+		expect(result._error).not.toContain("socket closed");
+	});
+
+	it("mid-flight backend_exited_early: passes the typed code through instead of collapsing to command_failed", async () => {
+		const { PythonIpcError } = await import("../python/errors");
+		mocks.sendToPython.mockRejectedValueOnce(
+			new PythonIpcError("backend_exited_early", "Python backend exited early"),
+		);
+
+		const result = (await handler({}, { type: "get_config" })) as {
+			_error: string;
+			_code: string;
+		};
+
+		expect(result._code).toBe("backend_exited_early");
+		expect(result._error).toBe("Python backend exited during startup.");
+	});
+
+	it("mid-flight command_failed (typed): keeps the generic command_failed envelope", async () => {
+		// The relaunch teardown rejections ("Application is
+		// restarting") are typed PythonIpcError("command_failed") —
+		// they must classify identically to the bare-Error fallback.
+		const { PythonIpcError } = await import("../python/errors");
+		mocks.sendToPython.mockRejectedValueOnce(
+			new PythonIpcError("command_failed", "Python reply exceeded 1 MiB limit"),
+		);
+
+		const result = (await handler({}, { type: "get_config" })) as {
+			_error: string;
+			_code: string;
+		};
+
+		expect(result._code).toBe("command_failed");
+		expect(result._error).toBe("Python command failed.");
+	});
+
+	it("collapses a PythonIpcError carrying an OUT-OF-UNION code to command_failed (runtime guard)", async () => {
+		// handle-message.ts casts BACKEND-emitted error codes
+		// (rate_limited, unknown_command, internal_error, ...) to
+		// PythonCallErrorCode even though they live outside the
+		// union — at runtime `err.code` can therefore be a
+		// non-union string. An unguarded pass-through would leak
+		// that code into `_code` and break the ERROR_MESSAGES
+		// lookup (undefined _error). The membership check against
+		// the canonical PYTHON_CALL_ERROR_CODES must collapse such
+		// codes to command_failed.
+		const { PythonIpcError } = await import("../python/errors");
+		const stray = new PythonIpcError(
+			"rate_limited" as never,
+			"Rate limit exceeded for command: get_config",
+		);
+		mocks.sendToPython.mockRejectedValueOnce(stray);
+
+		const result = (await handler({}, { type: "get_config" })) as {
+			_error: string;
+			_code: string;
+		};
+
+		expect(result._code).toBe("command_failed");
+		expect(result._error).toBe("Python command failed.");
+	});
+
 	it("command_failed: returns _code 'command_failed' for non-timeout sendToPython rejections", async () => {
 		mocks.sendToPython.mockRejectedValueOnce(
 			new Error(

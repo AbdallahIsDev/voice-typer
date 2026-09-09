@@ -20,6 +20,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
+import { APP_NAME } from "./branding";
 import { computeConfigDir } from "./config-dir";
 import { log } from "./logging";
 import { showMainWindow } from "./windows";
@@ -142,12 +143,12 @@ export function readStaleElectronPid(): number | null {
 			// don't lock out the unrelated process.
 			if (!isPidVoiceTyper(pid)) {
 				log.warn(
-					`[single_instance] PID ${pid} is alive but is not Voice Typer ` +
+					`[single_instance] PID ${pid} is alive but is not ${APP_NAME} ` +
 						"(PID reuse) — treating lock as stale",
 				);
 				return pid;
 			}
-			return null; // still alive AND is Voice Typer
+			return null; // still alive AND is this app's process
 		} catch (e) {
 			// process.kill(pid, 0) threw — ESRCH (PID is gone) is
 			// the EXPECTED signal that the previous Voice Typer

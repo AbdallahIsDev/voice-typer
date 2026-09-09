@@ -30,7 +30,14 @@ import { ipcMain } from "electron";
 // Import the canonical PythonCallErrorCode union from the
 // shared module instead of re-declaring it locally. Re-exported so
 // existing imports from ../ipc/python-call-handler continue to resolve.
-import type { PythonCallErrorCode } from "../../shared/python-call-error-code";
+// PYTHON_CALL_ERROR_CODES (the runtime array) is imported alongside the
+// type so the catch-block classification can MEMBERSHIP-CHECK a typed
+// error's code against the canonical union at runtime (E9: the wire code
+// must exist in the union before it is forwarded to the renderer).
+import {
+	PYTHON_CALL_ERROR_CODES,
+	type PythonCallErrorCode,
+} from "../../shared/python-call-error-code";
 import { dedupeRepeatedLogs, logger } from "../logging";
 import { sendToPython } from "../python";
 import { PythonIpcError } from "../python/errors";
@@ -68,6 +75,19 @@ function truncateLogError(errMsg: string): string {
 	}
 	return `${firstLine.slice(0, MAX_LOG_ERROR_CHARS)}… (truncated)`;
 }
+
+/**
+ * Runtime membership set for the canonical PythonCallErrorCode union.
+ * `handle-message.ts` casts BACKEND-emitted error codes (rate_limited,
+ * unknown_command, internal_error, …) to `PythonCallErrorCode` even
+ * though those strings live OUTSIDE the union — at runtime a
+ * `PythonIpcError.code` can therefore carry a non-union string. The
+ * catch-block classification checks membership against this set before
+ * forwarding a code to the renderer, so out-of-union codes collapse to
+ * `command_failed` instead of leaking into `_code` and breaking the
+ * `ERROR_MESSAGES` lookup (which would yield an `undefined` `_error`).
+ */
+const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set(PYTHON_CALL_ERROR_CODES);
 
 /**
  * Per-code English fallback messages for `_error` (log/dev-facing).
@@ -145,20 +165,39 @@ export function registerPythonCallHandler(): void {
 				return await sendToPython(msg, senderId);
 			} catch (err) {
 				const errMsg = (err as Error).message ?? String(err);
-				//classify timeouts via the typed `PythonIpcError.code`
-				// field set by `sendToPython` instead of regex-matching
+				//classify via the typed `PythonIpcError.code`
+				// field set by `sendToPython` — and by every
+				// socket-lifecycle reject site (close handler,
+				// backend crash/early-exit, relaunch teardown) —
+				// instead of regex-matching
 				// the human-readable message string. The `code` field is
 				// stable across message rewording, localization, and unit
 				// changes (the previous `/timeout/i` regex silently broke
 				// if the message ever changed). Falls back to
 				// `"command_failed"` for any non-`PythonIpcError` rejection
-				// (defense-in-depth for callers that throw a bare `Error`).
-				const errCode: PythonCallErrorCode =
-					err instanceof PythonIpcError ? err.code : "command_failed";
-				const isTimeout = errCode === "command_timeout";
-				const code: PythonCallErrorCode = isTimeout
-					? "command_timeout"
-					: "command_failed";
+				// (defense-in-depth for future callers that throw a bare `Error`;
+				// the known socket-lifecycle sites, including
+				// `tcp-bridge-reset.ts`, now construct `PythonIpcError`).
+				//
+				// Mid-flight pass-through: the socket-lifecycle sites
+				// reject with `backend_not_connected` /
+				// `backend_exited_early` (socket close, backend crash),
+				// and those codes pass through here so a mid-command
+				// disconnect returns the SAME curated code the
+				// pre-flight checks above produce instead of degrading
+				// to the generic `command_failed`. The membership check
+				// against the canonical union guards the cast in
+				// `handle-message.ts`: backend-emitted codes
+				// (`rate_limited`, `unknown_command`, …) are typed as
+				// `PythonCallErrorCode` at compile time but can be ANY
+				// string at runtime — those still collapse to
+				// `command_failed`.
+				const typedCode =
+					err instanceof PythonIpcError && KNOWN_ERROR_CODES.has(err.code)
+						? err.code
+						: undefined;
+				const code: PythonCallErrorCode = typedCode ?? "command_failed";
+				const isTimeout = code === "command_timeout";
 				logger.warn("python-call failed", {
 					cmd,
 					code,
@@ -171,7 +210,9 @@ export function registerPythonCallHandler(): void {
 					// errMsg is logged via logger.warn above — the full
 					// detail lives backend-side in voice-typer.log.  For
 					// timeout the errMsg is safe (it's just "Request
-					// Timeout") so append it for clarity.
+					// Timeout") so append it for clarity.  Backend-lifecycle
+					// codes use their curated per-code message (the same
+					// lookup the pre-flight branches use).
 					_error: isTimeout
 						? `${ERROR_MESSAGES[code]} ${errMsg}`
 						: ERROR_MESSAGES[code],

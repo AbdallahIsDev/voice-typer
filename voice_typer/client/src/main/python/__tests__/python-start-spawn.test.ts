@@ -6,6 +6,8 @@
  * (clearTcpStartupTimeout reset) and  (_resetStopPythonFlagsForRestart)
  * integration points in startPython.
  */
+
+import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MainState } from "../../state";
@@ -16,6 +18,33 @@ import type { MainState } from "../../state";
 
 const mocks = vi.hoisted(() => {
 	const callOrder: string[] = [];
+	// Annotated as `MainState` (not `satisfies`) so boolean literals
+	// like `pythonReady: false` contextually widen to `boolean` —
+	// tests assign them directly (`mocks.state.pythonReady = true`).
+	const state: MainState = {
+		pythonProcess: null,
+		tcpSocket: null,
+		mainWindow: null,
+		bubbleWindow: null,
+		pendingRequests: new Map(),
+		nextId: 1,
+		tcpBuffer: Buffer.alloc(0),
+		pythonReady: false,
+		pythonExitedEarly: false,
+		heartbeatInterval: null,
+		sessionNonce: "",
+		bubblePosition: "top" as const,
+		bubbleDraggable: true,
+		_hideTimeout: null,
+		_tcpRetryCount: 0,
+		_tcpRetryTimer: null,
+		_tcpRetryGeneration: 0,
+		_tcpAuthed: false,
+		_hadConnectedBefore: false,
+		_relaunching: false,
+		_restartTriggered: false,
+		_stopPythonCalled: false,
+	};
 	return {
 		createWindows: vi.fn().mockImplementation(() => {
 			callOrder.push("createWindows");
@@ -30,30 +59,7 @@ const mocks = vi.hoisted(() => {
 		pythonArgs: vi.fn(() => ["/fake/python", ["-m", "fake"]]),
 		spawn: vi.fn(),
 		callOrder,
-		state: {
-			pythonProcess: null,
-			tcpSocket: null,
-			mainWindow: null,
-			bubbleWindow: null,
-			pendingRequests: new Map(),
-			nextId: 1,
-			tcpBuffer: Buffer.alloc(0),
-			pythonReady: false,
-			pythonExitedEarly: false,
-			heartbeatInterval: null,
-			sessionNonce: "",
-			bubblePosition: "top" as const,
-			bubbleDraggable: true,
-			_hideTimeout: null,
-			_tcpRetryCount: 0,
-			_tcpRetryTimer: null,
-			_tcpRetryGeneration: 0,
-			_tcpAuthed: false,
-			_hadConnectedBefore: false,
-			_relaunching: false,
-			_restartTriggered: false,
-			_stopPythonCalled: false,
-		} satisfies MainState,
+		state,
 	};
 });
 
@@ -293,5 +299,105 @@ describe("startPython() idempotence guard (live backend → no-op)", () => {
 
 		expect(mocks.spawn).toHaveBeenCalledTimes(1);
 		expect(mocks.state.pythonProcess).not.toBe(signalledProc);
+	});
+});
+
+// ─── Exit-handler typed rejections ────────────────────────────────────────
+//
+// When the backend process dies with IPC calls in flight, the exit handler
+// must reject them with a typed PythonIpcError so the python-call bridge
+// classifies them with the SAME code the pre-flight checks use:
+//   - early exit (never connected)      → backend_exited_early
+//   - crash after a successful connect  → backend_not_connected
+// A bare Error would degrade both to the generic "command failed".
+
+describe("startPython() exit handler: typed pending-request rejections", () => {
+	// Typed as `(reason: unknown) => void` so the mock satisfies
+	// `PendingRequest.reject` (the bare `vi.fn()` default Mock signature
+	// is not assignable to it).
+	let rejectMock: Mock<(reason: unknown) => void>;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		Object.assign(mocks.state, {
+			pythonProcess: null,
+			tcpSocket: null,
+			mainWindow: null,
+			tcpBuffer: Buffer.alloc(0),
+			pythonReady: false,
+			pythonExitedEarly: false,
+			heartbeatInterval: null,
+			_tcpRetryCount: 0,
+			_tcpRetryTimer: null,
+			_tcpRetryGeneration: 0,
+			_tcpAuthed: false,
+			_hadConnectedBefore: false,
+			_relaunching: false,
+			_restartTriggered: false,
+			_stopPythonCalled: false,
+		});
+		mocks.spawn.mockImplementation(() => makeMockSpawnProc());
+		rejectMock = vi.fn<(reason: unknown) => void>();
+		mocks.state.pendingRequests.set(7, {
+			resolve: vi.fn(),
+			reject: rejectMock,
+		});
+	});
+
+	it("rejects pending IPC with PythonIpcError code backend_exited_early when the backend exits before its first connect", async () => {
+		vi.resetModules();
+		const { startPython } = await import("../start-python");
+		const { PythonIpcError } = await import("../errors");
+		// pythonReady stays false — the backend died during startup.
+		startPython();
+		const proc = mocks.spawn.mock.results[0]?.value as {
+			emit: (ev: string, code: number) => boolean;
+		};
+
+		// Non-zero exit before the first connect → early-exit branch.
+		proc.emit("exit", 1);
+
+		expect(rejectMock).toHaveBeenCalledTimes(1);
+		const err = rejectMock.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		// `PythonIpcError` above is the runtime class VALUE from the
+		// dynamic import (instanceof identity against the fresh
+		// module registry), so the instance TYPE is derived from it.
+		expect((err as InstanceType<typeof PythonIpcError>).code).toBe(
+			"backend_exited_early",
+		);
+		expect((err as InstanceType<typeof PythonIpcError>).message).toBe(
+			"Python backend exited early",
+		);
+		expect(mocks.state.pendingRequests.size).toBe(0);
+	});
+
+	it("rejects pending IPC with PythonIpcError code backend_not_connected when the backend crashes mid-flight", async () => {
+		vi.resetModules();
+		const { startPython } = await import("../start-python");
+		const { PythonIpcError } = await import("../errors");
+		startPython();
+		// The backend had connected and was ready — a crash now is a
+		// mid-flight disconnect, not an early exit.
+		mocks.state.pythonReady = true;
+		const proc = mocks.spawn.mock.results[0]?.value as {
+			emit: (ev: string, code: number) => boolean;
+		};
+
+		proc.emit("exit", 3);
+
+		expect(rejectMock).toHaveBeenCalledTimes(1);
+		const err = rejectMock.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		// `PythonIpcError` above is the runtime class VALUE from the
+		// dynamic import (instanceof identity against the fresh
+		// module registry), so the instance TYPE is derived from it.
+		expect((err as InstanceType<typeof PythonIpcError>).code).toBe(
+			"backend_not_connected",
+		);
+		expect((err as InstanceType<typeof PythonIpcError>).message).toBe(
+			"Python backend disconnected",
+		);
+		expect(mocks.state.pendingRequests.size).toBe(0);
 	});
 });

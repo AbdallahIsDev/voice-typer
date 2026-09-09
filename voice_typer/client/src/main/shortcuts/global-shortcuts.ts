@@ -32,16 +32,17 @@
  * safe no-ops and never stack duplicate callbacks.
  */
 import { globalShortcut } from "electron";
+import { DISMISS_SHORTCUT } from "../../shared/dismiss-shortcut";
 import { dismissAndHideBubble } from "../ipc/bubble-handlers";
 import { log } from "../logging";
 
 /**
- * Single source of truth for the bubble-dismiss accelerator string.
- * The renderer's shortcuts catalog (`components/hotkey/shortcuts.ts`)
- * pins the user-facing display form ("Ctrl+Shift+D"); this constant is
- * the Electron accelerator form of the same binding.
+ * The bubble-dismiss accelerator in Electron form, sourced from the
+ * cross-process shared constant (`src/shared/dismiss-shortcut.ts`)
+ * so the renderer's display form (`components/hotkey/shortcuts.ts`)
+ * and this registration can never drift apart.
  */
-export const BUBBLE_DISMISS_ACCELERATOR = "CommandOrControl+Shift+D";
+export const BUBBLE_DISMISS_ACCELERATOR = DISMISS_SHORTCUT.accelerator;
 
 let _globalShortcutsRegistered = false;
 

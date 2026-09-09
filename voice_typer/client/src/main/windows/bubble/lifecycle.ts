@@ -1,6 +1,6 @@
 /**
  * Bubble overlay BrowserWindow creation + webContents lifecycle
- * handlers ( extract from `bubble-window.ts`).
+ * handlers (extracted from `bubble-window.ts`).
  *
  * Owns:
  *   - `createBubbleWindow()` — lazy-creates the always-on-top
@@ -10,15 +10,14 @@
  *   - `notifyBubbleLocaleChanged(locale)` — forwards locale changes
  *     to the bubble renderer's separate JS context.
  *
- * : the original `createBubbleWindow` body lived inline in
+ * The original `createBubbleWindow` body lived inline in
  * `bubble-window.ts`. The `console-message` handler is now routed
- * through the shared `attachConsoleForwarder` helper ( sub-
- * finding 1-B-10) and the `render-process-gone` storm detection is
- * now backed by `createCrashStormTracker` ( sub-finding 1-B-11)
- * instead of the `recordBubbleRenderCrash` import from
- * `main-window.ts`. Both substitutions are behavior-preserving: the
- * log messages, threshold (5), window (60s), and 2s reload backoff
- * are identical to the legacy implementation.
+ * through the shared `attachConsoleForwarder` helper and the
+ * `render-process-gone` storm detection is now backed by
+ * `createCrashStormTracker` instead of the `recordBubbleRenderCrash`
+ * import from `main-window.ts`. Both substitutions are
+ * behavior-preserving: the log messages, threshold (5), window (60s),
+ * and 2s reload backoff are identical to the legacy implementation.
  */
 import path from "node:path";
 import { BrowserWindow, dialog, screen } from "electron";
@@ -263,8 +262,8 @@ export function createBubbleWindow(): BrowserWindow {
 		//failure — log.error.
 		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} preload-error file=${file}`, err);
 	});
-	// CONSOLE-FIX: console-message forwarder is now installed via the
-	//shared `attachConsoleForwarder` helper ( sub-finding 1-B-10).
+	// The console-message forwarder is now installed via the shared
+	// `attachConsoleForwarder` helper.
 	// The level-routing (level >= 1 gate, INFO/WARN/ERROR routing
 	// through the structured logger) is preserved exactly — see
 	// `console-forwarder.ts` for the rationale comments that used to

@@ -112,7 +112,7 @@ export function registerWindowLifecycleEvents(
 	// Without this, each destroyed BrowserWindow leaks one Map entry
 	// (keyed by its now-defunct `webContents.id`) forever.
 	//
-	// XV-??: capture the webContents id AT CREATION TIME (not in the
+	// Capture the webContents id AT CREATION TIME (not in the
 	// "closed" callback, where the window is already destroyed and
 	// `.webContents` throws "TypeError: Object has been destroyed").
 	const mainWebContentsId = win.webContents.id;

@@ -370,7 +370,7 @@ describe("tcp-connect.ts source-text contract (Buffer-based reassembly)", () => 
 	});
 
 	it("does NOT use StringDecoder (the fix is Buffer.concat, not StringDecoder)", () => {
-		// The XV-149 characterization test documented that StringDecoder
+		// The prior characterization test documented that StringDecoder
 		// was NOT applied. The fix uses Buffer.concat instead — a different
 		// (simpler) fix that achieves the same byte-correct result.
 		expect(src).not.toMatch(

@@ -14,12 +14,32 @@
  * would silently break if the message wording ever changed
  * (localization, rewording, unit change from seconds to ms).
  *
- * New contract: every `sendToPython` reject site constructs a
- * `PythonIpcError(code, message)` where `code` is one of the existing
- * `PythonCallErrorCode` union values. The handler checks
- * `err instanceof PythonIpcError` and reads `err.code` directly,
- * falling back to `"command_failed"` for any non-typed error
- * (defense-in-depth for callers that throw a bare `Error`).
+ * Current contract (scoped truthfully to the code as it exists):
+ *
+ *  - Every Python-bridge reject site whose construction lives in
+ *    `send-to-python.ts` (including `resetPendingOutbound`),
+ *    `tcp/close-handler.ts`, `tcp/frame-reader.ts`,
+ *    `start-python.ts` (the process-exit handler), `relaunch-app.ts`
+ *    (the production relaunch teardown), `tcp-bridge-reset.ts` (the
+ *    shared restart teardown used by the relaunch-app dev branch and
+ *    `restart-backend.ts`), and `handle-message.ts`
+ *    (Python-side error replies) constructs a
+ *    `PythonIpcError(code, message)` with a `PythonCallErrorCode`:
+ *      - `backend_not_connected`   — pre-flight no-socket, mid-flight
+ *                                    socket close / backend crash /
+ *                                    backend-only restart teardown;
+ *      - `backend_exited_early`    — backend died during startup;
+ *      - `command_failed`          — allowlist/rate-limit/cap gates,
+ *                                    oversized replies, restart
+ *                                    teardowns;
+ *      - `command_timeout`         — per-command deadline.
+ *  - The handler checks `err instanceof PythonIpcError`, verifies
+ *    `err.code` against the canonical `PYTHON_CALL_ERROR_CODES` union
+ *    (backend-emitted codes can carry out-of-union strings — see
+ *    `handle-message.ts`'s cast), passes the in-union code through to
+ *    the renderer's `_code`, and falls back to `"command_failed"` for
+ *    any non-typed error or out-of-union code (defense-in-depth for
+ *    callers that throw a bare `Error`).
  *
  * The `import type` below is erased at compile time, so there is no
  * runtime circular dependency between `errors.ts` and

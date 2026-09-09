@@ -57,7 +57,10 @@ describe("python-call-handler.ts imports PythonCallErrorCode from shared", () =>
 	it("contains an `import` of PythonCallErrorCode from the shared module", () => {
 		// The import statement must reference the shared module path.
 		expect(src).toMatch(
-			/import\s+type\s+\{\s*PythonCallErrorCode\s*\}\s+from\s+["']\.\.\/\.\.\/shared\/python-call-error-code["']/,
+			// Accepts both the bare type-only import and the value+type form
+			// (the runtime PYTHON_CALL_ERROR_CODES array is imported alongside
+			// the type for the catch-block membership check).
+			/import\s+(?:type\s+)?\{[^}]*PythonCallErrorCode[^}]*\}\s+from\s+["']\.\.\/\.\.\/shared\/python-call-error-code["']/,
 		);
 	});
 

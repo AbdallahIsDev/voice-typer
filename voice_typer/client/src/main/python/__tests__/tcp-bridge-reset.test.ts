@@ -11,6 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MainState } from "../../state";
+import { PythonIpcError } from "../errors";
 
 const { mockState, mockResetBackpressure, mockLog } = vi.hoisted(() => {
 	const mockState: MainState = {
@@ -166,6 +167,45 @@ describe("resetTcpBridgeState()", () => {
 				message: "Python backend is restarting",
 			}),
 		);
+	});
+
+	it("rejects pending requests with a TYPED PythonIpcError code backend_not_connected during a backend-only restart", () => {
+		// `restart-backend.ts` delegates here with `state._relaunching`
+		// false: the backend connection is recycled mid-flight — the
+		// same disconnect class the TCP close handler's "Python
+		// socket closed" rejection carries, so the python-call
+		// bridge must classify it as `backend_not_connected` (the
+		// renderer's curated "lost connection" message), not the
+		// generic bare-Error `command_failed` fallback.
+		const reject = vi.fn();
+		mockState.pendingRequests.set(9, { resolve: vi.fn(), reject });
+
+		resetTcpBridgeState("Python backend is restarting");
+
+		const err = reject.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		expect((err as PythonIpcError).code).toBe("backend_not_connected");
+		expect((err as PythonIpcError).message).toBe(
+			"Python backend is restarting",
+		);
+	});
+
+	it("rejects pending requests with a TYPED PythonIpcError code command_failed while a full app relaunch is in flight", () => {
+		// The `relaunch-app.ts` dev branch sets `state._relaunching`
+		// true before delegating here with "Application is
+		// restarting" — the same code the typed pre-flight
+		// `_relaunching` rejection in `send-to-python.ts` and the
+		// relaunch teardown in `tcp/close-handler.ts` carry.
+		mockState._relaunching = true;
+		const reject = vi.fn();
+		mockState.pendingRequests.set(10, { resolve: vi.fn(), reject });
+
+		resetTcpBridgeState("Application is restarting");
+
+		const err = reject.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		expect((err as PythonIpcError).code).toBe("command_failed");
+		expect((err as PythonIpcError).message).toBe("Application is restarting");
 	});
 
 	it("uses the reason verbatim, so each restart path keeps its own message", () => {

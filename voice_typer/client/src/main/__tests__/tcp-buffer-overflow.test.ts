@@ -233,6 +233,33 @@ describe("TCP buffer-overflow rejects pending requests with structured error", (
 		).toHaveBeenCalled();
 	});
 
+	it("rejects the overflow with a TYPED PythonIpcError (code command_failed)", async () => {
+		// The overflow is a command-level failure (an unusable reply),
+		// not a disconnect or timeout — the matching PythonCallErrorCode
+		// is command_failed, carried on a PythonIpcError so the
+		// python-call handler's instanceof classification sees the
+		// typed contract instead of the generic bare-Error fallback.
+		const { PythonIpcError } = await import("../python/errors");
+		tcpConnect(9999);
+
+		const socket = createdSockets[0] as EventEmitter;
+		const oversizeChunk = Buffer.alloc(MOCK_TCP_FRAME_MAX_BYTES + 1, 0x41);
+		socket.emit("data", oversizeChunk);
+
+		expect(rejectMock).toHaveBeenCalledTimes(1);
+		const err = rejectMock.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		// `PythonIpcError` above is the runtime class VALUE from the
+		// dynamic import (instanceof identity against the fresh
+		// module registry), so the instance TYPE is derived from it.
+		expect((err as InstanceType<typeof PythonIpcError>).code).toBe(
+			"command_failed",
+		);
+		expect((err as InstanceType<typeof PythonIpcError>).message).toMatch(
+			/exceeded/i,
+		);
+	});
+
 	it("does NOT call handleMessage for the oversize chunk", () => {
 		tcpConnect(9999);
 

@@ -45,6 +45,7 @@ import { state } from "../state";
 // `atomic-write.ts` the single source of truth for the atomic-write
 // pattern across the main process.
 import { atomicWriteFile } from "./atomic-write";
+import { PythonIpcError } from "./errors";
 import { killPythonProcessWithSigkillFallback } from "./kill-python";
 import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
@@ -450,10 +451,16 @@ export async function relaunchApp(): Promise<void> {
 		state.heartbeatInterval = null;
 	}
 
-	// Reject pending IPC and spawn a brand new OS process
+	// Reject pending IPC and spawn a brand new OS process. The
+	// rejection is a typed `PythonIpcError("command_failed")` — the
+	// same code the pre-flight `_relaunching` guard in
+	// `send-to-python.ts` rejects with, so both restart rejection
+	// paths classify identically through the `python-call` bridge.
 	for (const [id, entry] of state.pendingRequests) {
 		state.pendingRequests.delete(id);
-		entry.reject(new Error("Application is restarting"));
+		entry.reject(
+			new PythonIpcError("command_failed", "Application is restarting"),
+		);
 	}
 	app.relaunch({ args: process.argv.slice(1) });
 	app.exit(0);

@@ -8,6 +8,7 @@
  */
 import type { Socket } from "node:net";
 import { state } from "../../state";
+import { PythonIpcError } from "../errors";
 import { resetPendingOutbound } from "../send-to-python";
 import { scheduleTcpRetryAfterClose } from "./retry-scheduler";
 
@@ -55,9 +56,23 @@ export function installTcpCloseHandler(opts: {
 			// doesn't hang forever. Without this, every `await
 			// window.electronAPI.python(...)` would leak when the socket
 			// died - the renderer's loading spinners would never resolve.
+			//
+			// Typed `PythonIpcError` so the `python-call` bridge
+			// classifies the rejection via `err.code` instead of the
+			// generic bare-Error fallback:
+			//   - a normal mid-flight disconnect carries
+			//     `backend_not_connected` — the SAME code the
+			//     handler's pre-flight check returns when
+			//     `state.tcpSocket` is null, so a disconnect
+			//     mid-command shows the renderer's curated
+			//     "lost connection" message instead of the generic
+			//     "command failed" one.
+			//   - a relaunch teardown carries `command_failed`,
+			//     matching the typed pre-flight "Application is
+			//     restarting" rejection in `send-to-python.ts`.
 			const closeErr = state._relaunching
-				? new Error("Application is restarting")
-				: new Error("Python socket closed");
+				? new PythonIpcError("command_failed", "Application is restarting")
+				: new PythonIpcError("backend_not_connected", "Python socket closed");
 			for (const [id, entry] of state.pendingRequests) {
 				state.pendingRequests.delete(id);
 				entry.reject(closeErr);

@@ -52,6 +52,14 @@ vi.mock("../logging", () => ({
 		// throws `log.debug is not a function`.
 		debug: vi.fn(),
 	},
+	// renderer-telemetry.ts (reached via main-window's registration)
+	// imports these alongside `log` after the console-forwarder
+	// consolidation — the partial mock must expose them or
+	// registerRendererTelemetry throws on the undefined binding.
+	RENDERER_CLR: "",
+	fileTimestamp: () => "",
+	redactPii: (msg: string) => msg,
+	appendRendererError: vi.fn(),
 }));
 
 // Mock `node:child_process.execFileSync` so the tray_available test

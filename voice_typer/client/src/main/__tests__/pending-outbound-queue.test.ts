@@ -57,6 +57,7 @@ vi.mock("../state", () => ({
 	},
 }));
 
+import { PythonIpcError } from "../python/errors";
 import {
 	_pendingOutboundLengthForTest,
 	_resetIpcBackpressure,
@@ -425,6 +426,29 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect((r3.mock.calls[0]?.[0] as Error | undefined)?.message).toBe(
 				"Application is restarting",
 			);
+		});
+
+		it("rejects queued entries with a TYPED PythonIpcError (code command_failed)", async () => {
+			// The queue is drained during a full app relaunch
+			// (state._relaunching true in the close handler) — the
+			// same class as the pre-flight "Application is
+			// restarting" rejection in sendToPython, so it must
+			// carry the command_failed code on a PythonIpcError
+			// for the python-call bridge's typed classification.
+			state.tcpSocket = null;
+			state._hadConnectedBefore = true;
+
+			const p = sendToPython({ type: "get_config" });
+			const onRejected = vi.fn();
+			p.catch(onRejected);
+
+			resetPendingOutbound("Application is restarting");
+
+			await vi.waitFor(() => expect(onRejected.mock.calls.length).toBe(1));
+			const err = onRejected.mock.calls[0]?.[0];
+			expect(err).toBeInstanceOf(PythonIpcError);
+			expect((err as PythonIpcError).code).toBe("command_failed");
+			expect((err as PythonIpcError).message).toBe("Application is restarting");
 		});
 
 		it("is a no-op when the queue is empty", () => {

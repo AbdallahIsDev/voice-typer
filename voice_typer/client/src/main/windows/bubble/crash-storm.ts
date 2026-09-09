@@ -1,8 +1,7 @@
 /**
- * Render-process-gone crash-storm tracker factory ( sub-finding
- * 1-B-11).
+ * Render-process-gone crash-storm tracker factory.
  *
- * : sliding-window crash storm detection. If a renderer crashes
+ * Sliding-window crash storm detection. If a renderer crashes
  * more than `threshold` times in `windowMs`, the caller stops
  * reloading and shows a recovery dialog instead of looping forever.
  *

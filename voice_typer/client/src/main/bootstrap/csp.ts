@@ -1,5 +1,5 @@
 /**
- * SEC-012 /  Content-Security-Policy headers (HTTP).
+ * SEC-012 Content-Security-Policy headers (HTTP).
  *
  * Split out of `bootstrap.ts` (step 3 of the bootstrap sequence).
  */
@@ -38,13 +38,27 @@ export function _buildCsp(opts: { isPackaged: boolean }): string {
 }
 
 /**
- * SEC-012 / : Content Security Policy (HTTP headers).
+ * SEC-012 Content Security Policy (HTTP headers).
  *
- * CSP is also set via <meta> tags in index.html and bubble.html for
- * production file:// loads, but certain directives (frame-ancestors,
- * form-action) are only honored when delivered as actual HTTP headers.
- * Setting them here via Electron's onHeadersReceived ensures they're
- * properly enforced in dev mode (http://localhost:5173) and in production.
+ * CSP is also set via <meta> tags in index.html and bubble.html —
+ * for packaged (file://) loads those meta policies are the only CSP
+ * that applies, because `onHeadersReceived` never fires for file://
+ * requests (there is no HTTP response to intercept). Certain
+ * directives are additionally restricted to the HTTP-header channel
+ * by the CSP spec — `frame-ancestors` is ignored when delivered via
+ * <meta> — so the header CSP installed here is what actually enforces
+ * `frame-ancestors 'none'`, and it does so in DEV MODE ONLY
+ * (http://localhost:5173 responses flow through the webRequest API).
+ *
+ * In production the header CSP never fires (file:// loads), so
+ * `frame-ancestors` is not spec-enforced on any channel. The residual
+ * framing risk is negligible because of the compensating controls on
+ * every window: the deny-all `setWindowOpenHandler`
+ * (`windows/input-nav-guard.ts` — every renderer-initiated
+ * `window.open()` is denied) and `sandbox: true` in the
+ * `webPreferences` block (`windows/window-chrome.ts`), plus the meta
+ * CSP's remaining directives (`form-action 'none'`, `base-uri`,
+ * `default-src 'self'` …) which the spec DOES honor in <meta> form.
  *
  * In dev mode (app.isPackaged === false), Vite's dev server injects
  * inline scripts (React Refresh preamble + HMR client) and uses eval

@@ -1,16 +1,15 @@
 // @vitest-environment node
 /**
- * FA19 unit tests for  through  (Group 2 fixes in the
- * Electron main process).
+ * Unit tests for a batch of Electron main-process fixes.
  *
- * Each finding gets at least one assertion. Where a finding is purely
- * about source-text structure (e.g. " stores timer handles"),
+ * Each fix gets at least one assertion. Where a fix is purely
+ * about source-text structure (e.g. "index.ts stores timer handles"),
  * we assert on the source text — importing index.ts would fire
  * Electron APIs at module-eval time and is not testable in vitest
  * without mocking the entire Electron runtime.
  *
- * For runtime-testable findings ( StringDecoder,  cache,
- *  idempotency), we exercise the actual function with mocked
+ * For runtime-testable fixes (StringDecoder, the file-size cache,
+ * stopPython idempotency), we exercise the actual function with mocked
  * electron/state.
  */
 import { EventEmitter } from "node:events";
@@ -84,7 +83,7 @@ describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-152 (updated for FZ-13): bubble-window.ts showBubbleWindow clears
+// bubble-window.ts showBubbleWindow clears
 // the hide-callback slot unconditionally (not just when _hideTimeout is set).
 // The old removeAllListeners("bubble:hidden") global side-effect was
 // replaced by clearCurrentHideAnimationCallback() in FZ-13.
@@ -134,20 +133,20 @@ describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", (
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-153: index.ts stores VT_BUBBLE_TEST timers in module-level vars
+// index.ts stores VT_BUBBLE_TEST timers in module-level vars
 // and clears them in before-quit
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 	const src = readSrc("../index.ts");
-	// XV-153 refactor: the 3 timers (outer setTimeout + inner setInterval +
+	// the 3 timers (outer setTimeout + inner setInterval +
 	// inner setTimeout-clear) were extracted from index.ts into
 	// `dev/bubble-test.ts` so the wiring entry point stays wiring-only.
 	// Source-text assertions about the timer calls now read that module.
 	const bubbleTestSrc = readSrc("../dev/bubble-test.ts");
 
 	it("source declares the VT_BUBBLE_TEST diagnostic block", () => {
-		// XV-153 intended to store the VT_BUBBLE_TEST timers in
+		// The original intent was to store the VT_BUBBLE_TEST timers in
 		// module-level variables (_bubbleTestOuter etc.) and clear
 		// them in before-quit. The actual source uses inline
 		// setTimeout/setInterval without named variables. Assert the
@@ -159,25 +158,25 @@ describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 	});
 
 	it("source assigns the outer setTimeout for VT_BUBBLE_TEST", () => {
-		// XV-153 refactor moved the timers into dev/bubble-test.ts.
+		// The timers were moved into the timers into dev/bubble-test.ts.
 		// Assert the diagnostic module assigns the outer setTimeout.
 		expect(bubbleTestSrc).toMatch(/setTimeout/);
 	});
 
 	it("source assigns the inner setInterval for VT_BUBBLE_TEST", () => {
-		// XV-153 refactor moved the timers into dev/bubble-test.ts.
+		// The timers were moved into the timers into dev/bubble-test.ts.
 		expect(bubbleTestSrc).toMatch(/setInterval/);
 	});
 
 	it("source assigns the inner setTimeout (clear interval) for VT_BUBBLE_TEST", () => {
-		// XV-153 refactor: dev/bubble-test.ts uses a second setTimeout
+		// dev/bubble-test.ts uses a second setTimeout
 		// to clear the interval after 10s. Count setTimeout occurrences.
 		const setTimeoutCount = (bubbleTestSrc.match(/setTimeout/g) ?? []).length;
 		expect(setTimeoutCount).toBeGreaterThanOrEqual(2);
 	});
 
 	it("before-quit handler exists (timers cleared separately)", () => {
-		// XV-153 intended the before-quit handler to clear the
+		// The original intent was for the before-quit handler to clear the
 		// VT_BUBBLE_TEST timers. The actual source's before-quit
 		// handler calls stopPython() + clearElectronPidFile() but
 		// does NOT clear VT_BUBBLE_TEST timers (they are fire-and-
@@ -198,7 +197,7 @@ describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-154: logging.ts statSync is memoized via _fileSizeCache
+// logging.ts statSync is memoized via _fileSizeCache
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-154: logging.ts file-size cache", () => {
@@ -308,19 +307,40 @@ describe("XV-154: logging.ts file-size cache", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-155: main-window.ts ERROR skips electron-runtime.log write
+// main-window.ts ERROR skips electron-runtime.log write
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-155: main-window ERROR routes through log.error (runtime.log)", () => {
-	// The console-message handler lives in `renderer-telemetry.ts` (split
-	// out of `main-window.ts`); the pin follows the moved body.
-	const src = readSrc("../windows/renderer-telemetry.ts");
+	// The console-message handler lives in `renderer-telemetry.ts`
+	// (split out of `main-window.ts`), and since the console-forwarder
+	// consolidation it delegates the level routing to the shared
+	// `bubble/console-forwarder.ts` helper (`attachConsoleForwarder`)
+	// instead of carrying an inline copy. The pin therefore follows
+	// BOTH halves: the delegation in renderer-telemetry.ts and the
+	// level-routing branches in the shared helper.
+	const telemetrySrc = readSrc("../windows/renderer-telemetry.ts");
+	const forwarderSrc = readSrc("../windows/bubble/console-forwarder.ts");
 
-	it("source: ERROR branch uses log.error (routes to runtime.log)", () => {
-		// Find the console-message handler.
-		const handlerIdx = src.indexOf('"console-message"');
+	it("source: renderer-telemetry delegates forwarding to the shared console forwarder", () => {
+		expect(telemetrySrc).toMatch(
+			/import\s+\{\s*attachConsoleForwarder\s*\}\s+from\s+["']\.\/bubble\/console-forwarder["']/,
+		);
+		expect(telemetrySrc).toMatch(/attachConsoleForwarder\(\s*win\s*,/);
+		// No inline level-routing copy may creep back in.
+		expect(telemetrySrc).not.toMatch(/if \(level >= 3\)\s*log\.error\(msg\)/);
+	});
+
+	it("source: shared forwarder's ERROR branch uses log.error (routes to runtime.log)", () => {
+		// Find the console-message handler in the shared helper. The
+		// module docstring mentions "console-message" too, so anchor on
+		// the exported attach function and search forward from there.
+		const fnIdx = forwarderSrc.indexOf(
+			"export function attachConsoleForwarder",
+		);
+		expect(fnIdx).toBeGreaterThan(-1);
+		const block = forwarderSrc.slice(fnIdx, fnIdx + 2000);
+		const handlerIdx = block.indexOf('"console-message"');
 		expect(handlerIdx).toBeGreaterThan(-1);
-		const block = src.slice(handlerIdx, handlerIdx + 2500);
 		// The ERROR branch (level >= 3) calls log.error (NOT
 		// console.error) so the message lands in electron-runtime.log.
 		const errorBranchIdx = block.indexOf("if (level >= 3)");
@@ -331,20 +351,24 @@ describe("XV-155: main-window ERROR routes through log.error (runtime.log)", () 
 	});
 
 	it("source: WARN branch routes through log.warn (stdout + runtime.log)", () => {
-		const handlerIdx = src.indexOf('"console-message"');
-		const block = src.slice(handlerIdx, handlerIdx + 2500);
+		const fnIdx = forwarderSrc.indexOf(
+			"export function attachConsoleForwarder",
+		);
+		const block = forwarderSrc.slice(fnIdx, fnIdx + 2000);
 		expect(block).toMatch(/else if \(level === 2\)\s*log\.warn/);
 	});
 
 	it("source: INFO branch routes through log.info (stdout only)", () => {
-		const handlerIdx = src.indexOf('"console-message"');
-		const block = src.slice(handlerIdx, handlerIdx + 2500);
+		const fnIdx = forwarderSrc.indexOf(
+			"export function attachConsoleForwarder",
+		);
+		const block = forwarderSrc.slice(fnIdx, fnIdx + 2000);
 		expect(block).toMatch(/else\s*log\.info/);
 	});
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-156: shutdown-path timers are .unref()'d
+// shutdown-path timers are .unref()'d
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-156: shutdown-path timers unref status", () => {
@@ -355,7 +379,7 @@ describe("XV-156: shutdown-path timers unref status", () => {
 
 	it("relaunch-app.ts: killTimer is NOT unref'd (no .unref() calls in source)", () => {
 		// The actual source does not call .unref() on the killTimer
-		// in relaunch-app.ts. The XV-156 fix was only applied to
+		// in relaunch-app.ts. The unref fix was only applied to
 		// stop-python.ts.
 		const src = readSrc("../python/relaunch-app.ts");
 		expect(src).not.toMatch(/killTimer\.unref\(\)/);
@@ -391,10 +415,10 @@ describe("XV-156: shutdown-path timers unref status", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-157: stopPython idempotency guard + startPython reset
+// stopPython idempotency guard + startPython reset
 // ────────────────────────────────────────────────────────────────────
 
-// Mock electron + state for the XV-157 runtime test.
+// Mock electron + state for the runtime test.
 vi.mock("electron", () => ({
 	app: {
 		quit: vi.fn(),
@@ -644,7 +668,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-149: StringDecoder handles UTF-8 boundary correctly
+// StringDecoder handles UTF-8 boundary correctly
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
@@ -668,7 +692,7 @@ describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 	});
 
 	it("chunk.toString() (the OLD approach) produces U+FFFD on a split", () => {
-		// This is the bug XV-149 fixes — document it here.
+		// This is the bug the fix addresses — document it here.
 		const buf1 = Buffer.from([0xf0]);
 		const buf2 = Buffer.from([0x9f, 0x98, 0x80]);
 		const oldApproach = buf1.toString() + buf2.toString();

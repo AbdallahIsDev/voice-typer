@@ -29,6 +29,7 @@ import { IPC_PORT, IPC_TOKEN } from "../constants";
 import { mainT } from "../i18n";
 import { log } from "../logging";
 import { state } from "../state";
+import { PythonIpcError } from "./errors";
 import { pythonArgs } from "./python-args";
 import { relaunchApp } from "./relaunch-app";
 import { _resetStopPythonFlagsForRestart } from "./stop-python";
@@ -204,7 +205,19 @@ export function startPython() {
 			state.pythonProcess = null;
 			for (const [id, entry] of state.pendingRequests) {
 				state.pendingRequests.delete(id);
-				entry.reject(new Error("Python backend exited early"));
+				// Typed rejection: the early-exit branch uses
+				// `backend_exited_early` — the SAME code the
+				// python-call handler's pre-flight check
+				// returns when `state.pythonExitedEarly` is
+				// true, so a mid-flight early exit shows the
+				// renderer's curated message instead of the
+				// generic "command failed" fallback.
+				entry.reject(
+					new PythonIpcError(
+						"backend_exited_early",
+						"Python backend exited early",
+					),
+				);
 			}
 			if (state.mainWindow) {
 				//(fix): use `.destroy()` instead of `.close()`.
@@ -280,7 +293,18 @@ export function startPython() {
 			state._tcpAuthed = false;
 			for (const [id, entry] of state.pendingRequests) {
 				state.pendingRequests.delete(id);
-				entry.reject(new Error("Python backend disconnected"));
+				// Typed rejection: a crash AFTER a successful
+				// connect is a mid-flight disconnect →
+				// `backend_not_connected`, matching the
+				// pre-flight classification for a dead
+				// backend so the renderer shows the curated
+				// "lost connection" message.
+				entry.reject(
+					new PythonIpcError(
+						"backend_not_connected",
+						"Python backend disconnected",
+					),
+				);
 			}
 			app.quit();
 		} else {

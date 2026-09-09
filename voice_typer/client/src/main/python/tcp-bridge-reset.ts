@@ -31,8 +31,11 @@
  *  10. clear `state._tcpRetryTimer` (before the generation bump)
  *  11. `state._tcpRetryGeneration++` — invalidate stale retry loops
  *  12. clear `state.heartbeatInterval`
- *  13. reject + delete every `state.pendingRequests` entry with
- *      `new Error(reason)` — `reason` is caller-supplied so each
+ *  13. reject + delete every `state.pendingRequests` entry with a
+ *      typed `PythonIpcError(reason)` — the code is chosen by restart
+ *      class (`command_failed` while a full app relaunch is in flight,
+ *      `backend_not_connected` for a backend-only restart; see the
+ *      rejection site below). `reason` is caller-supplied so each
  *      restart path keeps its own user-facing message ("Application is
  *      restarting" vs "Python backend is restarting").
  *
@@ -44,6 +47,7 @@
  */
 import { log } from "../logging";
 import { state } from "../state";
+import { PythonIpcError } from "./errors";
 import { _resetIpcBackpressure } from "./send-to-python";
 
 export function resetTcpBridgeState(reason: string): void {
@@ -86,9 +90,26 @@ export function resetTcpBridgeState(reason: string): void {
 	}
 	// Reject pending IPC immediately with the caller's reason so
 	// callers don't sit out the per-command timeout on a bridge that
-	// is being rebuilt.
+	// is being rebuilt. The rejection is a typed `PythonIpcError` so
+	// the `python-call` bridge classifies it via `err.code` instead
+	// of the generic bare-Error fallback, carrying the SAME code the
+	// equivalent typed sites use for each restart class:
+	//   - full app relaunch (`state._relaunching` true — the
+	//     relaunch-app dev branch's "Application is restarting") →
+	//     `command_failed`, matching the typed pre-flight
+	//     `_relaunching` rejection in `send-to-python.ts` and the
+	//     relaunch teardown rejection in `tcp/close-handler.ts`.
+	//   - backend-only restart (`state._relaunching` false —
+	//     `restart-backend.ts`'s "Python backend is restarting") →
+	//     `backend_not_connected`: the backend connection is recycled
+	//     mid-flight, the same disconnect class the close handler's
+	//     "Python socket closed" rejection carries, so the renderer
+	//     shows the curated "lost connection" message.
+	const rejectErr = state._relaunching
+		? new PythonIpcError("command_failed", reason)
+		: new PythonIpcError("backend_not_connected", reason);
 	for (const [id, entry] of state.pendingRequests) {
 		state.pendingRequests.delete(id);
-		entry.reject(new Error(reason));
+		entry.reject(rejectErr);
 	}
 }

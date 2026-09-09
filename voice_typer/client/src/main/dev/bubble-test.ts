@@ -1,9 +1,9 @@
 /**
- * : dev-only bubble diagnostic harness, gated by `VT_BUBBLE_TEST=1`.
+ * Dev-only bubble diagnostic harness, gated by `VT_BUBBLE_TEST=1`.
  *
  * Extracted from `index.ts:101-116` so the production wiring entry point
  * stays wiring-only (the previous inlined block created 3 unbounded
- * timers —  flagged them as not cleared on shutdown).
+ * timers that a review flagged as never cleared on shutdown).
  *
  * `runBubbleTestDiagnostics(state)` returns a `cleanup` function that
  * clears all three timers; the caller (index.ts) is responsible for
@@ -20,7 +20,7 @@ import { showBubbleWindow } from "../windows";
 /**
  * Run the bubble-window diagnostic. Caller MUST register the returned
  * `cleanup` function with the `before-quit` handler so the timers don't
- * leak ().
+ * leak on shutdown.
  *
  * Behaviour (mirrors the original index.ts:101-116 block):
  *   1. After a 1.5s delay, show the bubble window.

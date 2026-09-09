@@ -9,7 +9,7 @@
  *   - Push events (no `id`): bubble show/hide/set-state/level, show_window,
  *     quit_app, relaunch_app.  Each is routed to the appropriate
  *     BrowserWindow via `webContents.send("python-event", msg)` (with
- *     SEC-017 filtering so transcription/history never leak to the bubble).
+ *     main-window-only filtering so transcription/history never leak to the bubble).
  */
 import { app, Notification } from "electron";
 // PythonIpcError is the typed error class the python-call-handler
@@ -35,7 +35,7 @@ import { state } from "../state";
 import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
 import { setPersistedBubblePosition } from "../windows/bubble/positioning";
 //broadcastToMainWindow imported directly from main-window
-// (windows/index.ts is owned by another sub-agent and doesn't re-export it).
+// (windows/index.ts doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
 import { PythonIpcError } from "./errors";
 import { relaunchApp } from "./relaunch-app";
@@ -190,7 +190,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			// Clicking the toast opens the main window and routes to the
 			// target (a plain page via ``click_path``, or the exact
 			// Settings consent row via ``click_consent_field``).
-			// SEC-029: the synthetic ``navigate`` event must carry the
+			// The synthetic ``navigate`` event must carry the
 			// session nonce or the renderer drops it as a replayed frame.
 			notif.on("click", () => {
 				log.info(
@@ -302,7 +302,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// emit codes outside that union — at runtime the field
 				// is just a string, so the cast is sound.
 				//
-				//sub-finding: previously only `message` was
+				//Previously only `message` was
 				// surfaced on the rejected Error — `data.code` was discarded.
 				// Attach the optional `field`/`command`/`id` context
 				// fields too so consumers can do
@@ -376,7 +376,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// entirely by the bubble window (the dispatch handler above already
 		// routed them). They MUST NOT be broadcast to the main window
 		// renderer — doing so causes 30-60 Hz IPC churn (one `bubble_level`
-		// per audio frame while recording) and contradicts the SEC-017
+		// per audio frame while recording) and contradicts the event-filtering
 		// comment at the top of this block. The filter set is sourced from
 		// `bubble-handlers.ts` so the bubble-IPC module remains the single
 		// source of truth for "which event types belong to the bubble".
@@ -384,22 +384,22 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			return;
 		}
 
-		// SEC-029: tag each python-event with a per-session nonce so the
+		// Tag each python-event with a per-session nonce so the
 		// renderer can detect replayed frames from an unauthenticated TCP
-		// attacker (SEC-018). The nonce is generated once per Electron
+		// attacker. The nonce is generated once per Electron
 		// session and stored in this module-level variable. The renderer
 		// compares the nonce on each event and drops any that don't match.
 		if (!msg._session_nonce && state.sessionNonce) {
 			msg._session_nonce = state.sessionNonce;
 		}
 
-		// SEC-017: previously this broadcast every Python event to every
+		// Previously this broadcast every Python event to every
 		// window.  Transcription text and history records were thus sent
 		// to the bubble window too — a data leak (the bubble only needs
 		// waveform level + show/hide events).  Filter to the main window
 		// only; the bubble gets its own dedicated channel for waveform.
 		//route through broadcastToMainWindow instead of calling
-		//webContents.send directly. Centralizes  pythonReady flip +
+		//webContents.send directly. Centralizes the pythonReady flip +
 		// destroyed-window guard.
 		broadcastToMainWindow(PythonChannels.event, msg);
 	}
