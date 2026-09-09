@@ -90,30 +90,27 @@ def _enable_autostart_macos() -> bool:
     # avoid a circular import.
     python_exe = sys.executable
     if sys.prefix != sys.base_prefix:
-        import shutil
+        from voice_typer.server.server_platform.autostart import (
+            _probe_system_python,
+        )
 
-        system_python = shutil.which("python3")
+        system_python = _probe_system_python("python3")
         if system_python:
-            from voice_typer.server.server_platform.autostart import (
-                _system_python_can_import_launcher,
+            log.info(
+                "[AUTOSTART] Running inside venv (%s); using system Python for macOS plist: %s",
+                python_exe,
+                system_python,
             )
-
-            if _system_python_can_import_launcher(system_python):
-                log.info(
-                    "[AUTOSTART] Running inside venv (%s); using system Python for macOS plist: %s",
-                    python_exe,
-                    system_python,
-                )
-                python_exe = system_python
-            else:
-                log.warning(
-                    "[AUTOSTART] Running inside venv (%s) but system Python "
-                    "cannot import voice_typer.server.autostart_launcher "
-                    "(probe failed). Keeping venv Python for the macOS "
-                    "LaunchAgent — autostart will break if the venv is "
-                    "deleted, but works for the current user.",
-                    python_exe,
-                )
+            python_exe = system_python
+        else:
+            log.warning(
+                "[AUTOSTART] Running inside venv (%s) but system Python "
+                "cannot import voice_typer.server.autostart_launcher "
+                "(probe failed). Keeping venv Python for the macOS "
+                "LaunchAgent — autostart will break if the venv is "
+                "deleted, but works for the current user.",
+                python_exe,
+            )
 
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

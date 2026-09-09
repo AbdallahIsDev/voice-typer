@@ -192,8 +192,7 @@ def _autostart_command() -> str:
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
     # Build the argument list, then quote each arg per the desktop spec.
     if is_windows():
-        pythonw = Path(sys.executable).parent / "pythonw.exe"
-        python_bin = str(pythonw) if pythonw.exists() else sys.executable
+        python_bin = _prefer_pythonw(sys.executable)
         args = [python_bin, str(launcher), "--hidden", "--delay", delay_str]
     else:
         # macOS / Linux: use the current interpreter.
@@ -220,11 +219,9 @@ def _autostart_command() -> str:
     python_exe = sys.executable
     if sys.prefix != sys.base_prefix:
         # We're inside a virtualenv — try to find the system Python
-        import shutil
-
         base_python = "python.exe" if is_windows() else "python3"
-        system_python = shutil.which(base_python)
-        if system_python and _system_python_can_import_launcher(system_python):
+        system_python = _probe_system_python(base_python)
+        if system_python:
             log.info(
                 "[AUTOSTART] Running inside venv (%s); using system Python: %s",
                 python_exe,
@@ -247,9 +244,7 @@ def _autostart_command() -> str:
     # the pythonw.exe preference to the FINAL interpreter so the
     # Run-key / Startup-bat entry never flashes a console window.
     if is_windows() and args:
-        pythonw = Path(args[0]).parent / "pythonw.exe"
-        if pythonw.exists():
-            args[0] = str(pythonw)
+        args[0] = _prefer_pythonw(args[0])
 
     # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
     # path actually exists on disk. If the venv was deleted after
@@ -365,6 +360,39 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
             exc_info=True,
         )
         return False
+
+
+def _prefer_pythonw(python_bin: str) -> str:
+    """Prefer a sibling ``pythonw.exe`` for a Windows interpreter path.
+
+    BP-127 shared core: the pythonw preference was copy-pasted across
+    the generic command builder and the Windows Task Scheduler
+    resolver (initial pick + post-probe re-apply). Returns the
+    ``pythonw.exe`` sibling when it exists, else the input unchanged.
+    Windows-only by construction (``pythonw.exe`` never exists on
+    POSIX) — callers keep their own ``is_windows()`` gates so output
+    shapes stay byte-identical (C-CROSS-1/2).
+    """
+    pythonw = Path(python_bin).parent / "pythonw.exe"
+    return str(pythonw) if pythonw.exists() else python_bin
+
+
+def _probe_system_python(which_name: str) -> str | None:
+    """Shared venv→system-Python probe (BP-127).
+
+    Returns a swappable system interpreter, or ``None`` when no swap
+    should happen (not in a venv, no candidate on PATH, or the
+    can-import probe failed). Callers keep their own ``sys.prefix``
+    guard, logging, and fallback shapes — this helper owns ONLY the
+    ``which`` + probe decision all three platform registrars shared
+    verbatim, so interpreter-handling fixes land once.
+    """
+    import shutil
+
+    system_python = shutil.which(which_name)
+    if system_python and _system_python_can_import_launcher(system_python):
+        return system_python
+    return None
 
 
 # ─── Install-path hash suffix (PLAT-RUN) ─────────────────────────────

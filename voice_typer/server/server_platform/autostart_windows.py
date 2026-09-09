@@ -237,8 +237,9 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
 
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
-    pythonw = Path(sys.executable).parent / "pythonw.exe"
-    python_bin = str(pythonw) if pythonw.exists() else sys.executable
+    from voice_typer.server.server_platform.autostart import _prefer_pythonw
+
+    python_bin = _prefer_pythonw(sys.executable)
 
     # PLAT-VENV: detect virtualenv and use system Python instead.
     # probe whether the system Python can import
@@ -246,33 +247,28 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     # venv is the only place voice_typer is installed, the system
     # Python would fail at login.
     if sys.prefix != sys.base_prefix:
-        import shutil
+        from voice_typer.server.server_platform.autostart import (
+            _probe_system_python,
+        )
 
-        system_python = shutil.which("python.exe")
+        system_python = _probe_system_python("python.exe")
         if system_python:
-            from voice_typer.server.server_platform.autostart import (
-                _system_python_can_import_launcher,
+            python_bin = system_python
+        else:
+            log.warning(
+                "[AUTOSTART] Running inside venv (%s) but system Python "
+                "cannot import voice_typer.server.autostart_launcher "
+                "(probe failed). Keeping venv Python for the Windows "
+                "Task Scheduler entry — autostart will break if the "
+                "venv is deleted, but works for the current user.",
+                sys.executable,
             )
-
-            if _system_python_can_import_launcher(system_python):
-                python_bin = system_python
-            else:
-                log.warning(
-                    "[AUTOSTART] Running inside venv (%s) but system Python "
-                    "cannot import voice_typer.server.autostart_launcher "
-                    "(probe failed). Keeping venv Python for the Windows "
-                    "Task Scheduler entry — autostart will break if the "
-                    "venv is deleted, but works for the current user.",
-                    sys.executable,
-                )
     # PLAT-VENV/SILENT-LOGON: the probe above may have swapped the
     # interpreter to the system python.exe (a console-subsystem binary).
     # Re-apply the pythonw.exe preference to the FINAL interpreter so
     # the logon task never flashes a console window (same preference as
     # the initial pick above, which only covered sys.executable).
-    pythonw = Path(python_bin).parent / "pythonw.exe"
-    if pythonw.exists():
-        python_bin = str(pythonw)
+    python_bin = _prefer_pythonw(python_bin)
 
     # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
     # path exists. If it doesn't (venv deleted, dev-mode install moved),
