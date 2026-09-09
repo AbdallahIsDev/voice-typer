@@ -61,6 +61,14 @@ class TestAutoCapitalize:
         result = auto_capitalize("my birthday is in july")
         assert result == "My birthday is in July"
 
+    def test_auto_capitalize_leaves_ambiguous_month_words_alone(self):
+        """BP-132: may/march/august double as common words — mid-sentence
+        occurrences must NOT capitalize ("the plan may work", not
+        "the plan May work"). Sentence-start still capitalizes."""
+        assert auto_capitalize("the plan may work") == "The plan may work"
+        assert auto_capitalize("we march at dawn") == "We march at dawn"
+        assert auto_capitalize("may the force be with you") == "May the force be with you"
+
     def test_auto_capitalize_empty_string(self):
         """Empty input should return empty output."""
         assert auto_capitalize("") == ""

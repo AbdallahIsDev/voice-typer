@@ -152,6 +152,13 @@ _CONTRACTION_PATTERN = re.compile(
 # the entry from ``_CONTRACTION_FIXES`` rather than adding a
 # heuristic — the disambiguation is too context-dependent to be
 # worth the complexity here.
+# NOTE: ``may``, ``march`` and ``august`` are deliberately ABSENT
+# (BP-132): they double as high-frequency common words (modal "may",
+# verb "march", and the adjective "august" is rare but the month is
+# ambiguous mid-sentence), and the unconditional set capitalized EVERY
+# occurrence — "the plan may work" → "the plan May work". Same
+# reasoning previously removed "ill" -> "I'll" and "id" -> "I'd".
+# Month names at a sentence start still capitalize via steps 1–2.
 _PROPER_NOUN_SINGLE_WORDS: frozenset[str] = frozenset(
     {
         "monday",
@@ -163,12 +170,9 @@ _PROPER_NOUN_SINGLE_WORDS: frozenset[str] = frozenset(
         "sunday",
         "january",
         "february",
-        "march",
         "april",
-        "may",
         "june",
         "july",
-        "august",
         "september",
         "october",
         "november",
