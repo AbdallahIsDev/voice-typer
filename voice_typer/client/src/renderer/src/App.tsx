@@ -9,6 +9,8 @@ import { TitleBar } from "@/components/layout/TitleBar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAsrBackendDisabledToast } from "@/hooks/useAsrBackendDisabledToast";
+import { useAsrBackendLoadToast } from "@/hooks/useAsrBackendLoadToast";
+import { useCloudFallbackToast } from "@/hooks/useCloudFallbackToast";
 import { useConnectingProgress } from "@/hooks/useConnectingProgress";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
@@ -17,14 +19,18 @@ import { useDeviceLostToast } from "@/hooks/useDeviceLostToast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
 import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
+import { useHistoryIntegrityToast } from "@/hooks/useHistoryIntegrityToast";
 import { useLastResortUnloadedToast } from "@/hooks/useLastResortUnloadedToast";
 import { useLinuxWindowButtons } from "@/hooks/useLinuxWindowButtons";
 import { useLlmPolishFailedToast } from "@/hooks/useLlmPolishFailedToast";
+import { useMicPermissionRevokedToast } from "@/hooks/useMicPermissionRevokedToast";
+import { useMicrophoneDisconnectedToast } from "@/hooks/useMicrophoneDisconnectedToast";
 import { useNavigateEvent } from "@/hooks/useNavigateEvent";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useNetworkOnline } from "@/hooks/useNetworkOnline";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
 import { useOnboardingRouteGuard } from "@/hooks/useOnboardingRouteGuard";
+import { usePasteDeferredToast } from "@/hooks/usePasteDeferredToast";
 import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
 import { usePython } from "@/hooks/usePython";
 import { useRouteChangeFocus } from "@/hooks/useRouteChangeFocus";
@@ -32,6 +38,7 @@ import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTextEnhancementFailedToast } from "@/hooks/useTextEnhancementFailedToast";
 import { useTheme } from "@/hooks/useTheme";
+import { useTrayFallbackToast } from "@/hooks/useTrayFallbackToast";
 import { useWindowMaximized } from "@/hooks/useWindowMaximized";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -240,6 +247,48 @@ export default function App() {
 	useLlmPolishFailedToast(t);
 	useTextEnhancementFailedToast(t);
 	useAsrBackendDisabledToast(t, () => navigate("models"));
+
+	// Backend model-load lifecycle — the background load runs AFTER
+	// the set_config ack (its model_loading envelope promises these
+	// completion events): a load failure surfaces here as an error
+	// toast with an Open Models action (the Models-page "Using
+	// model" snack from the ack path is stale in that case), and a
+	// successful load clears the failure surface.
+	useAsrBackendLoadToast(t, () => navigate("models"));
+
+	// Mid-recording microphone loss (recorder-stream paths — the
+	// counterpart of device_lost's level-monitor paths): same shared
+	// recovery surface + toast, so one physical unplug never stacks
+	// two banners.
+	useMicrophoneDisconnectedToast(t, () => navigate("microphone"));
+
+	// Mid-recording OS mic-permission revocation — the DISTINCT
+	// banner (reuses the bubble's localized "Mic permission revoked"
+	// label) so the user doesn't get the misleading generic
+	// silence-auto-stop toast for a permission change.
+	useMicPermissionRevokedToast(t);
+
+	// Tray-unavailable degraded mode (headless / tray-less systems;
+	// Electron/headless runtime only) — the in-app banner for queued
+	// tray notifications that could not be shown.
+	useTrayFallbackToast(t);
+
+	// Cloud ASR degradation — the provider failed and the local engine
+	// took over for that transcription (the dictation still succeeds,
+	// so the notice informs rather than alarms; cooldown keeps an
+	// outage at one reminder per window, not one per dictation).
+	useCloudFallbackToast(t);
+
+	// History-DB integrity events — the corrupt-file recovery warning
+	// (history partially rebuilt; the quarantine file was kept) and the
+	// FTS5-rebuild-failure privacy warning (deleted entries may still
+	// be recoverable in the DB file).
+	useHistoryIntegrityToast(t);
+
+	// Paste-deferred notice — the auto-paste keystroke was dropped
+	// (Secure Input / IME composition) but the transcription is safe
+	// on the clipboard; tells the user to paste manually.
+	usePasteDeferredToast(t);
 
 	// asr_last_resort_unloaded toast — surfaces the Models-page pointer
 	// as an IN-APP toast so the user still sees it when OS tray

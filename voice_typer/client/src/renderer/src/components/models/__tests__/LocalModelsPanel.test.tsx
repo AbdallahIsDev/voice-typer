@@ -70,18 +70,8 @@ vi.mock("@/components/ui/accordion", () => ({
 // Stub ModelCardActions so we don't have to construct the full ModelInfo
 // shape for every variant just to render the panel.
 vi.mock("@/components/models/ModelCardActions", () => ({
-	ModelCardActions: ({
-		model,
-		isInstallingDepsThis,
-	}: {
-		model: { name: string };
-		isInstallingDepsThis?: boolean;
-	}) => (
-		<div
-			data-testid="model-card-actions"
-			data-model={model.name}
-			data-installing-deps={isInstallingDepsThis ? "true" : "false"}
-		/>
+	ModelCardActions: ({ model }: { model: { name: string } }) => (
+		<div data-testid="model-card-actions" data-model={model.name} />
 	),
 }));
 
@@ -184,11 +174,9 @@ const baseProps = {
 	// inline error UI + Retry button); the canonical consumer
 	// (Models.tsx) always passes both, as does this fixture.
 	failedDownload: null,
-	installingDepsModel: null,
 	onSelectModel: noop,
 	onDownloadModel: noop,
 	onDeleteModel: noop,
-	onInstallDeps: noop,
 	onRetryDownload: noop,
 	onTogglePause: noop,
 	onCancelDownload: noop,
@@ -513,30 +501,5 @@ describe("LocalModelsPanel — forward error/modelName/onRetry to DownloadProgre
 		);
 		const bar = screen.getByTestId("download-progress-bar");
 		expect(bar.getAttribute("data-error")).toBe("");
-	});
-
-	it("forwards isInstallingDepsThis to <ModelCardActions> based on installingDepsModel", () => {
-		render(<LocalModelsPanel {...baseProps} installingDepsModel="tiny" />);
-		// The panel renders one card per variant; locate the
-		// tiny.en card by its data-model attribute.
-		const cards = screen.getAllByTestId("model-card-actions");
-		const tinyCard = cards.find(
-			(el) => el.getAttribute("data-model") === "tiny",
-		);
-		expect(tinyCard).toBeDefined();
-		expect(tinyCard?.getAttribute("data-installing-deps")).toBe("true");
-		// The medium.en card must NOT be marked as installing.
-		const mediumCard = cards.find(
-			(el) => el.getAttribute("data-model") === "large-v3-turbo",
-		);
-		expect(mediumCard?.getAttribute("data-installing-deps")).toBe("false");
-	});
-
-	it("forwards isInstallingDepsThis=false when installingDepsModel is null", () => {
-		render(<LocalModelsPanel {...baseProps} installingDepsModel={null} />);
-		const cards = screen.getAllByTestId("model-card-actions");
-		for (const card of cards) {
-			expect(card.getAttribute("data-installing-deps")).toBe("false");
-		}
 	});
 });

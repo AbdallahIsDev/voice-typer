@@ -21,25 +21,26 @@
 // notification. A fixed sonner ``id`` replaces any in-flight toast.
 
 import { usePythonEvent } from "@/hooks/usePython";
-import { useDeviceLostStore } from "@/stores/deviceLostStore";
+import {
+	DEVICE_LOST_TOAST_DEDUPE_MS,
+	useDeviceLostStore,
+} from "@/stores/deviceLostStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
 
 /**
- * Global dedupe window (ms): a second ``device_lost`` event within this
- * window is recorded but does NOT re-toast. Slightly longer than the
- * toast duration so a dismiss + immediate re-fire doesn't re-nag within
- * the same notification cycle.
- */
-const DEVICE_LOST_TOAST_DEDUPE_MS = 10_000;
-
-/**
  * Subscribe to ``device_lost`` push events; show the recovery toast +
  * flip the shared device-lost state for the Microphone page. Call once
  * at the top level of a component (App); the subscription lives for the
  * component's lifetime.
+ *
+ * The dedupe window is imported from `deviceLostStore` (the store owns
+ * the ``lastToastShownAt`` clock, so it owns the window too): the
+ * recorder-stream path (`useMicrophoneDisconnectedToast`) checks the
+ * SAME clock, and both hooks importing one constant keeps the two
+ * dedupe windows from drifting apart.
  *
  * @param t i18n translate function (from useT).
  * @param onOpenMicrophone callback that navigates to the Microphone page

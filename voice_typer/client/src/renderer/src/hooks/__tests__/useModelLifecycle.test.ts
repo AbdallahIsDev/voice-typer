@@ -7,7 +7,7 @@
  *   1. `useModelConfig`     → config + models + catalog + apiKeys + 4
  *                              internal helpers (refreshModelStatus,
  *                              updateConfig, setConfig, setModels)
- *   2. `useModelDownload`   → receives setModels + refreshModelStatus
+ *   2. `useModelDownload`   → receives setModels + reconcileAfterDownload
  *   3. `useModelSelection`  → receives setModels + refreshModelStatus +
  *                              updateConfig
  *   4. `useCloudProviders`  → receives setConfig + config + apiKeys +
@@ -26,16 +26,17 @@
  *      useCloudProviders → useModelFolder (so each subsequent hook can
  *      receive helpers destructured from the prior one's return).
  *   2. Cancel-mid-download wiring: `useModelDownload` receives
- *      `setModels` + `refreshModelStatus` AS THE SAME REFERENCES returned
- *      by `useModelConfig`. When the download sub-hook's
+ *      `setModels` AS THE SAME REFERENCE returned by
+ *      `useModelConfig`. When the download sub-hook's
  *      `handleCancelDownload` calls `setModels(prev => ...)`, it mutates
  *      the SAME state owned by `useModelConfig` — without this referential
  *      equality, cancel-state-reset would silently no-op.
- *   3. Post-install activation wiring: `useModelDownload` receives
- *      `refreshModelStatus` (forwarded from `useModelConfig`) so its
- *      `installDeps` action can reconcile the deps-installed state after
- *      a successful install. Without this forwarding, `installDeps`
- *      would silently skip the reconciliation step.
+ *   3. Args wiring: `useModelDownload` receives `setModels` and
+ *      `reconcileAfterDownload` (full config re-fetch after a
+ *      successful download) — and does NOT receive `refreshModelStatus`
+ *      (the download sub-hook stopped consuming it when the deps-install
+ *      flow was removed; the facade forwards it to `useModelSelection`
+ *      only).
  *   4. The 4 internal helpers (refreshModelStatus, updateConfig,
  *      setConfig, setModels) are NOT in the public return shape.
  *   5. The return shape is the merged set of sub-hook returns + the
@@ -114,10 +115,8 @@ const {
 			speedBps: null,
 			etaSeconds: null,
 			failedDownload: null,
-			installingDepsModel: null,
 			downloadModel: vi.fn(),
 			retryDownload: vi.fn(),
-			installDeps: vi.fn(),
 			handleTogglePause: vi.fn(),
 			handleCancelDownload: vi.fn(),
 		},
@@ -280,7 +279,6 @@ describe("useModelLifecycle — facade composition ", () => {
 			renderHook(() => useModelLifecycle());
 			const dlArgs = useModelDownloadArgs.value as {
 				setModels?: unknown;
-				refreshModelStatus?: unknown;
 			};
 			// Referential equality is the contract: cancel-mid-
 			// download cleanup calls `setModels(prev => ...)`,
@@ -289,14 +287,16 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(dlArgs.setModels).toBe(configHookReturn.setModels);
 		});
 
-		it("useModelDownload receives `refreshModelStatus` AS THE SAME REFERENCE returned by useModelConfig", () => {
+		it("useModelDownload does NOT receive `refreshModelStatus` (dead facade plumbing removed)", () => {
+			// The download sub-hook stopped consuming refreshModelStatus when
+			// its only consumer (the deps-install flow) was removed; the facade
+			// forwards it to useModelSelection only. Reintroducing the
+			// pass-through MUST fail this test.
 			renderHook(() => useModelLifecycle());
 			const dlArgs = useModelDownloadArgs.value as {
 				refreshModelStatus?: unknown;
 			};
-			expect(dlArgs.refreshModelStatus).toBe(
-				configHookReturn.refreshModelStatus,
-			);
+			expect(dlArgs.refreshModelStatus).toBeUndefined();
 		});
 
 		it("useModelDownload receives `call` from usePython (for the cancel_model_download IPC)", () => {
@@ -316,24 +316,7 @@ describe("useModelLifecycle — facade composition ", () => {
 		});
 	});
 
-	describe("post-install activation wiring", () => {
-		it("useModelDownload receives `refreshModelStatus` so installDeps can reconcile", () => {
-			// installDeps in useModelDownload awaits
-			// `refreshModelStatus()` after a successful install
-			// to mark the depsOk flag on the just-installed model.
-			// The facade forwards refreshModelStatus from
-			// useModelConfig — without this, installDeps would
-			// silently skip the reconciliation step.
-			renderHook(() => useModelLifecycle());
-			const dlArgs = useModelDownloadArgs.value as {
-				refreshModelStatus?: unknown;
-			};
-			expect(dlArgs.refreshModelStatus).toBeDefined();
-			expect(dlArgs.refreshModelStatus).toBe(
-				configHookReturn.refreshModelStatus,
-			);
-		});
-
+	describe("download sub-hook args wiring", () => {
 		it("useModelDownload receives `setModels` so downloadModel can mark the just-downloaded model active", () => {
 			// On success, downloadModel calls
 			// `setModels(prev => prev.map(m => m.name === model.name
@@ -436,7 +419,6 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(r.handleCancelDownload).toBe(
 				downloadHookReturn.handleCancelDownload,
 			);
-			expect(r.installDeps).toBe(downloadHookReturn.installDeps);
 
 			// From selection:
 			expect(r.selectingModel).toBe(selectionHookReturn.selectingModel);

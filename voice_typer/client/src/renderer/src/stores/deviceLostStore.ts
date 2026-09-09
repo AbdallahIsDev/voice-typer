@@ -17,6 +17,19 @@
 
 import { create } from "zustand";
 
+/**
+ * Global dedupe window (ms) for the device-lost recovery toast. The
+ * window governs the store's ``lastToastShownAt`` clock — BOTH the
+ * level-monitor path (``device_lost``) and the recorder-stream path
+ * (``microphone_disconnected``) check that one clock, so the window
+ * lives WITH the clock (imported by both consumer hooks) to keep the
+ * two dedupe windows from drifting apart.
+ *
+ * Slightly longer than the toast duration so a dismiss + immediate
+ * re-fire doesn't re-nag within the same notification cycle.
+ */
+export const DEVICE_LOST_TOAST_DEDUPE_MS = 10_000;
+
 interface DeviceLostState {
 	/**
 	 * `source` string from the last ``device_lost`` event, or ``null``

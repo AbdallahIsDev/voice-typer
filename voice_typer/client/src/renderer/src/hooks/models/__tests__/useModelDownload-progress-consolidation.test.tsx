@@ -7,7 +7,7 @@
  * Previously: the hook used 10 separate `useState` calls
  * (`downloadingModel`, `downloadProgress`, `downloadStatus`, `isPaused`,
  * `downloadedBytes`, `totalBytes`, `speedBps`, `etaSeconds`,
- * `failedDownload`, `installingDepsModel`). Each `download_progress`
+ * `failedDownload`). Each `download_progress`
  * event invoked up to 8 of these setters — React 18 batched them into
  * a single re-render, but the per-setter overhead (state-entry lookup
  * + Object.is check + subscriber notification) ran 8 times per event.
@@ -130,7 +130,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
@@ -200,7 +199,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
@@ -209,7 +207,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 
 		render(<Probe />);
 
-		// All 15 fields of `UseModelDownloadResult` must be present.
+		// All 13 fields of `UseModelDownloadResult` must be present.
 		const result = captures.current;
 		expect(result).not.toBeNull();
 		expect(result).toHaveProperty("downloadingModel");
@@ -221,10 +219,8 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(result).toHaveProperty("speedBps");
 		expect(result).toHaveProperty("etaSeconds");
 		expect(result).toHaveProperty("failedDownload");
-		expect(result).toHaveProperty("installingDepsModel");
 		expect(result).toHaveProperty("downloadModel");
 		expect(result).toHaveProperty("retryDownload");
-		expect(result).toHaveProperty("installDeps");
 		expect(result).toHaveProperty("handleTogglePause");
 		expect(result).toHaveProperty("handleCancelDownload");
 
@@ -238,7 +234,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(result?.speedBps).toBeNull();
 		expect(result?.etaSeconds).toBeNull();
 		expect(result?.failedDownload).toBeNull();
-		expect(result?.installingDepsModel).toBeNull();
 	});
 
 	it("updates only the fields present in a partial event (others preserved)", async () => {
@@ -257,7 +252,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
@@ -309,7 +303,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
@@ -375,7 +368,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;
@@ -416,7 +408,6 @@ describe("useModelDownload — single-setState consolidation", () => {
 				call: vi.fn(),
 				showSnack: vi.fn(),
 				setModels: vi.fn(),
-				refreshModelStatus: vi.fn(),
 				reconcileAfterDownload: vi.fn(),
 			});
 			captures.current = hook;

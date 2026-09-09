@@ -9,8 +9,7 @@
  *                            load / refresh / update actions.
  *   • `useModelDownload`   — download-progress state machine, the
  *                            `download_progress` subscription, and the
- *                            download / pause / cancel / install-deps
- *                            actions.
+ *                            download / pause / cancel actions.
  *   • `useModelSelection`  — `selectingModel` / `deleteModelTarget`
  *                            state + the select / request-delete /
  *                            confirm-delete actions.
@@ -24,8 +23,10 @@
  *
  * This facade wires the sub-hooks together, forwarding the shared
  * state (`models` / `setModels` / `apiKeys` / `setConfig` /
- * `updateConfig` / `refreshModelStatus` / `loadConfig`) from
- * `useModelConfig` into the sub-hooks that need it. It also pulls in
+ * `updateConfig` / `loadConfig`) from `useModelConfig` into the
+ * sub-hooks that need it (`refreshModelStatus` is forwarded to
+ * `useModelSelection` only — the download sub-hook stopped consuming
+ * it when the deps-install flow was removed). It also pulls in
  * the cross-cutting `usePython` / `useSnackbar` hooks so the sub-hooks
  * can stay focused on their own state. (`useLastUpdated` is consumed
  * for its `markUpdated` timestamp bump; its `agoLabel` was removed from
@@ -91,17 +92,15 @@ export function useModelLifecycle() {
 	} = configHook;
 
 	// 2. Download-progress state machine + the `download_progress`
-	//    subscription + the download / pause / cancel / install-deps
-	//    actions. Needs `setModels` (to mark the just-downloaded model
-	//    as `downloaded: true`), `refreshModelStatus` (so `installDeps`
-	//    can reconcile the deps-installed state), and `loadConfig`
+	//    subscription + the download / pause / cancel actions. Needs
+	//    `setModels` (to mark the just-downloaded model as
+	//    `downloaded: true`) and `loadConfig`
 	//    (post-download reconcile — the backend does not auto-activate,
 	//    so config/status truth is re-fetched instead of guessed).
 	const download = useModelDownload({
 		call,
 		showSnack,
 		setModels,
-		refreshModelStatus,
 		reconcileAfterDownload: configRest.loadConfig,
 	});
 

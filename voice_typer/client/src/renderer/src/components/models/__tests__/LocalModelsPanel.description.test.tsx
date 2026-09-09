@@ -50,7 +50,6 @@ const baseProps = {
 	onSelectModel: () => {},
 	onDownloadModel: () => {},
 	onDeleteModel: () => {},
-	onInstallDeps: () => {},
 	onTogglePause: () => {},
 	onCancelDownload: () => {},
 	diskInfo: null,

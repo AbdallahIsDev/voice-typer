@@ -92,7 +92,6 @@ function makeHookArgs(
 	overrides: {
 		call?: typeof callMock;
 		setModels?: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
-		refreshModelStatus?: () => Promise<void>;
 		reconcileAfterDownload?: () => Promise<void>;
 	} = {},
 ) {
@@ -101,8 +100,6 @@ function makeHookArgs(
 		(vi.fn((updater: (prev: ModelInfo[]) => ModelInfo[]) =>
 			updater([]),
 		) as unknown as React.Dispatch<React.SetStateAction<ModelInfo[]>>);
-	const refreshModelStatus =
-		overrides.refreshModelStatus ?? vi.fn().mockResolvedValue(undefined);
 	const showSnack = vi.fn();
 	return {
 		call: (overrides.call ?? callMock) as unknown as <T = unknown>(
@@ -111,7 +108,6 @@ function makeHookArgs(
 		) => Promise<T>,
 		showSnack,
 		setModels,
-		refreshModelStatus,
 		reconcileAfterDownload:
 			overrides.reconcileAfterDownload ?? vi.fn().mockResolvedValue(undefined),
 	};
@@ -647,67 +643,5 @@ describe("useModelDownload — retryDownload", () => {
 			([cmd]) => cmd === "download_model",
 		);
 		expect(downloadCalls.length).toBe(2);
-	});
-});
-
-describe("useModelDownload — installDeps (regression sanity)", () => {
-	it("calls install_parakeet_deps IPC + surfaces success snack when backend reports success", async () => {
-		callMock.mockResolvedValue({ success: true });
-		const refreshModelStatus = vi.fn().mockResolvedValue(undefined);
-		const args = makeHookArgs({ refreshModelStatus });
-
-		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "parakeet", backend: "parakeet" });
-
-		await act(async () => {
-			await result.current.installDeps(model);
-		});
-
-		expect(callMock).toHaveBeenCalledWith("install_parakeet_deps", {
-			model: "parakeet",
-		});
-		expect(args.showSnack).toHaveBeenCalledWith(
-			"models.snack.depsInstalled",
-			"success",
-		);
-		expect(refreshModelStatus).toHaveBeenCalledTimes(1);
-		expect(result.current.installingDepsModel).toBeNull();
-	});
-
-	it("falls back to the manual-install hint when the IPC is unavailable", async () => {
-		callMock.mockRejectedValue(new Error("command not registered"));
-		const args = makeHookArgs();
-
-		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "parakeet", backend: "parakeet" });
-
-		await act(async () => {
-			await result.current.installDeps(model);
-		});
-
-		expect(args.showSnack).toHaveBeenCalledWith(
-			expect.stringContaining("models.snack.depsRequiredName"),
-			"warning",
-		);
-		expect(result.current.installingDepsModel).toBeNull();
-	});
-
-	it("falls back to the manual-install hint for Qwen too (generic {name} message, not Parakeet-specific)", async () => {
-		callMock.mockRejectedValue(new Error("command not registered"));
-		const args = makeHookArgs();
-
-		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "qwen", backend: "qwen" });
-
-		await act(async () => {
-			await result.current.installDeps(model);
-		});
-
-		expect(args.showSnack).toHaveBeenCalledWith(
-			expect.stringContaining("models.snack.depsRequiredName"),
-			"warning",
-		);
-		expect(args.showSnack.mock.calls[0]?.[0]).toContain("qwen");
-		expect(result.current.installingDepsModel).toBeNull();
 	});
 });

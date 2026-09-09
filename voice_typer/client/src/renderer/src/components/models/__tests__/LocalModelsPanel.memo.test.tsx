@@ -149,7 +149,6 @@ const handlers = {
 	onSelectModel: vi.fn(),
 	onDownloadModel: vi.fn(),
 	onDeleteModel: vi.fn(),
-	onInstallDeps: vi.fn(),
 	onTogglePause: vi.fn(),
 	onCancelDownload: vi.fn(),
 	onOpenModelsFolder: vi.fn(),

@@ -6,7 +6,7 @@
  * `download_progress` events (`queue_position` field) and forwards the
  * per-model position to the REAL `<ModelCardActions>`, whose Download
  * button swaps to the localized "Queued" state. The panel-level prop
- * plumbing (downloadingModel / anyDownloading) stays untouched — the
+ * plumbing (downloadingModel) stays untouched — the
  * queue state comes from the event stream, not from the page.
  *
  * Same capture technique as `__tests__/app-download-progress-gating.test.tsx`:
@@ -122,7 +122,6 @@ const baseProps = {
 	onSelectModel: noop,
 	onDownloadModel: noop,
 	onDeleteModel: noop,
-	onInstallDeps: noop,
 	onTogglePause: noop,
 	onCancelDownload: noop,
 	diskInfo: null,

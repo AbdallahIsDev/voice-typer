@@ -35,9 +35,3 @@ export const TEST_HOTKEY_TIMEOUT_MS = 10_000;
 
 export const HEADING_CLASS =
 	"text-lg font-semibold text-(--text-primary) outline-none";
-
-// Duration (in seconds) of the onboarding "Test microphone" recording.
-// Shorter than the full Microphone page's test (10s) because the wizard
-// only needs enough audio to show a live input level — the user hasn't
-// read the full instructions yet.
-export const ONBOARDING_MIC_TEST_DURATION_SEC = 5;

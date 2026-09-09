@@ -106,6 +106,21 @@ const _PARITY = {
 	worker_crashed: true,
 	worker_unloaded: true,
 	transcribe_offline_result: true,
+	// Backend model-load lifecycle + previously-dropped push events
+	// (published by the Python sidecar; wired through the Rust
+	// allowlist + this union — see the per-interface docstrings in
+	// types/ipc/push_events.ts and the emitting-direction parity
+	// test in tests/test_event_types_parity.py).
+	asr_backend_ready: true,
+	asr_backend_load_failed: true,
+	microphone_permission_revoked: true,
+	microphone_disconnected: true,
+	cloud_fallback_used: true,
+	dictation_suppressed: true,
+	history_corrupted: true,
+	history_fts5_rebuild_failed: true,
+	paste_deferred: true,
+	tray_fallback_notification: true,
 } satisfies Record<PythonPushEvent["type"], true>;
 
 describe("UE-39: KNOWN_EVENT_TYPES parity with PythonPushEvent type union", () => {

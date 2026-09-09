@@ -2,18 +2,16 @@
  * ModelCardActions unit tests —  /
  *
  * Coverage:
- *   1. All five visual states render the correct button label + icon:
+ *   1. All visual states render the correct button label + icon:
  *      - Branch 1a: Active + available (disabled "Active" tick + Delete —
  *        ACTIVE-DELETE: the backend removes the files and reassigns the
  *        selection, so deleting the active model is allowed).
- *      - Branch 4: Deps-installable, not depsOk ("Download Deps" button;
- *        Delete only when the model is downloaded).
  *      - Branch 2: Not downloaded ("Download" button, NO Delete — a
  *        not-installed model has nothing to remove, even when it is the
  *        active default like small.en before first download).
  *      - Branch 3: Downloaded ("Select" button + Delete).
- *   2. : the Download + Download Deps buttons expose aria-busy=true
- *      while their respective async action is in-flight, and swap their
+ *   2. : the Download button exposes aria-busy=true
+ *      while its async action is in-flight,
  *      aria-label to the "Downloading…" string so SR users hear the
  *      in-progress state (not the stale per-model label).
  *   3.  #8: the oneAtATimeTitle() English fallback is GONE — the
@@ -21,8 +19,8 @@
  *      `t("models.download.oneAtATime")` (which IS in the catalog).
  *   4.  #9: the Select button uses Tick02Icon (not PlayIcon) —
  *      Select is a "mark active" affordance, not a "play media" one.
- *   5. DeleteButton renders in Branch 3 (downloaded) and Branch 4
- *      (downloaded deps-required); NEVER for a not-downloaded model.
+ *   5. DeleteButton renders in Branch 3 (downloaded); NEVER for a
+ *      not-downloaded model.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -68,7 +66,7 @@ const baseModel: ModelInfo = {
 
 const noop = vi.fn();
 
-describe("ModelCardActions — visual states (4 branches)", () => {
+describe("ModelCardActions — visual states (3 branches)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -80,7 +78,6 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				model={{ ...baseModel, isActive: true, downloaded: true }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={onDelete}
@@ -115,7 +112,6 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				model={{ ...baseModel, isActive: true, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -150,7 +146,6 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				model={{ ...baseModel, isActive: true, downloaded: true }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={onDelete}
@@ -161,39 +156,12 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		expect(onDelete).toHaveBeenCalledTimes(1);
 	});
 
-	it("Branch 4 (Deps-installable): renders 'Download Deps' button with depsAria label", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		const depsBtn = screen.getByRole("button", {
-			name: /Download dependencies for tiny/i,
-		});
-		expect(depsBtn).toHaveTextContent("Download Deps");
-		expect(depsBtn).not.toHaveAttribute("aria-busy", "true");
-		// Not downloaded → no Delete icon (nothing to remove).
-		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
-	});
-
 	it("Branch 2 (Not downloaded): renders 'Download' button with downloadAria label", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -218,7 +186,6 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				model={{ ...baseModel, downloaded: true }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -253,7 +220,6 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={true}
-				anyDownloading={true}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -284,7 +250,6 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 				model={{ ...baseModel, size: "75 MB", downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -301,36 +266,12 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 		expect(dlBtn.className).not.toContain("Downloading");
 	});
 
-	it("Download Deps button exposes aria-busy=true and swaps aria-label to 'Downloading…' while deps-install in-flight", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={true}
-				isInstallingDepsThis={true}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		const depsBtn = screen.getByRole("button", { name: /Downloading…/i });
-		expect(depsBtn).toHaveAttribute("aria-busy", "true");
-		expect(depsBtn).toHaveTextContent("Downloading…");
-	});
-
 	it("Select button exposes aria-busy=true and swaps aria-label to 'Selecting…' while in-flight", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, downloaded: true }}
 				isSelectingThis={true}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -353,7 +294,6 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={true}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -367,190 +307,11 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 		expect(dlBtn).toBeEnabled();
 		expect(dlBtn.getAttribute("title")).toBeFalsy();
 	});
-
-	it("disabled Download button title is sourced from models.download.oneAtATime (deps-install disable)", () => {
-		render(
-			<ModelCardActions
-				model={{ ...baseModel, downloaded: false }}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				anyInstallingDeps={true}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-			/>,
-		);
-		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
-		// Catalog value: "Only one download at a time — wait for the current
-		// download to finish or cancel it". Assert the localized sentence is
-		// present (NOT the dead-code English fallback "Only one download at a
-		// time" which would miss the em-dash + explanatory suffix).
-		const title = dlBtn.getAttribute("title") ?? "";
-		expect(title).toContain("Only one download at a time");
-		expect(title).toContain("cancel it");
-	});
-
-	it("disabled Download Deps button title is also sourced from models.download.oneAtATime", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={true}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		const depsBtn = screen.getByRole("button", {
-			name: /Download dependencies for tiny/i,
-		});
-		const title = depsBtn.getAttribute("title") ?? "";
-		expect(title).toContain("Only one download at a time");
-		expect(title).toContain("cancel it");
-	});
 });
 
 describe("ModelCardActions — DeleteButton rendering", () => {
 	afterEach(() => {
 		cleanup();
-	});
-
-	it("Branch 4 (Deps-installable, NOT downloaded): renders Download Deps with NO Delete", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					name: "parakeet",
-					backend: "parakeet",
-					isActive: true,
-					downloaded: false,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		// "Download Deps" is the restore affordance...
-		expect(
-			screen.getByRole("button", {
-				name: /Download dependencies for parakeet/i,
-			}),
-		).toBeInTheDocument();
-		// ...but the model is NOT on disk, so there is nothing to delete.
-		expect(
-			screen.queryByRole("button", { name: /Delete parakeet/i }),
-		).toBeNull();
-	});
-
-	it("Branch 4 (Deps-installable, DOWNLOADED): renders Download Deps WITH Delete", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					name: "parakeet",
-					backend: "parakeet",
-					isActive: false,
-					downloaded: true,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		expect(
-			screen.getByRole("button", {
-				name: /Download dependencies for parakeet/i,
-			}),
-		).toBeInTheDocument();
-		// Downloaded → the model CAN be removed.
-		expect(
-			screen.getByRole("button", { name: /Delete parakeet/i }),
-		).toBeInTheDocument();
-	});
-
-	it("Qwen Branch 4 (deps-installable, DOWNLOADED): renders Download Deps (not Select) WITH Delete — qwen_asr missing but weights on disk", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					name: "qwen",
-					backend: "qwen",
-					isActive: false,
-					downloaded: true,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		// The qwen_asr pip dependency is missing, so the card offers
-		// "Download Deps" — NOT the "Select" button (which would load a
-		// model whose engine can't import).
-		expect(
-			screen.getByRole("button", {
-				name: /Download dependencies for qwen/i,
-			}),
-		).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: /Select qwen/i })).toBeNull();
-		// Weights ARE on disk → the model can be removed.
-		expect(
-			screen.getByRole("button", { name: /Delete qwen/i }),
-		).toBeInTheDocument();
-	});
-
-	it("Qwen Branch 4 (deps-installable, NOT downloaded): renders Download Deps with NO Delete", () => {
-		render(
-			<ModelCardActions
-				model={{
-					...baseModel,
-					name: "qwen",
-					backend: "qwen",
-					isActive: false,
-					downloaded: false,
-					depsInstallable: true,
-					depsOk: false,
-				}}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				anyDownloading={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={noop}
-				onInstallDeps={noop}
-			/>,
-		);
-		expect(
-			screen.getByRole("button", {
-				name: /Download dependencies for qwen/i,
-			}),
-		).toBeInTheDocument();
-		// Nothing on disk → nothing to delete.
-		expect(screen.queryByRole("button", { name: /Delete qwen/i })).toBeNull();
 	});
 
 	it("DeleteButton is hidden in Branch 2 (not-downloaded, non-active)", () => {
@@ -559,7 +320,6 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -574,7 +334,6 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 				model={{ ...baseModel, downloaded: true }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -592,7 +351,6 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 				model={{ ...baseModel, downloaded: true }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={onDelete}
@@ -614,7 +372,6 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 				model={{ ...baseModel, size: "~466MB", downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -634,7 +391,6 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 				model={{ ...baseModel, size: "75 MB", downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -660,7 +416,6 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 				model={{ ...baseModel, size: "75 MB", downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={false}
 				onSelect={noop}
 				onDownload={noop}
 				onDelete={noop}
@@ -672,7 +427,6 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 					model={{ ...baseModel, size, downloaded: false }}
 					isSelectingThis={false}
 					isDownloadingThis={false}
-					anyDownloading={false}
 					onSelect={noop}
 					onDownload={noop}
 					onDelete={noop}
@@ -695,7 +449,6 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 	/** Renders Branch 2 (not downloaded) with the given queue position. */
 	const renderQueued = (
 		queuePosition: number | null,
-		anyDownloading = true,
 		onCancelQueued?: () => void,
 	) => {
 		render(
@@ -703,7 +456,6 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 				model={{ ...baseModel, downloaded: false }}
 				isSelectingThis={false}
 				isDownloadingThis={false}
-				anyDownloading={anyDownloading}
 				queuePosition={queuePosition}
 				onCancelQueued={onCancelQueued}
 				onSelect={noop}
@@ -748,7 +500,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 
 	it("queued model renders a Cancel affordance wired to the queue-removal handler", () => {
 		const onCancelQueued = vi.fn();
-		renderQueued(1, true, onCancelQueued);
+		renderQueued(1, onCancelQueued);
 		// Accessible name from the catalog key
 		// models.download.cancelQueuedAria ("Cancel queued download of {name}").
 		const cancelBtn = screen.getByRole("button", {
@@ -760,7 +512,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 	});
 
 	it("no Cancel affordance without a queue-removal handler (optional prop)", () => {
-		renderQueued(1, true, undefined);
+		renderQueued(1, undefined);
 		expect(
 			screen.queryByRole("button", { name: /Cancel queued download of tiny/i }),
 		).toBeNull();
@@ -768,7 +520,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 
 	it("no Cancel affordance when the model is not queued", () => {
 		const onCancelQueued = vi.fn();
-		renderQueued(null, true, onCancelQueued);
+		renderQueued(null, onCancelQueued);
 		expect(
 			screen.queryByRole("button", { name: /Cancel queued download of tiny/i }),
 		).toBeNull();

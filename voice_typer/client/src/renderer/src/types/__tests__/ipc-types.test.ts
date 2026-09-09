@@ -129,6 +129,24 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"asr_last_resort_unloaded",
 			"llm_polish_failed",
 			"text_enhancement_failed",
+			//ten events published by the Python sidecar that
+			// were previously dropped at the Rust WS-reader
+			// gate (and missing from this union). Now wired
+			// end-to-end — see the per-interface docstrings
+			// in types/ipc/push_events.ts. NOT included:
+			// `download_stalled` (its emit was deleted — the
+			// TimeoutError → success:false path already
+			// surfaces the failure to the renderer).
+			"asr_backend_ready",
+			"asr_backend_load_failed",
+			"microphone_permission_revoked",
+			"microphone_disconnected",
+			"cloud_fallback_used",
+			"dictation_suppressed",
+			"history_corrupted",
+			"history_fts5_rebuild_failed",
+			"paste_deferred",
+			"tray_fallback_notification",
 		];
 
 		// Runtime guard: the literal must NOT appear in the accepted
@@ -147,7 +165,13 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// relaunch_app added (was documented in comment but missing from list) = 33.
 		// +1 (text_enhancement_failed — rule-based enhancement
 		// failure event) = 34.
-		expect(acceptedTypes).toHaveLength(34);
+		// +10 (previously-dropped-but-published events wired
+		// through the Rust allowlist + this union: the ASR
+		// backend-load pair, the mic permission/disconnect pair,
+		// cloud_fallback_used, dictation_suppressed, the two
+		// history integrity events, paste_deferred, and
+		// tray_fallback_notification) = 44.
+		expect(acceptedTypes).toHaveLength(44);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -228,6 +252,18 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		} extends PythonPushEvent
 			? true
 			: false;
+		// The consent_required payload is all-optional (derived
+		// from the four real Python emitters — only one of them
+		// sends provider/model/message; two send ONLY
+		// consent_field). The minimal shape below must therefore
+		// ALSO be assignable; under the old required-fields type
+		// it was not.
+		type HasConsentRequiredMinimal = {
+			type: "consent_required";
+			data: { consent_field: string };
+		} extends PythonPushEvent
+			? true
+			: false;
 		type HasParakeetCpuFallback = {
 			type: "parakeet_cpu_fallback";
 			data: { device: string; reason: string };
@@ -236,9 +272,11 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			: false;
 		const _trayState: HasTrayState = true;
 		const _consent: HasConsentRequired = true;
+		const _consentMinimal: HasConsentRequiredMinimal = true;
 		const _parakeet: HasParakeetCpuFallback = true;
 		expect(_trayState).toBe(true);
 		expect(_consent).toBe(true);
+		expect(_consentMinimal).toBe(true);
 		expect(_parakeet).toBe(true);
 	});
 });
@@ -463,6 +501,21 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		"asr_last_resort_unloaded",
 		"llm_polish_failed",
 		"text_enhancement_failed",
+		//10 previously-dropped-but-published events now wired
+		// end-to-end through the Rust allowlist + the union
+		// (the Python emitter AST scan in
+		// tests/test_event_types_parity.py is the authoritative
+		// emitting-direction guard for this list).
+		"asr_backend_ready",
+		"asr_backend_load_failed",
+		"microphone_permission_revoked",
+		"microphone_disconnected",
+		"cloud_fallback_used",
+		"dictation_suppressed",
+		"history_corrupted",
+		"history_fts5_rebuild_failed",
+		"paste_deferred",
+		"tray_fallback_notification",
 	];
 
 	it("every Python emitter type literal is in the PythonPushEvent union (via the acceptedTypes list)", () => {
@@ -507,6 +560,18 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 			"asr_last_resort_unloaded",
 			"llm_polish_failed",
 			"text_enhancement_failed",
+			//10 previously-dropped-but-published events now
+			// wired end-to-end.
+			"asr_backend_ready",
+			"asr_backend_load_failed",
+			"microphone_permission_revoked",
+			"microphone_disconnected",
+			"cloud_fallback_used",
+			"dictation_suppressed",
+			"history_corrupted",
+			"history_fts5_rebuild_failed",
+			"paste_deferred",
+			"tray_fallback_notification",
 			// Host-bridge-synthesized (NOT emitted by Python's
 			// event_bus.publish — but still members of the union so
 			// renderer code can subscribe). Excluded from the
@@ -545,7 +610,9 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// type-safety bug (the union itself correctly contains
 		// `RelaunchAppEvent`); leaving it untouched here to avoid
 		//scope creep beyond
-		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(34);
+		// +10 (previously-dropped-but-published events wired
+		// end-to-end) = 44.
+		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(44);
 	});
 });
 
