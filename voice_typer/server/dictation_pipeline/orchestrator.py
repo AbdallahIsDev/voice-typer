@@ -32,6 +32,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -86,6 +87,20 @@ class _OrchestratorMixin:
     # fresh mutable list and a shared list would let one pipeline's
     # insert/remove corrupt every other pipeline.
     _SHARED_STAGES: list | None = None
+
+    # Step methods owned by ``_TranscribeStepMixin`` and reached via
+    # the composed ``DictationPipeline`` MRO: the throttled resource
+    # probe (pre-flight in ``run``) and the shared bubble teardown
+    # helper (error-path error→idle transition). Annotations only —
+    # no runtime attribute is created; the real method definitions and
+    # their precise signatures live in ``transcribe_step.py``
+    # (``_hide_or_idle_bubble``'s log-label parameter has a default
+    # there, so it is declared ``Callable[..., None]`` to stay
+    # compatible with the method definition across the multiple
+    # inheritance merge; ``_check_resources_throttled`` takes no
+    # parameters).
+    _check_resources_throttled: Callable[[], None]
+    _hide_or_idle_bubble: Callable[..., None]
 
     def __init__(self, app: Any):
         self._app = app

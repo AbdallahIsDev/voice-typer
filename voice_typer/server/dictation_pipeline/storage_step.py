@@ -40,6 +40,13 @@ class _StorageStepMixin:
     # the mixin so pyrefly doesn't flag every ``self._app.*`` access —
     # the attribute is provided by the composed parent class at runtime.
     _app: Any
+    # Same provision pattern: assigned by ``_OrchestratorMixin.__init__``
+    # and read by Step 8 (history-row duration + crash-recovery cycle
+    # correlation id). Annotations only — no values — so no runtime
+    # attribute is created and the composed MRO is unaffected (same
+    # pattern as ``_TranscribeStepMixin``).
+    _cycle_id: str
+    _duration: float
 
     def _store_result(self, text: str) -> None:
         """Step 8: Store in history DB and crash recovery.

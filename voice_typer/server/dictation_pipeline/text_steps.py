@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
@@ -37,6 +38,14 @@ log = logging.getLogger(__name__)
 
 class _TextStepsMixin:
     """Mixin: text cleanup, vocabulary, template, punctuation steps."""
+
+    # Set by ``_OrchestratorMixin.__init__`` (``app: Any``). Declared on
+    # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
+    # the attribute is provided by the composed parent class at runtime
+    # (same pattern as ``_StorageStepMixin._app`` and the declarations
+    # on ``_TranscribeStepMixin``). Annotations only — no values — so
+    # no runtime attribute is created and the runtime MRO is unaffected.
+    _app: Any
 
     def _clean_text(self, text: str) -> str:
         """Step 3: Apply text cleanup (spacing, self-corrections, capitalization).

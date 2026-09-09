@@ -31,7 +31,7 @@ import contextlib
 import hashlib
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from voice_typer.server._secrets import redact_secret
 from voice_typer.server.branding import APP_NAME
@@ -39,6 +39,12 @@ from voice_typer.server.dictation_pipeline.helpers import (
     _EMPTY_SEGMENTS,
     _NO_TRANSCRIPT_CONFIDENCE,
 )
+
+if TYPE_CHECKING:
+    # Annotation-only import: types the shared polish executor without
+    # importing ``concurrent.futures`` at module scope (the runtime
+    # imports stay function-local, matching the existing style).
+    import concurrent.futures
 
 log = logging.getLogger(__name__)
 
@@ -62,11 +68,11 @@ log = logging.getLogger(__name__)
 # safely constructs the executor exactly once. Tests can call
 # ``_reset_shared_polish_executor()`` to drop the singleton between
 # test cases (the next polish call rebuilds it).
-_SHARED_POLISH_EXECUTOR: Any | None = None
+_SHARED_POLISH_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
 _SHARED_POLISH_EXECUTOR_LOCK = threading.Lock()
 
 
-def _get_shared_polish_executor() -> Any:
+def _get_shared_polish_executor() -> concurrent.futures.ThreadPoolExecutor:
     """Return the module-level singleton ``ThreadPoolExecutor``.
 
     Lazy-init under ``_SHARED_POLISH_EXECUTOR_LOCK`` so the first
@@ -102,6 +108,23 @@ def _reset_shared_polish_executor() -> None:
 
 class _EnhancementStepsMixin:
     """Mixin: LLM polish, AI enhancement, vocabulary-automation steps."""
+
+    # Provided by ``_OrchestratorMixin`` in the composed
+    # ``DictationPipeline`` MRO (class attribute WITH value there —
+    # monkeypatchable by tests); annotation-only here so this mixin's
+    # own methods type-check.
+    _LLM_POLISH_PIPELINE_TIMEOUT_S: float
+
+    # Set by ``_OrchestratorMixin.__init__`` (``app: Any``). Declared on
+    # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
+    # the attributes are provided by the composed parent class at
+    # runtime (same pattern as ``_StorageStepMixin._app`` and the
+    # declarations on ``_TranscribeStepMixin``). Annotations only — no
+    # values — so no runtime attribute is created and the runtime MRO
+    # is unaffected.
+    _app: Any
+    _cycle_id: str
+    _templates_applied: bool
 
     # transcripts above this word count skip LLM polish
     # entirely. A 1000-word transcript (~1.5 K tokens) typically
@@ -179,7 +202,12 @@ class _EnhancementStepsMixin:
         # submit call never blocks). The executor is never shut down
         # here; it lives for the process lifetime.
         executor = _get_shared_polish_executor()
-        future = executor.submit(polisher.polish, text)
+        # ``polisher`` is duck-typed (``Any``) with the documented
+        # contract ``polish(text: str) -> str`` (see the docstring), so
+        # the inferred future result is ``Any``. Annotate the documented
+        # str contract so the declared ``-> str`` return type checks
+        # without a runtime coercion.
+        future: concurrent.futures.Future[str] = executor.submit(polisher.polish, text)
         try:
             return future.result(timeout=timeout_s)
         except concurrent.futures.TimeoutError:

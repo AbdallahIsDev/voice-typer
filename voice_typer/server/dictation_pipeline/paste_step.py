@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardCopyError
@@ -41,6 +43,25 @@ class _PasteStepMixin:
     # here so pyrefly resolves ``self._device_info`` inside the mixin's
     # methods (used for the "Ready -- {device_info}" tooltip).
     _device_info: str = ""
+
+    # Set by ``_OrchestratorMixin.__init__`` (``app: Any``). Declared on
+    # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
+    # the attributes are provided by the composed parent class at
+    # runtime (same pattern as ``_StorageStepMixin._app`` and the
+    # declarations on ``_TranscribeStepMixin``). Annotations only — no
+    # values — so no runtime attribute is created and the runtime MRO
+    # is unaffected.
+    _app: Any
+    _cycle_id: str
+
+    # Bubble teardown helper owned by ``_TranscribeStepMixin`` and
+    # reached via the composed ``DictationPipeline`` MRO (called on the
+    # clipboard-failure path and after the paste completes). Annotation
+    # only — the real method definition and its precise signature live
+    # in ``transcribe_step.py`` (``Callable[..., None]`` so the
+    # annotation stays compatible with the method definition across
+    # the multiple-inheritance merge).
+    _hide_or_idle_bubble: Callable[..., None]
 
     def _copy_and_paste(self, text: str) -> None:
         """Step 9: Copy to clipboard and attempt paste.
