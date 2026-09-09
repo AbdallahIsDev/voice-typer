@@ -39,18 +39,18 @@ def _read(path: Path) -> str:
 # ─── 37-event bus ─────────────────────────────────────────────────────
 
 
-def test_gp91_event_bus_count_is_37_in_doc_and_code():
-    """Doc must say "40-event bus" and ``EVENT_TYPES`` must have 40 entries."""
+def test_event_bus_count_matches_doc_and_code():
+    """Doc must say "50-event bus" and ``EVENT_TYPES`` must have 50 entries."""
     doc = _read(ARCH_DOC)
-    assert "40-event bus" in doc, "ARCHITECTURE.md must describe the bus as '40-event bus' ."
+    assert "50-event bus" in doc, "ARCHITECTURE.md must describe the bus as '50-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
     # And the IPC-contract section's frozen-surface count must also say 40.
-    assert "69 commands / 40 events" in doc, "IPC contract section must say '69 commands / 40 events'."
+    assert "69 commands / 50 events" in doc, "IPC contract section must say '69 commands / 50 events'."
 
     from voice_typer.server.event_bus import EVENT_TYPES
 
-    assert len(EVENT_TYPES) == 40, (
-        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 40 "
+    assert len(EVENT_TYPES) == 50, (
+        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 50 "
         f"entries (actual: {len(EVENT_TYPES)}). Update doc + test together."
     )
 

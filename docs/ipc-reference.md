@@ -240,7 +240,7 @@ restored `get_prewarm_status` / `run_prewarm` (worker status file +
 in-process warm pass), not the old
 `sentinel` / `PID`-file probe.
 
-## Push events (52 typed)
+## Push events (61 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -301,6 +301,29 @@ list — events not in the union fall through to the `string` overload of
 | `worker_crashed` | `WorkerCrashedEvent` | `{ pid: number, exit_code: number }` — worker process exited non-zero (or was killed by a signal); the slim core's supervisor restarts it with exponential backoff. |
 | `worker_unloaded` | `WorkerUnloadedEvent` | `{ reason: string }` — worker unloaded via idle-timeout path or explicit user action ("Keep offline engine running" toggle off). |
 | `transcribe_offline_result` | `TranscribeOfflineResultEvent` | `{ text: string, latency_ms: number }` — pushed by the worker via the slim core when a `transcribe_offline` request completes; delivered as a push event because the worker may take seconds to minutes (a synchronous request/response would time out). |
+| `asr_backend_ready` | `AsrBackendReadyEvent` | `{ backend: string, model_size: string }` — background model load finished successfully; the renderer's backend-failure toast surface (if shown) is dismissed. |
+| `asr_backend_load_failed` | `AsrBackendLoadFailedEvent` | `{ backend: string, model_size: string, failure_reason: string }` — background model load failed after `set_config` already acked; surfaced as an error toast with an Open Models action. |
+| `microphone_permission_revoked` | `MicrophonePermissionRevokedEvent` | bare frame — OS microphone permission was revoked mid-session; the renderer shows the localized permission-revoked bubble surface. |
+| `microphone_disconnected` | `MicrophoneDisconnectedEvent` | bare frame — the active recording stream lost the selected device (distinct from `device_lost`, which covers level-monitor paths); renderer shows the shared device-lost toast (deduplicated). |
+| `cloud_fallback_used` | `CloudFallbackUsedEvent` | `{ provider: string, reason: string }` — a cloud ASR provider failed and the pipeline fell back (typed in the union; renderer consumer optional). |
+| `dictation_suppressed` | `DictationSuppressedEvent` | `{ duration: number, recorded_rms: number, reason: string }` — a dictation was suppressed before transcription (typed in the union; renderer consumer optional). |
+| `history_corrupted` | `HistoryCorruptedEvent` | `{ path: string, db_path: string, recovered_count: number }` — history DB corruption was detected and recovered (typed in the union; renderer consumer optional). |
+| `paste_deferred` | `PasteDeferredEvent` | `{ reason: string, message?: string }` — paste was deferred (e.g. clipboard safety validation held it back; typed in the union; renderer consumer optional). |
+| `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` — tray notification fallback path fired (Electron/headless runtime only); generic toast consumer. |
+
+## Server-only push events (string-overload, not in the typed union)
+
+These events are published on the server's `EVENT_TYPES` registry and
+forwarded over the WS transport, but have no interface in
+`types/ipc/push_events.ts` — the renderer receives them through the
+`usePythonEvent` string overload (BG-84). Documented here for
+searchability; promote one to the typed union only when a renderer
+consumer needs compile-time typo detection.
+
+| Event type | Emitter | Data shape |
+|------------|---------|------------|
+| `gpu_cpu_fallback` | `transcription_fallback.py` | `{ device: string, reason: string, ... }` — the ASR engine fell back from GPU to CPU; also consumed in-process by the tray notification path (`tray_notifications.on_gpu_cpu_fallback`). |
+| `dictation_lost` | `crash_recovery/_store.py` | `{ message: string, recoverable: boolean, recovery_type: string, cycle_id: string }` — a dictation was interrupted by a crash; partial text may be recoverable, audio is not. |
 
 ## WebSocket transport (Tauri sidecar)
 
