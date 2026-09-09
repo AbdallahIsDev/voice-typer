@@ -84,7 +84,11 @@ file).
 ```
 
 The real secret lives in the OS keychain under the service name
-`voice-typer` with the provider name as the username key.
+`com.voicetyper.keyring` with the provider name as the username key.
+(Prior app versions used the legacy service names `app.voicetyper`
+and `voice-typer` — the migration auto-copies those entries to the
+current name and deletes the originals, gated by the
+`service_name_migrated_<name>` config flag.)
 
 ### After migration (keyring unavailable — plaintext fallback)
 
@@ -128,7 +132,7 @@ The credential store module (`voice_typer/server/credential_store.py`)
 exposes:
 
 ```python
-KEYRING_SERVICE_NAME = "voice-typer"
+KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
 KEYRING_REF_PREFIX = "keyring://"
 PROVIDER_TO_CONFIG_FIELD = {
     "openai": "openai_api_key",
@@ -206,8 +210,7 @@ def get_keyring_status() -> dict:
 ### Automated tests
 
 ```bash
-# Run the credential store unit tests (mocked keyring)
-cd /home/z/my-project/voice-typer
+# Run the credential store unit tests (mocked keyring) from the repo root
 python -m pytest tests/test_credential_store.py -v --timeout=30
 
 # Verify existing config tests still pass (no regression)
@@ -271,7 +274,7 @@ verify the credential store works correctly on each platform.
 5. Verify the key IS in the GNOME Keyring:
 
    ```bash
-   secret-tool search service voice-typer
+   secret-tool search service com.voicetyper.keyring
    # Should list: username = openai, secret = [hidden]
    ```
 
@@ -300,7 +303,7 @@ verify the credential store works correctly on each platform.
 4. Verify the key IS in the Keychain:
 
    ```bash
-   security find-generic-password -s voice-typer -a openai
+   security find-generic-password -s com.voicetyper.keyring -a openai
    # Should print the keychain entry metadata
    ```
 
@@ -328,7 +331,7 @@ verify the credential store works correctly on each platform.
 
    ```powershell
    cmdkey /list
-   # Look for an entry with Target: voice-typer:openai
+   # Look for an entry with Target: com.voicetyper.keyring:openai
    ```
 
 5. Restart the app and verify the key is still loaded.
