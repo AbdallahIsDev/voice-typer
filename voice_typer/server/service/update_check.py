@@ -81,7 +81,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any, TypedDict
 from urllib.parse import urlparse
 
-from voice_typer.server.branding import APP_NAME
+from voice_typer.server.branding import APP_NAME, APP_REPO
 from voice_typer.server.service import offline_pack
 from voice_typer.server.service.offline_pack import (
     OfflinePackConsentRequiredError,
@@ -104,15 +104,14 @@ log = logging.getLogger(__name__)
 # manifest is a tiny JSON file published alongside the pack onefile +
 # slim-core installer (see ``scripts/release/publish_pack_release.py``).
 #
-# The repo owner / name are hardcoded here as a sane default. Power
-# users can override via the ``VT_PACK_MANIFEST_URL`` env var (mirrors
-# the ``VT_PACK_ROOT`` override in ``offline_pack._default_offline_pack_root``). Tests
-# inject ``manifest_url=`` directly.
-_DEFAULT_REPO_OWNER = "AbdallahIsDev"
-_DEFAULT_REPO_NAME = "voice-typer"
-DEFAULT_OFFLINE_PACK_MANIFEST_URL = (
-    f"https://github.com/{_DEFAULT_REPO_OWNER}/{_DEFAULT_REPO_NAME}/releases/latest/download/pack-manifest.json"
-)
+# The repo (``owner/name``) is sourced from the centralized branding
+# constants (:data:`voice_typer.server.branding.APP_REPO`) so a repo
+# rename propagates from one place — NOT re-hardcoded here.
+# Power users can override via the ``VT_PACK_MANIFEST_URL`` env var
+# (mirrors the ``VT_PACK_ROOT`` override in
+# ``offline_pack._default_offline_pack_root``). Tests inject
+# ``manifest_url=`` directly.
+DEFAULT_OFFLINE_PACK_MANIFEST_URL = f"https://github.com/{APP_REPO}/releases/latest/download/pack-manifest.json"
 
 
 def _resolve_manifest_url(manifest_url: str | None) -> str:

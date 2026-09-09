@@ -14,11 +14,15 @@ Edge cases covered:
 - the last chunk always reaches the end of the audio (no tail drop)
 - the default ``sample_rate`` matches :data:`WHISPER_SAMPLE_RATE`
 - a custom ``sample_rate`` is honoured independently of duration
+- ``_require_huggingface_consent`` raises the typed
+  ``HuggingFaceConsentRequiredError`` carrying ``provider`` / ``scope``
+  (the fields the IPC consent envelope reads off the exception)
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.asr_utils import split_audio
 
@@ -171,3 +175,51 @@ class TestSplitAudioDelegationFromEngines:
         assert len(chunks_method) == len(chunks_helper)
         for a, b in zip(chunks_method, chunks_helper, strict=True):
             np.testing.assert_array_equal(a, b)
+
+
+# ── HuggingFace consent gate ─────────────────────────────────────────────
+
+
+class TestRequireHuggingFaceConsent:
+    """``_require_huggingface_consent`` raises the TYPED subclass.
+
+    The gate must raise
+    :class:`voice_typer.server.asr_errors.HuggingFaceConsentRequiredError`
+    (NOT the bare :class:`ConsentRequiredError`) so the raised exception
+    carries ``provider="huggingface"`` / ``scope="download"`` — the IPC
+    dispatcher reads those fields via ``getattr(exc, ...)`` when building
+    the ``server.consent_required`` envelope, and the base class ships
+    them as empty strings.
+    """
+
+    def test_missing_consent_raises_typed_subclass_with_fields(self):
+        from voice_typer.server.asr_errors import (
+            ConsentRequiredError,
+            HuggingFaceConsentRequiredError,
+        )
+        from voice_typer.server.asr_utils import _require_huggingface_consent
+
+        cfg = type("Cfg", (), {"huggingface_consent": False})()
+
+        with pytest.raises(ConsentRequiredError) as excinfo:
+            _require_huggingface_consent(cfg, "tiny")
+        # The typed subclass carries the wire fields the consent
+        # envelope needs; the base class would ship "" / "".
+        assert isinstance(excinfo.value, HuggingFaceConsentRequiredError)
+        assert excinfo.value.provider == "huggingface"
+        assert excinfo.value.scope == "download"
+
+    def test_none_config_is_treated_as_not_consented(self):
+        from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
+        from voice_typer.server.asr_utils import _require_huggingface_consent
+
+        with pytest.raises(HuggingFaceConsentRequiredError):
+            _require_huggingface_consent(None, "tiny")
+
+    def test_consent_given_returns_silently(self):
+        from voice_typer.server.asr_utils import _require_huggingface_consent
+
+        cfg = type("Cfg", (), {"huggingface_consent": True})()
+
+        # No raise — the caller proceeds with the download.
+        assert _require_huggingface_consent(cfg, "tiny") is None

@@ -71,10 +71,6 @@ MODIFIER_ALIASES: dict[str, str] = {
     "globe": "fn",
 }
 
-#: Frozen set of all canonical modifier names (the values of
-#: ``MODIFIER_ALIASES``). Useful for membership checks.
-CANONICAL_MODIFIERS: frozenset[str] = frozenset(set(MODIFIER_ALIASES.values()))
-
 
 @dataclass(frozen=True)
 class HotkeySpec:
@@ -190,7 +186,6 @@ def parse_hotkey(spec: str) -> HotkeySpec:
 
 __all__ = [
     "MODIFIER_ALIASES",
-    "CANONICAL_MODIFIERS",
     "HotkeySpec",
     "parse_hotkey",
 ]

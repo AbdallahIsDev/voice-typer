@@ -157,56 +157,6 @@ def notify(tray, model_name: str, title: str, message: str) -> None:
         log.debug("[SERVICE] tray notify failed for model '%s'", model_name, exc_info=True)
 
 
-def _emit_download_stalled(
-    event_bus,
-    *,
-    model_name: str,
-    target_bytes: int,
-    downloaded_bytes: int,
-    reason: str,
-    elapsed_s: float,
-) -> None:
-    """Publish a ``download_stalled`` event.
-
-    Emitted exactly once when :func:`poll_download_progress` decides the
-    download has stalled (no byte-progress for ``max_stall_s``) or
-    exceeded its overall ``max_duration_s`` cap.  The renderer can show
-    a "Download stalled — retry?" toast, and the IPC executor thread is
-    freed (the function raises ``TimeoutError`` immediately after
-    calling this).
-
-    The event shape mirrors :func:`push_progress` so the renderer's
-    existing ``download_*`` event handler can route it with minimal
-    plumbing:
-
-    ``{"type": "download_stalled", "data": {model, reason, elapsed_s,
-    downloaded_bytes, total_bytes}}``
-    """
-    try:
-        event_bus.publish(
-            {
-                "type": "download_stalled",
-                "data": {
-                    "model": model_name,
-                    "reason": reason,
-                    "elapsed_s": float(elapsed_s),
-                    "downloaded_bytes": int(downloaded_bytes),
-                    "total_bytes": int(target_bytes),
-                },
-            }
-        )
-    except Exception:
-        # The event bus is best-effort — a failure here (e.g. no IPC
-        # client connected) must not prevent the TimeoutError raise
-        # that follows.  Log at DEBUG so a transient bus failure
-        # doesn't hide the stall reason.
-        log.debug(
-            "[SERVICE] failed to publish download_stalled event for '%s'",
-            model_name,
-            exc_info=True,
-        )
-
-
 def poll_download_progress(
     *,
     thread,
@@ -252,7 +202,7 @@ def poll_download_progress(
             max_duration_s: overall wall-clock cap (seconds).  If
                 the loop has been running for longer than this (excluding
                 paused intervals — pause is a user action, not a stall),
-                a ``download_stalled`` event is emitted and
+                the stall is logged at WARNING and
                 :class:`TimeoutError` is raised so the caller's
                 ``finally:`` block can clean up.  Default 1800 (30 min)
                 per the review's spec — long enough for a 2.5 GB Parakeet
@@ -379,10 +329,12 @@ def poll_download_progress(
             continue
         # Max-duration + stall guards.  Skipped while paused
         # (a user-initiated pause is not a stall).  If either guard
-        # trips, emit a ``download_stalled`` event and raise
-        # ``TimeoutError`` so the caller's ``finally:`` block cleans
-        # up and the outer ``download_model`` except handler converts
-        # the error to a user-facing ``{"success": False, ...}`` dict.
+        # trips, log at WARNING and raise ``TimeoutError`` so the
+        # caller's ``finally:`` block cleans up and the outer
+        # ``download_model`` except handler converts the error to a
+        # user-facing ``{"success": False, ...}`` dict (which the
+        # renderer's download-failure surface already shows — no
+        # separate push event is needed).
         #
         # Pre-fix the loop had NO overall timeout — a hung HF download
         # thread blocked the IPC executor forever, doing a full rglob +
@@ -390,14 +342,6 @@ def poll_download_progress(
         now_for_guard = time.monotonic()
         effective_elapsed = (now_for_guard - loop_start_time) - accumulated_paused_s
         if effective_elapsed > max_duration_s:
-            _emit_download_stalled(
-                event_bus,
-                model_name=model_name,
-                target_bytes=target_bytes,
-                downloaded_bytes=last_total_bytes_seen,
-                reason="max_duration_exceeded",
-                elapsed_s=effective_elapsed,
-            )
             log.warning(
                 "[SERVICE] Download of '%s' exceeded max duration %.0fs (elapsed %.1fs, bytes=%d) — aborting",
                 model_name,
@@ -412,14 +356,6 @@ def poll_download_progress(
             )
         stall_elapsed = now_for_guard - last_byte_change_time
         if stall_elapsed > max_stall_s:
-            _emit_download_stalled(
-                event_bus,
-                model_name=model_name,
-                target_bytes=target_bytes,
-                downloaded_bytes=last_total_bytes_seen,
-                reason="no_progress_stall",
-                elapsed_s=stall_elapsed,
-            )
             log.warning(
                 "[SERVICE] Download of '%s' stalled — no progress for %.0fs (bytes=%d) — aborting",
                 model_name,
@@ -493,5 +429,4 @@ __all__ = [
     "push_progress",
     "notify",
     "poll_download_progress",
-    "_emit_download_stalled",
 ]

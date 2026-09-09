@@ -19,6 +19,7 @@ This module owns:
 """
 
 import logging
+from typing import Any
 
 # Preserve the original logger name (``voice_typer.server.native_hotkeys``)
 # so log records emitted from any submodule land under the same logger as
@@ -30,7 +31,7 @@ log = logging.getLogger("voice_typer.server.native_hotkeys")
 # ─── Hotkey spec parsing ───────────────────────────────────────────────────
 
 
-def parse_hotkey_spec(spec: str) -> dict | None:
+def parse_hotkey_spec(spec: str) -> dict[str, Any] | None:
     """Parse a pynput-style hotkey spec into a structured form.
 
         Returns a dict with keys:

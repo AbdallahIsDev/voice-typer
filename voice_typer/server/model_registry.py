@@ -10,8 +10,7 @@ instance capturing:
 - ``download_size_mb`` — same value as ``_MODEL_SIZE_MB[name]``
 - ``required_vram_mb`` — estimated VRAM for inference (GPU) or RAM (CPU)
 - ``backend`` — ``"whisper"`` for the standard Systran faster-whisper
-  repos, ``"distil-whisper"`` for the distilled variants.  Used by
-  :func:`get_models_by_backend` to filter the catalog.
+  repos, ``"distil-whisper"`` for the distilled variants.
 - ``multilingual`` — whether the model handles non-English audio
 - ``supported_languages`` — ``None`` (all) or a list like ``["en"]``
 - ``description`` — one-line, user-facing description shown in the
@@ -280,15 +279,6 @@ def get_model_metadata(model_size: str) -> ModelMetadata | None:
     return MODEL_REGISTRY.get(model_size)
 
 
-def get_default_model_size() -> str:
-    """Return the canonical default model size.
-
-    Single indirection over :data:`DEFAULT_MODEL_SIZE` so callers that
-    want to swap the default later can do so in one place.
-    """
-    return DEFAULT_MODEL_SIZE
-
-
 def get_all_models() -> list[ModelMetadata]:
     """Return all registered models in registry order.
 
@@ -298,63 +288,11 @@ def get_all_models() -> list[ModelMetadata]:
     return list(MODEL_REGISTRY.values())
 
 
-def get_models_by_backend(backend: str) -> list[ModelMetadata]:
-    """Return only models whose ``backend`` matches ``backend``.
-
-    Used by the Models page to filter by backend (e.g. show only
-    distilled variants).  Returns an empty list if no models match.
-    """
-    return [m for m in MODEL_REGISTRY.values() if m.backend == backend]
-
-
-# the canonical allowlist of model names a user is
-# permitted to select (onboarding picker + Config.load() validation +
-# Settings page model selector). Exposed as a function (not a module
-# constant) so callers always see the current registry state — if a
-# model is added to ``MODEL_REGISTRY`` in a future PR, this allowlist
-# updates automatically without needing a parallel hardcoded set.
-#
-# This is the durable fix for : the pre-fix ``ALLOWED_USER_MODELS``
-# hardcoded set in ``config_validators.py`` drifted out of sync with
-# ``OnboardingController.MODEL_OPTIONS`` (the onboarding picker offered
-# ``"tiny"``, ``"small"``, ``"medium"`` multilingual variants, but the
-# allowlist only contained the ``.en`` English-only variants — so
-# Config.load() silently reset non-English users to ``"small.en"`` on
-# every restart). The allowlist now lives here next to the registry;
-# ``config_validators.ALLOWED_USER_MODELS`` can be populated from it,
-# and the ``tests/test_allowed_user_models.py`` regression test
-# asserts every name in ``OnboardingController.MODEL_OPTIONS`` is in
-# this set.
-#
-# The function returns a ``frozenset`` so callers can cheaply do
-# ``name in get_user_selectable_model_names()`` membership checks
-# without re-traversing the registry on each call site. The set is
-# rebuilt on every call (cheap — ~20 entries) so it always reflects
-# the current registry state.
-def get_user_selectable_model_names() -> frozenset[str]:
-    """Return the set of model names a user is allowed to select.
-
-    This is the single source of truth for ``ALLOWED_USER_MODELS`` —
-    onboarding, config validation, and the Settings model selector all
-    derive from this set so they can never drift out of sync.
-
-    Currently returns every name in ``MODEL_REGISTRY`` (every entry is
-    user-selectable). If a future PR adds internal-only models (e.g. a
-    test fixture or an experimental backend not yet exposed in the UI),
-    add a ``user_selectable: bool = True`` field to ``ModelMetadata``
-    and filter here — but for now all registry entries are user-facing.
-    """
-    return frozenset(MODEL_REGISTRY.keys())
-
-
 __all__ = [
     "ModelMetadata",
     "MODEL_REGISTRY",
     "DEFAULT_MODEL_SIZE",
     "NO_MODEL_SIZE",
-    "get_default_model_size",
     "get_model_metadata",
     "get_all_models",
-    "get_models_by_backend",
-    "get_user_selectable_model_names",
 ]

@@ -429,7 +429,7 @@ def _require_huggingface_consent(
     progress_message: str | None = None,
     progress_callback=None,
 ) -> None:
-    """Raise :class:`ConsentRequiredError` if HuggingFace consent is not given.
+    """Raise :class:`HuggingFaceConsentRequiredError` if HuggingFace consent is not given.
 
     Single source of truth for the consent gate that previously drifted
     across three sites (``transcription._pre_download_model``,
@@ -442,8 +442,10 @@ def _require_huggingface_consent(
     doesn't). Centralizing the gate here ensures every download path
     applies the SAME GDPR Art. 6/13 safe-default (no consent → refuse to
     contact HuggingFace) and surfaces the SAME typed exception
-    (``ConsentRequiredError``) so the IPC layer's ``isinstance``-check
-    continues to map it to the consent-dialog command.
+    (:class:`HuggingFaceConsentRequiredError`) so the IPC layer's
+    ``isinstance``-check continues to map it to the consent-dialog command
+    AND the exception's ``provider="huggingface"`` / ``scope="download"``
+    class attributes reach the wire envelope.
 
     Parameters
     ----------
@@ -472,9 +474,13 @@ def _require_huggingface_consent(
 
     Raises
     ------
-    ConsentRequiredError
+    HuggingFaceConsentRequiredError
         When ``config`` is ``None`` or
-        ``config.huggingface_consent`` is not truthy.
+        ``config.huggingface_consent`` is not truthy. A subclass of
+        :class:`ConsentRequiredError`, so every existing
+        ``except ConsentRequiredError`` / ``isinstance`` check keeps
+        working — but it carries ``provider="huggingface"`` /
+        ``scope="download"`` for the consent envelope.
     """
     cfg = config
     consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
@@ -496,9 +502,9 @@ def _require_huggingface_consent(
                 log_prefix,
                 exc_info=True,
             )
-    from voice_typer.server.asr_errors import ConsentRequiredError
+    from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
 
-    raise ConsentRequiredError(f"HuggingFace consent not given — refusing to download {model_identifier}.")
+    raise HuggingFaceConsentRequiredError(f"HuggingFace consent not given — refusing to download {model_identifier}.")
 
 
 # ─── Audio chunking ────────────────────────────────────────────────────────

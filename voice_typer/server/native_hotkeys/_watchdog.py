@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import threading
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from voice_typer.server.native_hotkeys._constants import (
     _WATCHDOG_PING_INTERVAL_SECONDS,
@@ -15,6 +19,34 @@ log = logging.getLogger(__name__)
 
 
 class _WatchdogMixin:
+    # Members provided by the composed ``SubprocessHotkeyBackend``
+    # (``_core.py`` ``__init__``): cross-mixin attribute access is
+    # runtime-valid but pyrefly cannot see it on a standalone mixin.
+    # Annotations only — no values — so no runtime attribute is created
+    # and the runtime MRO is unaffected (same pattern as
+    # dictation_pipeline's mixin declarations and model_manager's
+    # ``ChangeMixin``).
+    platform_name: str
+    _process: subprocess.Popen | None
+    _stop_event: threading.Event
+    _watchdog_stop_event: threading.Event
+    _last_event_received_at: float
+    _last_pong_received_at: float
+    _pong_supported: bool
+    _shutdown_requested: bool
+    _callback: Callable[[], None] | None
+    _on_watchdog_restart_callback: Callable[[str], None] | None
+
+    if TYPE_CHECKING:
+        # Methods provided by the composed ``SubprocessHotkeyBackend``
+        # (``_core.py``) in the composed MRO; TYPE_CHECKING-only stubs
+        # keep this mixin type-checkable standalone without shadowing
+        # the real implementations at runtime (same pattern as
+        # model_manager's ``ChangeMixin`` sibling-method stubs).
+        def start(self, callback: Callable[[], None]) -> None: ...
+
+        def stop(self, *, shutdown: bool = True) -> None: ...
+
     def _watchdog_loop(self) -> None:
         """liveness watchdog for the native hotkey binary.
 

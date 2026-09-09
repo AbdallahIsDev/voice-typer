@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Callable
 from typing import Any
 
 from voice_typer.server.native_hotkeys.modifiers import (
@@ -14,6 +16,22 @@ log = logging.getLogger(__name__)
 
 
 class _MatchingMixin:
+    # Members provided by the composed ``SubprocessHotkeyBackend``
+    # (``_core.py`` ``__init__``): cross-mixin attribute access is
+    # runtime-valid but pyrefly cannot see it on a standalone mixin.
+    # Annotations only — no values — so no runtime attribute is created
+    # and the runtime MRO is unaffected (same pattern as
+    # dictation_pipeline's mixin declarations and model_manager's
+    # ``ChangeMixin``).
+    platform_name: str
+    _match_lock: threading.Lock
+    _held_modifiers: set[str]
+    _fn_down: bool
+    _main_key_down: bool
+    _parsed: dict[str, Any] | None
+    _extra_matchers: list[dict[str, Any]]
+    _on_release_callback: Callable[[], None] | None
+
     def _on_fn_event(self, payload: str = "", *, down: bool) -> None:
         """Handle FN_DOWN / FN_UP. Used by the macOS backend only.
 

@@ -8,7 +8,6 @@ Verifies that:
   the registry.
 - ``get_model_metadata`` returns correctly-typed fields.
 - ``get_all_models`` returns a list (not a dict).
-- ``get_models_by_backend`` filters correctly.
 - ``DEFAULT_MODEL_SIZE`` is a valid registry entry (the config
   dataclass default + load-time coercion reset target reference it).
 - The turbo model has the expected metadata (size, speed, accuracy).
@@ -26,7 +25,6 @@ from voice_typer.server.model_registry import (
     ModelMetadata,
     get_all_models,
     get_model_metadata,
-    get_models_by_backend,
 )
 
 # ── Expected catalog ─────────────────────────────────────────────────
@@ -199,34 +197,6 @@ class TestGetAllModelsReturnsList:
         all_models = get_all_models()
         registry_order = list(MODEL_REGISTRY.values())
         assert [m.name for m in all_models] == [m.name for m in registry_order]
-
-
-class TestGetModelsByBackendFiltersCorrectly:
-    """test_get_models_by_backend_filters_correctly."""
-
-    def test_get_models_by_backend_filters_correctly(self):
-        """get_models_by_backend returns only models with the matching
-        backend string."""
-        whisper_models = get_models_by_backend("whisper")
-        assert all(m.backend == "whisper" for m in whisper_models), "Found non-whisper backend in whisper filter"
-        whisper_names = {m.name for m in whisper_models}
-        assert whisper_names == {"tiny", "large-v3", "large-v3-turbo"}, (
-            f"whisper backend must be exactly tiny + large-v3 + large-v3-turbo, got {sorted(whisper_names)}"
-        )
-
-        # distil-whisper backend has no models after the prune.
-        distil_models = get_models_by_backend("distil-whisper")
-        assert distil_models == [], "distil-whisper backend should have zero models after the catalog prune"
-
-    def test_get_models_by_backend_returns_empty_for_unknown(self):
-        """Unknown backends return an empty list (never None)."""
-        result = get_models_by_backend("nonexistent-backend")
-        assert result == []
-
-    def test_get_models_by_backend_returns_list_type(self):
-        """Return type is always list, even when empty."""
-        result = get_models_by_backend("whisper")
-        assert isinstance(result, list)
 
 
 class TestLargeV3HasCorrectMetadata:

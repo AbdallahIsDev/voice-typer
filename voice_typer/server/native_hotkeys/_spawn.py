@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
@@ -21,6 +22,35 @@ class _SpawnMixin:
     # "subprocess"``); declared here so the mixin's own methods typecheck
     # (same pattern as ``_ReaderMixin`` in ``_reader.py``).
     platform_name: str
+
+    # Members provided by the composed ``SubprocessHotkeyBackend``
+    # (``_core.py`` ``__init__``): cross-mixin attribute access is
+    # runtime-valid but pyrefly cannot see it on a standalone mixin.
+    # Annotations only — no values — so no runtime attribute is created
+    # and the runtime MRO is unaffected (same pattern as
+    # dictation_pipeline's mixin declarations and model_manager's
+    # ``ChangeMixin``).
+    hotkey_str: str
+    _binary_path: Path | None
+    _native_log_path: Path | None
+    _process: subprocess.Popen | None
+    _reader_thread: threading.Thread | None
+    _watchdog_thread: threading.Thread | None
+    _watchdog_stop_event: threading.Event
+    _failed: bool
+    _error_message: str | None
+    _last_event_received_at: float
+    _last_pong_received_at: float
+
+    if TYPE_CHECKING:
+        # Methods provided by the sibling mixins (``_reader.py`` /
+        # ``_watchdog.py``) in the composed MRO; TYPE_CHECKING-only
+        # stubs keep this mixin type-checkable standalone without
+        # shadowing the real implementations at runtime (same pattern
+        # as model_manager's ``ChangeMixin`` sibling-method stubs).
+        def _reader_loop(self) -> None: ...
+
+        def _watchdog_loop(self) -> None: ...
 
     def _spawn_process(self) -> None:
         """Spawn the native binary with the hotkey spec as argv[1].

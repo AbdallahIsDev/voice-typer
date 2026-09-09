@@ -2,7 +2,9 @@
 
 This module eliminates the previous 3-way duplication of preset → filter
 mappings (service.py, Microphone.tsx, AudioPresetSelector.tsx). All
-preset logic lives here; the frontend fetches presets via IPC.
+server-side preset logic lives here; the renderer ships its own display
+copy of the preset catalog (labels + descriptions), so no display
+metadata is exported from this module.
 
 Presets (ADR 0007 §5.5):
     auto       — Best for 90% of users. All filters ON, RNNoise.
@@ -22,8 +24,6 @@ PRESET_STUDIO = "studio"
 PRESET_NOISY_ROOM = "noisy_room"
 PRESET_OFF = "off"
 PRESET_CUSTOM = "custom"
-
-ALL_PRESETS: list[str] = [PRESET_AUTO, PRESET_STUDIO, PRESET_NOISY_ROOM, PRESET_OFF, PRESET_CUSTOM]
 
 # Preset → filter settings mapping.
 # Includes the boolean on/off toggles + method selection, AND per-preset
@@ -92,30 +92,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     # PRESET_CUSTOM is not in this dict — it means "use individual field values"
 }
 
-# Display info for the UI
-PRESET_INFO: dict[str, dict[str, str]] = {
-    PRESET_AUTO: {
-        "label": "Auto",
-        "description": "Recommended for most users. All filters enabled with RNNoise.",
-    },
-    PRESET_STUDIO: {
-        "label": "Studio",
-        "description": "Quiet room with a good mic. Minimal processing.",
-    },
-    PRESET_NOISY_ROOM: {
-        "label": "Noisy Room",
-        "description": "Keyboard, fan, or HVAC noise. Aggressive filtering with the GTCRN neural denoiser.",
-    },
-    PRESET_OFF: {
-        "label": "Off",
-        "description": "Raw audio, no filtering.",
-    },
-    PRESET_CUSTOM: {
-        "label": "Custom",
-        "description": "Advanced. Configure each filter individually.",
-    },
-}
-
 
 def apply_preset(preset: str, config: Any) -> None:
     """Apply a named preset to a config object in-place.
@@ -135,7 +111,8 @@ def apply_preset(preset: str, config: Any) -> None:
     environment (keyboard / fan / HVAC).
 
     Args:
-        preset: one of ALL_PRESETS.
+        preset: one of the preset name constants (PRESET_AUTO,
+            PRESET_STUDIO, PRESET_NOISY_ROOM, PRESET_OFF, PRESET_CUSTOM).
         config: a Config-like object with noise_filter_* attributes.
     """
     if preset == PRESET_CUSTOM:
@@ -153,11 +130,3 @@ def get_preset_filters(preset: str) -> dict[str, Any]:
     Returns an empty dict for unknown presets.
     """
     return dict(PRESETS.get(preset, {}))
-
-
-def get_preset_for_display() -> list[dict[str, str]]:
-    """Return preset list for UI display (label + description)."""
-    return [
-        {"value": p, "label": PRESET_INFO[p]["label"], "description": PRESET_INFO[p]["description"]}
-        for p in ALL_PRESETS
-    ]

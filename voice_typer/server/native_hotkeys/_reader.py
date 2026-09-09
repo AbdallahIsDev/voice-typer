@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import threading
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar
 
 from voice_typer.server.native_hotkeys._constants import (
     MAX_RESTART_ATTEMPTS,
@@ -18,6 +22,34 @@ class _ReaderMixin:
     # composing backend class (``_core.py`` sets ``platform_name: str =
     # "subprocess"``); declared here so the mixin's own methods typecheck.
     platform_name: str
+
+    # Members provided by the composed ``SubprocessHotkeyBackend``
+    # (``_core.py`` ``__init__``): cross-mixin attribute access is
+    # runtime-valid but pyrefly cannot see it on a standalone mixin.
+    # Annotations only — no values — so no runtime attribute is created
+    # and the runtime MRO is unaffected (same pattern as
+    # dictation_pipeline's mixin declarations and model_manager's
+    # ``ChangeMixin``).
+    _process: subprocess.Popen | None
+    _stop_event: threading.Event
+    _ready_event: threading.Event
+    _restart_lock: threading.Lock
+    _restart_attempts: int
+    _failed: bool
+    _error_message: str | None
+    _binary_version: str | None
+    _on_permanent_failure_callback: Callable[[], None] | None
+    _on_error_callback: Callable[[str], None] | None
+    _on_warn_callback: Callable[[str], None] | None
+    _WIRE_HANDLERS: ClassVar[list[tuple[str, str, bool | None]]]
+
+    if TYPE_CHECKING:
+        # Method provided by ``_SpawnMixin`` in the composed MRO; a
+        # TYPE_CHECKING-only stub keeps this mixin type-checkable
+        # standalone without shadowing the real implementation at
+        # runtime (same pattern as model_manager's ``ChangeMixin``
+        # sibling-method stubs).
+        def _spawn_process(self) -> None: ...
 
     def _reader_loop(self) -> None:
         """Read lines from the binary's stdout and dispatch.

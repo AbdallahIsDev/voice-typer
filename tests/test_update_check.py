@@ -546,13 +546,22 @@ class TestCheckOfflinePackUpdate:
         This pins the URL contract documented in
         ``docs/auto-update-feature.md`` (to be updated by Sub-agent 15)
         — the renderer / publisher / checker all rely on this URL
-        shape.
+        shape. The repo segment must be sourced from the centralized
+        branding constant (``branding.APP_REPO``), not re-hardcoded —
+        renaming the repo in ``branding.py`` propagates here.
         """
+        from voice_typer.server.branding import APP_REPO
+
         assert DEFAULT_OFFLINE_PACK_MANIFEST_URL == (
             "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
         ), (
             "DEFAULT_OFFLINE_PACK_MANIFEST_URL changed — update docs/auto-update-feature.md "
             "(Sub-agent 15) and the publisher (publish_pack_release.py) to match."
+        )
+        assert (
+            f"https://github.com/{APP_REPO}/releases/latest/download/pack-manifest.json"
+        ) == DEFAULT_OFFLINE_PACK_MANIFEST_URL, (
+            "manifest URL must be derived from branding.APP_REPO, not a re-hardcoded owner/name pair"
         )
 
     def test_result_includes_checked_at_epoch_ms(
