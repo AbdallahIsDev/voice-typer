@@ -66,7 +66,7 @@ def _electron_process_is_running() -> bool:
     Used by :func:`open_electron_window` to avoid spawning a DUPLICATE
     Electron process when the window-focus fallback fails.
     """
-    from voice_typer.server.single_instance import _is_pid_alive
+    from voice_typer.server.backend_pid import _is_pid_alive
 
     pid = _electron_pid
     if pid is not None and pid > 0 and _is_pid_alive(pid):

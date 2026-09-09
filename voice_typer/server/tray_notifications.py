@@ -139,16 +139,6 @@ def _notify_dedup_seen(title: str, message: str) -> bool:
     return False
 
 
-def clear_notify_dedup_cache() -> None:
-    """Clear the notification dedup cache.
-
-    Primarily for tests so each test starts with an empty cache.
-    Production code should not call this — the TTL is the correct
-    invalidation mechanism.
-    """
-    _notify_dedup_cache.clear()
-
-
 def notify(tray: TrayIcon, title: str, message: str) -> None:
     """Show a notification if notifications are enabled.
 

@@ -343,9 +343,12 @@ def arm_shutdown_watchdog(
         # ``os._exit(0)`` so the watchdog still unblocks the main
         # thread.
         try:
-            from voice_typer.server import app as _app_module
+            # Resolve through the owning module object at call time so
+            # tests can monkeypatch ``voice_typer.server.backend_pid``
+            # attributes.
+            from voice_typer.server import backend_pid as _backend_pid_module
 
-            _app_module._clear_backend_pid_file()
+            _backend_pid_module._clear_backend_pid_file()
         except Exception:
             log.warning(
                 "[SHUTDOWN] could not clear backend PID file before os._exit",

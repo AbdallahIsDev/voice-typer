@@ -27,6 +27,9 @@ class LifecycleMixin:
     _idle_unload_deadline: float | None
     _idle_unload_wakeup: threading.Event
     _idle_unload_thread: threading.Thread | None
+    # Created eagerly in ``ModelManagerCore.__init__`` (``_base.py``);
+    # the idle-unload scheduler state above is created lazily UNDER it.
+    _idle_unload_lock: threading.Lock
 
     def _evict_lru_model(self) -> None:
         """PERF-015: Evict the least recently used model if too many are loaded.

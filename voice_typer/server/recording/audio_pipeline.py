@@ -837,7 +837,9 @@ class AudioPipeline:
         Silero VAD probability (with resample to 16kHz)
         VAD state machine + silence timer
                 - H12: silence warning / auto-stop / max-duration callbacks
-                - T021: on_rms_level callback (filtered chunk forwarded)
+                - on_rms_level callback (2-arg: chunk_rms, chunk_peak — the
+                  filtered chunk is NOT forwarded; see the invariant
+                  comment at the call site below)
                 - Telemetry logs
 
                 All of this previously ran on the real-time audio thread,

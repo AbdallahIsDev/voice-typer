@@ -219,8 +219,9 @@ class ChangeMixin:
             else:
                 failure_reason = self._change_model_load_phase(new_backend, model_size)
         # Publish asr_backend_ready ONLY on success. On failure, publish
-        # asr_backend_load_failed so the renderer can show an error
-        # instead of silently dismissing the loading spinner. Published
+        # asr_backend_load_failed so the renderer can surface the failure —
+        # the set_config ack already returned (and its Models-page success
+        # snack is stale when the background load later fails). Published
         # AFTER the lock is released so subscribers don't block on the
         # lock. ``failure_reason is None`` covers the deferred
         # early-return path (no event published — the load didn't
@@ -566,8 +567,9 @@ class ChangeMixin:
         On completion, publishes ``asr_backend_ready`` ONLY on success.
         On failure (load_active returned falsy OR raised), publishes
         ``asr_backend_load_failed`` with ``{"backend": ..., "failure_reason": ...}``
-        so the renderer can show an error instead of silently
-        dismissing the loading spinner. The deferred case (recording
+        so the renderer can surface the failure — the set_config ack has
+        already returned (and its Models-page success snack is stale when
+        the background load later fails). The deferred case (recording
         in progress) and the no-op case (backend already active)
         publish no event.
         """
@@ -690,8 +692,9 @@ class ChangeMixin:
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
                 load_outcome = False
         # Publish asr_backend_ready ONLY on success. On failure, publish
-        # asr_backend_load_failed so the renderer can show an error
-        # instead of silently dismissing the loading spinner. Published
+        # asr_backend_load_failed so the renderer can surface the failure —
+        # the set_config ack already returned (and its Models-page success
+        # snack is stale when the background load later fails). Published
         # AFTER the lock is released so subscribers don't block on the
         # lock. ``load_outcome is None`` covers the no-op and deferred
         # early-return paths (no event published).
@@ -711,8 +714,10 @@ class ChangeMixin:
         ``asr_registry.py``. The event signals to the renderer (and any
         in-process subscribers) that a backend load has finished — either
         the user changed models via Settings, or the active backend was
-        switched. The renderer uses this to dismiss the "loading"
-        spinner shown after the IPC ``set_config`` ack.
+        switched. The renderer's App-level ``useAsrBackendLoadToast``
+        consumes it to clear the load-failure toast surface; the Models
+        page's ``selectingModel`` spinner clears on the ``set_config``
+        ack itself (not on this event).
 
         The event is published AFTER ``_model_change_lock`` is released
         so subscribers don't block on the lock. Best-effort — a publish
@@ -749,17 +754,19 @@ class ChangeMixin:
         Previously ``_change_model_blocking`` and
         ``_set_active_backend_blocking`` published ``asr_backend_ready``
         UNCONDITIONALLY on completion — even when ``load_active`` had
-        returned falsy or raised. The renderer's loading spinner was
-        dismissed on ``asr_backend_ready``, so a failed load left the
-        user with no visual indication that the spinner had cleared
-        because the load FAILED (not because it succeeded). The
-        renderer's tray icon transitioned to ``AppState.ERROR`` (set by
-        the load-phase error path), but the renderer-side spinner
-        dismissal was incorrect.
+        returned falsy or raised. There was no failure signal at all:
+        the load-async path meant the ``set_config`` ack had already
+        returned (its Models-page success snack + the tray state were
+        the only surfaces), so a failed load left the user with no
+        visual indication that the model they selected never finished
+        loading. The renderer's tray icon transitioned to
+        ``AppState.ERROR`` (set by the load-phase error path), but no
+        renderer-side surface named the failed model.
 
-        This companion event is published ONLY on failure. The renderer
-        should subscribe to it (alongside ``asr_backend_ready``) and
-        show an error message in addition to dismissing the spinner.
+        This companion event is published ONLY on failure. The
+        renderer's App-level ``useAsrBackendLoadToast`` subscribes to it
+        (alongside ``asr_backend_ready``) and shows an error toast
+        naming the model, with an "Open Models" action.
 
         ``failure_reason`` is a short, human-readable string explaining
         why the load failed (e.g. ``"load_active returned falsy"`` or
