@@ -263,3 +263,41 @@ class TestPosixBranchUnchanged:
         finally:
             with contextlib.suppress(OSError):
                 returned.close()
+
+
+class TestLockAbortDefersRetry:
+    """BP-131: a lock-acquire failure must DEFER migration, not mark it done.
+
+    Pre-fix, the abort branch wrote ``secrets_migrated=True`` while
+    logging "the next launch will retry" — the retry gate then skipped
+    migration forever and plaintext keys persisted with zero
+    diagnostic. Post-fix the abort records the
+    ``secrets_migrated_keyring_was_unavailable`` deferral diagnostic
+    and leaves ``secrets_migrated`` unset so the next launch retries.
+    """
+
+    def test_lock_abort_records_deferral_not_success(self, tmp_config_dir, monkeypatch):
+        """Abort path: no success flag, deferral diagnostic present."""
+        import json
+
+        from voice_typer.server.credential_store import _migration as migration_mod
+
+        config_file = tmp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"openai_api_key": "sk-test-plaintext"}), encoding="utf-8")
+
+        def _boom(lock_file):
+            raise TimeoutError("simulated lock contention")
+
+        monkeypatch.setattr(migration_mod, "_acquire_migration_lock", _boom)
+
+        assert migration_mod.migrate_secrets_to_keyring() == 0
+
+        on_disk = json.loads(config_file.read_text(encoding="utf-8"))
+        assert on_disk.get("secrets_migrated", False) is False, (
+            "lock-abort must NOT set secrets_migrated (that would skip the promised next-launch retry forever)"
+        )
+        assert on_disk.get("secrets_migrated_keyring_was_unavailable") is True, (
+            "lock-abort must record the deferral diagnostic so the retry is observable"
+        )
+        # The plaintext secret is untouched (nothing was migrated).
+        assert on_disk.get("openai_api_key") == "sk-test-plaintext"

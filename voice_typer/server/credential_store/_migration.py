@@ -276,20 +276,28 @@ def migrate_secrets_to_keyring() -> int:
                 _secure_read_text,
             )
 
+            # BP-131: record the DEFERRAL, never success. Setting
+            # ``secrets_migrated`` here would gate the next launch's
+            # retry (line ~360) and leave plaintext secrets in
+            # config.json forever — the exact trap the "next launch
+            # will retry" warning above promises won't happen. The
+            # ``secrets_migrated_keyring_was_unavailable`` diagnostic
+            # follows the established deferral contract (line ~456):
+            # flag unset → migration retried next launch.
             if config_file.exists():
                 existing = json.loads(_secure_read_text(config_file))
                 if isinstance(existing, dict) and not existing.get("secrets_migrated", False):
-                    existing["secrets_migrated"] = True
+                    existing["secrets_migrated_keyring_was_unavailable"] = True
                     _secure_atomic_write(config_file, json.dumps(existing, indent=2))
             else:
                 _secure_atomic_write(
                     config_file,
-                    json.dumps({"secrets_migrated": True}, indent=2),
+                    json.dumps({"secrets_migrated_keyring_was_unavailable": True}, indent=2),
                 )
         except Exception as write_err:
             log.debug(
-                "[CREDENTIAL_STORE] migration: could not defensively set "
-                "secrets_migrated flag after lock-acquire failure: %s",
+                "[CREDENTIAL_STORE] migration: could not record "
+                "lock-abort deferral diagnostic after lock-acquire failure: %s",
                 _redact_sensitive(str(write_err)),
             )
         return 0
