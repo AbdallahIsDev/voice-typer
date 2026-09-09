@@ -99,15 +99,10 @@ export interface LocalModelsPanelProps {
 	// Optional so direct mounts / tests can omit it — the canonical
 	// consumer (Models.tsx) always passes it.
 	failedDownload?: { modelName: string; error: string } | null;
-	// Name of the model currently installing deps (drives the
-	// `isInstallingDepsThis` prop on `<ModelCardActions>`). Optional for
-	// the same backwards-compat reason as `failedDownload`.
-	installingDepsModel?: string | null;
 	// handlers
 	onSelectModel: (model: ModelInfo) => void;
 	onDownloadModel: (model: ModelInfo) => void;
 	onDeleteModel: (model: ModelInfo) => void;
-	onInstallDeps: (model: ModelInfo) => void;
 	// Wired to <DownloadProgressBar>'s Retry button.
 	// Optional so direct mounts / tests can omit it — the canonical
 	// consumer (Models.tsx) always passes it; when absent, the bar's
@@ -156,11 +151,9 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 	speedBps,
 	etaSeconds,
 	failedDownload,
-	installingDepsModel,
 	onSelectModel,
 	onDownloadModel,
 	onDeleteModel,
-	onInstallDeps,
 	onRetryDownload,
 	onTogglePause,
 	onCancelDownload,
@@ -266,9 +259,6 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 									const meta = modelCatalog[model.name];
 									const isSelectingThis = selectingModel === model.name;
 									const isDownloadingThis = downloadingModel === model.name;
-									const isInstallingDepsThis =
-										installingDepsModel === model.name;
-									const anyDownloading = downloadingModel !== null;
 									// 1-based FIFO position while this model waits behind the
 									// active download (backend event-derived — see
 									// useModelDownloadQueue).
@@ -319,7 +309,6 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 														model={model}
 														isSelectingThis={isSelectingThis}
 														isDownloadingThis={isDownloadingThis}
-														anyDownloading={anyDownloading}
 														queuePosition={queuePosition}
 														// Queued-model Cancel affordance: removes THIS model
 														// from the pending queue (the named-cancel shape) —
@@ -327,12 +316,9 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 														// reference (stable) so the memo'd row skips re-renders
 														// on progress ticks.
 														onCancelQueued={onCancelDownload}
-														anyInstallingDeps={installingDepsModel != null}
-														isInstallingDepsThis={isInstallingDepsThis}
 														onSelect={onSelectModel}
 														onDownload={onDownloadModel}
 														onDelete={onDeleteModel}
-														onInstallDeps={onInstallDeps}
 													/>
 												}
 											/>

@@ -1214,6 +1214,7 @@
 			"usingModel": "Using model: {name}",
 			"downloaded": "{name} downloaded successfully",
 			"downloadFailedName": "Failed to download {name}",
+			"loadFailed": "Failed to load model {name}",
 			"downloadFailed": "Download failed: {error}",
 			"deleted": "Deleted: {name}",
 			"deleteFailed": "Delete failed",
@@ -1232,7 +1233,6 @@
 			"cancelFailed": "Failed to cancel: {error}",
 			"queuedCancelled": "{name} removed from the download queue.",
 			"cancelNoopName": "{name} is not downloading or queued.",
-			"depsInstalled": "Dependencies installed successfully.",
 			"selectFailed": "Failed to select model."
 		},
 		"test": {
@@ -1265,8 +1265,6 @@
 			"pause": "Pause",
 			"cancelAria": "Cancel model download",
 			"cancel": "Cancel",
-			"depsAria": "Download dependencies for {name}",
-			"deps": "Download Deps",
 			"progressAria": "Model download: {percent}% complete",
 			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it",
 			"queued": "Queued",
@@ -2082,12 +2080,23 @@
 	"degradation": {
 		"deviceLost": "Selected microphone disconnected",
 		"deviceLostHint": "Reconnect it or pick another microphone, then retry.",
+		"trayUnavailable": "System tray unavailable — some notifications were written to the app log",
 		"llmPolishFailed": "AI polish failed — transcription delivered without grammar cleanup",
 		"llmPolishFailedHint": "Check your LLM provider settings and connection. Polish retries automatically on the next transcription.",
 		"textEnhancementFailed": "AI text enhancement failed — transcription delivered without cleanup",
 		"textEnhancementFailedHint": "Enhancement is a local rule-based pass and is retried on the next transcription. Check the log file for details.",
 		"asrBackendDisabled": "{backend} speech engine disabled after repeated failures",
-		"asrBackendDisabledHint": "Transcription falls back to another engine. Open Models to pick a different one."
+		"asrBackendDisabledHint": "Transcription falls back to another engine. Open Models to pick a different one.",
+		"cloudFallbackUsed": "Cloud transcription failed — used the local speech engine instead",
+		"cloudFallbackUsedHint": "The {provider} cloud provider did not respond. Dictation keeps working with the local engine; check your connection or provider settings.",
+		"historyCorrupted": "History database was corrupted — rebuilt from a backup copy",
+		"historyCorruptedHint": "{count} entries were recovered. The newest entries may be missing; the corrupt file was kept next to the database for inspection.",
+		"historyFtsRebuildFailed": "History deletion did not finish — deleted entries may still be searchable",
+		"historyFtsRebuildFailedHint": "The full-text index could not be rebuilt, so deleted text can remain in the database file. Try deleting the entries again or check the log file.",
+		"pasteDeferred": "Auto-paste was skipped — the transcription is on your clipboard",
+		"pasteDeferredHint": "The paste keystroke could not be sent to the target app. Paste the text yourself with your usual paste shortcut.",
+		"pasteDeferredHintSecureInput": "The target app has Secure Input enabled (for example a password field), which blocks synthesized keystrokes. Paste the text yourself with your usual paste shortcut.",
+		"pasteDeferredHintIme": "An IME text composition was in progress, so the paste keystroke was skipped. Paste the text yourself with your usual paste shortcut."
 	},
 	"trayState": {
 		"idle": "idle",

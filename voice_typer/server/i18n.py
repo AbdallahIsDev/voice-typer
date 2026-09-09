@@ -342,12 +342,6 @@ def set_locale(locale: str) -> None:
         _CURRENT_LOCALE = locale if locale in _REGISTRY else DEFAULT_LOCALE
 
 
-def get_locale() -> str:
-    """Return the currently active locale code (e.g. ``"en"``)."""
-    with _LOCK:
-        return _CURRENT_LOCALE
-
-
 def t(key: str, **fmt: Any) -> str:
     """Translate a key, with optional ``{name}`` format interpolation.
 

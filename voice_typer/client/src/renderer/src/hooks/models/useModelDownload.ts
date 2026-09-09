@@ -15,11 +15,6 @@
  *   • `retryDownload` — clears `failedDownload` and re-invokes
  *     `downloadModel`. Wired to the `<DownloadProgressBar>` Retry
  *     button so users can recover a failed download in place.
- *   • `installDeps` — fires the optional `install_parakeet_deps` IPC
- *     and falls back to the manual-install hint when the IPC is
- *     unavailable. Tracks `installingDepsModel` so
- *     the `<ModelCardActions>` Download Deps button can show
- *     `aria-busy` + a "Downloading…" label swap.
  *   • `handleTogglePause` / `handleCancelDownload` — pause/resume/cancel
  *     the in-flight download. Cancel ALSO clears `failedDownload` so
  *     the bar unmounts cleanly. With a model name (the queued-model
@@ -33,15 +28,15 @@
  *
  * The hook receives `setModels` (from `useModelConfig`) so `downloadModel`
  * can mark the just-downloaded model as `downloaded: true` in the local
- * model list, and `refreshModelStatus` so `installDeps` can reconcile
- * the deps-installed state.
+ * model list, and `reconcileAfterDownload` (loadConfig) for the
+ * post-download full reconcile.
  *
  * ── single-state consolidation ──────────────────────────────────
  *
- * Previously this hook used 10 separate `useState` calls
+ * Previously this hook used 9 separate `useState` calls
  * (`downloadingModel`, `downloadProgress`, `downloadStatus`, `isPaused`,
  * `downloadedBytes`, `totalBytes`, `speedBps`, `etaSeconds`,
- * `failedDownload`, `installingDepsModel`). Every `download_progress`
+ * `failedDownload`). Every `download_progress`
  * event invoked up to 8 of these setters (one per field in the event
  * payload). Although React 18 batches these into a single re-render, the
  * per-setter overhead (8 distinct state-entry lookups + 8 distinct
@@ -79,7 +74,6 @@ interface UseModelDownloadArgs {
 		options?: ShowSnackOptions,
 	) => void;
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
-	refreshModelStatus: () => Promise<void>;
 	/** Full reconcile after a successful download: re-fetches config +
 	 * status so the Active badge reflects BACKEND truth (the backend
 	 * does not auto-activate a downloaded model, so the renderer must
@@ -101,14 +95,8 @@ export interface UseModelDownloadResult {
 	 * state + Retry button. The bar stays
 	 * mounted because `downloadingModel` is NOT cleared on failure. */
 	failedDownload: FailedDownload | null;
-	/** Name of the model currently installing dependencies (drives the
-	 * `isInstallingDepsThis` prop on `<ModelCardActions>` so the
-	 * Download Deps button can show `aria-busy` + a "Downloading…"
-	 * label swap. */
-	installingDepsModel: string | null;
 	downloadModel: (model: ModelInfo) => Promise<void>;
 	retryDownload: (model: ModelInfo) => Promise<void>;
-	installDeps: (model: ModelInfo) => Promise<void>;
 	handleTogglePause: () => Promise<void>;
 	/** Cancel the ACTIVE download (no argument — legacy shape, wired
 	 * to the progress bar's Cancel button), or cancel/remove a named
@@ -119,7 +107,7 @@ export interface UseModelDownloadResult {
 
 // ── Consolidated download state ───────────────────────────────────────
 //
-// All 10 previously-separate useState fields live in ONE state object.
+// All 9 previously-separate useState fields live in ONE state object.
 // Updates go through functional `setState(prev => ({ ...prev, ...patch }))`
 // so each `download_progress` event produces exactly ONE setState call
 // (down from up to 8). React 18 already batched the per-field setStates
@@ -142,7 +130,6 @@ interface DownloadState {
 	speedBps: number | null;
 	etaSeconds: number | null;
 	failedDownload: FailedDownload | null;
-	installingDepsModel: string | null;
 }
 
 const INITIAL_DOWNLOAD_STATE: DownloadState = {
@@ -155,11 +142,10 @@ const INITIAL_DOWNLOAD_STATE: DownloadState = {
 	speedBps: null,
 	etaSeconds: null,
 	failedDownload: null,
-	installingDepsModel: null,
 };
 
 /** Zero the progress-related fields (preserving `downloadingModel`,
- * `failedDownload`, `installingDepsModel`). Pure so the claim-time
+ * `failedDownload`). Pure so the claim-time
  * updater inside `downloadModel` can reuse it — an updater must not
  * call `setState` (which the `resetProgress` callback does). This is
  * the SAME field set `resetProgress` clears, kept in one place. */
@@ -182,10 +168,9 @@ export function useModelDownload({
 	call,
 	showSnack,
 	setModels,
-	refreshModelStatus,
 	reconcileAfterDownload,
 }: UseModelDownloadArgs): UseModelDownloadResult {
-	// Consolidated download-progress state — previously 10 separate
+	// Consolidated download-progress state — previously 9 separate
 	// useState calls. Each `download_progress` event now produces ONE
 	// setState via the functional-update form below.
 	const [state, setState] = useState<DownloadState>(INITIAL_DOWNLOAD_STATE);
@@ -296,9 +281,8 @@ export function useModelDownload({
 
 	const resetProgress = useCallback(() => {
 		// Reset only the progress-related fields — preserve
-		// `downloadingModel`, `failedDownload`, and
-		// `installingDepsModel` (these are managed by the action
-		// callbacks below and would be clobbered if we spread
+		// `downloadingModel` and `failedDownload` (these are managed by
+		// the action callbacks below and would be clobbered if we spread
 		// `INITIAL_DOWNLOAD_STATE` here).
 		setState(withResetProgress);
 	}, []);
@@ -554,49 +538,6 @@ export function useModelDownload({
 		[downloadModel],
 	);
 
-	//Action: installDeps ─────────────────────────────────
-	//
-	// Triggered by the "Download Deps" button on dep-gated models
-	// (currently Parakeet). The backend may or may not expose an
-	// `install_parakeet_deps` IPC — if it doesn't, we fall back to the
-	// existing instruction snackbar so the user knows how to proceed
-	// manually. Tracks `installingDepsModel` so the button can show
-	//`aria-busy` + a "Downloading…" label swap.
-	const installDeps = useCallback(
-		async (model: ModelInfo) => {
-			setState((prev) => ({ ...prev, installingDepsModel: model.name }));
-			try {
-				const result = await call<{ success: boolean; error?: string }>(
-					"install_parakeet_deps",
-					{ model: model.name },
-				);
-				if (result?.success) {
-					// Success → the dedicated ``depsInstalled`` key (the
-					// manual-hint key below is a failure-path message).
-					showSnack(t("models.snack.depsInstalled"), "success");
-					await refreshModelStatus();
-				} else {
-					// Backend doesn't actually install — surface the
-					// manual-install hint (generic {name} key so it also
-					// reads correctly for Qwen, which gates on qwen_asr).
-					showSnack(
-						t("models.snack.depsRequiredName", { name: model.name }),
-						"warning",
-					);
-				}
-			} catch {
-				// IPC unavailable — fall back to the manual hint.
-				showSnack(
-					t("models.snack.depsRequiredName", { name: model.name }),
-					"warning",
-				);
-			} finally {
-				setState((prev) => ({ ...prev, installingDepsModel: null }));
-			}
-		},
-		[refreshModelStatus, showSnack, call],
-	);
-
 	// ── Action: handleTogglePause / handleCancelDownload ────────────
 	//
 	// `state.isPaused` is in the dep array so the closure captures the
@@ -728,7 +669,6 @@ export function useModelDownload({
 		speedBps,
 		etaSeconds,
 		failedDownload,
-		installingDepsModel,
 	} = state;
 
 	return {
@@ -741,10 +681,8 @@ export function useModelDownload({
 		speedBps,
 		etaSeconds,
 		failedDownload,
-		installingDepsModel,
 		downloadModel,
 		retryDownload,
-		installDeps,
 		handleTogglePause,
 		handleCancelDownload,
 	};

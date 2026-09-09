@@ -359,13 +359,11 @@ export default function ModelsPage() {
 								speedBps={lifecycle.speedBps}
 								etaSeconds={lifecycle.etaSeconds}
 								failedDownload={lifecycle.failedDownload}
-								installingDepsModel={lifecycle.installingDepsModel}
 								onSelectModel={lifecycle.selectModel}
 								//(overhaul point 4): route downloads through the
 								// just-in-time HuggingFace-consent gate.
 								onDownloadModel={lifecycle.handleDownloadModel}
 								onDeleteModel={lifecycle.requestDeleteModel}
-								onInstallDeps={lifecycle.installDeps}
 								onTogglePause={lifecycle.handleTogglePause}
 								onCancelDownload={lifecycle.handleCancelDownload}
 								onRetryDownload={lifecycle.retryDownload}

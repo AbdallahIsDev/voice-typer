@@ -4,7 +4,7 @@
  * Extracted from `pages/Models.tsx`'s 60-line nested ternary (the
  * `model.isActive ? <>...</> : !model.downloaded && ... ? <Download/>
  * : <><Select/><Delete/></>)` block). This component takes a `ModelInfo`
- * + handler callbacks and renders one of four visual states without any
+ * + handler callbacks and renders one of three visual states without any
  * IPC or state coupling — making it independently testable and reusable.
  *
  * Wrapped in `React.memo` so the row only re-renders when its own props
@@ -36,28 +36,20 @@
  *   3. Downloaded → "Select" button + Delete icon (the trash
  *      affordance is exactly the "installed model can be removed"
  *      signal).
- *   4. Deps-installable + not depsOk → "Download Deps" button using
- *      existing `models.download.deps*` i18n keys.
  *
- * A11y in-flight treatment (Select / Download / Download Deps):
+ * A11y in-flight treatment (Select / Download):
  *   • Select button: `aria-busy` while a selection is in flight + an
  *     aria-label swap to the "Selecting…" state so screen-reader users
  *     hear the in-progress status (not the stale "Select {name}" label).
  *   • Download button: `aria-busy={isDownloadingThis}`, aria-label swaps
  *     to "Downloading…" when in-flight.
- *   • Download Deps button: `aria-busy={isInstallingDepsThis}`, label +
- *     text swap to "Downloading…" when in-flight, icon spins. The
- *     `isInstallingDepsThis` prop is destructured + wired (an earlier
- *     revision declared it on the interface but never read it).
  *   • Select uses `Tick02Icon` — Select is a "mark active" affordance,
  *     not a "play media" one.
  *   • Disabled Download buttons get a `title` attribute sourced from
  *     `models.download.oneAtATime` so users hovering over the disabled
  *     button know WHY it's disabled (instead of just seeing a greyed-out
  *     control). With the download queue, the button stays ENABLED while
- *     another model transfers (the request queues) — the hint only
- *     surfaces for the deps-install disable, where the request genuinely
- *     has to wait.
+ *     another model transfers (the request queues).
  */
 import {
 	Cancel01Icon,
@@ -78,9 +70,7 @@ import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 //
 // (2026-08-21): every "Download <size>" button uses ONE shared width so
 // the buttons line up identically across models regardless of the size
-// shown ("75 MB", "3 GB", "809 MB" — all fit). Apply this token to the
-// Download button in Branch 2; the "Download Deps" button (Branch 4)
-// shows a label instead of a size and keeps its intrinsic width.
+// shown ("75 MB", "3 GB", "809 MB" — all fit). Apply this token to the Download button in Branch 2.
 // Buttons that display a size also apply `justify-start` so the icon +
 // text begin at the same left position in every row (the Button base
 // centers its content by default). (2026-08-28): width widened to 96px
@@ -99,12 +89,6 @@ export interface ModelCardActionsProps {
 	isSelectingThis: boolean;
 	/** True while THIS model is being downloaded (Download button shows "Downloading…"). */
 	isDownloadingThis: boolean;
-	/** True while ANY download is in progress. No longer disables the
-	 * Download button (the backend queues a concurrent request) — it
-	 * still disables the Download DEPS button (deps installs have no
-	 * queue: a concurrent install would clobber the single
-	 * `installingDepsModel` slot). */
-	anyDownloading: boolean;
 	/** 1-based FIFO position while THIS model is waiting in the pending
 	 * download queue (the backend queues — not refuses — a second
 	 * concurrent download request). Null/undefined when the model is
@@ -119,11 +103,6 @@ export interface ModelCardActionsProps {
 	 * state still renders (label + position) but without the cancel
 	 * control (the queue eventually drains on its own). */
 	onCancelQueued?: (modelName: string) => void;
-	/** True while ANY deps install is in flight (disables the other
-	 * models' Download/Deps buttons — the backend installs one deps set
-	 * at a time, and a second concurrent click cleared the first model's
-	 * in-flight spinner because `installingDepsModel` is a single slot). */
-	anyInstallingDeps?: boolean;
 	/** Per-model action handlers. The page-level callbacks are passed by
 	 * reference (the parent does NOT wrap them in per-row closures) so
 	 * React.memo's shallow prop comparison holds across download-progress
@@ -132,12 +111,6 @@ export interface ModelCardActionsProps {
 	onSelect: (model: ModelInfo) => void;
 	onDownload: (model: ModelInfo) => void;
 	onDelete: (model: ModelInfo) => void;
-	/** Triggered by the "Download Deps" button. */
-	onInstallDeps?: (model: ModelInfo) => void;
-	/** True while THIS model is installing dependencies. Drives the
-	 * Download Deps button's `aria-busy` + "Downloading…" label swap +
-	 * spinning icon. */
-	isInstallingDepsThis?: boolean;
 }
 
 /**
@@ -189,10 +162,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 	model,
 	isSelectingThis,
 	isDownloadingThis,
-	anyDownloading,
-	// The other models' Download/Deps buttons disable on any in-flight
-	// deps install, not just downloads.
-	anyInstallingDeps,
 	// Download-queue state (see interface docstring): while queued,
 	// the button shows its own "Queued" label + position tooltip, and
 	// the Cancel affordance beside it removes the model from the
@@ -202,10 +171,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 	onSelect,
 	onDownload,
 	onDelete,
-	onInstallDeps,
-	// Drives the Download Deps button's in-flight presentation
-	// (aria-busy + "Downloading…" label + spinning icon).
-	isInstallingDepsThis,
 }: ModelCardActionsProps) {
 	// ── Branch 1: Active model, available ───────────────────────────
 	//
@@ -233,71 +198,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 					/>
 					{t("models.active")}
 				</Button>
-			</div>
-		);
-	}
-
-	// ── Branch 4: deps-installable + not depsOk ────────────────────
-	//
-	// Rendered BEFORE the "not downloaded" branch so dep-gated models
-	// (Parakeet) show "Download Deps" instead of "Download" until their
-	// deps are installed. The "Download Deps" button uses the existing
-	// `models.download.deps` / `models.download.depsAria` i18n keys
-	// (no new translation keys are introduced).
-	//
-	// The button exposes `aria-busy` while a deps install is in-flight,
-	// swaps its label + visible text to "Downloading…", and spins the
-	// icon — matching the Select button's in-flight treatment so SR users
-	// hear the in-progress state (not the stale per-model label).
-	if (model.depsInstallable && !model.depsOk) {
-		// Disabled while ANOTHER model's download OR deps install is in
-		// flight (this model's own in-flight install disables it too — it
-		// shows the "Downloading…" spinner).
-		const depsDisabled =
-			anyDownloading || (Boolean(anyInstallingDeps) && !isInstallingDepsThis);
-		const depsHint =
-			depsDisabled && !isInstallingDepsThis ? oneAtATimeTitle() : undefined;
-		return (
-			<div className="flex items-center gap-2 shrink-0">
-				<DisabledHintTooltip hint={depsHint}>
-					<Button
-						variant="outline"
-						size="sm"
-						// Left-aligned like the size Download buttons
-						// (content shares the same start position).
-						className={cn("gap-1", DOWNLOAD_CONTENT_ALIGNMENT)}
-						onClick={() => onInstallDeps?.(model)}
-						disabled={depsDisabled}
-						aria-busy={isInstallingDepsThis}
-						aria-label={
-							isInstallingDepsThis
-								? t("models.downloading")
-								: t("models.download.depsAria", { name: model.name })
-						}
-						// Explain why the button is disabled. Skip the
-						// tooltip when THIS is the in-flight install (the
-						// button is showing "Downloading…" — the "one at a
-						// time" hint would be contradictory).
-						title={depsHint}
-					>
-						<HugeiconsIcon
-							// In-flight presentation: a LOADING spinner glyph
-							// (spinning) — the static download icon spinning
-							// in place read as a broken/odd affordance.
-							icon={isInstallingDepsThis ? Loading03Icon : Download01Icon}
-							strokeWidth={2}
-							className={cn("h-4 w-4", isInstallingDepsThis && "animate-spin")}
-						/>
-						{isInstallingDepsThis
-							? t("models.downloading")
-							: t("models.download.deps")}
-					</Button>
-				</DisabledHintTooltip>
-				{/* A downloaded model whose deps are missing can still be
-                                    deleted (files on disk). A NOT-downloaded model has
-                                    nothing to delete — no trash icon (matches the
-                                    Download branch: "not installed → no delete"). */}
-				{model.downloaded && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
 	}
@@ -333,12 +233,8 @@ export const ModelCardActions = memo(function ModelCardActions({
 		// queues). Disabled only while THIS model is transferring
 		// (its own "Downloading…" spinner state), while it sits in
 		// the queue (the "Queued" chip is a status, not an action;
-		// the Cancel affordance beside it is the action), or while
-		// a deps install is in flight (no queue for deps).
-		const downloadDisabled =
-			isDownloadingThis ||
-			isQueued ||
-			(Boolean(anyInstallingDeps) && !isDownloadingThis);
+		// the Cancel affordance beside it is the action).
+		const downloadDisabled = isDownloadingThis || isQueued;
 		const downloadHint =
 			downloadDisabled && !isDownloadingThis && !isQueued
 				? oneAtATimeTitle()
