@@ -46,24 +46,28 @@
 //! handshake event name) and the env contract differ per path.
 
 use crate::state::SidecarHandle;
-use std::sync::atomic::AtomicBool;
+use crate::state::WorkerState;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
 
+use super::dev_mode::is_dev_mode;
 use super::env_allowlist::passthrough_env_allowlist;
 use super::handshake::parse_worker_started;
 use super::handshake_loop::{
     read_handshake_from_command_events, read_handshake_from_stdout_lines,
     register_kill_on_parent_exit_best_effort, HandshakeLabels,
 };
+use super::initialize_worker;
 
 /// Env pairs shared by BOTH worker spawn paths (release + dev):
 /// the per-launch bearer token, the cross-process session id, and the
 /// shared config dir — the `# Worker spawn contract` section above.
 /// Applied AFTER `.env_clear()` + `passthrough_env_allowlist()`; the
 /// dev path additionally sets `VOICE_TYPER_DEBUG=1`.
-#[allow(dead_code)] // called by spawn_worker_release / spawn_worker_dev_mode once WorkerState is managed (Phase 2c)
 pub(crate) fn worker_shared_env(token: &str) -> Vec<(&'static str, String)> {
     vec![
         // Worker auth: same token env var as the sidecar
@@ -105,7 +109,6 @@ pub(crate) fn worker_shared_env(token: &str) -> Vec<(&'static str, String)> {
 /// `super::handshake_loop::read_handshake_from_command_events` —
 /// shared with the sidecar release path. The labels below pin this
 /// path's exact log/error wording.
-#[allow(dead_code)] // called by spawn_worker_and_get_port_with_shutdown once WorkerState is managed (Phase 2c)
 pub(crate) async fn spawn_worker_release(
     app: &tauri::AppHandle,
     token: &str,
@@ -167,7 +170,6 @@ pub(crate) async fn spawn_worker_release(
 /// `super::handshake_loop::read_handshake_from_stdout_lines` — shared
 /// with the sidecar dev path. The labels below pin this path's exact
 /// log/error wording.
-#[allow(dead_code)] // called by spawn_worker_and_get_port_with_shutdown once WorkerState is managed (Phase 2c)
 pub(crate) async fn spawn_worker_dev_mode(
     token: &str,
     shutting_down: Option<&AtomicBool>,
@@ -220,4 +222,89 @@ pub(crate) async fn spawn_worker_dev_mode(
     )
     .await?;
     Ok((port, SidecarHandle::DevMode(child)))
+}
+
+// ─── Phase-2c lifecycle triggers (BP-33) ────────────────────────────
+//
+// The WS reader calls `on_pack_verified` when the sidecar publishes
+// `offline_pack_verified` (pack passed SHA256 + signature checks);
+// the exit path calls `stop_worker_child` on host teardown.
+
+/// Try to claim the one-at-a-time worker (re)start slot. Returns true
+/// iff this caller won (the winner MUST clear `respawn_in_progress`
+/// when done). Serializes concurrent `offline_pack_verified` events
+/// (a download completion + the startup re-check can race) so two
+/// `initialize_worker` runs can never spawn two workers and orphan
+/// one's handle.
+pub(crate) fn try_claim_restart_slot(flag: &AtomicBool) -> bool {
+    flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
+/// Release-build gate: only attempt the spawn when the worker binary
+/// is actually on disk. In dev mode there is no frozen binary (the
+/// spawn runs `python -m voice_typer.worker`), so always attempt —
+/// a missing module surfaces in the dev console where it is actionable.
+fn worker_binary_present() -> bool {
+    is_dev_mode() || crate::platform::worker_path::worker_exe_path().exists()
+}
+
+/// Stop the running worker child, if any (take + kill_tree,
+/// best-effort). Called BEFORE a (re)start so the just-swapped pack
+/// files are never held open by a running worker.exe on Windows
+/// (W6-R3 stop hook), and on host teardown so no worker outlives the
+/// host. A missing child is a silent no-op (fresh launch).
+pub(crate) async fn stop_worker_child(state: &Arc<WorkerState>) {
+    let taken = crate::state::lock(&state.child).take();
+    if let Some(child) = taken {
+        if let Err(e) = child.kill_tree().await {
+            log::warn!(
+                "[WORKER-INIT] stop worker child kill_tree failed (best-effort): {}",
+                e
+            );
+        } else {
+            log::info!("[WORKER-INIT] stopped previous worker child");
+        }
+    }
+}
+
+/// `offline_pack_verified` trigger (called from the WS reader, sync
+/// context — the async work runs on a spawned task, never `block_on`:
+/// C-TOKIO-1). Restarts the worker against the just-verified pack:
+/// stop-first (frees the pack dir on Windows) then
+/// `initialize_worker`. Concurrent events serialize on the restart
+/// slot; a missing binary or a quitting host skips quietly. Spawn
+/// failure only logs (no supervisor yet — plan §7.2 — so a bad pack
+/// can never trip a respawn loop).
+pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app_handle
+            .state::<Arc<WorkerState>>()
+            .inner()
+            .clone();
+        if !try_claim_restart_slot(&state.respawn_in_progress) {
+            log::info!(
+                "[WORKER-INIT] pack verified while a worker (re)start is in flight — skipping duplicate"
+            );
+            return;
+        }
+        // Stop-first: the verified event fires right after the
+        // atomic swap, so a still-running worker may hold the OLD
+        // pack files open (Windows file-lock swap failure).
+        stop_worker_child(&state).await;
+        if state.shutting_down.load(Ordering::SeqCst) {
+            state.respawn_in_progress.store(false, Ordering::SeqCst);
+            return;
+        }
+        if !worker_binary_present() {
+            log::info!(
+                "[WORKER-INIT] pack verified but no worker binary on disk — skipping worker start"
+            );
+            state.respawn_in_progress.store(false, Ordering::SeqCst);
+            return;
+        }
+        initialize_worker(&app_handle, state.clone()).await;
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+    });
 }

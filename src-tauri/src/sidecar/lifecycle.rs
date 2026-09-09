@@ -11,6 +11,7 @@ use crate::sidecar::shutdown::shutdown_sidecar_for_exit_with_budget;
 use crate::sidecar::supervisor::clear_restart_counter_for_user_restart;
 use crate::sidecar::{send_fire_and_forget_frame, shutdown_sidecar_for_exit};
 use crate::state::SidecarState;
+use crate::state::WorkerState;
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -268,6 +269,12 @@ pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
     use std::time::Duration;
 
     let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
+    // BP-33 (Phase 2c): the worker is host-managed too — mark it
+    // quitting (blocks a concurrent verified-trigger (re)start) and
+    // take its child for the force-kill below. Missing state would
+    // panic, but main.rs always manages WorkerState unconditionally.
+    let worker_state = app_handle.state::<Arc<WorkerState>>().inner().clone();
+    worker_state.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
     std::thread::spawn(move || {
         tauri::async_runtime::block_on(async move {
             let _ = tokio::time::timeout(
@@ -275,6 +282,11 @@ pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
                 shutdown_sidecar_for_exit(&sidecar_state),
             )
             .await;
+            // Worker teardown AFTER the sidecar (the sidecar owns the
+            // worker WS client — it must go down first). Force-kill,
+            // best-effort: no graceful worker protocol exists yet
+            // (plan §7.3 graceful close is TBD with the WS bridge).
+            crate::sidecar::spawn::worker::stop_worker_child(&worker_state).await;
         });
     });
 }

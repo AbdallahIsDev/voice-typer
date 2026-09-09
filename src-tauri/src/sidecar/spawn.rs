@@ -53,7 +53,10 @@ mod release_mode;
 // the SECOND spawned child (after the slim-core sidecar); its spawn
 // mirrors the sidecar's dev/release split but with the worker's own
 // env contract (VOICE_TYPER_IPC_TOKEN) + `worker_started` handshake.
-mod worker;
+// `pub(crate)` (not `mod`): the WS reader calls
+// `worker::on_pack_verified` on the `offline_pack_verified` event and
+// the exit path calls `worker::stop_worker_child` (BP-33, Phase 2c).
+pub(crate) mod worker;
 // `pub(crate)` (not `mod`) so the worker-path resolver in
 // `platform::worker_path` can reach `current_target_triple()` to build
 // the per-platform worker exe name (`voice-typer-worker-<triple>[.exe]`).
@@ -69,13 +72,15 @@ pub(crate) mod target_triple;
 #[cfg(test)]
 pub(crate) use dev_mode::is_dev_mode_for;
 #[cfg(test)]
-pub(crate) use env_allowlist::passthrough_env_allowlist;
+pub(crate) use env_allowlist::{passthrough_env_allowlist, vt_start_hidden_env};
 #[cfg(test)]
 pub(crate) use handshake::{is_shutting_down, parse_server_started, parse_worker_started};
 #[cfg(test)]
 pub(crate) use target_triple::{current_target_triple, target_triple_for};
 #[cfg(test)]
 pub(crate) use worker::worker_shared_env;
+#[cfg(test)]
+pub(crate) use worker::try_claim_restart_slot;
 
 use crate::state::SidecarHandle;
 use std::panic::AssertUnwindSafe;
@@ -296,12 +301,10 @@ mod spawn_tests;
 // WS CLIENT connection is owned by the slim-core sidecar (NOT the
 // Tauri host — the 1-host↔2-processes pattern §7.1), so the host's
 // `reconnect_worker_ws` proxy + the worker respawn supervisor + the
-// port handoff to the sidecar are still TBD. `initialize_worker` is
-// likewise not yet CALLED anywhere: it must run after the pack is
-// downloaded + verified (Phase 2c), and `WorkerState` is not yet
-// `app.manage()`d in main.rs. The spawn logic itself is complete +
-// compile-verified; wiring it into the lifecycle is the remaining
-// integration step.
+// port handoff to the sidecar are still TBD.
+// Delivered (BP-33, Phase 2c): `WorkerState` is `app.manage()`d in
+// main.rs and `initialize_worker` runs on the `offline_pack_verified`
+// event (stop-first, then spawn; see `worker::on_pack_verified`).
 
 /// Spawn the ML worker exe via Tauri's `externalBin` mechanism
 /// (release) or `python -m voice_typer.worker` (dev mode), reading the
@@ -357,13 +360,9 @@ mod spawn_tests;
 ///
 /// `Ok((port, child, exit_rx))` on success — same shape as
 /// `spawn_sidecar_and_get_port_with_shutdown` so the caller
-/// (`initialize_worker` — TBD, parallel to `initialize_sidecar`)
-/// can install them into `WorkerState` via the same pattern.
-/// Uncalled until Phase 2c wires `initialize_worker` after pack
-/// verification + `app.manage()`s `WorkerState` (see the module-level
-/// comment) — same contract-pinned pattern as
-/// `spawn_sidecar_and_get_port_with_shutdown`.
-#[allow(dead_code)]
+/// (`initialize_worker`) can install them into `WorkerState` via the
+/// same pattern. Called by `initialize_worker`, which the WS reader
+/// triggers on `offline_pack_verified` (BP-33, Phase 2c).
 pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
     app: &tauri::AppHandle,
     state: Arc<crate::state::WorkerState>,
@@ -412,10 +411,8 @@ pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
 ///    `sidecar::ws::reconnect_ws`). On failure, fall back to the
 ///    worker supervisor's `respawn` (TBD, parallel to
 ///    `sidecar::supervisor::respawn`).
-/// Uncalled until Phase 2c wires the pack-verified trigger (see the
-/// module-level comment) — same contract-pinned pattern as
-/// `spawn_sidecar_and_get_port_with_shutdown`.
-#[allow(dead_code)]
+/// Called by `worker::on_pack_verified` (BP-33, Phase 2c) after pack
+/// verification — see the module-level comment.
 pub(crate) async fn initialize_worker(
     app_handle: &tauri::AppHandle,
     state: Arc<crate::state::WorkerState>,

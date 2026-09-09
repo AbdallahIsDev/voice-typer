@@ -335,8 +335,9 @@ pub(crate) struct WorkerState {
     /// Worker respawn serialization flag — same contract as
     /// `SidecarState::respawn_in_progress` but for the worker
     /// supervisor. Acquired with `compare_exchange(false → true)` on
-    /// entry; cleared on exit (both Ok and restart paths).
-    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
+    /// entry; cleared on exit (both Ok and restart paths). Currently
+    /// serializes concurrent `offline_pack_verified` (re)starts (the
+    /// full supervisor is plan §7.2).
     pub(crate) respawn_in_progress: AtomicBool,
     /// Event receiver from the worker's `Command::spawn()`. Used by
     /// `shutdown_worker_for_exit` (TBD, parallel to

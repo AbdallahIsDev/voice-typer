@@ -252,6 +252,19 @@ pub(super) fn spawn_reader_task(
                             crate::commands::bubble::update_persisted_pos_from_config(&payload);
                         }
 
+                        // BP-33 (Phase 2c): the sidecar publishes
+                        // `offline_pack_verified` after a pack passes
+                        // SHA256 + signature checks — (re)start the ML
+                        // worker here (stop-first so the just-swapped
+                        // pack files are never held open on Windows).
+                        // Falls through to the dual emit below (the
+                        // Models page listens for it too).
+                        if event_type == "offline_pack_verified" {
+                            crate::sidecar::spawn::worker::on_pack_verified(
+                                &app_for_reader,
+                            );
+                        }
+
                         // ADR-0020 "Sidecar→UI Event Table" (channel 2):
                         // DEFAULT delivery = the specific event (for direct
                         // listeners) AND the generic `python-event` envelope

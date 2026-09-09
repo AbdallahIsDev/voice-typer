@@ -14,6 +14,14 @@
 //!   `VOICE_TYPER_SPAWN_EPOCH_MS` so the Python side's
 //!   `startup_timeline.py` can attribute startup latency on the Tauri
 //!   runtime (it silently skips the line when the markers are absent).
+//! - **Hidden-start flag forwarding** (`vt_start_hidden_env`): the
+//!   host's `VT_START_HIDDEN` (set by the autostart launcher when a
+//!   hidden autostart launches the app) must cross the
+//!   `.env_clear()` boundary so the sidecar's hidden-start privacy
+//!   gates (the recorder prewarm's mic-InputStream gate) see the same
+//!   launch state as the host window — otherwise the gate is inert on
+//!   the Tauri runtime (it only worked on Electron/dev, where the TS
+//!   spawner spreads the full host env).
 //! - **Pre-existing `parse_server_started` + `is_shutting_down` tests**
 //!   (moved verbatim from the legacy inline `mod tests` block).
 //!
@@ -388,6 +396,72 @@ fn test_passthrough_env_allowlist_no_duplicates() {
     }
 }
 
+// ── vt_start_hidden_env (hidden-start flag forwarding) ────────────
+//
+// The autostart launcher sets VT_START_HIDDEN=1 on the HOST process
+// when a hidden autostart launches the app. The sidecar spawn paths
+// `.env_clear()` the host env, so without an explicit forward the flag
+// dies at the host→sidecar boundary and the backend's hidden-start
+// privacy gates (the recorder prewarm's mic-InputStream gate — opening
+// a stream lights the OS mic indicator while the user has not shown
+// the UI) never fire on the Tauri runtime.
+
+/// The helper must forward the host's `VT_START_HIDDEN` VERBATIM when
+/// the host has it, and return `None` when it doesn't (a normal,
+/// user-initiated launch must NOT grow the flag on the sidecar env).
+///
+/// The phases run sequentially inside ONE test on purpose: cargo test
+/// runs test fns in parallel threads within one process, and several
+/// tests mutating the SAME env var concurrently would race (the
+/// existing allowlist tests each use a DIFFERENT var to avoid this —
+/// here all phases need `VT_START_HIDDEN` itself).
+#[test]
+fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
+    // Save + restore the pre-test state so this test never leaks the
+    // flag into other tests.
+    let original = std::env::var_os("VT_START_HIDDEN");
+
+    // Phase 1: the autostart case — host has VT_START_HIDDEN=1. The
+    // helper must yield the EXACT env pair (name pinned as a literal so
+    // a rename on either side of the cross-language contract fails
+    // here instead of no-opping in production, mirroring the
+    // timeline-marker tests).
+    std::env::set_var("VT_START_HIDDEN", "1");
+    let forwarded = vt_start_hidden_env();
+    assert_eq!(
+        forwarded.as_ref().map(|(k, v)| (k.to_str(), v.to_str())),
+        Some((Some("VT_START_HIDDEN"), Some("1"))),
+        "VT_START_HIDDEN=1 on the host must forward as the exact env pair"
+    );
+
+    // Phase 2: a non-"1" host value must forward VERBATIM, not be
+    // normalized — the `== "1"` semantics live in the consumers on
+    // BOTH sides of the boundary (the host's window bootstrap and the
+    // sidecar's recorder prewarm), so forwarding as-is keeps host and
+    // sidecar in lockstep for any other value (e.g. an explicit `0`).
+    std::env::set_var("VT_START_HIDDEN", "0");
+    assert_eq!(
+        vt_start_hidden_env().map(|(_, v)| v),
+        Some(std::ffi::OsString::from("0")),
+        "a non-1 host value must forward verbatim (no normalization)"
+    );
+
+    // Phase 3: the normal-launch case — host has no VT_START_HIDDEN,
+    // so the helper must forward NOTHING (empty `.envs()` iterator →
+    // the sidecar env stays free of the flag and visible launches
+    // behave exactly as before).
+    std::env::remove_var("VT_START_HIDDEN");
+    assert!(
+        vt_start_hidden_env().is_none(),
+        "VT_START_HIDDEN unset on the host must forward nothing"
+    );
+
+    // Restore the pre-test state.
+    if let Some(v) = original {
+        std::env::set_var("VT_START_HIDDEN", v);
+    }
+}
+
 // ── sidecar_timeline_envs (launch-timeline markers) ───────────────
 //
 // The sidecar spawn env must carry BOTH launch-timeline markers the
@@ -641,6 +715,7 @@ fn test_worker_shared_env_session_id_matches_host_session() {
 /// value would make the worker resolve its config against the process
 /// CWD instead of the shared config dir.
 #[test]
+#[allow(clippy::nonminimal_bool)]
 fn test_worker_shared_env_config_dir_is_non_empty() {
     let envs = worker_shared_env("vt-test-token");
     let config_dir = envs
@@ -651,6 +726,31 @@ fn test_worker_shared_env_config_dir_is_non_empty() {
     assert!(
         !config_dir.is_empty(),
         "VOICE_TYPER_CONFIG_DIR must resolve to a non-empty path"
+    );
+}
+
+// ── try_claim_restart_slot (BP-33 Phase-2c serialization) ────────
+
+/// First claimant wins, concurrent second loses, clearing re-arms.
+/// Pins the anti-double-spawn invariant: two racing
+/// `offline_pack_verified` events must never run two
+/// `initialize_worker` spawns (the loser's handle would orphan a live
+/// ~450 MB worker with no owner to kill it on exit).
+#[test]
+fn test_try_claim_restart_slot_serializes_concurrent_verified_events() {
+    let flag = AtomicBool::new(false);
+    assert!(
+        try_claim_restart_slot(&flag),
+        "first claimant must win the (re)start slot"
+    );
+    assert!(
+        !try_claim_restart_slot(&flag),
+        "concurrent second claimant must lose while the first holds the slot"
+    );
+    flag.store(false, Ordering::SeqCst);
+    assert!(
+        try_claim_restart_slot(&flag),
+        "clearing the flag must re-arm the slot for the next verified event"
     );
 }
 

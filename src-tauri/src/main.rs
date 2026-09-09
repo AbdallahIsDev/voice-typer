@@ -95,6 +95,7 @@ use commands::system_cmds::{
 use platform::logging::init_file_logger_or_stderr_fallback;
 use platform::paths::config_dir;
 use state::SidecarState;
+use state::WorkerState;
 
 fn main() {
     // Launch-timeline host-boot marker — must stay the first statement
@@ -161,6 +162,10 @@ fn main() {
         // save-file dialogs (invoked from Rust, not TS).
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(SidecarState::new()))
+        // BP-33 (Phase 2c): the ML worker's lifecycle state. The
+        // worker (re)starts on the `offline_pack_verified` event (see
+        // `sidecar::spawn::worker::on_pack_verified`).
+        .manage(Arc::new(WorkerState::new()))
         .invoke_handler(tauri::generate_handler![
             dispatch,
             shutdown_sidecar,

@@ -89,6 +89,12 @@ pub(crate) async fn spawn_sidecar_release(
         .args(["--ws"])
         .env_clear()
         .envs(passthrough_env_allowlist())
+        // Forward the host's hidden-start launch flag (set by the
+        // autostart launcher when a hidden autostart launches the app)
+        // so the sidecar's hidden-start privacy gates see the same
+        // launch state as the host window. No-op (empty iterator) on
+        // normal visible launches.
+        .envs(super::env_allowlist::vt_start_hidden_env())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         // Share the host's per-process session ID so the

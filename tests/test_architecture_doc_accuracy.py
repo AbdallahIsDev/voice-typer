@@ -327,14 +327,20 @@ def test_gp94_main_rs_line_count_is_385():
     plugin-contract comment and the C-TOKIO-1 spawn-site guard stay
     inline by design). Still wiring-only. Doc + test pin updated in
     lockstep.
+    Updated 2026-09-09: main.rs grew from 274 → 279 lines — the
+    BP-33 Phase-2c worker-state manage wiring (``use WorkerState``
+    import + ``.manage(Arc::new(WorkerState::new()))`` call; bodies
+    live in ``sidecar/spawn/worker.rs``). Still wiring-only. Doc +
+    test pin updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "274 lines" in doc, "Doc must claim '274 lines' for main.rs."
+    assert "279 lines" in doc, "Doc must claim '279 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 274, (
-        f"src-tauri/src/main.rs must be 274 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 279, (
+        f"src-tauri/src/main.rs must be 279 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
+    assert "274 lines" not in doc, "Stale '274 lines' must be removed from doc."
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
     assert "488 lines" not in doc, "Stale '488 lines' must be removed from doc."
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."

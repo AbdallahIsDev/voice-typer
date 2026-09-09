@@ -42,10 +42,12 @@
 /// Voice-typer-specific vars (`TAURI_SIDECAR`, `VOICE_TYPER_IPC_TOKEN`,
 /// `VOICE_TYPER_NATIVE_DIR`,
 /// `VOICE_TYPER_CONFIG_DIR`, `VOICE_TYPER_DEBUG`, `RUST_LOG`,
-/// `VOICE_TYPER_SESSION_ID` — log-correlation join key) are
-/// added explicitly by the spawn callers AFTER this function returns —
-/// they are NOT in the allowlist (they take precedence over any host
-/// value via the subsequent `.env(...)` call).
+/// `VOICE_TYPER_SESSION_ID` — log-correlation join key — and
+/// `VT_START_HIDDEN` via [`vt_start_hidden_env`], the hidden-start
+/// launch-state flag) are added explicitly by the spawn callers AFTER
+/// this function returns — they are NOT in the allowlist (they take
+/// precedence over any host value via the subsequent `.env(...)`
+/// call).
 ///
 /// Returns a `Vec<(OsString, OsString)>` (not a `HashMap`) because
 /// both `tauri_plugin_shell::process::Command::envs` and
@@ -139,4 +141,40 @@ pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::
     }
 
     out
+}
+
+/// The host's `VT_START_HIDDEN` launch-state flag, when the host
+/// actually has it, as an env pair for the sidecar spawn.
+///
+/// The autostart launcher sets `VT_START_HIDDEN=1` on the HOST
+/// process when a hidden autostart launches the app (the host's
+/// window bootstrap reads it to boot the main window hidden +
+/// skip-taskbar). The sidecar spawn paths `.env_clear()` the host
+/// env, so the flag must be re-added EXPLICITLY or it dies at the
+/// host→sidecar boundary — the backend's hidden-start privacy
+/// contract (while the app started hidden, no microphone InputStream
+/// may be opened: opening one lights the OS mic indicator even though
+/// the user has not shown the UI) would never fire on the Tauri
+/// runtime, silently regressing the Electron-runtime behavior where
+/// the TS spawner spreads the full host env.
+///
+/// Semantics:
+/// - `None` when the host does not have the var (a normal,
+///   user-initiated launch) — applied via `.envs(...)`, an empty
+///   iterator is a no-op, so the sidecar env stays free of the flag
+///   and visible launches behave exactly as before.
+/// - The VALUE is forwarded VERBATIM (not normalized to `"1"`): the
+///   `== "1"` check lives in the consumers on BOTH sides of the
+///   boundary (the host's window bootstrap and the sidecar's recorder
+///   prewarm gate), so forwarding as-is keeps host and sidecar in
+///   lockstep for any other value (e.g. an explicit `0` means
+///   "not hidden" everywhere).
+///
+/// Returns an `Option<(OsString, OsString)>` so the pair feeds
+/// straight into `.envs(...)` on BOTH command builders (an `Option`
+/// is a 0-or-1-element iterator, same rationale as the `Vec` shape of
+/// [`passthrough_env_allowlist`] above).
+pub(crate) fn vt_start_hidden_env() -> Option<(std::ffi::OsString, std::ffi::OsString)> {
+    std::env::var_os("VT_START_HIDDEN")
+        .map(|val| (std::ffi::OsString::from("VT_START_HIDDEN"), val))
 }
