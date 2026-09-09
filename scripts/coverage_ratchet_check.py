@@ -14,7 +14,7 @@ CI policy
   ``--regenerate``).
 * The fixed ``--cov-fail-under=65`` floor in CI still catches
   catastrophic drops below 65%; this ratchet catches silent erosion
-  (e.g. 70% → 65.01%).
+  (e.g. 70% -> 65.01%).
 
 Usage
 -----
@@ -61,7 +61,6 @@ Run from the project root.
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 import sys
@@ -69,9 +68,21 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from _ratchet_common import (
+    PROJECT_ROOT,
+    build_ratchet_parser,
+    display_path,
+    env_path,
+    load_baseline_prelude,
+)
+
 # ── Paths (relative to project root) ──────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BASELINE_PATH = PROJECT_ROOT / "coverage-baseline.json"
+# COVERAGE_BASELINE_PATH lets tests redirect all reads/writes to a
+# temp file instead of the repo's real ``coverage-baseline.json``, so
+# an interrupted test run (timeout, kill, power loss) can never leave
+# a fake baseline on disk (same redirection contract as the ruff and
+# mypy ratchets).
+BASELINE_PATH = env_path("COVERAGE_BASELINE_PATH", PROJECT_ROOT / "coverage-baseline.json")
 COVERAGE_XML_PATH = PROJECT_ROOT / "coverage.xml"
 
 # Required schema fields on the baseline file. The baseline MAY carry
@@ -172,23 +183,19 @@ def _load_current_coverage() -> float | None:
 
 
 def _load_baseline() -> dict[str, Any]:
-    """Load and validate the baseline file."""
-    if not BASELINE_PATH.is_file():
-        print(f"ERROR: baseline file not found: {BASELINE_PATH}")
-        print("Create it with: coverage report --format=json | python scripts/coverage_ratchet_check.py --regenerate")
-        sys.exit(2)
-    try:
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"ERROR: baseline file is not valid JSON: {exc}")
-        sys.exit(2)
-    if not isinstance(baseline, dict):
-        print(f"ERROR: baseline root must be a JSON object, got {type(baseline).__name__}")
-        sys.exit(2)
-    for field in REQUIRED_FIELDS:
-        if field not in baseline:
-            print(f"ERROR: baseline missing required field '{field}'")
-            sys.exit(2)
+    """Load and validate the baseline file.
+
+    The not-found / bad-JSON / non-object / missing-field prelude is
+    shared with the count-based ratchets (``_ratchet_common``); the
+    float-specific check on ``total_coverage`` is local.
+    """
+    baseline = load_baseline_prelude(
+        BASELINE_PATH,
+        required_fields=("total_coverage",),
+        create_hint=(
+            "Create it with: coverage report --format=json | python scripts/coverage_ratchet_check.py --regenerate",
+        ),
+    )
     tc = baseline["total_coverage"]
     if not isinstance(tc, int | float) or isinstance(tc, bool) or tc < 0:
         print(f"ERROR: baseline.total_coverage must be a non-negative number, got {tc!r}")
@@ -211,7 +218,7 @@ def compare(current_pct: float) -> int:
 
     print("Coverage ratchet comparison")
     print("===========================")
-    print(f"  Baseline file: {BASELINE_PATH.relative_to(PROJECT_ROOT)}")
+    print(f"  Baseline file: {display_path(BASELINE_PATH, PROJECT_ROOT)}")
     print(f"  Total: baseline={base_pct:.4f}%  current={current_pct:.4f}%  status={status}")
     if delta > EPSILON:
         print("  -> Total IMPROVED. Consider regenerating the baseline to lock in the gain:")
@@ -280,28 +287,23 @@ def regenerate(current_pct: float, *, force: bool = False) -> int:
         json.dumps(new_baseline, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Regenerated {BASELINE_PATH.relative_to(PROJECT_ROOT)}")
+    print(f"Regenerated {display_path(BASELINE_PATH, PROJECT_ROOT)}")
     print(f"  total_coverage = {current_pct:.4f}%")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="XS-86: coverage ratchet comparison script.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    parser = build_ratchet_parser(
+        description="coverage ratchet comparison script.",
         epilog=__doc__,
-    )
-    parser.add_argument(
-        "--regenerate",
-        action="store_true",
-        help="Rewrite coverage-baseline.json with the current coverage percentage. "
-        "Only use this after IMPROVING coverage — refuses to lower the baseline.",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Bypass the refuse-to-lower check and the corrupt/missing-baseline "
-        "guard. Use only after documenting an intentional coverage drop.",
+        regenerate_help=(
+            "Rewrite coverage-baseline.json with the current coverage percentage. "
+            "Only use this after IMPROVING coverage — refuses to lower the baseline."
+        ),
+        force_help=(
+            "Bypass the refuse-to-lower check and the corrupt/missing-baseline "
+            "guard. Use only after documenting an intentional coverage drop."
+        ),
     )
     parser.add_argument(
         "--coverage-xml",

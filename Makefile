@@ -27,9 +27,15 @@
 #     local loop is ~15-25% faster (C-TEST-4). Use `make test-cov` for
 #     explicit coverage runs (matches CI's --cov --cov-fail-under=65).
 #   - `make typecheck` runs TypeScript typecheck, mypy, and ruff in
-#     PARALLEL (background `&` + `wait`) — they touch disjoint file sets
-#     so the wall-clock time is max(tsc, mypy, ruff) instead of the sum.
-#     The mypy scope matches the pre-commit hook (`voice_typer/server/`).
+#     PARALLEL (background `&` + per-PID `wait` collection). They touch
+#     disjoint file sets so the wall-clock time is max(tsc, mypy, ruff)
+#     instead of the sum. The mypy scope matches the pre-commit hook
+#     (`voice_typer/server/`). The target is FAIL-CLOSED: each child's
+#     PID is collected with `wait "$PID" || FAIL=1` (the same pattern
+#     as scripts/build/build_tauri_all.sh Phase 1a) and the target
+#     exits non-zero if ANY of the three checks failed — a bare `wait`
+#     returns 0 regardless of the children's exit codes and would mask
+#     every failure.
 #   - `make bench` runs every `bench/bench_*.py --json` script and
 #     concatenates the output into `bench-current.json` for the CI perf
 #     ratchet comparison against `bench/bench-baseline.json`. The bench
@@ -66,11 +72,19 @@ format: ## Run formatters (ruff format + biome format)
 	ruff format voice_typer/ tests/
 	cd voice_typer/client && npm run format
 
-typecheck: ## Run TypeScript + mypy ratchet + ruff IN PARALLEL (disjoint file sets — wall-clock = max(tsc, mypy, ruff))
-	@cd voice_typer/client && npm run typecheck & \
-	python scripts/mypy_ratchet_check.py & \
-	ruff check voice_typer/ tests/ & \
-	wait
+typecheck: ## TypeScript + mypy ratchet + ruff IN PARALLEL, fail-closed (any child failure fails the target)
+	@FAIL=0; \
+	cd voice_typer/client && npm run typecheck & TSC_PID=$$!; \
+	python scripts/mypy_ratchet_check.py & MYPY_PID=$$!; \
+	ruff check voice_typer/ tests/ & RUFF_PID=$$!; \
+	wait "$$TSC_PID" || { echo "typecheck: TypeScript check FAILED (exit $$?)"; FAIL=1; }; \
+	wait "$$MYPY_PID" || { echo "typecheck: mypy ratchet FAILED (exit $$?)"; FAIL=1; }; \
+	wait "$$RUFF_PID" || { echo "typecheck: ruff FAILED (exit $$?)"; FAIL=1; }; \
+	if [ "$$FAIL" -ne 0 ]; then \
+		echo "typecheck: FAILED - one or more parallel checks failed (see output above)"; \
+		exit 1; \
+	fi; \
+	echo "typecheck: all checks passed (tsc + mypy ratchet + ruff)"
 
 build: ## Build the app (Electron renderer + main)
 	cd voice_typer/client && npm run build

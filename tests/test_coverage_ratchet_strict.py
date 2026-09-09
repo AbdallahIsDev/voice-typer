@@ -380,3 +380,38 @@ class TestStrictFlagSemantics:
         ns = parser.parse_args(["--strict", "--coverage-xml", "foo.xml"])
         assert ns.strict is True
         assert ns.coverage_xml == Path("foo.xml")
+
+    def test_baseline_path_env_redirects_reads(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``COVERAGE_BASELINE_PATH`` redirects BASELINE_PATH at import time.
+
+        The sibling mypy/ruff tests drive their scripts via the env var
+        (test_mypy_ratchet.py ``_baseline_path``); coverage's suite
+        monkeypatched the attribute directly and never exercised the
+        env hook. This pins the env redirect end-to-end in-process.
+        """
+        import importlib
+        import json
+
+        redirect = tmp_path / "redirected-baseline.json"
+        monkeypatch.setenv("COVERAGE_BASELINE_PATH", str(redirect))
+        reloaded = importlib.reload(crc)
+        try:
+            assert redirect == reloaded.BASELINE_PATH, "COVERAGE_BASELINE_PATH must override the default baseline path"
+            # A compare against the redirected baseline uses the redirected
+            # file (schema: total_coverage), not the repo's real one.
+            redirect.write_text(json.dumps({"total_coverage": 84.0}), encoding="utf-8")
+            monkeypatch.setattr(reloaded, "_load_current_coverage", lambda: 84.0)
+            rc, out = 0, ""
+            try:
+                # compare() in-process via main() with print captured.
+                import contextlib
+                import io
+
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = reloaded.main([])
+                out = buf.getvalue()
+            finally:
+                assert rc in (0, 1), f"compare must exit 0/1 against the redirected baseline, got {rc}: {out}"
+        finally:
+            importlib.reload(crc)  # restore the module-global default path
