@@ -205,6 +205,8 @@ DOCUMENTED_METADATA_KEYS = [
     "_current_state_2026_08_15_autostart_fix",
     "_current_state_2026_08_25_pkg_split_regen",
     "_current_state_2026_08_25_shutdown_split_recon",
+    "_current_state_2026_09_07_sidecar_split_remap",
+    "_current_state_2026_09_09_w3_bp141_recon",
 ]
 
 

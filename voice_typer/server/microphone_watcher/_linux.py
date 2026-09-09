@@ -9,13 +9,36 @@ change detection.
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 log = logging.getLogger(__name__)
 
 
 class _LinuxMixin:
+    # Members provided by the composed ``MicrophoneDeviceWatcher``
+    # (``_core.py`` ``__init__``): cross-mixin attribute access is
+    # runtime-valid but pyrefly cannot see it on a standalone mixin.
+    # Annotations only — no values — so no runtime attribute is created
+    # and the runtime MRO is unaffected (same pattern as
+    # dictation_pipeline's mixin declarations and model_manager's
+    # ``ChangeMixin``).
+    _stop_event: threading.Event
+    _poll_interval: float
+    _idle_poll_interval_s: float
+    _active_poll_interval_s: float
+    _is_idle: bool
+    _on_default_device_changed: Callable[[], None] | None
+
+    if TYPE_CHECKING:
+        # Method provided by ``_core.py`` in the composed MRO; a
+        # TYPE_CHECKING-only stub keeps this mixin type-checkable
+        # standalone without shadowing the real implementation at
+        # runtime (same pattern as model_manager's ``ChangeMixin``
+        # sibling-method stubs).
+        def _invoke_callback(self) -> None: ...
     # Secondary PulseAudio/PipeWire-level poll cadence. The primary
     # ``/dev/snd`` poll is cheap (``os.listdir`` ≈ µs) but only sees
     # ALSA kernel devices. ``sd.query_devices()`` (a 10–50 ms
@@ -169,8 +192,11 @@ class _LinuxMixin:
             return
         if current_index != self._last_default_input_index:
             self._last_default_input_index = current_index
+            callback = self._on_default_device_changed
+            if callback is None:
+                return
             try:
-                self._on_default_device_changed()
+                callback()
             except Exception:
                 log.exception("[MIC-WATCHER] _on_default_device_changed callback raised")
 

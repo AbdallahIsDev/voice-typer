@@ -611,10 +611,16 @@ class QwenEngine:
         # some test fixtures bypass ``__init__`` via ``__new__`` and
         # only set up ``_lock``. Fall back to ``_lock`` (a no-op wait
         # since ``_active_inference`` defaults to 0 via ``getattr``).
+        # The ``isinstance`` guard narrows for the type checker AND is
+        # semantically exact: ``.wait()`` exists on
+        # ``threading.Condition`` only — a bare ``RLock`` fallback must
+        # never enter the wait loop (the counter defaults to 0, so the
+        # loop body is unreachable on the fallback path).
         inference_cond = getattr(self, "_inference_cond", None) or self._lock
         with inference_cond:
-            while getattr(self, "_active_inference", 0) > 0:
-                inference_cond.wait()
+            if isinstance(inference_cond, threading.Condition):
+                while getattr(self, "_active_inference", 0) > 0:
+                    inference_cond.wait()
             self._model = None
             # ONNX backend: release the ORT sessions + embedding matrix
             # (best-effort — close() is idempotent-safe by construction).

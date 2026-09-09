@@ -7,11 +7,20 @@ with the hidden-window ``GetMessageW`` pump and ``WM_QUIT`` posting.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 log = logging.getLogger(__name__)
 
 
 class _WindowsMixin:
+    if TYPE_CHECKING:
+        # Method provided by ``_core.py`` in the composed
+        # ``MicrophoneDeviceWatcher`` MRO; a TYPE_CHECKING-only stub
+        # keeps this mixin type-checkable standalone without shadowing
+        # the real implementation at runtime (same pattern as
+        # model_manager's ``ChangeMixin`` sibling-method stubs).
+        def _invoke_callback(self) -> None: ...
+
     def _run_windows(self) -> None:
         try:
             self._run_windows_impl()
