@@ -40,8 +40,6 @@ module propagate:
 from __future__ import annotations
 
 import logging
-import shlex
-from pathlib import Path
 
 from voice_typer.server.server_platform import autostart as _autostart_mod
 
@@ -77,41 +75,12 @@ def _register_app_autostart_runkey() -> bool:
         # Matches BOTH the current reverse-DNS scheme (com.voicetyper.*)
         # and the pre-rename bare scheme (VoiceTyper_*).
         #
-        # parse the Run-key command line with a Windows-aware
-        # splitter before extracting the exe path. Pre-fix, the code did
-        # ``value.strip('"').split('"')[0] if '"' in value else value.split()[0]``
-        # which misparses UNQUOTED spaced paths (e.g.
-        # ``C:\Program Files\VoiceTyper\app.exe --delay 15``) — the
-        # ``value.split()[0]`` branch returns ``C:\Program`` (NOT a real
-        # path), ``Path('C:\\Program').exists()`` is False, and the
-        # cleanup silently DELETES the other install's Run-key entry.
-        # This breaks multi-install autostart (a PLAT-RUN supported
-        # scenario) when any install lives in a spaced path (common:
-        # ``C:\Program Files\...``).
-        #
-        # ``shlex.split(value, posix=False)`` parses a Windows-style
-        # command line: it preserves backslashes, treats double quotes
-        # as argument delimiters (the quoted token is returned as a
-        # single element WITH the surrounding quotes preserved), and
-        # splits on whitespace outside quotes. The first token is the
-        # exe path (quoted or not); we strip the surrounding quotes to
-        # get the actual filesystem path.
-        #
-        # CONSERVATIVE-DELETE policy: an UNQUOTED value with multiple
-        # tokens (spaces in the command line) is ambiguous — the actual
-        # exe path might be a longer space-separated prefix that we
-        # can't recover without quotes. For such entries, we DO NOT
-        # delete even if the first token doesn't exist as a file,
-        # because deleting a legitimate entry is worse than leaving a
-        # stale one in the registry. We only delete when we're CERTAIN
-        # the entry is stale:
-        #   - quoted path that doesn't exist (unambiguous), OR
-        #   - unquoted single-token path that doesn't exist (unambiguous).
-        #
-        # Note: ``shlex.split(value, posix=False)`` is the documented
-        # cross-platform-safe Windows-command-line splitter that does
-        # NOT require the Windows-only ``shell32.CommandLineToArgvW``
-        # — which keeps this code testable on non-Windows CI.
+        # Per-entry validity routes through the canonical
+        # ``_aw._validate_runkey_command`` (same CONSERVATIVE-DELETE
+        # policy as this loop, PLUS the C-CROSS-4 doubled-backslash
+        # raw-string check — BP-128: a freedesktop-quoting-mangled
+        # value passes ``Path.exists()`` (it collapses ``\\``) and
+        # would otherwise survive the sweep forever).
         try:
             run_key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS
@@ -124,47 +93,11 @@ def _register_app_autostart_runkey() -> bool:
                         name.startswith(("VoiceTyper", "com.voicetyper"))
                         and name != reg_key_name
                         and isinstance(value, str)
+                        and not _aw._validate_runkey_command(value)
                     ):
-                        # use shlex.split(posix=False) so quoted
-                        # spaced paths are parsed correctly (the quoted
-                        # token is a single element). For unquoted
-                        # spaced paths, the parse is inherently ambiguous
-                        # — see the CONSERVATIVE-DELETE policy above.
-                        tokens = shlex.split(value, posix=False)
-                        if not tokens:
-                            # Malformed / empty value — skip cleanup.
-                            i += 1
-                            continue
-                        exe_token = tokens[0]
-                        # shlex.split(posix=False) preserves the
-                        # surrounding quotes in the token; strip them so
-                        # we get the actual filesystem path.
-                        exe_path = exe_token.strip('"')
-                        if not exe_path:
-                            # Malformed entry (e.g. just quotes) — skip.
-                            i += 1
-                            continue
-                        was_quoted = exe_token.startswith('"')
-                        has_multiple_tokens = len(tokens) > 1
-                        path_exists = Path(exe_path).exists()
-                        if not path_exists:
-                            # Only delete if we're CERTAIN the entry is
-                            # stale (see CONSERVATIVE-DELETE policy).
-                            # Ambiguous unquoted spaced paths are
-                            # preserved (never deleted) to avoid
-                            # breaking legitimate multi-install autostart.
-                            if was_quoted or not has_multiple_tokens:
-                                winreg.DeleteValue(run_key, name)
-                                log.info("[AUTOSTART] Removed stale entry: %s", name)
-                                continue
-                            # else: ambiguous unquoted spaced path —
-                            # be conservative, skip deletion.
-                            log.debug(
-                                "[AUTOSTART] Skipping ambiguous unquoted "
-                                "spaced-path entry (cannot determine if "
-                                "stale): %s",
-                                name,
-                            )
+                        winreg.DeleteValue(run_key, name)
+                        log.info("[AUTOSTART] Removed stale entry: %s", name)
+                        continue
                     i += 1
                 except OSError:
                     break

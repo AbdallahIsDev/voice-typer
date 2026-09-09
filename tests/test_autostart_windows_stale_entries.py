@@ -241,6 +241,44 @@ class TestStaleEntryCleanupParsing:
         # CRITICAL: the legitimate entry must NOT be deleted.
         fake_winreg.DeleteValue.assert_not_called()
 
+    def test_doubled_backslash_value_deleted_even_when_path_exists(self, monkeypatch, fake_winreg, win32_platform):
+        """BP-128: a freedesktop-quoting-mangled value (doubled
+        backslashes) must be swept even though ``Path.exists()``
+        reports it as existing (it collapses ``\\\\`` to ``\\``).
+
+        Pre-fix, the sweep re-implemented the existence check without
+        the C-CROSS-4 raw-string check, so this exact malformed class
+        survived forever. Post-fix the sweep routes through the
+        canonical ``_validate_runkey_command``.
+        """
+        from voice_typer.server.server_platform import (
+            _register_app_autostart_runkey,
+        )
+
+        stale_name = "VoiceTyper_deadbeef"
+        # Doubled backslashes baked by the old freedesktop quoting bug.
+        stale_value = r'"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" --hidden --delay 15'
+        # The real ``Path.exists()`` collapses the doubled separators,
+        # so Windows reports this path as existing — the old sweep kept
+        # the entry forever. Simulate that by listing the DOUBLED
+        # literal as existing.
+        _make_path_existing(monkeypatch, {r"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe"})
+
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart._autostart_command",
+            lambda: r'"C:\other\python.exe" launcher.py --hidden',
+            raising=False,
+        )
+
+        result = _register_app_autostart_runkey()
+        assert result is True
+        fake_winreg.DeleteValue.assert_called_once()
+        call_args = fake_winreg.DeleteValue.call_args
+        deleted_name = call_args.args[1]
+        assert deleted_name == stale_name
+
     def test_unquoted_spaced_path_nonexistent_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED spaced path whose exe does NOT exist must
         NOT be deleted either — the parse is ambiguous (the actual exe
