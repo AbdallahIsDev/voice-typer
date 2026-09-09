@@ -1138,7 +1138,16 @@ class ConfigApplier:
             # preset. The polisher is constructed lazily in
             # DictationPipeline._apply_llm_polish from these fields; without
             # invalidation it would keep using stale credentials/settings.
-            if any(k.startswith("llm_") for k in updates):
+            # BP-133: the effective polish key is ``llm_api_key OR
+            # openai_api_key`` — a provider-credential rotation must
+            # invalidate too. The credential set is the canonical
+            # PROVIDER_TO_CONFIG_FIELD (BP-95 single-sourcing), imported
+            # lazily like the credential_store use below (import-cycle
+            # discipline).
+            from voice_typer.server import credential_store as _credential_store
+
+            _polish_credential_fields = set(_credential_store.PROVIDER_TO_CONFIG_FIELD.values())
+            if any(k.startswith("llm_") or k in _polish_credential_fields for k in updates):
                 with contextlib.suppress(Exception):
                     app._llm_polisher = None
             # Apply side effects inside the lock so Config mutations

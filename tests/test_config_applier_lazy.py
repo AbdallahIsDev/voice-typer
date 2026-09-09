@@ -330,3 +330,33 @@ class TestLazyPreStateDict:
             "uses set_keys and the rollback path builds the restoration "
             "dict from set_keys."
         )
+
+
+class TestLLMPolisherInvalidation:
+    """BP-133: rotating ANY effective polish credential must drop the
+    cached ``LLMPolisher`` — the effective key is ``llm_api_key OR
+    openai_api_key``, so the old ``llm_``-prefix-only predicate left a
+    silently broken polish after every OpenAI key rotation."""
+
+    def test_openai_key_rotation_clears_cached_polisher(self, tmp_config_dir, monkeypatch):
+        service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
+        app._llm_polisher = object()
+        service.apply_config({"openai_api_key": "sk-rotated"})
+        assert app._llm_polisher is None, (
+            "rotating openai_api_key must invalidate the cached polisher "
+            "(it snapshots the key by value at construction)"
+        )
+
+    def test_llm_key_change_still_clears_cached_polisher(self, tmp_config_dir, monkeypatch):
+        service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
+        app._llm_polisher = object()
+        service.apply_config({"llm_model": "other-model"})
+        assert app._llm_polisher is None
+
+    def test_unrelated_change_keeps_cached_polisher(self, tmp_config_dir, monkeypatch):
+        service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
+        sentinel = object()
+        app._llm_polisher = sentinel
+        new_hotkey = "<f4>" if app.config.hotkey != "<f4>" else "<f5>"
+        service.apply_config({"hotkey": new_hotkey})
+        assert app._llm_polisher is sentinel
