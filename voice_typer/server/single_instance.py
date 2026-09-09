@@ -50,6 +50,11 @@ from typing import TYPE_CHECKING
 from voice_typer.server._security_attributes import (
     _create_restrictive_security_attributes,
 )
+from voice_typer.server.backend_pid import (  # noqa: F401 — re-exported for backwards compatibility
+    _backend_pid_file,
+    _clear_backend_pid_file,
+    _is_pid_alive,
+)
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
 
@@ -191,37 +196,6 @@ class _PosixSingleInstanceHandle(int):
                 os.unlink(self._lock_path)
 
 
-def _backend_pid_file() -> Path:
-    """Return the path to the backend PID file (``<config_dir>/backend.pid``).
-
-    P1-1.4: written by ``_ensure_single_instance`` after the mutex is
-    acquired, removed by ``_clear_backend_pid_file`` during shutdown.
-    Used as a belt-and-suspenders check: on Windows the named mutex is
-    the authoritative single-instance guard, but if a previous instance
-    crashed hard (BSOD, power loss) the OS may not have released the
-    mutex yet when the next launch tries to acquire it.  The PID file
-    lets us detect a stale lock and proceed.
-
-    COMPAT-REFAC: ``_config_dir`` is resolved at call time through
-    the owning ``voice_typer.server.config`` module object (NOT via
-    ``voice_typer.server.app``) so the heavy app orchestrator is never
-    imported on this path and tests that monkeypatch
-    ``voice_typer.server.config._config_dir`` are honored by
-    ``_write_backend_pid_file`` / ``_clear_backend_pid_file`` /
-    ``_read_stale_backend_pid`` (which all call this helper).
-    """
-    # Resolve through the owning config module object at call time so
-    # monkeypatching ``voice_typer.server.config._config_dir`` in tests
-    # takes effect. Importing the module (rather than the name) keeps a
-    # single patch target. BP-126: this used to resolve via
-    # ``voice_typer.server.app``, which pulled the full app orchestrator
-    # into every launcher login run just to read a PID file.
-    from voice_typer.server import config as _config_module
-    from voice_typer.server._paths import RUN_SUBDIR
-
-    return _config_module._config_dir() / RUN_SUBDIR / "backend.pid"
-
-
 def _write_backend_pid_file() -> None:
     """Write our PID to the backend PID file (best-effort)."""
     try:
@@ -271,63 +245,6 @@ def _record_backend_ipc_port(port: int) -> None:
         log.warning("[STARTUP] could not record backend IPC port: %s", exc)
     except Exception:
         log.debug("[STARTUP] could not record backend IPC port", exc_info=True)
-
-
-def _clear_backend_pid_file() -> None:
-    """Remove the backend PID file (best-effort)."""
-    try:
-        pid_file = _backend_pid_file()
-        if pid_file.exists():
-            pid_file.unlink()
-    except OSError as exc:
-        log.debug("[SHUTDOWN] could not remove backend PID file: %s", exc)
-    except Exception:
-        log.debug("[SHUTDOWN] could not remove backend PID file", exc_info=True)
-
-
-def _is_pid_alive(pid: int) -> bool:
-    """Return True if a process with the given PID is currently running.
-
-    Cross-platform: uses ``os.kill(pid, 0)`` on POSIX and ``OpenProcess``
-    on Windows.  Returns False if the PID is invalid or the process has
-    exited.  On Windows, error_access_denied (5) is treated as "alive"
-    (the process exists but is owned by another session — better to
-    block a duplicate than to proceed when unsure).
-    """
-    if pid <= 0:
-        return False
-    if is_windows():
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            process_query_limited_information = 0x1000
-            kernel32 = ctypes.windll.kernel32
-            still_active = wintypes.DWORD()
-            handle = kernel32.OpenProcess(
-                process_query_limited_information,
-                False,
-                pid,
-            )
-            if not handle:
-                # error_access_denied (5) means the process exists but is
-                # owned by another user/session — treat as alive.
-                return kernel32.GetLastError() == 5
-            try:
-                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(still_active)):
-                    return False
-                # STILL_ACTIVE == 259 means the process is running.
-                return still_active.value == 259
-            finally:
-                kernel32.CloseHandle(handle)
-        except Exception:
-            return False
-    else:
-        try:
-            os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
-            return False
-        return True
 
 
 def _read_stale_backend_pid() -> int | None:

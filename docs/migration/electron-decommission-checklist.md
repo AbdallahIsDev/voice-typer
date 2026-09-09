@@ -39,21 +39,25 @@ removed.
     `voice_typer/server/launcher_process.py`), keep re-exports in
     `_electron_build.py` until Phase B deletes it, and add a focused test
     importing the new module directly.
-- [ ] **A2. Extract the live single-instance symbols.** The Python
+- [x] **A2. Extract the live single-instance symbols.** The Python
   single-instance subsystem (`single_instance.py` +
   `_security_attributes.py` + `security/win32_dacl.py`, ~1,176 LOC) is
   gated OFF in Tauri-WS mode (`ipc/entrypoint.py`:
   `None if _tauri_sidecar else _ensure_single_instance(...)`), but three
-  symbols stay LIVE on the Tauri path and are consumed by
-  `app_lifecycle.py`, `shutdown/cleanup.py`, `shutdown/lifecycle.py`,
-  `session_state.py`, `autostart/pid_file.py`, and others:
-  - `_is_pid_alive`
-  - `_backend_pid_file`
-  - `_clear_backend_pid_file`
-  (NOT `_write_backend_pid_file` — it is gated off with the subsystem.)
-  Extract them to a small module (e.g. `voice_typer/server/backend_pid.py`)
-  with re-exports in `single_instance.py` until Phase C. See review entry
-  BP-144.
+  symbols stay LIVE on the Tauri path. **Extraction DONE** — they now
+  live in the runtime-neutral leaf `voice_typer/server/backend_pid.py`
+  (single source, DRY):
+  - `_is_pid_alive` (consumer: `tray_window.py`)
+  - `_backend_pid_file` (consumers: `autostart_launcher.py`,
+    `autostart/pid_file.py`)
+  - `_clear_backend_pid_file` (consumers: `shutdown/cleanup.py`,
+    `shutdown/lifecycle.py`, `shutdown/teardowns/pid_file.py` — all
+    resolving through the owning module at call time)
+  (NOT `_write_backend_pid_file` — it is gated off with the subsystem;
+  `_record_backend_ipc_port` also stays in `single_instance.py`.)
+  `single_instance.py` re-exports the three from the leaf for backwards
+  compatibility (`app.py`'s re-export chain keeps working); the live
+  consumers import from the leaf directly. See review entry BP-144.
 - [ ] **A3. Consolidate the console forwarder** (BP-105):
   `renderer-telemetry.ts` duplicates `windows/bubble/console-forwarder.ts`
   byte-for-byte. Land the shared helper and point both callers at it BEFORE
@@ -123,8 +127,21 @@ item BEFORE deleting — do not discover them via red CI.
    the shell dies.
 4. [ ] **C4. Python single-instance subsystem** — delete
    `single_instance.py`, `_security_attributes.py`,
-   `security/win32_dacl.py` (A2 must be done; BP-144). Re-exports removed
-   with the module.
+   `security/win32_dacl.py` (A2 is done — the live helpers now live in
+   `backend_pid.py`; BP-144), plus the Electron-subsystem teardown
+   `shutdown/teardowns/electron.py` (the `_electron_pid` machinery it
+   serves only exists on the Electron path). Sweep the removals:
+   - the re-export block in `app.py` (imports `_backend_pid_file` /
+     `_clear_backend_pid_file` / `_is_pid_alive` /
+     `_write_backend_pid_file` / `_read_stale_backend_pid` from
+     `single_instance`) — replace or delete per remaining callers
+   - `ipc/entrypoint.py`'s `_record_backend_ipc_port` imports (the
+     BP-130 port-record writer dies with the subsystem)
+   - the single-instance test files
+     (`tests/test_single_instance*.py`, `tests/test_shutdown_posix_release.py`'s
+     `_PosixSingleInstanceHandle` import) and any remaining
+     `monkeypatch` targets on `voice_typer.server.single_instance`
+   Re-exports removed with the module.
 5. [ ] **C5. Two re-export shims + remaining shims** — after C1–C4, delete
    the compatibility re-export shims whose consumers are all gone (sweep
    `grep` for each shim name; a shim with remaining live consumers stays

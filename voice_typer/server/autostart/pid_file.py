@@ -37,9 +37,9 @@ def _read_ipc_port_from_pid_file() -> int | None:
     simply yields ``None`` and the caller falls back to the default.
     """
     try:
-        # BP-126: resolve via single_instance (light), never via
-        # voice_typer.server.app (heavy orchestrator).
-        from voice_typer.server.single_instance import _backend_pid_file
+        # Resolve via the runtime-neutral backend_pid leaf (light),
+        # never via voice_typer.server.app (heavy orchestrator).
+        from voice_typer.server.backend_pid import _backend_pid_file
 
         pid_file = _backend_pid_file()
         if not pid_file.exists():

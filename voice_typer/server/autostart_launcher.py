@@ -325,10 +325,10 @@ def launch() -> int:
     # backend PID file (authoritative) and port 9876 (belt-and-suspenders).
     # Previously only checked port 9876, which is unreliable because the
     # actual IPC port may be different (auto-incremented if 9876 was busy).
-    # BP-126: resolve via single_instance (light: stdlib + config),
-    # never via voice_typer.server.app (pulls the full orchestrator
-    # into every login run just to read a PID file).
-    from voice_typer.server.single_instance import _backend_pid_file, _is_pid_alive
+    # Resolve via the runtime-neutral backend_pid leaf (light: stdlib +
+    # config), never via voice_typer.server.app (pulls the full
+    # orchestrator into every login run just to read a PID file).
+    from voice_typer.server.backend_pid import _backend_pid_file, _is_pid_alive
 
     pid_file = _backend_pid_file()
     backend_running = False
