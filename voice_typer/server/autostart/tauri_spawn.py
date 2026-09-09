@@ -23,6 +23,7 @@ from voice_typer.server._electron_build import (
     _log_sensitive_env_keys,
     _spawn_flags,
 )
+from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_macos, is_windows
 
@@ -311,7 +312,13 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
         )
         return False
     try:
-        actual = hashlib.sha256(binary.read_bytes()).hexdigest()
+        # Chunked read (8 MiB): the host binary is tens of MB — a
+        # single read_bytes() spikes peak RAM at login (BP-130).
+        digest = hashlib.sha256()
+        with open(binary, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
     except OSError:
         log.exception("[AUTOSTART] FAIL CLOSED: cannot hash %s", binary)
         return False
@@ -366,20 +373,12 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     sk: dict = {}
     sk.update(_pkg._tauri_log_files())
     sk.update(_spawn_flags(hidden=hidden))
-    try:
-        child = subprocess.Popen([binary], env=env, **sk)
-        log.info(
-            "[AUTOSTART] spawned tauri app %s (child pid=%s, hidden=%s)",
-            binary,
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        return child
-    except Exception:
-        log.exception("[AUTOSTART] tauri spawn failed: %s", binary)
-        return None
-    finally:
-        _pkg._close_log_files(sk)
+    return _spawn_login_child(
+        [binary],
+        env=env,
+        spawn_kwargs=sk,
+        describe=f"tauri app {binary} (hidden={hidden})",
+    )
 
 
 # Backward-compat alias — older test imports use the previous name.

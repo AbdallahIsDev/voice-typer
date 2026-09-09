@@ -9,14 +9,13 @@ instance.
 from __future__ import annotations
 
 import logging
-import subprocess
 
 from voice_typer.server._electron_build import (
     _launcher_child_env,
     _log_sensitive_env_keys,
     _spawn_flags,
 )
-from voice_typer.server.autostart.log_files import _close_log_files
+from voice_typer.server.autostart._spawn import _spawn_login_child
 
 # C-CROSS-3: explicit dotted logger name — see log_files.py for why
 # ``__name__`` cannot be used here.
@@ -73,18 +72,13 @@ def _focus_running_app() -> bool:
         sk: dict = {}
         sk.update(_pkg._tauri_log_files())
         sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
-        try:
-            child = subprocess.Popen([binary], env=env, **sk)
-            log.info(
-                "[AUTOSTART] spawned tauri focus probe (pid=%s)",
-                getattr(child, "pid", "?"),
-            )
-            return True
-        except Exception:
-            log.exception("[AUTOSTART] failed to spawn tauri focus probe")
-            return False
-        finally:
-            _close_log_files(sk)
+        child = _spawn_login_child(
+            [binary],
+            env=env,
+            spawn_kwargs=sk,
+            describe="tauri focus probe",
+        )
+        return child is not None
 
     # Legacy Electron focus path.
     exe = _pkg._electron_binary()
@@ -101,26 +95,21 @@ def _focus_running_app() -> bool:
     # _focus_running_app() always spawns the lean electron in the
     # foreground (hidden=False) so the user sees the focused window.
     spawn_kwargs.update(_spawn_flags(hidden=False))
-    try:
-        # ``electron .`` runs the app pointed at by package.json "main",
-        # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
-        # duplicate reads to know it should not attempt any heavy init.
-        # same-app restart — full env intentionally inherited
-        # (see _spawn_electron above for rationale). Only sensitive KEY
-        # NAMES are logged for audit; values are never printed.
-        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-        # (the child's output is redirected to the electron/tauri log files).
-        env = _launcher_child_env()
-        env["VT_FOCUS_ONLY"] = "1"
-        _log_sensitive_env_keys(env, context="autostart")
-        child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
-        log.info(
-            "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
-            getattr(child, "pid", "?"),
-        )
-        _close_log_files(spawn_kwargs)
-        return True
-    except Exception:
-        log.exception("[AUTOSTART] failed to spawn lean electron for focus")
-        _close_log_files(spawn_kwargs)
-        return False
+    # ``electron .`` runs the app pointed at by package.json "main",
+    # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
+    # duplicate reads to know it should not attempt any heavy init.
+    # same-app restart — full env intentionally inherited
+    # (see _spawn_electron above for rationale). Only sensitive KEY
+    # NAMES are logged for audit; values are never printed.
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to the electron/tauri log files).
+    env = _launcher_child_env()
+    env["VT_FOCUS_ONLY"] = "1"
+    _log_sensitive_env_keys(env, context="autostart")
+    child = _spawn_login_child(
+        [exe, "."],
+        env=env,
+        spawn_kwargs=spawn_kwargs,
+        describe="lean electron to focus running instance",
+    )
+    return child is not None

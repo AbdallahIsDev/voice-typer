@@ -16,6 +16,7 @@ from voice_typer.server._electron_build import (
     _log_sensitive_env_keys,
     _spawn_flags,
 )
+from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.autostart.log_files import _close_log_files
 
 # C-CROSS-3: explicit dotted logger name — see log_files.py for why
@@ -60,22 +61,15 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     # child will inherit, so a future leak in a downstream log is
     # auditable. Only KEY NAMES are logged — values are never printed.
     _log_sensitive_env_keys(env, context="autostart")
-    try:
-        child = subprocess.Popen([exe, "."], env=env, **sk)
-        log.info(
-            "[AUTOSTART] spawned electron . (child pid=%s, hidden=%s)",
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        # Close parent copies of log file handles — the child has
-        # inherited them, so they remain open for the child's lifetime.
-        # Without this, the parent leaks file handles and triggers
-        # ResourceWarning on GC.
-        _close_log_files(sk)
-        return child
-    except Exception:
-        log.exception("[AUTOSTART] electron . failed")
-        return None
+    # Unified cleanup shape (BP-130): parent handle close happens in
+    # the helper's finally — including the Popen-raise path, which the
+    # previous inline copy missed (handle leak).
+    return _spawn_login_child(
+        [exe, "."],
+        env=env,
+        spawn_kwargs=sk,
+        describe=f"electron . (hidden={hidden})",
+    )
 
 
 def _ensure_built_and_launch(hidden: bool = False) -> bool:
@@ -144,28 +138,6 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     try:
         # S-7: prefer list form over shell=True.
         cmd = _pkg._npm_command("dev")
-        if cmd is None:
-            # S-7: npm truly not resolvable — log and bail (no shell=True).
-            log.error(
-                "[AUTOSTART] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH."
-            )
-            _close_log_files(spawn_kwargs)
-            return None
-        child = subprocess.Popen(
-            cmd,
-            env=env,
-            **spawn_kwargs,
-        )
-        # Close parent copies of log file handles — the child has
-        # inherited them, so they remain open for the child's lifetime.
-        _close_log_files(spawn_kwargs)
-        log.info(
-            "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
-            _pkg.CLIENT_DIR,
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        return child
     except FileNotFoundError:
         log.exception("[AUTOSTART] npm not found")
         _close_log_files(spawn_kwargs)
@@ -174,3 +146,14 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         log.exception("[AUTOSTART] failed to spawn npm run dev")
         _close_log_files(spawn_kwargs)
         return None
+    if cmd is None:
+        # S-7: npm truly not resolvable — log and bail (no shell=True).
+        log.error("[AUTOSTART] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH.")
+        _close_log_files(spawn_kwargs)
+        return None
+    return _spawn_login_child(
+        cmd,
+        env=env,
+        spawn_kwargs=spawn_kwargs,
+        describe=f"'npm run dev' in {_pkg.CLIENT_DIR} (hidden={hidden})",
+    )
