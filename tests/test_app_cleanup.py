@@ -828,9 +828,10 @@ class TestRestartAppRemovesRedundantRestoreVolume:
 
 
 class TestUserDataPurgeHelpers:
-    """S2-CR-70 (SA-6): the ``_paths.user_data_subpaths_for_purge()``
-    helper exposes the exhaustive list of subpaths an uninstaller
-    should remove when purging user data.
+    """The canonical user-data purge inventory
+    (``voice_typer/server/_user_data_files.py::_USER_DATA_FILES``, consumed by
+    ``config.purge_user_data``) exposes the exhaustive list of files an
+    uninstaller should remove when purging user data.
 
     These tests pin the contract so a future code change that adds a
     new file inside the config dir (e.g. a new SQLite DB, a new
@@ -876,90 +877,38 @@ class TestUserDataPurgeHelpers:
 
         assert _paths.hf_cache_dir() == _paths.user_data_dir() / "huggingface"
 
-    def test_user_data_subpaths_for_purge_returns_list(self):
-        """The helper returns a list of Path objects (not a generator).
-
-        The uninstaller iterates the list multiple times (once to
-        stat-check existence, once to remove) — a generator would be
-        exhausted on the first iteration."""
-        from pathlib import Path
-
-        from voice_typer.server import _paths
-
-        subpaths = _paths.user_data_subpaths_for_purge()
-        assert isinstance(subpaths, list)
-        assert all(isinstance(p, Path) for p in subpaths)
-
-    def test_user_data_subpaths_for_purge_includes_hf_cache(self):
-        """The HF model cache (GBs) MUST be in the purge list."""
-        from voice_typer.server import _paths
-
-        subpaths = _paths.user_data_subpaths_for_purge()
-        assert _paths.user_data_dir() / "huggingface" in subpaths, (
-            "S2-CR-70: the HF model cache (potentially GBs) MUST be in "
-            "the purge list — without it, an uninstall leaves the model "
-            "weights behind"
-        )
-
-    def test_user_data_subpaths_for_purge_includes_venv(self):
-        """The Python venv (hundreds of MB) MUST be in the purge list."""
-        from voice_typer.server import _paths
-
-        subpaths = _paths.user_data_subpaths_for_purge()
-        assert _paths.user_data_dir() / "venv" in subpaths, (
-            "S2-CR-70: the venv (hundreds of MB) MUST be in the purge "
-            "list — without it, an uninstall leaves the bundled Python "
-            "environment behind"
-        )
-
-    def test_user_data_subpaths_for_purge_includes_history_db(self):
-        """The SQLite history DB MUST be in the purge list (contains
-        transcribed text — privacy-relevant)."""
-        from voice_typer.server import _paths
-
-        subpaths = _paths.user_data_subpaths_for_purge()
-        base = _paths.user_data_dir()
-        # The DB + its WAL/SHM sidecar files.
-        assert base / "history.db" in subpaths
-        assert base / "history.db-wal" in subpaths
-        assert base / "history.db-shm" in subpaths
-
-    def test_user_data_subpaths_for_purge_includes_lockfiles(self):
-        """The single-instance lockfile + PID file MUST be in the purge
-        list (otherwise a reinstall hits a stale lock)."""
-        from voice_typer.server import _paths
-
-        subpaths = _paths.user_data_subpaths_for_purge()
-        base = _paths.user_data_dir()
-        assert base / "backend.lock" in subpaths
-        assert base / "backend.pid" in subpaths
-
-    def test_user_data_subpaths_for_purge_all_under_user_data_dir(self):
-        """Every subpath MUST be under ``user_data_dir()`` — otherwise
-        the purge would delete unrelated user files."""
-        from voice_typer.server import _paths
-
-        base = _paths.user_data_dir()
-        subpaths = _paths.user_data_subpaths_for_purge()
-        for sub in subpaths:
-            # ``is_relative_to`` is Python 3.9+; the project floor is
-            # 3.10 per pyproject.toml so this is always available.
-            assert sub.is_relative_to(base), (
-                "S2-CR-70: every purge subpath MUST be under "
-                f"user_data_dir() ({base}); got {sub} which is NOT — "
-                "this would let the purge delete unrelated user files"
-            )
-
-    def test_user_data_subpaths_for_purge_no_duplicates(self):
-        """No duplicate subpaths (a duplicate would be a no-op on
+    def test_purge_inventory_has_no_duplicates(self):
+        """No duplicate filenames (a duplicate would be a no-op on
         removal but signals a copy-paste error)."""
-        from voice_typer.server import _paths
+        from voice_typer.server._user_data_files import _USER_DATA_FILES
 
-        subpaths = _paths.user_data_subpaths_for_purge()
-        unique = set(subpaths)
-        assert len(subpaths) == len(unique), (
-            f"S2-CR-70: duplicate subpaths in purge list — got {len(subpaths)} entries but only {len(unique)} unique"
+        unique = set(_USER_DATA_FILES)
+        assert len(_USER_DATA_FILES) == len(unique), (
+            f"duplicate filenames in the purge inventory — "
+            f"got {len(_USER_DATA_FILES)} entries but only {len(unique)} unique"
         )
+
+    def test_purge_inventory_uses_real_filenames(self):
+        """Every inventory entry is an actual on-disk filename — the
+        previously forked ``_paths.user_data_subpaths_for_purge()``
+        registry drifted to fictional names (``crash_recovery.json`` /
+        ``onboarding.marker``) that matched zero real files."""
+        from voice_typer.server._user_data_files import _USER_DATA_FILES
+
+        fictional = {"crash_recovery.json", "onboarding.marker"}
+        leaked = fictional & set(_USER_DATA_FILES)
+        assert not leaked, (
+            f"the purge inventory regressed to never-matching filenames: {leaked} — "
+            "use the canonical *_FILENAME constants from the owning modules"
+        )
+
+    def test_purge_inventory_covers_recovery_and_onboarding(self):
+        """The recovery snapshot + onboarding state MUST be in the
+        purge list (privacy-relevant personal data)."""
+        from voice_typer.server._user_data_files import _USER_DATA_FILES
+
+        assert "recovery.json" in _USER_DATA_FILES
+        assert ".onboarding_status.json" in _USER_DATA_FILES
 
 
 # real-collaborator integration tests ─────────────────────────

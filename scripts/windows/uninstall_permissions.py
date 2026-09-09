@@ -139,8 +139,11 @@ def _purge_user_data() -> None:
         return
 
     _log(f"--purge: removing user data at {data_dir}")
-    # The subpaths list mirrors
-    # voice_typer/server/_paths.py::user_data_subpaths_for_purge() — kept
+    # The subpaths list covers a SUBSET of the canonical user-data
+    # inventories — the heavyweight dirs plus the recovery/onboarding
+    # markers from voice_typer/server/_user_data_files.py::_USER_DATA_FILES
+    # and the directory layout used by
+    # voice_typer/server/config/_accessors.py::purge_user_data — kept
     # inline here (rather than imported) because this script may run
     # when the voice_typer package has already been partially removed
     # by the NSIS uninstaller (the Python bundle is gone before the
@@ -149,15 +152,23 @@ def _purge_user_data() -> None:
         "huggingface",  # HF model cache (GBs)
         "venv",  # Python venv (hundreds of MB)
         "logs",  # rotating log files
-        "history.db",  # SQLite history DB
-        "history.db-wal",  # SQLite WAL (may not exist)
-        "history.db-shm",  # SQLite SHM (may not exist)
-        "crash_recovery.json",  # crash-recovery snapshot
+        "db",  # history DB + sidecars + backups (O2 split)
+        "run",  # transient runtime state: pids, locks, session markers (O3 split)
+        "electron-profile",  # Electron/Chromium profile
+        "history.db",  # legacy SQLite history DB (pre-O2)
+        "history.db-wal",  # legacy SQLite WAL
+        "history.db-shm",  # legacy SQLite SHM
+        "recovery.json",  # crash-recovery snapshot (canonical name)
+        "voice-typer-recovery.json",  # legacy crash-recovery snapshot
         "backend.lock",  # single-instance POSIX lockfile
         "backend.pid",  # backend PID file
         "autostart.log",  # macOS LaunchAgent autostart log (vestigial on Windows)
         "prewarm-launchagent.log",  # vestigial on Windows
-        "onboarding.marker",  # onboarding completion sentinel
+        ".onboarding_status.json",  # onboarding state (canonical)
+        ".onboarding_complete",  # legacy onboarding markers (pre-consolidation)
+        ".onboarding_started",
+        ".onboarding_fail_count",
+        ".onboarding_progress",
     ]
     for sub in subpaths:
         target = data_dir / sub
