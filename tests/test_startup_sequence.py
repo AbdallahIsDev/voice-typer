@@ -105,17 +105,24 @@ class TestStartupSequenceRunOrder:
     startup_sequence.py module docstring (hotkey-before-model,
     mic-before-hotkey, onboarding-before-save)."""
 
-    def test_run_calls_autostart_sync_then_prewarm_mic_then_hotkey_then_model(self, app_for_startup, monkeypatch):
-        """The expected order is:
+    def test_run_dispatches_autostart_then_hotkey_then_model(self, app_for_startup, monkeypatch):
+        """The expected startup contract is:
 
-            1. startup_tasks.sync_autostart(app)
+            1. startup_tasks.sync_autostart(app) DISPATCHED (fire-and-
+               forget daemon thread — BP-129: never waited on, so a
+               hung schtasks /Query cannot stall the hotkey)
             2. startup_tasks.ensure_desktop_shortcut(app)
-            3. (parallel) startup_tasks.sync_prewarm_task + load_microphones
+            3. (parallel) load_microphones in the bounded pool
+               (sync_prewarm_task is NEVER called — dead ceremony)
             4. app.hotkeys.register()
             5. app.models.start_background_load()
 
-        Each numbered phase must complete before the next begins.
+        Hotkey registration must run (it gates dictation); model load
+        must start after it. Autostart + mic work must be underway
+        without blocking the hotkey.
         """
+        import threading
+
         from voice_typer.server import startup_tasks
 
         call_order: list[str] = []
@@ -124,11 +131,16 @@ class TestStartupSequenceRunOrder:
             "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
-        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: call_order.append("sync_autostart"))
+        monkeypatch.setattr(
+            startup_tasks,
+            "sync_autostart",
+            lambda app: call_order.append("sync_autostart") or {"registered": False, "error": None},
+        )
+        prewarm_calls: list = []
         monkeypatch.setattr(
             startup_tasks,
             "sync_prewarm_task",
-            lambda app, evt=None: call_order.append("sync_prewarm_task"),
+            lambda app, evt=None: prewarm_calls.append(1),
         )
         monkeypatch.setattr(
             startup_tasks,
@@ -145,6 +157,15 @@ class TestStartupSequenceRunOrder:
             "start_accessibility_pulse",
             lambda app, initial_state: call_order.append("start_accessibility_pulse"),
         )
+
+        autostart_threads: list[str] = []
+        _orig_thread_start = threading.Thread.start
+
+        def spy_start(self):
+            autostart_threads.append(self.name)
+            return _orig_thread_start(self)
+
+        monkeypatch.setattr(threading.Thread, "start", spy_start)
 
         # Replace app.hotkeys + app.models with recorders.
         app_for_startup.hotkeys = MagicMock()
@@ -164,36 +185,31 @@ class TestStartupSequenceRunOrder:
         StartupSequence(app_for_startup).run()
 
         # ── Assert the expected ordering ─────────────────────────────
-        # Autostart must come BEFORE hotkey registration (so F2 works
-        # even if hotkey backend init fails) and BEFORE model load
-        # (so the user can quit cleanly while the model downloads).
-        assert "sync_autostart" in call_order, "autostart sync must run"
+        # BP-129: the dead prewarm ceremony is never dispatched.
+        assert prewarm_calls == [], "startup must never call sync_prewarm_task (no-op stub)"
+        assert "startup-prewarm-sync" not in autostart_threads, (
+            "the prewarm sync thread is deleted — no such thread may spawn"
+        )
+        # Autostart sync IS dispatched (fire-and-forget daemon thread).
+        assert "startup-autostart-sync" in autostart_threads, (
+            "sync_autostart must be dispatched on a 'startup-autostart-sync' thread"
+        )
         assert "hotkeys.register" in call_order, "hotkey registration must run"
         assert "models.start_background_load" in call_order, "model load must start"
 
-        autostart_idx = call_order.index("sync_autostart")
         hotkey_idx = call_order.index("hotkeys.register")
         model_idx = call_order.index("models.start_background_load")
 
-        assert autostart_idx < hotkey_idx, (
-            "RACE-020 / phase ordering: autostart sync MUST precede hotkey "
-            f"registration (got autostart@{autostart_idx}, hotkey@{hotkey_idx})"
-        )
         assert hotkey_idx < model_idx, (
             "Phase ordering: hotkey registration MUST precede background model "
             f"load (got hotkey@{hotkey_idx}, model@{model_idx}). Rationale: "
             "F2 must work even if the model fails to load."
         )
 
-        # Prewarm + mic enumeration must run between autostart and hotkey
-        # (so the tray menu has mics available when the hotkey is bound).
-        assert "sync_prewarm_task" in call_order, "prewarm task sync must run"
+        # Mic enumeration must run before the hotkey is bound (the tray
+        # menu needs the mic list).
         assert "load_microphones" in call_order, "mic enumeration must run"
-        prewarm_idx = call_order.index("sync_prewarm_task")
         mic_idx = call_order.index("load_microphones")
-        assert autostart_idx < prewarm_idx, "Phase ordering: autostart sync MUST precede prewarm sync"
-        assert autostart_idx < mic_idx, "Phase ordering: autostart sync MUST precede mic enumeration"
-        assert prewarm_idx < hotkey_idx, "Phase ordering: prewarm sync MUST precede hotkey registration"
         assert mic_idx < hotkey_idx, "Phase ordering: mic enumeration MUST precede hotkey registration"
 
     def test_run_marks_session_active_after_crash_check(self, app_for_startup, monkeypatch, tmp_config_dir):

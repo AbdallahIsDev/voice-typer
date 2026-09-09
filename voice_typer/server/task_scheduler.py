@@ -55,9 +55,9 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     """Run ``schtasks`` with *args*. Returns (returncode, combined output).
 
     ``schtasks /Create`` can block for up to 30s if the
-    Windows Task Scheduler service is hung. This function is now called
-    from a background thread (via ``_startup_parallel_work`` in app.py)
-    so it doesn't block the main startup sequence.
+    Windows Task Scheduler service is hung. Callers run this off the
+    hotkey-registration critical path (the phase-6 autostart sync
+    dispatches it on a fire-and-forget daemon thread).
     """
     cmd = ["schtasks"] + args
     try:

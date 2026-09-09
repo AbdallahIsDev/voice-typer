@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.duration import format_duration
-from voice_typer.server.platform_utils import is_linux, is_macos, is_wayland_session, is_windows
+from voice_typer.server.platform_utils import is_linux, is_macos, is_wayland_session
 from voice_typer.server.server_platform import autostart as _autostart_facade
 from voice_typer.server.startup_sequence._phases_early import StageResult
 
@@ -290,80 +290,92 @@ class LatePhases:
         return StageResult(success=True)
 
     def _phase_6_autostart_prewarm_mics(self) -> StageResult:
-        """Phase 6 — sync autostart + prewarm + mic enumeration + pack check.
+        """Phase 6 — sync autostart + mic enumeration + pack check.
 
-        Syncs the OS-level autostart entry (RACE-020 shutdown check
-        immediately after), then dispatches the prewarm task sync +
-        the launch-time offline-pack existence check on
-        fire-and-forget daemon threads (so neither can delay hotkey
-        registration), and runs microphone enumeration in a bounded
-        parallel pool with a 5s timeout. A final RACE-020 shutdown
-        check (``Interrupted before hotkey registration``) aborts
-        before Phase 7 if ``app._shutting_down`` was set during the
-        parallel work.
+        The OS-level autostart sync runs on a fire-and-forget daemon
+        thread (BP-129: ``sync_autostart`` shells out to schtasks
+        /Query on Windows — up to 30s against a hung Task Scheduler
+        service — so it must never sit on the hotkey-registration
+        critical path). Its completion applies
+        ``tray.set_autostart_enabled``, which invalidates the menu
+        cache, so even a late result corrects the first menu paint.
+        Microphone enumeration runs in a bounded parallel pool with a
+        5s timeout. A final RACE-020 shutdown check aborts before
+        Phase 7 if ``app._shutting_down`` was set during the parallel
+        work. (The OS-level prewarm-task sync is gone entirely:
+        prewarm is a worker startup phase — see 1b below.)
         """
         app = self._app
-        # 1. Sync autostart config with platform
-        log.debug("[STARTUP] Syncing autostart")
-        # Phase 2: invoke startup_tasks directly. The
-        # ``app._sync_autostart`` delegate was removed; callers now target
-        # startup_tasks (and tests monkeypatch startup_tasks).
+        # 1. Sync autostart config with platform — OFF the critical
+        # path (see docstring). Phase 2: invoke startup_tasks
+        # directly. The ``app._sync_autostart`` delegate was removed;
+        # callers now target startup_tasks (and tests monkeypatch
+        # startup_tasks).
         from voice_typer.server import startup_tasks
 
-        # (a): sync_autostart returns a result dict whose
-        # ``actual_post_sync`` field carries the post-sync OS-level
-        # autostart state (True iff the OS-level autostart entry is
-        # currently registered). Use that field instead of calling
-        # ``is_autostart_enabled()`` a second time — the pre- path
-        # called the platform helper twice back-to-back on every startup,
-        # and the second call always returned the same value as the one
-        # sync_autostart already read internally. Falling back to a direct
-        # ``is_autostart_enabled()`` call only when sync_autostart's
-        # result lacks the field (older test stubs that monkeypatch
-        # sync_autostart to return ``None``).
-        autostart_result = startup_tasks.sync_autostart(app)
-        if isinstance(autostart_result, dict) and "actual_post_sync" in autostart_result:
-            autostart_enabled = bool(autostart_result["actual_post_sync"])
-        else:
-            # Test-stub fallback: the monkeypatched sync_autostart returned
-            # ``None`` (or a dict without the field). Fall back to the
-            # direct platform read so the tray menu shows the real state.
-            autostart_enabled = _autostart_facade.is_autostart_enabled()
-        app.tray.set_autostart_enabled(autostart_enabled)
+        def _autostart_task() -> None:
+            try:
+                autostart_result = startup_tasks.sync_autostart(app)
+            except Exception:
+                log.warning("[STARTUP] autostart sync failed", exc_info=True)
+                return
+            # (a): sync_autostart returns a result dict whose
+            # ``actual_post_sync`` field carries the post-sync OS-level
+            # autostart state (True iff the OS-level autostart entry is
+            # currently registered). Use that field instead of calling
+            # ``is_autostart_enabled()`` a second time — the pre- path
+            # called the platform helper twice back-to-back on every startup,
+            # and the second call always returned the same value as the one
+            # sync_autostart already read internally. Falling back to a direct
+            # ``is_autostart_enabled()`` call only when sync_autostart's
+            # result lacks the field (older test stubs that monkeypatch
+            # sync_autostart to return ``None``).
+            if isinstance(autostart_result, dict) and "actual_post_sync" in autostart_result:
+                autostart_enabled = bool(autostart_result["actual_post_sync"])
+            else:
+                # Test-stub fallback: the monkeypatched sync_autostart returned
+                # ``None`` (or a dict without the field). Fall back to the
+                # direct platform read so the tray menu shows the real state.
+                try:
+                    autostart_enabled = _autostart_facade.is_autostart_enabled()
+                except Exception:
+                    log.warning("[STARTUP] autostart state read failed", exc_info=True)
+                    return
+            app.tray.set_autostart_enabled(autostart_enabled)
+
+        autostart_thread = threading.Thread(
+            target=_autostart_task,
+            name="startup-autostart-sync",
+            daemon=True,
+        )
+        autostart_thread.start()
+        log.debug(
+            "[STARTUP] autostart sync dispatched to fire-and-forget "
+            "daemon thread (no wait, no timeout) — hotkey registration "
+            "proceeds without waiting on it"
+        )
 
         # RACE-020: check for shutdown after each major step
         if app._shutting_down:
             log.debug("[STARTUP] Interrupted after autostart sync")
             return StageResult(success=False, data={"shutdown": True})
 
-        # 1b. Sync the OS-level prewarm scheduled task.
-        #     fast_startup is always enabled; the prewarm task is registered
-        #     at startup so the OS file cache is kept warm.  Cheap (a single
-        #     schtasks /Query) and self-healing: if the user deleted the task
-        #     or moved machines, it gets re-registered.
-        #
-        # PERF-: prewarm sync + mic enumeration are independent
-        # I/O-bound tasks. Run them in parallel so the total startup
-        # time is max(t_prewarm, t_mics) instead of t_prewarm + t_mics.
-        #
-        # the previous implementation used ``ThreadPoolExecutor``,
-        # whose worker threads are NON-daemon on Python 3.9+ (CPython's
-        # ``_python_exit`` atexit handler joins them with no timeout).
-        # If ``sync_prewarm_task`` got stuck inside ``subprocess.run``
-        # (``schtasks`` with a 30s timeout against a hung Windows Task
-        # Scheduler service), the pool's ``shutdown(wait=False,
-        # cancel_futures=True)`` returned immediately but the in-flight
-        # worker continued running for up to ~20 more seconds — and
-        # ``_python_exit`` then blocked process exit on it (up to 30s
-        # hang on Windows Task Scheduler).
-        #
-        # Fix: use ``_run_parallel_with_timeout`` from ``_timeout_utils``,
-        # which dispatches each task via ``_run_with_timeout`` — and
-        # ``_run_with_timeout`` wraps the call in a daemon
-        # ``threading.Thread``. Daemon threads are NOT registered in
-        # CPython's ``_threads_queues``, so ``_python_exit`` skips them
-        # entirely. A stuck ``schtasks`` worker therefore does NOT
-        # block process exit.
+        # 1b. (BP-129) The OS-level prewarm scheduled-task sync is gone:
+        # prewarm became a worker startup phase (master plan §6.2 P-1),
+        # so there is no scheduled task to register and no schtasks
+        # round-trip to run. The trigger-regime INFO line and the
+        # fire-and-forget dispatch thread that used to call the (now
+        # no-op) ``sync_prewarm_task`` stub were deleted with it —
+        # neither the 30s schtasks ceiling nor dead ceremony sits
+        # between startup and hotkey registration anymore.
+        # (``sync_prewarm_task`` itself stays as a no-op stub: the
+        # ``set_config`` IPC response still carries its
+        # ``prewarm_status`` field.)
+
+        # Shared prelude for the bounded parallel work below: the
+        # timeout-utils runner (daemon workers never block process
+        # exit) and the RACE-020 shutdown event so executor tasks can
+        # abort early if the app is quitting during startup.
         from voice_typer.server._timeout_utils import (
             TIMEOUT as _TIMEOUT_SENTINEL,
             _run_parallel_with_timeout,
@@ -373,147 +385,93 @@ class LatePhases:
         # can abort early if the app is quitting during startup.
         _shutdown_event = app._shutting_down_event if hasattr(app, "_shutting_down_event") else None
 
-        # log the trigger regime that will be registered, so
-        # operators can verify from the app-start logs which triggers
-        # are in effect.  On Windows the XML task uses BootTrigger +
-        # EventTrigger (both system-start), and the Run-key fallback
-        # fires at logon.  On POSIX, the autostart entry (LaunchAgent
-        # on macOS / .desktop on Linux) launches the app at login;
-        # prewarm itself runs as a worker startup phase (§6.2 P-1),
-        # not as a separate OS-scheduled binary.
-        _triggers = (
-            "boot + event via Task Scheduler XML"
-            if is_windows()
-            else "logon via Run-key fallback, or OnBootSec/RunAtLoad on POSIX"
-        )
-        log.info(
-            "[STARTUP] Syncing prewarm task — triggers: %s",
-            _triggers,
-        )
-
-        def _startup_parallel_work() -> None:
-            # split the parallel pool. Pre-fix, both ``sync_prewarm_task``
-            # and ``load_microphones`` ran in parallel with a 10s per-task
-            # timeout, and hotkey registration (line 777) ran AFTER both
-            # completed. So if ``sync_prewarm_task`` hung (Windows Task
-            # Scheduler can be slow on a cold boot), the user couldn't
-            # press F2 to start dictation for up to 10s after the tray
-            # icon appeared — a regression on the primary interaction path.
-            # Only ``load_microphones`` actually needs to complete before
-            # hotkey registration (the tray menu needs the mic list);
-            # ``sync_prewarm_task`` is pure housekeeping (re-syncing the
-            # Windows Task Scheduler entry / Run-key fallback / launchd
-            # plist / systemd unit) and can complete any time later.
+        # Phase 2d (§8.10, §8.16): launch-time offline-pack existence
+        # check. Fire-and-forget daemon thread — the cheap
+        # ``pack-manifest.json`` existence scan + the optional
+        # consent-gated re-download must never delay hotkey
+        # registration or the window. When the pack is present the
+        # full SHA-256 checksum runs on its own daemon thread
+        # (BackgroundChecksum); startup only ever does the cheap
+        # check synchronously (§8.16).
+        def _pack_check_task() -> None:
+            # The concrete VoiceTyperApp exposes several AppProtocol
+            # members (history_db, recording, recorder, …) as lazy
+            # properties while the protocol declares them as plain
+            # attributes, so the concrete class isn't structurally
+            # assignable to AppProtocol (pyrefly). This function only
+            # reads `config`; the cast is a documented assertion of
+            # that narrow surface (same class of workaround as
+            # startup_tasks.py's `setattr` on a non-protocol member).
             #
-            # Fix: spawn ``sync_prewarm_task`` on a fire-and-forget daemon
-            # thread (no wait, no timeout); run only ``load_microphones``
-            # in the bounded parallel pool with a shorter 5s timeout.
-            # ``sync_prewarm_task`` is idempotent and best-effort, so a
-            # hung/slow run has no correctness impact (the next launch
-            # will re-sync).
-            def _prewarm_task() -> None:
-                startup_tasks.sync_prewarm_task(app, _shutdown_event)
+            # RUNTIME-FIX: ``AppProtocol`` is imported under
+            # TYPE_CHECKING at module scope, but ``cast()`` evaluates
+            # its type argument at RUNTIME — without a runtime
+            # binding this thread died with ``NameError`` before ever
+            # calling ``check_offline_pack_on_launch``, silently
+            # disabling the launch-time offline-pack check (observed
+            # as PytestUnhandledThreadExceptionWarning in the suite).
+            # Function-local import (module-level would violate the
+            # import-cycle discipline documented in the module
+            # docstring; ``providers`` is already a runtime
+            # dependency via ``startup_tasks``).
+            from voice_typer.server.providers import AppProtocol as _AppProtocol
 
-            prewarm_thread = threading.Thread(
-                target=_prewarm_task,
-                name="startup-prewarm-sync",
-                daemon=True,
-            )
-            prewarm_thread.start()
-            log.debug(
-                "[STARTUP] prewarm sync dispatched to fire-and-forget "
-                "daemon thread (no wait, no timeout) — hotkey registration "
-                "proceeds without waiting on it"
-            )
+            startup_tasks.check_offline_pack_on_launch(cast(_AppProtocol, app), _shutdown_event)
 
-            # Phase 2d (§8.10, §8.16): launch-time offline-pack existence
-            # check. Fire-and-forget daemon thread (same pattern as the
-            # prewarm sync) — the cheap ``pack-manifest.json`` existence
-            # scan + the optional consent-gated re-download must never
-            # delay hotkey registration or the window. When the pack is
-            # present the full SHA-256 checksum runs on its own daemon
-            # thread (BackgroundChecksum); startup only ever does the
-            # cheap check synchronously (§8.16).
-            def _pack_check_task() -> None:
-                # The concrete VoiceTyperApp exposes several AppProtocol
-                # members (history_db, recording, recorder, …) as lazy
-                # properties while the protocol declares them as plain
-                # attributes, so the concrete class isn't structurally
-                # assignable to AppProtocol (pyrefly). This function only
-                # reads `config`; the cast is a documented assertion of
-                # that narrow surface (same class of workaround as
-                # startup_tasks.py's `setattr` on a non-protocol member).
-                #
-                # RUNTIME-FIX: ``AppProtocol`` is imported under
-                # TYPE_CHECKING at module scope, but ``cast()`` evaluates
-                # its type argument at RUNTIME — without a runtime
-                # binding this thread died with ``NameError`` before ever
-                # calling ``check_offline_pack_on_launch``, silently
-                # disabling the launch-time offline-pack check (observed
-                # as PytestUnhandledThreadExceptionWarning in the suite).
-                # Function-local import (module-level would violate the
-                # import-cycle discipline documented in the module
-                # docstring; ``providers`` is already a runtime
-                # dependency via ``startup_tasks``).
-                from voice_typer.server.providers import AppProtocol as _AppProtocol
+        pack_thread = threading.Thread(
+            target=_pack_check_task,
+            name="startup-pack-check",
+            daemon=True,
+        )
+        pack_thread.start()
+        log.debug(
+            "[STARTUP] Phase 2d pack existence check dispatched to fire-and-forget daemon thread (no wait, no timeout)"
+        )
 
-                startup_tasks.check_offline_pack_on_launch(cast(_AppProtocol, app), _shutdown_event)
+        def _mic_task() -> None:
+            startup_tasks.load_microphones(app, _shutdown_event)
 
-            pack_thread = threading.Thread(
-                target=_pack_check_task,
-                name="startup-pack-check",
-                daemon=True,
-            )
-            pack_thread.start()
-            log.debug(
-                "[STARTUP] Phase 2d pack existence check dispatched to "
-                "fire-and-forget daemon thread (no wait, no timeout)"
-            )
-
-            def _mic_task() -> None:
-                startup_tasks.load_microphones(app, _shutdown_event)
-
-            items = [
-                ("mic", _mic_task, 5.0),
-            ]
-            results = _run_parallel_with_timeout(items)
-            for label, value in results:
-                # ``_run_parallel_with_timeout`` captures per-call
-                # failures into the result tuple (caller decides
-                # whether to re-raise / log / ignore). ``TIMEOUT``
-                # means the task did not finish within its budget;
-                # the daemon worker is leaked (and will be reaped at
-                # process exit by virtue of being a daemon).
-                if value is _TIMEOUT_SENTINEL:
-                    log.warning(
-                        "[STARTUP] %s task did not complete within 5s budget "
-                        "(daemon worker leaked; will not block process exit)",
-                        label,
-                    )
-                elif isinstance(value, BaseException):
-                    log.warning("[STARTUP] %s task failed: %s", label, value)
-                else:
-                    # Task completed successfully (return value is
-                    # whatever the task function returned — typically
-                    # ``None`` for these two startup tasks).
-                    pass
-            # PERF-: the 30s ``sd.query_devices()`` device-change
-            # poller (``_start_device_change_poller``) was removed from
-            # startup because it is fully redundant with the
-            # event-driven ``MicrophoneDeviceWatcher`` started in
-            # ``Recorder.__init__`` (WM_DEVICECHANGE on Windows,
-            # ``/dev/snd`` polling on Linux, CoreAudio property-listener
-            # on macOS). The watcher is the sole source of truth; the
-            # 30s poller was a defence-in-depth fallback that cost
-            # ~1-5ms of CPU every 30s and allocated a fresh
-            # ``threading.Event()`` object every second.  Phase 1
-            # also deleted the now-orphaned ``_start_device_change_poller``
-            # delegate from this class — see test_bugfix_regressions.py
-            # ``TestAudioMicDeviceChangePoller`` for the full history.
+        items = [
+            ("mic", _mic_task, 5.0),
+        ]
+        results = _run_parallel_with_timeout(items)
+        for label, value in results:
+            # ``_run_parallel_with_timeout`` captures per-call
+            # failures into the result tuple (caller decides
+            # whether to re-raise / log / ignore). ``TIMEOUT``
+            # means the task did not finish within its budget;
+            # the daemon worker is leaked (and will be reaped at
+            # process exit by virtue of being a daemon).
+            if value is _TIMEOUT_SENTINEL:
+                log.warning(
+                    "[STARTUP] %s task did not complete within 5s budget "
+                    "(daemon worker leaked; will not block process exit)",
+                    label,
+                )
+            elif isinstance(value, BaseException):
+                log.warning("[STARTUP] %s task failed: %s", label, value)
+            else:
+                # Task completed successfully (return value is
+                # whatever the task function returned — typically
+                # ``None`` for these two startup tasks).
+                pass
+        # PERF-: the 30s ``sd.query_devices()`` device-change
+        # poller (``_start_device_change_poller``) was removed from
+        # startup because it is fully redundant with the
+        # event-driven ``MicrophoneDeviceWatcher`` started in
+        # ``Recorder.__init__`` (WM_DEVICECHANGE on Windows,
+        # ``/dev/snd`` polling on Linux, CoreAudio property-listener
+        # on macOS). The watcher is the sole source of truth; the
+        # 30s poller was a defence-in-depth fallback that cost
+        # ~1-5ms of CPU every 30s and allocated a fresh
+        # ``threading.Event()`` object every second.  Phase 1
+        # also deleted the now-orphaned ``_start_device_change_poller``
+        # delegate from this class — see test_bugfix_regressions.py
+        # ``TestAudioMicDeviceChangePoller`` for the full history.
 
         # 1b. Create desktop launcher shortcut on first run (if absent).
-        # Dispatched on a fire-and-forget daemon thread (same precedent as
-        # ``sync_prewarm_task`` above): the COM fast path is quick, but when
+        # Dispatched on a fire-and-forget daemon thread (same precedent
+        # as the pack check above): the COM fast path is quick, but when
         # the COM API is unavailable the fallback spawns PowerShell with a
         # 30s ceiling plus a second PowerShell icon-stamp step that takes
         # seconds — all of which previously ran on the startup critical path
@@ -538,8 +496,7 @@ class LatePhases:
             "daemon thread — hotkey registration proceeds without waiting on it"
         )
 
-        log.debug("[STARTUP] Running prewarm sync + mic enumeration")
-        _startup_parallel_work()
+        log.debug("[STARTUP] Running mic enumeration (bounded pool)")
 
         # RACE-020: check for shutdown after parallel work
         if app._shutting_down:

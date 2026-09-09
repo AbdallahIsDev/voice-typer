@@ -304,40 +304,47 @@ class TestPosixSingleInstanceHandleRelease:
 
 
 class TestStartupSharedBudget:
-    """GT-A1-3 → DJ-4: startup parallel work must NOT let a slow
-    ``sync_prewarm_task`` delay startup.
+    """BP-129: the dead prewarm ceremony is gone; autostart sync is
+    fire-and-forget.
 
-    The pre-GT-A1-3 code called ``fut.result(timeout=10)`` per future,
-    which summed the timeouts: a stuck ``prewarm`` task could consume
-    10s, then a stuck ``mic`` task could consume ANOTHER 10s — total
-    worst-case 20s. GT-A1-3 originally moved both futures under a
-    single ``concurrent.futures.wait({f1, f2}, timeout=10)`` shared
-    budget; the DJ-4 refactor then went further and removed the wait
-    entirely — ``sync_prewarm_task`` runs on a fire-and-forget daemon
-    thread (no wait, no timeout) and only ``load_microphones`` runs in
-    the bounded parallel pool (5s budget). These tests pin the current
-    DJ-4 design.
+    GT-A1-3 → DJ-4 pinned a fire-and-forget ``sync_prewarm_task``
+    dispatch; BP-129 deleted that dispatch entirely (the OS-level
+    prewarm task no longer exists — prewarm is a worker startup
+    phase). These tests pin the current design: NO prewarm thread is
+    spawned, the autostart sync runs on its own daemon thread (never
+    waited on), and only ``load_microphones`` runs in the bounded
+    parallel pool (5s budget).
     """
 
-    def test_prewarm_fire_and_forget_and_mic_alone_in_bounded_pool(
+    def test_no_prewarm_thread_and_mic_alone_in_bounded_pool(
         self,
         app_for_startup,  # noqa: F811 - pytest fixture injected by name (imported at module top)
         monkeypatch,
     ):
-        """The parallel work must (a) dispatch ``sync_prewarm_task`` on
-        a fire-and-forget daemon thread and (b) run ONLY
-        ``load_microphones`` through ``_run_parallel_with_timeout``
-        with the 5s budget — NOT both futures via
-        ``concurrent.futures.wait``.
+        """Startup must (a) NOT dispatch any prewarm thread, (b) dispatch
+        the autostart sync on a fire-and-forget daemon thread, and (c)
+        run ONLY ``load_microphones`` through
+        ``_run_parallel_with_timeout`` with the 5s budget.
         """
         import threading
 
         from voice_typer.server import _timeout_utils, startup_tasks
 
-        # Stub the heavy IO tasks so they complete instantly.
-        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        # Stub the heavy IO tasks so they complete instantly. The
+        # prewarm stub stays patched so a regressed dispatch would
+        # noisily hit the mock instead of silently passing.
+        prewarm_calls: list = []
+        monkeypatch.setattr(
+            startup_tasks,
+            "sync_prewarm_task",
+            lambda app, evt=None: prewarm_calls.append(1),
+        )
         monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
-        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(
+            startup_tasks,
+            "sync_autostart",
+            lambda app: {"registered": False, "error": None, "actual_post_sync": False},
+        )
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
@@ -353,7 +360,7 @@ class TestStartupSharedBudget:
 
         monkeypatch.setattr(_timeout_utils, "_run_parallel_with_timeout", spy_run)
 
-        # Spy on Thread.start to catch the prewarm dispatch.
+        # Spy on Thread.start to catch daemon dispatches.
         started_threads: list[tuple[str, bool]] = []
         _orig_thread_start = threading.Thread.start
 
@@ -374,55 +381,64 @@ class TestStartupSharedBudget:
 
         StartupSequence(app_for_startup).run()
 
-        # DJ-4: prewarm sync must be dispatched on a daemon thread...
+        # BP-129: no prewarm thread may be spawned and the stub must
+        # never be called (dead ceremony deleted, not dispatched).
         prewarm_spawns = [t for t in started_threads if t[0] == "startup-prewarm-sync"]
-        assert len(prewarm_spawns) == 1, (
-            f"DJ-4: sync_prewarm_task must be dispatched on a fire-and-forget "
-            f"daemon thread named 'startup-prewarm-sync'. Got {started_threads!r}."
+        assert prewarm_spawns == [], (
+            "BP-129: the prewarm sync ceremony is deleted — no "
+            f"'startup-prewarm-sync' thread may spawn. Got {started_threads!r}."
         )
-        assert prewarm_spawns[0][1] is True, (
-            "DJ-4: the prewarm sync thread must be a daemon (must not block process exit)."
+        assert prewarm_calls == [], "BP-129: startup must never call sync_prewarm_task (no-op stub)."
+
+        # ...but the autostart sync IS dispatched on a daemon thread...
+        autostart_spawns = [t for t in started_threads if t[0] == "startup-autostart-sync"]
+        assert len(autostart_spawns) == 1, (
+            "BP-129: sync_autostart must be dispatched on a fire-and-forget "
+            f"daemon thread named 'startup-autostart-sync'. Got {started_threads!r}."
+        )
+        assert autostart_spawns[0][1] is True, (
+            "BP-129: the autostart sync thread must be a daemon (must not block process exit)."
         )
 
         # ...and must NOT appear in the bounded parallel pool: only the
         # mic task runs there, with the 5s budget.
         assert len(pool_calls) == 1, (
-            f"DJ-4: _run_parallel_with_timeout must be called exactly once (mic only). Got {len(pool_calls)} calls."
+            f"BP-129: _run_parallel_with_timeout must be called exactly once (mic only). Got {len(pool_calls)} calls."
         )
         items = pool_calls[0]
-        assert len(items) == 1, (
-            f"DJ-4: the bounded pool must contain ONLY the mic task — "
-            f"prewarm is fire-and-forget. Got {len(items)} items."
-        )
+        assert len(items) == 1, f"BP-129: the bounded pool must contain ONLY the mic task. Got {len(items)} items."
         label, _task, budget = items[0]
-        assert label == "mic", f"DJ-4: pool item label must be 'mic'. Got {label!r}."
-        assert budget == 5.0, f"DJ-4: mic task must use the 5s budget. Got {budget}."
+        assert label == "mic", f"BP-129: pool item label must be 'mic'. Got {label!r}."
+        assert budget == 5.0, f"BP-129: mic task must use the 5s budget. Got {budget}."
 
-    def test_prewarm_slowness_does_not_delay_startup(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
-        """Behavioral test: with BOTH tasks slow, startup returns within
-        the mic budget (~0.5s, monkeypatched) — the fire-and-forget
-        prewarm thread must not be waited on.
+    def test_slow_autostart_does_not_delay_startup(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
+        """Behavioral test: with BOTH autostart sync and mic enumeration
+        slow (4.0s), startup returns within the mic budget (~0.5s,
+        monkeypatched) — neither fire-and-forget thread may be waited on.
 
-        Any regressed design that waits on the prewarm task or on the
-        leaked mic worker blocks for at least the full slow-task
-        duration (4.0s); the correct design returns after ~0.5s plus
-        scheduler slack.
+        Any regressed design that waits on either task blocks for at
+        least the full slow-task duration (4.0s); the correct design
+        returns after ~0.5s plus scheduler slack.
         """
         from voice_typer.server import _timeout_utils, startup_tasks
 
-        # Both tasks sleep 4.0s — far beyond the (patched) 0.5s budget,
-        # so every wait-on-task design is unambiguous.
+        # Slow tasks — far beyond the (patched) 0.5s budget, so every
+        # wait-on-task design is unambiguous.
         def slow_task(app, evt=None):
             time.sleep(4.0)
 
+        def slow_autostart(app):
+            time.sleep(4.0)
+            return {"registered": False, "error": None, "actual_post_sync": False}
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", slow_autostart)
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", slow_task)
         monkeypatch.setattr(startup_tasks, "load_microphones", slow_task)
-        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
         # Patch the pool budget 5.0 → 0.5 so the test runs fast. The
-        # behavior under test (single bounded budget vs summed) is
+        # behavior under test (bounded budget vs unbounded wait) is
         # identical with any budget value.
         real_run = _timeout_utils._run_parallel_with_timeout
 
@@ -450,8 +466,8 @@ class TestStartupSharedBudget:
         # headroom for loaded-CI scheduling jitter while still catching
         # every wait-on-task regression.
         assert elapsed < 2.5, (
-            f"startup must NOT wait on the fire-and-forget prewarm "
-            f"thread — elapsed {elapsed:.2f}s suggests the prewarm task "
+            f"startup must NOT wait on the fire-and-forget autostart "
+            f"thread - elapsed {elapsed:.2f}s suggests a startup task "
             "was waited on. Expected < 2.5s with the patched 0.5s mic "
             "budget and 4.0s slow tasks."
         )
