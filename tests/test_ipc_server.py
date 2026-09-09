@@ -1207,7 +1207,7 @@ class TestCommandCostsContract:
         that still bridge these calls — those entries are explicitly
         whitelisted here.
         """
-        # Commands moved to Tauri Rust host () — kept in COMMAND_COSTS
+        # Commands moved to Tauri Rust host — kept in COMMAND_COSTS
         # for back-compat with older Electron builds.
         zr_45_moved_to_rust = {
             "delete_all_personal_data",

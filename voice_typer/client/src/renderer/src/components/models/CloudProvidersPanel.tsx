@@ -1,7 +1,7 @@
 /**
  * CloudModelsPanel — cloud ASR providers tab content for the Models page.
  *
- * (UI/UX overhaul 2026-08-20, point 11): rebuilt to follow the SAME
+ * (UI/UX overhaul 2026-08-20): rebuilt to follow the SAME
  * structural pattern as the Local Models tab:
  *   • Each provider (OpenAI, Groq, Deepgram) is a collapsible group
  *     header inside the shared `ModelGroupList` accordion primitives
@@ -13,7 +13,7 @@
  *     the existing API-key-entry UI, now triggered from within the
  *     consistent group/list pattern instead of being permanently
  *     visible in a separate card style.
- *   • Tab renamed "Cloud Providers" → "Cloud Models" (point 12); the
+ *   • Tab renamed "Cloud Providers" → "Cloud Models"; the
  *     heading + description below the tab switcher match.
  *
  * The visual language (borders, spacing, backgrounds, icons,
@@ -35,7 +35,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
 import {
@@ -69,7 +69,7 @@ export interface CloudProvidersPanelProps {
 	onSaveApiKey: (provider: string) => void;
 	onTestConnection: (provider: string) => void;
 	onConsentChange: (provider: string, granted: boolean) => void;
-	/** : clear the test result for a single provider. Wired to
+	/** Clear the test result for a single provider. Wired to
 	 * the API-key Input's onChange so stale "Success" badges don't
 	 * linger after the user edits the key. Optional so the panel can
 	 * be mounted without it (the consumer is responsible for wiring
@@ -77,7 +77,14 @@ export interface CloudProvidersPanelProps {
 	onClearTestResult?: (provider: string) => void;
 }
 
-export function CloudProvidersPanel({
+// Wrapped in `React.memo` (same pattern as the memo'd settings sections
+// and the local-models panel): the panel's props are data + stable
+// callbacks, so a Models-page re-render driven by unrelated state (e.g.
+// a local-model download tick) skips the whole cloud tab tree. The page
+// passes `onApiKeyChange` as a `useCallback`-stable handler and all other
+// handlers come from `useCallback`-stable hook actions, so the memo
+// gates effectively.
+export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 	config,
 	cloudProviders,
 	apiKeys,
@@ -191,7 +198,7 @@ export function CloudProvidersPanel({
 			</ModelGroupAccordion>
 		</div>
 	);
-}
+});
 
 // ── Sub-component: API-key entry + test + consent form ────────────────
 //

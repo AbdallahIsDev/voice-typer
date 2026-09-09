@@ -590,21 +590,14 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
 def redact_for_export(text: str) -> str:
     """Unified PII + secret redaction pipeline for diagnostic exports.
 
-    pre-fix, the codebase ran TWO parallel PII-redaction
-        pipelines. :mod:`voice_typer.server.diagnostics_export` chained
-        ``redact_secret(redact_pii(line))`` for the live ``voice-typer.log``
-        in the diagnostic zip, while :mod:`voice_typer.server.ipc_diagnostics`
-        used :func:`voice_typer.server.security._redact_text` (which runs
-        the same chain internally but with a fast-path trigger). The two
-        pipelines had already drifted once (the diagnostics_export chain
-        did not pass ``aggressive=True`` to :func:`redact_secret`, missing
-    short bare secrets — ).
-
-        This helper is the single source of truth for "redact this text
-        before it lands in a diagnostic bundle / startup-error log". Both
-        callers route through it so a future redaction improvement (a new
-        pattern, a new keyword, a tighter threshold) only has to land in
-        one place.
+    History: the codebase once ran two parallel PII-redaction pipelines
+    (one per diagnostic exporter). The second exporter is gone — its
+    module was deleted as dead code — so this helper is now the single
+    source of truth for "redact this text before it lands in a
+    diagnostic bundle / startup-error log". The remaining exporter
+    routes through it, so a future redaction improvement (a new
+    pattern, a new keyword, a tighter threshold) only has to land in
+    one place.
 
     Pipeline ():
           1. :func:`redact_pii` — applies the PII patterns (email, phone,

@@ -6,7 +6,8 @@
  * `_relaunching` only AFTER startPython() completes. Also verifies
  *  (clearTcpStartupTimeout called from relaunchApp).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MainState } from "../../state";
 
@@ -16,6 +17,22 @@ const mockStopPython = vi.fn();
 const mockStartPython = vi.fn();
 const mockClearTcpStartupTimeout = vi.fn();
 const mockResetStopPythonFlags = vi.fn();
+// Atomic-write is mocked so the production-branch test never touches the
+// real filesystem (its own behavioral contract — including the Windows
+// fsync open-flag — is pinned in atomic-write.test.ts).
+const mockAtomicWriteFile = vi.fn();
+
+// Electron `app` mock — a mutable plain object (NOT the readonly-typed
+// real `App` interface) so tests can flip packaged/dev mode per-test via
+// `mockApp.isPackaged = true` without fighting the read-only typing.
+// Mirrors the mockApp pattern in python-args.test.ts.
+const mockApp = {
+	quit: vi.fn(),
+	exit: vi.fn(),
+	relaunch: vi.fn(),
+	isPackaged: false, // dev mode — flipped to true per-test
+	isQuitting: false,
+};
 
 // Shared mutable state object (mockState).
 const mockState: MainState = {
@@ -44,15 +61,16 @@ const mockState: MainState = {
 };
 
 vi.mock("electron", () => ({
-	app: {
-		quit: vi.fn(),
-		exit: vi.fn(),
-		relaunch: vi.fn(),
-		isPackaged: false, // dev mode
-		isQuitting: false,
-	},
+	app: mockApp,
+	dialog: { showErrorBox: vi.fn() },
 }));
 vi.mock("../../state", () => ({ state: mockState }));
+vi.mock("../../single_instance", () => ({
+	computeConfigDir: vi.fn(() => "/tmp"),
+}));
+vi.mock("../atomic-write", () => ({
+	atomicWriteFile: mockAtomicWriteFile,
+}));
 vi.mock("../start-python", () => ({ startPython: mockStartPython }));
 vi.mock("../stop-python", () => ({
 	stopPython: mockStopPython,
@@ -315,5 +333,99 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 			delete process.env.VT_PYTHON_PORT;
 			delete process.env.VT_IPC_TOKEN;
 		}
+	});
+});
+
+// ─── Production-mode typed pending-request rejection ──────────────────────
+//
+// The production relaunch branch tears the process down around
+// `app.relaunch()` + `app.exit(0)`. Pending IPC must be rejected with a
+// typed PythonIpcError (code command_failed, matching the pre-flight
+// "Application is restarting" rejection in send-to-python.ts) so the
+// python-call bridge classifies it via the typed contract instead of the
+// bare-Error fallback. Also pins that the restart attempt is persisted
+// through the shared atomic-write helper (the crash-loop breaker input).
+
+describe("relaunchApp() production mode: typed pending-request rejection", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		Object.assign(mockState, {
+			pythonProcess: null,
+			tcpSocket: null,
+			mainWindow: null,
+			pendingRequests: new Map(),
+			tcpBuffer: Buffer.alloc(0),
+			pythonReady: false,
+			pythonExitedEarly: false,
+			heartbeatInterval: null,
+			_tcpRetryCount: 0,
+			_tcpRetryTimer: null,
+			_tcpRetryGeneration: 0,
+			_tcpAuthed: false,
+			_hadConnectedBefore: false,
+			_relaunching: false,
+			_restartTriggered: false,
+			_stopPythonCalled: false,
+		});
+		mockApp.isPackaged = true;
+	});
+
+	afterEach(() => {
+		mockApp.isPackaged = false;
+	});
+
+	it("rejects pending IPC with PythonIpcError code command_failed before app.exit(0)", async () => {
+		vi.resetModules();
+		const { relaunchApp } = await import("../relaunch-app");
+		const { PythonIpcError } = await import("../errors");
+		const proc = makeMockProc();
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+		const socketDestroy = vi.fn();
+		mockState.tcpSocket = {
+			destroy: socketDestroy,
+		} as unknown as MainState["tcpSocket"];
+		const rejectPending = vi.fn();
+		mockState.pendingRequests.set(42, {
+			resolve: vi.fn(),
+			reject: rejectPending,
+		});
+
+		await relaunchApp();
+
+		expect(rejectPending).toHaveBeenCalledTimes(1);
+		const err = rejectPending.mock.calls[0]?.[0];
+		expect(err).toBeInstanceOf(PythonIpcError);
+		// `PythonIpcError` above is the runtime class VALUE from the
+		// dynamic import (instanceof identity against the fresh
+		// module registry), so the instance TYPE is derived from it.
+		expect((err as InstanceType<typeof PythonIpcError>).code).toBe(
+			"command_failed",
+		);
+		expect((err as InstanceType<typeof PythonIpcError>).message).toBe(
+			"Application is restarting",
+		);
+		// The relaunch was actually requested after the teardown.
+		expect(mockApp.relaunch).toHaveBeenCalled();
+		expect(mockApp.exit).toHaveBeenCalledWith(0);
+	});
+
+	it("persists the restart attempt through the shared atomic-write helper (crash-loop breaker input)", async () => {
+		vi.resetModules();
+		const { relaunchApp } = await import("../relaunch-app");
+		mockState.pythonProcess =
+			makeMockProc() as unknown as MainState["pythonProcess"];
+
+		await relaunchApp();
+
+		// Under the 3-per-60s cap, the attempt is appended to
+		// restart_history.json via the durable temp+fsync+rename
+		// helper (mode 0o600) before the process exits.
+		expect(mockAtomicWriteFile).toHaveBeenCalledTimes(1);
+		const [filePath, payload, opts] = mockAtomicWriteFile.mock.calls[0] ?? [];
+		// Portable expectation: production builds the path with
+		// ``path.join`` (``\tmp\…`` on Windows, ``/tmp/…`` on POSIX).
+		expect(filePath).toBe(join("/tmp", "restart_history.json"));
+		expect(Array.isArray(JSON.parse(payload as string))).toBe(true);
+		expect(opts).toEqual({ mode: 0o600 });
 	});
 });

@@ -66,6 +66,79 @@ export const HISTORY_PAGE_SIZE = 50;
 // second line of defense against unbounded growth in the UI.
 const HISTORY_MAX_ROWS = 5000;
 
+/**
+ * Is ``row`` strictly OLDER than ``anchor`` in the history keyset order
+ * (``timestamp DESC, id DESC``)?
+ *
+ * Both sides come from the same backend ordering contract, so ISO-ish
+ * timestamp strings compare chronologically as strings and ``id``
+ * breaks exact-timestamp ties. Rows whose fields are missing/untyped
+ * (legacy rows written before the ``id`` column existed) are treated as
+ * older — the conservative branch never truncates the user's list.
+ */
+function isRowOlderThan(row: HistoryRecord, anchor: HistoryRecord): boolean {
+	if (
+		typeof row.timestamp === "string" &&
+		typeof anchor.timestamp === "string" &&
+		row.timestamp !== anchor.timestamp
+	) {
+		return row.timestamp < anchor.timestamp;
+	}
+	if (typeof row.id === "number" && typeof anchor.id === "number") {
+		return row.id < anchor.id;
+	}
+	return true;
+}
+
+/**
+ * Merge a background-refresh response (the newest window of rows, possibly
+ * clamped by the backend's per-request row cap) with the rows the user has
+ * already paged in, so a refresh during deep browsing UPDATES the head in
+ * place instead of truncating the list.
+ *
+ * The fresh window replaces any existing row with the same ``id`` (its data
+ * is newer — an edited row refreshes in place). The existing tail is
+ * retained only for rows strictly OLDER than the fresh window's oldest row
+ * and not already covered by it, so:
+ *   - appended tail rows keep the merged list in keyset order (they are all
+ *     older than every fresh row);
+ *   - a row deleted inside the fresh window is dropped, not resurrected;
+ *   - a row deleted beyond the window lingers (stale) until the next full
+ *     ``load`` — detecting it would require re-fetching the full depth,
+ *     which the server's row cap exists to prevent.
+ *
+ * Callers cap the result at ``HISTORY_MAX_ROWS``.
+ */
+function mergeRefreshedRecords(
+	fresh: HistoryRecord[],
+	existing: HistoryRecord[],
+): HistoryRecord[] {
+	if (fresh.length === 0) return [];
+	const freshIds = new Set<number>();
+	// Content keys for legacy rows: rows written before the ``id``
+	// column existed carry no numeric ``id``, so id-keyed dedup can
+	// never match them. A legacy tail row whose ``(timestamp, text)``
+	// equals a fresh row IS that row (now carrying its id) — drop it
+	// instead of rendering the entry twice.
+	const freshContentKeys = new Set<string>();
+	for (const r of fresh) {
+		if (typeof r.id === "number") freshIds.add(r.id);
+		freshContentKeys.add(`${r.timestamp}::${r.text}`);
+	}
+	// The keyset contract sorts the response newest-first, so the LAST
+	// fresh row anchors the window's lower boundary.
+	const anchor = fresh[fresh.length - 1];
+	if (anchor === undefined) return fresh;
+	const tail = existing.filter((r) => {
+		if (typeof r.id === "number") {
+			return !freshIds.has(r.id) && isRowOlderThan(r, anchor);
+		}
+		if (freshContentKeys.has(`${r.timestamp}::${r.text}`)) return false;
+		return isRowOlderThan(r, anchor);
+	});
+	return [...fresh, ...tail];
+}
+
 export interface UseHistoryCacheReturn {
 	records: HistoryRecord[];
 	stats: TodayStats;
@@ -313,7 +386,58 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				callRef.current<TodayStats>("get_today_stats"),
 			]);
 			const safeRows = Array.isArray(rows) ? rows : [];
-			setRecords(safeRows.slice(0, HISTORY_MAX_ROWS));
+			// The requested ``refreshLimit`` is only a REQUEST: the
+			// backend clamps every single history fetch to its IPC row
+			// cap, so a deep-browsed list (offset beyond the cap) gets
+			// back only the newest CAPPED window. Replacing ``records``
+			// with that window would truncate the list AND kill
+			// Load-More (``capped < refreshLimit`` → ``hasMore``
+			// false). MERGE the fresh head with the existing tail
+			// instead, keyed by ``id``: the keyset order
+			// (``timestamp DESC, id DESC``) guarantees the retained
+			// tail rows are strictly older than the fresh head, so
+			// ``[fresh head, ...tail]`` is still in list order and
+			// the id-keyed dedup collapses any overlap. A row that was
+			// deleted inside the fresh window is dropped (it is not
+			// older than the head's oldest row); one deleted beyond
+			// the window lingers as stale until the next full
+			// ``load`` — an accepted, self-healing trade (detecting
+			// it would require re-fetching the full depth, which the
+			// server cap exists to prevent). An EMPTY fresh response
+			// means the filtered result set is gone entirely —
+			// replace, don't retain stale rows.
+			// Functional updater: a concurrent Load-More may commit its
+			// appended page between this refresh's IPC completion and the
+			// state commit — merging against the UP-TO-DATE state (not the
+			// snapshot read before the await) preserves that page instead
+			// of overwriting it (lost-update hardening). ``hasMore`` and
+			// the offset derive from the COMMITTED merge for the same
+			// reason: deriving them from the pre-await ``recordsRef``
+			// snapshot would drop a concurrent page from ``nextLength``
+			// (killing Load-More for one cycle). The ref assignment and
+			// ``setHasMore`` are idempotent (same value on repeat), so
+			// StrictMode's double-invoked updater is safe.
+			setRecords((prevRecords) => {
+				const merged =
+					safeRows.length === 0
+						? []
+						: mergeRefreshedRecords(safeRows, prevRecords);
+				const capped = merged.slice(0, HISTORY_MAX_ROWS);
+				// ``hasMore`` from the MERGED length: with no retained
+				// tail the merged length equals the response length, so
+				// shallow refreshes keep the exact pre-merge semantics
+				// (``safeRows.length >= refreshLimit``); with a retained
+				// tail the merged length covers the paged-in depth, so
+				// Load-More stays alive exactly when the list still
+				// holds ``refreshLimit`` rows (a false positive costs one
+				// Load-More click that returns 0 rows and self-corrects).
+				// An EMPTY fresh response means the filtered result set
+				// is gone entirely — ``capped`` is empty, ``hasMore``
+				// goes false, stale rows are not retained.
+				offsetRef.current = capped.length;
+				setHasMore(capped.length >= refreshLimit);
+				return capped;
+			});
 			setStats(
 				todayStats ?? {
 					count: 0,
@@ -322,8 +446,6 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 					duration: 0,
 				},
 			);
-			setHasMore(safeRows.length >= refreshLimit);
-			offsetRef.current = safeRows.length;
 			markUpdatedRef.current();
 		} catch (err) {
 			console.warn("[renderer:History] background refresh failed:", err);

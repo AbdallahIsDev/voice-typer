@@ -1,7 +1,7 @@
 /**
  * ModelsPage — thin composition root for the ASR Models page.
  *
- *  fix #1: previously a 1448-line monolith. After the split:
+ * Previously a 1448-line monolith. After the split:
  *  • `useModelLifecycle` owns all state + IPC actions.
  *  • `LocalModelsPanel` renders the local-models tab (family cards,
  *    disk-space warning, open-folder button).
@@ -33,7 +33,7 @@ import {
 	Folder02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -69,6 +69,20 @@ export default function ModelsPage() {
 		// for naming consistency with "Local Models".
 		{ value: "cloud", label: t("models.cloudModels") },
 	];
+
+	// Stable identity so the memo'd CloudProvidersPanel skips
+	// re-renders driven by unrelated Models-page state (e.g. a
+	// local-model download tick). Depends only on the useState-stable
+	// `setApiKeys` — all other panel handlers come from
+	// useCallback-stable hook actions already.
+	const handleApiKeyChange = useCallback(
+		(provider: string, value: string) =>
+			lifecycle.setApiKeys((prev) => ({
+				...prev,
+				[provider]: value,
+			})),
+		[lifecycle.setApiKeys],
+	);
 
 	// Memoize the family grouping so we don't re-group on every render.
 	const modelFamilies = useMemo(
@@ -374,12 +388,7 @@ export default function ModelsPage() {
 								cloudProviders={lifecycle.cloudProviders}
 								apiKeys={lifecycle.apiKeys}
 								testResults={lifecycle.testResults}
-								onApiKeyChange={(provider, value) =>
-									lifecycle.setApiKeys((prev) => ({
-										...prev,
-										[provider]: value,
-									}))
-								}
+								onApiKeyChange={handleApiKeyChange}
 								onSaveApiKey={lifecycle.saveApiKey}
 								onTestConnection={lifecycle.testConnection}
 								onConsentChange={lifecycle.setCloudConsent}

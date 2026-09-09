@@ -47,6 +47,11 @@ const INLINE_UNION_RE =
 function collectTsFiles(dir: string, out: string[] = []): string[] {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+		// Skip build-output trees: `out/` (tsc declarations) and `dist/`
+		// (bundled renderer) are gitignored artifacts that mirror the
+		// source tree — scanning them flags the build's own echo of the
+		// canonical declaration (red on any host with a prior build).
+		if (entry.name === "out" || entry.name === "dist") continue;
 		const full = join(dir, entry.name);
 		if (entry.isDirectory()) {
 			collectTsFiles(full, out);
