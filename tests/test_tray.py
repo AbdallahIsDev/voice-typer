@@ -533,7 +533,9 @@ class TestDrainPending:
     def test_drain_pending_publishes_each_notification(self, tray, monkeypatch):
         """each queued notification is published as a
         ``tray_fallback_notification`` event with the original title +
-        message preserved."""
+        message preserved, nested under the canonical ``data``
+        envelope (root-level fields are stripped by the event-protocol
+        layer, so they must not be used)."""
         published: list[dict] = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -550,16 +552,17 @@ class TestDrainPending:
         assert len(published) == 2, (
             f"_drain_pending must publish one event per queued notification; got {len(published)} events"
         )
-        # Each event has the canonical envelope shape.
+        # Each event has the canonical envelope shape: the title +
+        # message ride under ``data`` (the push-event protocol strips
+        # unknown root-level fields, so a root-level shape would
+        # deliver an empty payload to the renderer consumer).
         assert published[0] == {
             "type": "tray_fallback_notification",
-            "title": "Crash Recovery",
-            "message": "Failed to recover",
+            "data": {"title": "Crash Recovery", "message": "Failed to recover"},
         }, f"first event envelope mismatch; got: {published[0]!r}"
         assert published[1] == {
             "type": "tray_fallback_notification",
-            "title": "Model Load",
-            "message": "Could not load small.en",
+            "data": {"title": "Model Load", "message": "Could not load small.en"},
         }, f"second event envelope mismatch; got: {published[1]!r}"
         # The queue was cleared as part of the drain.
         assert tray._pending_notifications == [], "_drain_pending must clear the queue after publishing"
@@ -901,7 +904,7 @@ class TestElectronDuplicateLaunchGate:
         launched = self._setup_dead_end(tray, monkeypatch)
         monkeypatch.setattr(tw_mod, "_electron_pid", 12345)
         monkeypatch.setattr(
-            "voice_typer.server.single_instance._is_pid_alive",
+            "voice_typer.server.backend_pid._is_pid_alive",
             lambda pid: True,
         )
         tray.open_electron_window()
@@ -916,7 +919,7 @@ class TestElectronDuplicateLaunchGate:
         launched = self._setup_dead_end(tray, monkeypatch)
         monkeypatch.setattr(tw_mod, "_electron_pid", 99999)
         monkeypatch.setattr(
-            "voice_typer.server.single_instance._is_pid_alive",
+            "voice_typer.server.backend_pid._is_pid_alive",
             lambda pid: False,
         )
         tray.open_electron_window()

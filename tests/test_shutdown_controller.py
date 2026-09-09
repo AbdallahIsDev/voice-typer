@@ -547,11 +547,11 @@ class TestDoCleanupSubsystemCoverage:
 
     def test_calls_clear_backend_pid_file(self, controller, fake_app, monkeypatch):
         """``_do_cleanup`` must call the dynamic-lookup
-        ``voice_typer.server.app._clear_backend_pid_file`` so the PID
-        file is removed before the process exits."""
+        ``voice_typer.server.backend_pid._clear_backend_pid_file`` so
+        the PID file is removed before the process exits."""
         clear_calls: list[bool] = []
         monkeypatch.setattr(
-            "voice_typer.server.app._clear_backend_pid_file",
+            "voice_typer.server.backend_pid._clear_backend_pid_file",
             lambda: clear_calls.append(True),
         )
         controller._do_cleanup()

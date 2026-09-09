@@ -854,7 +854,9 @@ class TestSetTrayLocale:
             lambda loc, labels: None,
         )
 
-        saved_locale = server_i18n.get_locale()
+        # Snapshot the module state directly (the locale accessor was
+        # removed with the dead-API batch — tests observe the binding).
+        saved_locale = server_i18n._CURRENT_LOCALE
         saved_fr = dict(server_i18n._REGISTRY.get("fr", {}))
         try:
             resp = ipc_server._handle_set_tray_locale(
@@ -869,7 +871,7 @@ class TestSetTrayLocale:
             )
             assert resp["type"] == "ack"
             # The server-global locale must follow the renderer's.
-            assert server_i18n.get_locale() == "fr"
+            assert server_i18n._CURRENT_LOCALE == "fr"
             # The pushed labels must resolve through i18n.t().
             assert server_i18n.t("error.config_load_failed.body") == "Échec du chargement de la configuration", (
                 "merged label must resolve for the active locale"

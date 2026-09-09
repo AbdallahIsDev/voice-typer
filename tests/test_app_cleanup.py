@@ -175,8 +175,11 @@ class TestRestartAppSharedCleanup:
         """
         _stub_restart_environment(app, monkeypatch)
         clear_calls = []
+        # The pid-file teardown resolves through the owning
+        # backend_pid module at call time (the app module's re-export
+        # is no longer on the shutdown lookup path).
         monkeypatch.setattr(
-            "voice_typer.server.app._clear_backend_pid_file",
+            "voice_typer.server.backend_pid._clear_backend_pid_file",
             lambda: clear_calls.append(True),
         )
 
@@ -483,8 +486,11 @@ class TestQuitAppUsesSharedCleanup:
         the refactor."""
         _stub_restart_environment(app, monkeypatch)
         clear_calls = []
+        # The pid-file teardown resolves through the owning
+        # backend_pid module at call time (the app module's re-export
+        # is no longer on the shutdown lookup path).
         monkeypatch.setattr(
-            "voice_typer.server.app._clear_backend_pid_file",
+            "voice_typer.server.backend_pid._clear_backend_pid_file",
             lambda: clear_calls.append(True),
         )
 

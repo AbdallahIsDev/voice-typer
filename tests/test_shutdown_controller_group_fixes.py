@@ -135,7 +135,7 @@ def fake_app(tmp_config_dir, monkeypatch):
     Stubs (so ``_do_cleanup`` doesn't touch the real filesystem / Win32
     API / devnull FDs):
 
-    - ``voice_typer.server.app._clear_backend_pid_file`` — no-op.
+    - ``voice_typer.server.backend_pid._clear_backend_pid_file`` — no-op.
     - ``voice_typer.server.app._close_devnull_files`` — no-op.
     - ``voice_typer.server.app._register_devnull_file`` — no-op.
     - ``voice_typer.server.platform_utils.is_windows`` — returns False (POSIX test env).
@@ -143,7 +143,12 @@ def fake_app(tmp_config_dir, monkeypatch):
     """
     import voice_typer.server.app as _app_module
 
-    monkeypatch.setattr(_app_module, "_clear_backend_pid_file", lambda: None, raising=False)
+    # The PID-file teardown resolves through the owning backend_pid
+    # module at call time — stub it there (the app re-export is no
+    # longer on the shutdown lookup path).
+    import voice_typer.server.backend_pid as _backend_pid_module
+
+    monkeypatch.setattr(_backend_pid_module, "_clear_backend_pid_file", lambda: None, raising=False)
     monkeypatch.setattr(_app_module, "_close_devnull_files", lambda: None, raising=False)
     monkeypatch.setattr(_app_module, "_register_devnull_file", lambda f: None, raising=False)
     monkeypatch.setattr(_app_module, "is_windows", lambda: False, raising=False)

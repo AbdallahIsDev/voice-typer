@@ -12,7 +12,8 @@ files at ``voice_typer/client/src/renderer/src/i18n/translations/en.json``
 
 Test cases:
 - (a) ``t(key, **fmt)`` with a valid key + placeholders.
-- (b) ``register_locale`` + ``set_locale`` + ``get_locale`` round-trip.
+- (b) ``register_locale`` + ``set_locale`` round-trip, observed
+  through the module's current-locale binding and ``t()``.
 - (c) Fallback chain: missing key in active locale → English → raw key.
 - (d) Format interpolation failure (missing placeholder) returns
   unformatted text rather than raising.
@@ -27,7 +28,6 @@ import threading
 import pytest
 from voice_typer.server import i18n
 from voice_typer.server.i18n import (
-    get_locale,
     register_locale,
     set_locale,
     t,
@@ -97,34 +97,44 @@ class TestTranslate:
         assert result == "Undid last transcription ({char_count} chars)"
 
 
-# ── (b) register_locale + set_locale + get_locale round-trip ────────────
+# ── (b) register_locale + set_locale round-trip ─────────────────────────
 
 
 class TestLocaleRegistry:
-    """``register_locale`` + ``set_locale`` + ``get_locale`` round-trip."""
+    """``register_locale`` + ``set_locale`` round-trip.
 
-    def test_register_locale_then_set_locale_then_get_locale_round_trip(self):
-        """Registering a new locale, switching to it, and querying it
-        returns the registered locale code.
+    The active locale is observed through ``i18n._CURRENT_LOCALE`` (the
+    module's own binding — the same one the autouse fixture snapshots)
+    and through ``t()`` resolution, so the tests do not depend on a
+    separate accessor.
+    """
+
+    def test_register_locale_then_set_locale_round_trip(self):
+        """Registering a new locale, switching to it, and resolving a key
+        returns the registered locale's text.
         """
         register_locale("xx", {"state.idle": "xx-idle"})
         set_locale("xx")
-        assert get_locale() == "xx"
+        assert i18n._CURRENT_LOCALE == "xx"
+        assert t("state.idle") == "xx-idle"
 
     def test_set_locale_to_unregistered_locale_falls_back_to_english(self):
         """``set_locale("never-registered")`` must fall back to ``"en"``
         rather than crash or leave the locale in a half-set state.
         """
         set_locale("never-registered")
-        assert get_locale() == "en"
+        assert i18n._CURRENT_LOCALE == "en"
+        assert t("state.idle") == "idle"
 
     def test_set_locale_back_to_english(self):
         """After switching away from English, switching back restores it."""
         register_locale("yy", {"state.idle": "yy-idle"})
         set_locale("yy")
-        assert get_locale() == "yy"
+        assert i18n._CURRENT_LOCALE == "yy"
+        assert t("state.idle") == "yy-idle"
         set_locale("en")
-        assert get_locale() == "en"
+        assert i18n._CURRENT_LOCALE == "en"
+        assert t("state.idle") == "idle"
 
     def test_register_locale_overwrites_previous_registration(self):
         """Re-registering the same locale replaces its label set
@@ -287,13 +297,14 @@ class TestThreadSafety:
 
         assert not errors, f"concurrent register/t raised: {errors}"
         # After the race, the module must still be in a consistent state —
-        # ``get_locale`` returns a string, ``t`` returns a string.
-        assert isinstance(get_locale(), str)
+        # the current-locale binding is a string, ``t`` returns a string.
+        assert isinstance(i18n._CURRENT_LOCALE, str)
         assert isinstance(t("state.idle"), str)
 
     def test_concurrent_set_locale_does_not_leave_locale_in_half_set_state(self):
         """4 threads racing ``set_locale`` must converge on a registered
-        locale — ``get_locale`` never returns an unregistered code.
+        locale — the current-locale binding never holds an unregistered
+        code.
         """
         register_locale("alpha", {"state.idle": "alpha"})
         register_locale("beta", {"state.idle": "beta"})
@@ -314,10 +325,11 @@ class TestThreadSafety:
         for th in threads:
             th.start()
         try:
-            # Spin for ~50ms of concurrent set_locale calls; sample get_locale.
+            # Spin for ~50ms of concurrent set_locale calls; sample the
+            # current-locale binding.
             for _ in range(500):
-                loc = get_locale()
-                assert loc in {"alpha", "beta", "gamma", "en"}, f"get_locale returned unregistered code: {loc!r}"
+                loc = i18n._CURRENT_LOCALE
+                assert loc in {"alpha", "beta", "gamma", "en"}, f"current locale holds unregistered code: {loc!r}"
         finally:
             stop.set()
         for th in threads:

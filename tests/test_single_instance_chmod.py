@@ -59,9 +59,13 @@ def isolated_config_dir(monkeypatch, tmp_path):
     Mirrors the fixture pattern in ``tests/test_single_instance_posix.py``
     but redirects to a subdirectory.
     """
-    from voice_typer.server import app as app_mod
+    from voice_typer.server import app as app_mod, config as config_mod
 
+    # Redirect the OWNING module's binding (C-ARCH-2 canonical contract —
+    # config-dir resolution was moved off the app module). The
+    # app-module patch is kept for any legacy consumer.
     config_subdir = tmp_path / "voice-typer-config"
+    monkeypatch.setattr(config_mod, "_config_dir", lambda: config_subdir)
     monkeypatch.setattr(app_mod, "_config_dir", lambda: config_subdir)
     monkeypatch.setattr(
         "voice_typer.server.single_instance._backend_pid_file",

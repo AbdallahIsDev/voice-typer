@@ -592,9 +592,22 @@ class TestHeavyWorkOutsideLock:
                 timeout=1.0,
             )
 
+            # Wait for the worker to process the 0.5-amplitude chunk — the
+            # history may also carry 0.0 entries (an empty chunk appends
+            # raw_rms 0.0 with the same not-None contract), so wait for the
+            # RAW-amplitude VALUE to appear, not for mere presence.
+            assert wait_until(
+                lambda: any(r > 0.4 for r in lm._test_rms_history),
+                timeout=1.0,
+            )
+
             # quality metrics from RAW audio (0.5), not filtered (0.0).
+            # Read the max, not [-1]: entry order is worker-scheduling
+            # dependent, and a filtered-audio regression zeroes EVERY
+            # entry (the mock processor silences the chunk), so max()
+            # fails exactly when [-1] would have.
             assert len(lm._test_rms_history) > 0
-            raw_rms = lm._test_rms_history[-1]
+            raw_rms = max(lm._test_rms_history)
             assert raw_rms > 0.4, (
                 f"raw_rms={raw_rms} should reflect the RAW 0.5 amplitude, "
                 f"not the filtered 0.0 (XV-55: quality metrics must use raw audio)"

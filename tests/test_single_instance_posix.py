@@ -69,8 +69,14 @@ def isolated_config_dir(monkeypatch, tmp_path):
     monkeypatching ``voice_typer.server.config._config_dir`` before the
     call is sufficient.
     """
-    from voice_typer.server import app as app_mod
+    from voice_typer.server import app as app_mod, config as config_mod
 
+    # Redirect the OWNING module's binding (C-ARCH-2 canonical contract):
+    # ``_ensure_single_instance_posix`` and ``_backend_pid_file`` resolve
+    # ``_config_dir`` at call time through ``voice_typer.server.config``
+    # (config-dir resolution was moved off the app module). The app-module patch
+    # is kept for any legacy consumer still reading that binding.
+    monkeypatch.setattr(config_mod, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(app_mod, "_config_dir", lambda: tmp_path)
     # Also patch single_instance module's view (it imports lazily, but
     # some tests may patch at the module level).

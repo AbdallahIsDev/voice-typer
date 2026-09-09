@@ -336,13 +336,15 @@ class TestLaunchTauriFreshStart:
 
         # Bypass the backend-pid-file probe — the test box may have a
         # stale PID file from a previous test.
-        from voice_typer.server import single_instance as _si_mod
+        # Patch the OWNING module (the runtime-neutral PID-file leaf)
+        # — the launcher resolves the helper through it at call time.
+        from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_backend_pid_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         captured = {}
 
@@ -387,13 +389,15 @@ class TestLaunchTauriFreshStart:
             lambda hidden=False: None,
         )
 
-        from voice_typer.server import single_instance as _si_mod
+        # Patch the OWNING module (the runtime-neutral PID-file leaf)
+        # — the launcher resolves the helper through it at call time.
+        from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_backend_pid_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         # Tauri spawn fails (Popen raises).
         def boom(cmd, env=None, **kwargs):
@@ -433,13 +437,15 @@ class TestLaunchPreservesElectronPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
 
-        from voice_typer.server import single_instance as _si_mod
+        # Patch the OWNING module (the runtime-neutral PID-file leaf)
+        # — the launcher resolves the helper through it at call time.
+        from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_backend_pid_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         captured = {}
 

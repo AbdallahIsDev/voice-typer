@@ -33,7 +33,6 @@ from voice_typer.server.audio_presets import (
     PRESETS,
     apply_preset,
     get_preset_filters,
-    get_preset_for_display,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -678,15 +677,6 @@ class TestPresets:
 
     def test_get_preset_filters_custom_returns_empty(self):
         assert get_preset_filters(PRESET_CUSTOM) == {}
-
-    def test_get_preset_for_display_returns_all(self):
-        display = get_preset_for_display()
-        values = [d["value"] for d in display]
-        assert PRESET_AUTO in values
-        assert PRESET_STUDIO in values
-        assert PRESET_NOISY_ROOM in values
-        assert PRESET_OFF in values
-        assert PRESET_CUSTOM in values
 
 
 # ═══════════════════════════════════════════════════════════════════════════

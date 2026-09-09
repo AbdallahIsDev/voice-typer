@@ -108,7 +108,7 @@ def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
     don't cause a setup error.
     """
     monkeypatch.setattr(
-        "voice_typer.server.app._clear_backend_pid_file",
+        "voice_typer.server.backend_pid._clear_backend_pid_file",
         lambda: None,
         raising=False,
     )

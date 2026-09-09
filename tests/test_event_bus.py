@@ -888,9 +888,7 @@ class TestAsyncDispatch:
        thread).
     2. The subscriber is eventually delivered the event on the
        deferred-executor thread.
-    3. ``publish_sync(event)`` is an explicit-sync alias — subscribers
-       ARE invoked synchronously before the call returns.
-    4. The default ``publish(event)`` (no flag) preserves the existing
+    3. The default ``publish(event)`` (no flag) preserves the existing
        synchronous semantics (back-compat for the 30+ call sites).
     """
 
@@ -931,20 +929,6 @@ class TestAsyncDispatch:
             assert "event-bus-publisher" in received_thread[0], (
                 f"subscriber must run on the event-bus-publisher thread; got {received_thread[0]!r}"
             )
-        finally:
-            event_bus.unsubscribe(cb)
-
-    def test_publish_sync_invokes_subscriber_synchronously(self):
-        """``publish_sync`` is an explicit-sync alias — the subscriber
-        is invoked before the call returns."""
-        received: list[dict] = []
-        cb = received.append
-        event_bus.subscribe(cb)
-        try:
-            result = event_bus.publish_sync({"type": "test_sync"})
-            assert result is True
-            # Synchronous: subscriber was invoked before the call returned.
-            assert received == [{"type": "test_sync"}]
         finally:
             event_bus.unsubscribe(cb)
 

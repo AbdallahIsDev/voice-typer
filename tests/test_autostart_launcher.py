@@ -198,7 +198,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.single_instance._backend_pid_file",
+            "voice_typer.server.backend_pid._backend_pid_file",
             lambda: tmp_path / "nonexistent.pid",
         )
         monkeypatch.setattr(
@@ -219,7 +219,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.single_instance._backend_pid_file",
+            "voice_typer.server.backend_pid._backend_pid_file",
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
@@ -258,7 +258,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.single_instance._backend_pid_file",
+            "voice_typer.server.backend_pid._backend_pid_file",
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(

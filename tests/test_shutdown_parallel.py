@@ -126,6 +126,13 @@ def fake_app(monkeypatch):
     fake_app_module._config_dir = lambda: "/tmp/voice-typer-test-xv7"
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
+    # The PID-file teardown resolves ``_clear_backend_pid_file`` through
+    # the owning module at call time — stub it so no real PID file is
+    # touched and the (already-imported) real module is not required.
+    fake_backend_pid = MagicMock()
+    fake_backend_pid._clear_backend_pid_file = MagicMock()
+    monkeypatch.setitem(sys.modules, "voice_typer.server.backend_pid", fake_backend_pid)
+
     # event_bus.shutdown is imported dynamically inside the helper.
     fake_event_bus = MagicMock()
     monkeypatch.setitem(sys.modules, "voice_typer.server.event_bus", fake_event_bus)
