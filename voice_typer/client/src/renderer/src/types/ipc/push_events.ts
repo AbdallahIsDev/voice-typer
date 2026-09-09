@@ -374,13 +374,39 @@ export interface TrayStateEvent {
 	data: { icon?: string; tooltip?: string };
 }
 
-/** Pushed by `voice_typer/server/service/model.py:596-605` when a model
- *  download is refused because the user has not granted the required
- *  consent (e.g. HuggingFace). The renderer surfaces a consent dialog
- *  naming the provider + model; the message is shown verbatim. */
+/** Pushed when a consent-gated action is refused because the user has
+ *  not granted the required consent. Deriving the payload from the four
+ *  real emitters (NOT from one of them — the previous shape was written
+ *  from a single emitter and three of its "required" fields were absent
+ *  from the other emitters):
+ *
+ *  - `recording_lifecycle.py` — `data: {consent_field}` (voice-biometrics
+ *    dictation gate)
+ *  - `dictation_pipeline/enhancement_steps.py` —
+ *    `data: {consent_field: "llm_polish_consent"}`
+ *  - `service/update_check.py` — `data: {provider, scope, model,
+ *    consent_field, message}` (offline-pack download gate)
+ *  - `service/model/_downloads.py` — `data: {provider, model, message}`
+ *    (HuggingFace model-download gate)
+ *
+ *  Every field is OPTIONAL: no single emitter sends all of them, and the
+ *  renderer's consumer (`useConsentRequiredEvent`) reads only
+ *  `consent_field` (the config-key deep-link that opens the unified
+ *  `ConsentGateDialog`). `message` — where present — is a ready-to-show
+ *  explanation; `provider`/`scope`/`model` identify the consented
+ *  surface. The per-emitter field sets are pinned by
+ *  `types/__tests__/consent-required-event-emitters.test.ts` (which
+ *  scans the Python emitter sources, so a new field on any emitter
+ *  fails CI until this interface is widened). */
 export interface ConsentRequiredEvent {
 	type: "consent_required";
-	data: { provider: string; model: string; message: string };
+	data: {
+		consent_field?: string;
+		provider?: string;
+		scope?: string;
+		model?: string;
+		message?: string;
+	};
 }
 
 /** Pushed by `voice_typer/server/parakeet_engine.py:910-915` when GPU
@@ -741,6 +767,131 @@ export interface TranscribeOfflineResultEvent {
 	data: { text: string; latency_ms: number };
 }
 
+// ── Backend model-load lifecycle + previously-dropped push events ──
+//
+// The following events were published by the Python sidecar for a long
+// time but were missing from this union AND (for most of them) from the
+// Rust `ALLOWED_EVENT_TYPES` gate, so every renderer subscriber for
+// them was dead end-to-end. The names + payload shapes below are
+// derived from the actual Python emitters; the emitting-direction
+// parity is pinned by `tests/test_event_types_parity.py`
+// (`TestPythonPublishedEventParity`).
+
+/** Pushed by `model_manager/_change.py` when a background model load
+ *  SUCCEEDS (the load runs on a daemon thread after `set_config`
+ *  acked; this event is the completion signal the ack's
+ *  `model_loading` envelope promised). Consumed by
+ *  `useAsrBackendLoadToast` (clears the load-failure surface). */
+export interface AsrBackendReadyEvent {
+	type: "asr_backend_ready";
+	data: { backend: string; model_size: string };
+}
+
+/** Pushed by `model_manager/_change.py` when a background model load
+ *  FAILS after the `set_config` ack already returned — the renderer
+ *  must surface the failure (the Models-page "Using model" snack from
+ *  the ack path is now stale). Consumed by `useAsrBackendLoadToast`. */
+export interface AsrBackendLoadFailedEvent {
+	type: "asr_backend_load_failed";
+	data: { backend: string; model_size: string; failure_reason: string };
+}
+
+/** Pushed by `recording_controller.py` when the OS revokes microphone
+ *  permission MID-RECORDING. The recording is stopped and the renderer
+ *  shows the dedicated "Mic permission revoked" banner (distinct from
+ *  the generic silence-auto-stop toast). No payload. Consumed by
+ *  `useMicPermissionRevokedToast`. */
+export interface MicrophonePermissionRevokedEvent {
+	type: "microphone_permission_revoked";
+}
+
+/** Pushed by `mic_lifecycle_hooks.py` when the active microphone
+ *  disappears from the recorder's stream (fast OS-event path or the
+ *  disconnect-retry exhaustion path — the recorder-stream counterpart
+ *  of the level-monitor's `device_lost`). Consumed by
+ *  `useMicrophoneDisconnectedToast`, which routes it to the SAME
+ *  recovery surface as `device_lost`. No payload. */
+export interface MicrophoneDisconnectedEvent {
+	type: "microphone_disconnected";
+}
+
+/** Pushed by `cloud/_engine.py` when a cloud ASR provider fails and the
+ *  local engine takes over for that transcription. `reason` is the
+ *  truncated exception message (max 200 chars). Consumed by
+ *  `useCloudFallbackToast` (degradation warning naming the provider;
+ *  store-backed cooldown collapses a per-transcription outage stream
+ *  into one reminder). */
+export interface CloudFallbackUsedEvent {
+	type: "cloud_fallback_used";
+	data: { provider: string; reason: string };
+}
+
+/** Pushed by `dictation_pipeline/transcribe_step.py` when a short
+ *  near-silent recording's failure notification is suppressed (the
+ *  UX-SILENCE-GRACE path — the user tapped the hotkey accidentally).
+ *
+ *  Deliberately LAYERS-ONLY (no renderer subscriber): the emitting
+ *  branch IS the deliberate silence path — the backend already sets
+ *  the tray to the localized "no speech detected" state and the
+ *  near-silence grace exists precisely so an accidental hotkey tap
+ *  produces NO notification. A toast here would reintroduce the noise
+ *  that path was designed to remove, and the user has no actionable
+ *  state (their tap registered; the tray state says so). The event
+ *  stays wired through all 4 layers as an observability seam; a future
+ *  inline-bubble surface would need bubble-mode work (mode union +
+ *  state machine), tracked as a separate UX decision. */
+export interface DictationSuppressedEvent {
+	type: "dictation_suppressed";
+	data: { duration: number; recorded_rms: number; reason: string };
+}
+
+/** Pushed by `history_db_internals/corruption_recovery.py` after a
+ *  corrupted history DB was backed up and rebuilt from the iterdump
+ *  (`recovered_count` rows survived). Consumed by
+ *  `useHistoryIntegrityToast` (recovery warning naming the recovered
+ *  count + the kept quarantine file). */
+export interface HistoryCorruptedEvent {
+	type: "history_corrupted";
+	data: { path: string; db_path: string; recovered_count: number };
+}
+
+/** Pushed by `history_db_internals/{retention,crud_writes}.py` when the
+ *  FTS5 index rebuild fails after a delete/clear — the privacy
+ *  guarantee (deleted text unrecoverable) is broken and the user
+ *  should be told. Consumed by `useHistoryIntegrityToast` (privacy
+ *  warning; fires on real rebuild-failure evidence only). */
+export interface HistoryFts5RebuildFailedEvent {
+	type: "history_fts5_rebuild_failed";
+	data: { db_path: string; deleted: number; error: string; source: string };
+}
+
+/** Pushed by `clipboard_target_safety/validation.py` (and the paste
+ *  manager) when a synthesized paste keystroke is dropped — e.g. the
+ *  target app has macOS Secure Input active. The transcribed text
+ *  stays on the clipboard; only the auto-paste was skipped. Consumed
+ *  by `usePasteDeferredToast` (clipboard notice with a reason-specific
+ *  hint telling the user to paste manually). */
+export interface PasteDeferredEvent {
+	type: "paste_deferred";
+	data: { reason: string; message?: string };
+}
+
+/** Pushed by `tray.py::_drain_pending` when the native system-tray icon
+ *  is unavailable and queued tray notifications cannot be shown — the
+ *  renderer surfaces the fallback in-app banner instead (only the
+ *  Electron/headless path emits this; the Tauri runtime routes tray
+ *  notifications through the `notification` event).
+ *
+ *  PAYLOAD: the Python emitter nests `title`/`message` under `data`
+ *  (the canonical envelope — an earlier Electron-era root-level shape
+ *  was stripped by the event-protocol layer and delivered an empty
+ *  payload). Both fields stay optional so the consumer degrades to
+ *  the generic banner if a future emitter omits them. */
+export interface TrayFallbackNotificationEvent {
+	type: "tray_fallback_notification";
+	data: { title?: string; message?: string };
+}
+
 // NOTE: `usePythonEvent`'s `type` param IS narrowed to
 // `PythonPushEvent["type"]` via a two-overload signature in
 // `hooks/usePython.ts`. The first overload
@@ -832,7 +983,20 @@ export type PythonPushEvent =
 	| WorkerStartedEvent
 	| WorkerCrashedEvent
 	| WorkerUnloadedEvent
-	| TranscribeOfflineResultEvent;
+	| TranscribeOfflineResultEvent
+	// ── Backend model-load lifecycle + previously-dropped push events
+	// (see the per-interface docstrings above for the emitters + wire
+	// shapes; pinned by tests/test_event_types_parity.py).
+	| AsrBackendReadyEvent
+	| AsrBackendLoadFailedEvent
+	| MicrophonePermissionRevokedEvent
+	| MicrophoneDisconnectedEvent
+	| CloudFallbackUsedEvent
+	| DictationSuppressedEvent
+	| HistoryCorruptedEvent
+	| HistoryFts5RebuildFailedEvent
+	| PasteDeferredEvent
+	| TrayFallbackNotificationEvent;
 
 //Auth frame () ────────────────────────────────────────
 //

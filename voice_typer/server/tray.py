@@ -473,12 +473,17 @@ class TrayIcon:
                 title,
                 message,
             )
+            # Payload shape: title/message nested under ``data`` —
+            # the canonical push-event envelope. The renderer's
+            # ``useTrayFallbackToast`` reads ``event.data.title`` /
+            # ``event.data.message``; the old Electron-era root-level
+            # fields were stripped by the event-protocol layer, so the
+            # delivered payload arrived empty.
             with contextlib.suppress(Exception):
                 _event_bus.publish(
                     {
                         "type": "tray_fallback_notification",
-                        "title": title,
-                        "message": message,
+                        "data": {"title": title, "message": message},
                     }
                 )
 

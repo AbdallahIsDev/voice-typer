@@ -100,4 +100,26 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// The request counterpart `transcribe_offline` is a command,
 	// NOT a push event — see `PythonRequest`.
 	"transcribe_offline_result",
+	// ── Backend model-load lifecycle + previously-dropped push
+	// events (each is published by the Python sidecar; the
+	// per-interface docstrings in types/ipc/push_events.ts name the
+	// emitters). Pinned by tests/test_event_types_parity.py in both
+	// directions (Python-published ⊆ Rust allowlist + TS parity).
+	// Model-load lifecycle (model_manager/_change.py):
+	"asr_backend_ready",
+	"asr_backend_load_failed",
+	// Mid-recording device/permission (recorder stream paths —
+	// distinct from the level-monitor's `device_lost`):
+	"microphone_permission_revoked",
+	"microphone_disconnected",
+	// Engine / pipeline degradation observability:
+	"cloud_fallback_used",
+	"dictation_suppressed",
+	// History-store integrity:
+	"history_corrupted",
+	"history_fts5_rebuild_failed",
+	// Clipboard paste safety (Secure Input / deferred paste):
+	"paste_deferred",
+	// Tray-unavailable fallback (Electron/headless path only):
+	"tray_fallback_notification",
 ]);

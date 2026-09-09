@@ -140,8 +140,8 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // it detects the previous process crashed mid-dictation (the
     // `.dictation-in-flight` sentinel was left behind). The renderer
     // shows a notification so the user knows their dictation was lost.
-    // - `tray_fallback_notification`: emitted by tray_manager.py when
-    // the native system-tray icon is unavailable (headless build,
+    // - `tray_fallback_notification`: emitted by tray.py when the
+    // native system-tray icon is unavailable (headless build,
     // Linux without a systray compositor, sandboxed mac App Store
     // build, etc.) and the renderer should surface a fallback
     // in-app notification banner instead. this was
@@ -152,7 +152,16 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // tray-less systems had NO indication that tray features were
     // degraded. Adding it here lets the frame through to the
     // renderer's `usePythonEvent("tray_fallback_notification", ...)`
-    // handler.
+    // handler. PAYLOAD: the Python emitter nests title/message under
+    // `data` (tray.py `_drain_pending` — fixed; the old Electron-era
+    // root-level shape was stripped by the reader's `data`
+    // extraction), so the renderer consumer receives the real
+    // title/message and only falls back to the generic
+    // tray-unavailable banner when both are absent. Note the Tauri
+    // runtime never hits this path (its tray notifications route
+    // through the `notification` event via
+    // tray_notifications.do_notify); only the Electron/headless path
+    // emits it.
     "state_changed",
     "error",
     "mic_level",
@@ -164,6 +173,52 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "audio_clip",
     "dictation_lost",
     "tray_fallback_notification",
+    // ── Backend model-load lifecycle (published by
+    // `model_manager/_change.py` after the background load thread
+    // finishes; the set_config ack's `model_loading` envelope tells the
+    // renderer a load is in flight, and this pair tells it how the load
+    // ended):
+    // - `asr_backend_ready`: the background load SUCCEEDED — the
+    //   renderer clears any model-loading/failure surface (consumed by
+    //   the renderer's `useAsrBackendLoadToast`).
+    // - `asr_backend_load_failed`: the background load FAILED after the
+    //   set_config ack already returned — the renderer surfaces the
+    //   failure (payload: backend, model_size, failure_reason).
+    "asr_backend_ready",
+    "asr_backend_load_failed",
+    // ── Mid-recording device/permission events (published by
+    // recording_controller.py / mic_lifecycle_hooks.py on the recorder
+    // stream's device-health paths — distinct from `device_lost`,
+    // which covers the level-monitor stream's loss detection):
+    // - `microphone_permission_revoked`: OS revoked mic permission
+    //   mid-recording; the renderer shows the dedicated banner (NOT the
+    //   generic silence-auto-stop toast).
+    // - `microphone_disconnected`: the active mic vanished from the
+    //   device list / the disconnect retries were exhausted; the
+    //   renderer routes it to the same recovery surface as
+    //   `device_lost`.
+    "microphone_permission_revoked",
+    "microphone_disconnected",
+    // ── Engine / pipeline degradation observability:
+    // - `cloud_fallback_used`: a cloud ASR provider failed and the
+    //   local engine took over (cloud/_engine.py).
+    // - `dictation_suppressed`: a short near-silent recording was
+    //   suppressed without a notification (transcribe_step.py).
+    "cloud_fallback_used",
+    "dictation_suppressed",
+    // ── History-store integrity events (history_db_internals/):
+    // - `history_corrupted`: the DB was corrupted, backed up, and
+    //   rebuilt from the iterdump.
+    // - `history_fts5_rebuild_failed`: the FTS5 index rebuild failed
+    //   after a delete/clear — the privacy guarantee (deleted text is
+    //   unrecoverable) is broken and the renderer should tell the
+    //   user.
+    "history_corrupted",
+    "history_fts5_rebuild_failed",
+    // ── Clipboard paste safety (clipboard_target_safety/validation.py
+    // + clipboard/manager/_paste.py): the synthesized paste keystroke
+    // was dropped (e.g. macOS Secure Input was active).
+    "paste_deferred",
     // ── Pack + worker IPC events (master plan §7.4 — 13 new event
     // types introduced by the slim-core / runtime-pack split). These
     // cover the pack download lifecycle, the pack integrity state, the

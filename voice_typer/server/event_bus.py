@@ -95,19 +95,19 @@ Events emitted via ``event_bus.publish`` (the modern path):
 * ``show_window`` — show the main window. Payload: ``{}``.
 * ``quit_app`` — sidecar requests app quit. Payload: ``{}``.
 * ``relaunch_app`` — sidecar requests app relaunch. Payload: ``{}``.
-* ``paste_failed`` — clipboard paste failed (); renderer
+* ``paste_failed`` — clipboard paste failed; renderer
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
-* ``tray_menu`` — ADR-0020 §6.5 / ; serialized menu model pushed
+* ``tray_menu`` — serialized menu model pushed
   to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On Electron/
   pystray the native menu is the single source of truth and this is
   a no-op. Payload: ``{items:[<menu node dict>]}``.
-* ``tray_state`` — ADR-0020 §6.5 / ; tray icon name + tooltip
+* ``tray_state`` — tray icon name + tooltip
   pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
   Electron/pystray the ``TrayIcon`` is updated directly so emitting
   a parallel event would double-publish. Payload: ``{icon:str?,
   tooltip:str?}`` (at least one field present).
-* ``consent_required`` —  / ; emitted by ``service/model.py``
+* ``consent_required`` — emitted by ``service/model.py``
   when the renderer must prompt for HuggingFace consent before a model
   download can proceed. Payload: ``{provider:str, model:str,
   message:str}``.
@@ -218,7 +218,39 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 40 events — the live count is ``len(EVENT_TYPES)`` and this
+Published but previously undocumented (all deliverable end-to-end —
+each is in the Rust ``ALLOWED_EVENT_TYPES`` allowlist and, where the
+renderer consumes it, in the TS ``PythonPushEvent`` union):
+
+* ``asr_backend_ready`` — background model-load SUCCEEDED (the
+  completion signal for the ``set_config`` ack's ``model_loading``
+  envelope). Payload: ``{backend:str, model_size:str}``.
+* ``asr_backend_load_failed`` — background model-load FAILED after the
+  ``set_config`` ack. Payload: ``{backend:str, model_size:str,
+  failure_reason:str}``.
+* ``microphone_permission_revoked`` — OS revoked mic permission
+  mid-recording; the recording is stopped. Payload: ``{}``.
+* ``microphone_disconnected`` — active mic lost from the recorder
+  stream (fast unplug path / retry exhaustion). Payload: ``{}``.
+* ``cloud_fallback_used`` — a cloud ASR provider failed and the local
+  engine took over. Payload: ``{provider:str, reason:str (≤200 chr)}``.
+* ``dictation_suppressed`` — a short near-silent recording's failure
+  notification was suppressed (UX-SILENCE-GRACE). Payload:
+  ``{duration:float, recorded_rms:float, reason:str}``.
+* ``history_corrupted`` — the history DB was corrupted, backed up, and
+  rebuilt. Payload: ``{path:str, db_path:str, recovered_count:int}``.
+* ``history_fts5_rebuild_failed`` — the FTS5 index rebuild failed
+  after a delete/clear (deleted text may remain recoverable).
+  Payload: ``{db_path:str, deleted:int, error:str, source:str}``.
+* ``paste_deferred`` — a synthesized paste keystroke was dropped (e.g.
+  macOS Secure Input active). Payload: ``{reason:str, message:str}``
+  (the clipboard text itself is unaffected).
+* ``tray_fallback_notification`` — the tray icon is unavailable and
+  queued tray notifications were drained to the log + this event.
+  Payload: ``{"data": {"title": ..., "message": ...}}`` (nested under
+  ``data``; consumers read the nested shape).
+
+Total: 50 events — the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -338,6 +370,26 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "mic_level",
         "device_lost",
         "dictation_lost",
+        # Model-load lifecycle (model_manager/_change.py background
+        # thread — the set_config ack's ``model_loading`` envelope pairs
+        # with these):
+        "asr_backend_ready",
+        "asr_backend_load_failed",
+        # Mid-recording device/permission events (recorder stream's
+        # device-health paths — distinct from the level-monitor's
+        # ``device_lost``):
+        "microphone_permission_revoked",
+        "microphone_disconnected",
+        # Engine / pipeline degradation observability:
+        "cloud_fallback_used",
+        "dictation_suppressed",
+        # History-store integrity:
+        "history_corrupted",
+        "history_fts5_rebuild_failed",
+        # Clipboard paste safety (Secure Input / deferred paste):
+        "paste_deferred",
+        # Tray-unavailable fallback (tray.py `_drain_pending`):
+        "tray_fallback_notification",
     }
 )
 
@@ -988,34 +1040,6 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             return _deliver(event, snapshot)
         return True
     return _deliver(event, snapshot)
-
-
-def publish_sync(event: dict) -> bool:
-    """Broadcast *event* to every subscriber, synchronously ().
-
-    Explicit-synchronous alias for :func:`publish` with
-    ``async_dispatch=False``. Use this when the caller needs ordering
-    guarantees (subscribers invoked before the caller proceeds) — e.g.
-    a sequence of related events where the second depends on the first
-    having been processed.
-
-    The default :func:`publish` is already synchronous, so this function
-    is primarily a self-documenting call site marker: it makes the
-    ordering intent explicit at the call site, and protects against a
-    future default-flip of ``publish``'s ``async_dispatch`` parameter
-    silently breaking ordering-sensitive callers.
-
-    Notes
-    -----
-    - The RT-thread auto-defer (PERF-2) still applies: an audio-worker
-      thread calling ``publish_sync`` will defer to the executor
-      regardless, because the RT loop must not block on subscriber
-      fan-out. The ``async_dispatch=False`` flag only controls the
-      non-RT path.
-    - Returns the same bool as :func:`publish` (True if at least one
-      subscriber accepted; False if no subscribers or all raised).
-    """
-    return publish(event, async_dispatch=False)
 
 
 def _subscriber_count() -> int:

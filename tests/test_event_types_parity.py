@@ -60,6 +60,7 @@ with other fix sub-agents.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -161,8 +162,9 @@ def _rust_allowed_event_types() -> set[str]:
     slice_body = src[idx : src.find("];", idx)]
     # Match quoted strings — the slice entries are `"name",` with
     # optional trailing comments after `//`. The regex captures only
-    # the quoted string content.
-    return set(re.findall(r'"([a-z_]+)"', slice_body))
+    # the quoted string content. `[a-z0-9_]+` (not `[a-z_]+`) so
+    # digit-bearing names like `history_fts5_rebuild_failed` parse.
+    return set(re.findall(r'"([a-z0-9_]+)"', slice_body))
 
 
 def _ts_python_push_event_types() -> set[str]:
@@ -192,7 +194,8 @@ def _ts_python_push_event_types() -> set[str]:
     head = src[:cut]
     # Match `type: "<name>";` — the trailing `;` distinguishes
     # interface members from the union's `| MemberName` lines.
-    return set(re.findall(r'type:\s*"([a-z_]+)"\s*;', head))
+    # `[a-z0-9_]+` so digit-bearing names parse (see the Rust parser).
+    return set(re.findall(r'type:\s*"([a-z0-9_]+)"\s*;', head))
 
 
 def _ts_known_event_types() -> set[str]:
@@ -216,7 +219,8 @@ def _ts_known_event_types() -> set[str]:
     start = src.index("KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([")
     end = src.index("]);", start)
     block = src[start:end]
-    return set(re.findall(r'"([a-z_]+)"', block))
+    # `[a-z0-9_]+` so digit-bearing names parse (see the Rust parser).
+    return set(re.findall(r'"([a-z0-9_]+)"', block))
 
 
 def _ts_python_request_types() -> set[str]:
@@ -696,6 +700,139 @@ class TestPackEventTypesSourceOfTruth:
             "§7.4: OFFLINE_PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
             "must be a frozenset (not a set or list) so it cannot be "
             "accidentally mutated at runtime."
+        )
+
+
+# ─── 7. Python-published events ⊆ Rust allowlist + EVENT_TYPES registry ───
+
+
+def _python_published_event_types() -> set[str]:
+    """Return every event name literally published via ``event_bus.publish``.
+
+    AST-scans every ``.py`` file under ``voice_typer/server`` for a
+    ``<anything>.publish(...)`` call
+    whose FIRST positional argument is a dict literal containing a
+    constant ``"type": "<name>"`` pair. This is the emitting-direction
+    inventory: the set of event names the Python sidecar can actually
+    push onto the WS (the sidecar's ``_push_to_ws`` subscriber forwards
+    every event_bus publish verbatim, so the dispatch-vs-event split is
+    irrelevant here — an event frame is any no-id publish).
+
+    Receiver-name matching is deliberately loose (any ``X.publish``):
+    call sites alias the module (``event_bus`` /
+    ``_event_bus``) and a stricter ``func.value.id == "event_bus"`` match
+    would silently skip aliased sites. A non-event_bus receiver that
+    publishes a dict with a constant ``type`` key would be a false
+    positive — none exists today (the scan's receiver inventory was
+    verified: every hit resolves to the ``voice_typer.server.event_bus``
+    module).
+
+    Dynamic (non-literal) ``type`` values are invisible to this scan;
+    that is the accepted trade-off — a literal-name drift is the failure
+    class that bit (allowlist grown by consumer requests, not by emitter
+    inventory), and non-literal event names would be un-parity-able by
+    ANY static guard.
+    """
+    names: set[str] = set()
+    server_dir = REPO_ROOT / "voice_typer" / "server"
+    assert server_dir.is_dir(), f"server tree not found at {server_dir}"
+    for py in server_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"))
+        except SyntaxError as exc:  # pragma: no cover - defensive
+            raise AssertionError(f"{py} has a syntax error ({exc}); the published-event scan cannot run.") from exc
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "publish"):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Dict):
+                continue
+            for key, value in zip(node.args[0].keys, node.args[0].values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "type"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    names.add(value.value)
+    return names
+
+
+def _python_event_types_registry() -> frozenset[str]:
+    """Return the canonical Python ``event_bus.EVENT_TYPES`` registry."""
+    from voice_typer.server.event_bus import EVENT_TYPES
+
+    return EVENT_TYPES
+
+
+class TestPythonPublishedEventParity:
+    """The EMITTING direction of the four-way population diff.
+
+    The tests above guard the consumer direction (TS union / TS runtime
+    set ⊆ Rust allowlist). None of them asked: ``what does the Python
+    sidecar actually publish?`` — which is how 10 published events
+    ended up dropped at the Rust WS-reader gate with only a warn.
+
+    Two assertions close that gap:
+
+    1. Published ⊆ Rust ``ALLOWED_EVENT_TYPES`` — every name the Python
+       tree can publish must pass the host gate, or the frame is
+       silently dropped (``[WS-READER] dropping unknown event type:``).
+    2. Published ⊆ Python ``EVENT_TYPES`` — the Python-side registry
+       is the dev-time assertion gate (``VOICE_TYPER_DEBUG_EVENTS=1``)
+       and the code-side catalogue anchor; a published-but-unregistered
+       name false-positives that gate and lies to catalogue readers.
+
+    Exceptions: none today. If a name is intentionally allowed to be
+    dropped (a diagnostics-only event consumed by NOTHING), the correct
+    move per the event-contract policy is to DELETE the emit, not to
+    add an exception here.
+    """
+
+    def test_published_scanner_finds_a_meaningful_inventory(self) -> None:
+        """Sanity: the AST scan must not silently return an empty/tiny set
+        (a parser regression would make the two parity assertions below
+        vacuously green)."""
+        published = _python_published_event_types()
+        assert len(published) >= 40, (
+            "the published-event AST scan found only "
+            f"{len(published)} names — the scanner itself is broken "
+            "(expected the full ~50-name publish inventory under "
+            "voice_typer/server)."
+        )
+        # long-standing core events that must always be in the inventory
+        for anchor in ("ready", "state_changed", "status_change", "error"):
+            assert anchor in published, f"scanner no longer finds the core '{anchor}' publisher."
+
+    def test_published_events_subset_of_rust_allowlist(self) -> None:
+        rust = _rust_allowed_event_types()
+        published = _python_published_event_types()
+        missing = published - rust
+        assert not missing, (
+            "Python publishes the following event names that the Rust "
+            f"ALLOWED_EVENT_TYPES slice does NOT contain: {sorted(missing)}. "
+            "The Tauri WS reader silently drops these frames (logged at "
+            "`[WS-READER] dropping unknown event type:`) — every "
+            "renderer subscriber for them is dead end-to-end. Either "
+            "wire the event (add it to the slice in "
+            "src-tauri/src/sidecar/ws/event_protocol.rs + the TS union "
+            "+ KNOWN_EVENT_TYPES + a renderer consumer) or delete the "
+            "emit per the dead-code policy."
+        )
+
+    def test_published_events_subset_of_python_event_types_registry(self) -> None:
+        registry = _python_event_types_registry()
+        published = _python_published_event_types()
+        missing = published - registry
+        assert not missing, (
+            "event_bus.EVENT_TYPES (the Python-side registry / dev-time "
+            "assertion gate) is missing the following PUBLISHED names: "
+            f"{sorted(missing)}. Add them to the frozenset in "
+            "voice_typer/server/event_bus.py so the "
+            "VOICE_TYPER_DEBUG_EVENTS gate doesn't false-positive on "
+            "real call sites."
         )
 
 
