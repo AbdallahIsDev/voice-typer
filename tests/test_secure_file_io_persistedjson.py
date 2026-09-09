@@ -664,3 +664,82 @@ class TestQuarantineCorruptUsesOsReplace:
         assert quarantine_files[0].is_symlink()
         # The sensitive target must be untouched.
         assert sensitive.read_text() == "sensitive"
+
+
+# ---------------------------------------------------------------------------
+# PersistedJSON.save: chmod 0o600 exactly once per write (no redundant
+# re-chmod after _secure_atomic_write already did it)
+# ---------------------------------------------------------------------------
+
+
+class TestSaveChmodSingleSource:
+    """``_secure_atomic_write`` already chmods its target to 0o600 on
+    EVERY success branch (see its body: ``_chmod_owner_only(target)``
+    runs unconditionally after ``os.replace``; on failure it raises, so
+    the caller never reaches a trailing chmod on that path).
+    ``PersistedJSON.save`` must NOT re-chmod the same paths a second
+    time — a redundant chmod is dead code that suggests the write path
+    is insecure when it is not (documented-layer confusion), and it is
+    an extra syscall per save on hot paths (vocabulary/templates).
+
+    The guarantee itself (0o600 owner-only perms on the saved file and
+    its ``.bak``) is pinned separately by the state-based test below —
+    the redundant call added nothing observable.
+    """
+
+    def test_chmod_owner_only_invoked_exactly_once_per_write(self, tmp_path, monkeypatch):
+        """A save that churns BOTH the ``.bak`` and the main file must
+        trigger exactly ONE ``_chmod_owner_only`` call per
+        ``_secure_atomic_write`` call (2 total) — not one inside the
+        helper plus a redundant second one from ``save`` itself."""
+        import voice_typer.server.security.file_io as _fio
+        from voice_typer.server.secure_file_io import PersistedJSON
+
+        calls: list[str] = []
+        real_chmod_owner_only = _fio._chmod_owner_only
+
+        def counting_chmod_owner_only(path):
+            calls.append(str(path))
+            return real_chmod_owner_only(path)
+
+        monkeypatch.setattr(_fio, "_chmod_owner_only", counting_chmod_owner_only)
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"previous": "content"}', encoding="utf-8")
+        pj: PersistedJSON = PersistedJSON(config_path, default={})
+
+        # New content differs from the on-disk content → the .bak is
+        # written (one _secure_atomic_write) AND the main file is
+        # written (a second _secure_atomic_write).
+        pj.save({"new": "content"})
+
+        assert len(calls) == 2, (
+            f"expected exactly 2 chmod-to-0o600 calls (one per "
+            f"_secure_atomic_write: .bak + main file), got {len(calls)} for "
+            f"{calls} — save() is re-chmoding a path that "
+            f"_secure_atomic_write already chmod'd (redundant layer)"
+        )
+        from pathlib import Path as _Path
+
+        chmodded = {_Path(c).name for c in calls}
+        assert chmodded == {"config.json", "config.json.bak"}
+
+    @_POSIX_ONLY
+    def test_saved_files_have_owner_only_permissions(self, tmp_path):
+        """End-to-end permission guarantee (state-based): after a save
+        that writes both the main file and the ``.bak``, BOTH files are
+        0o600 owner-only. The chmod is performed inside
+        ``_secure_atomic_write`` — this test pins the guarantee, not
+        the call count."""
+        import stat as _stat
+
+        from voice_typer.server.secure_file_io import PersistedJSON
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"previous": "content"}', encoding="utf-8")
+        pj: PersistedJSON = PersistedJSON(config_path, default={})
+        pj.save({"new": "content"})
+
+        for p in (config_path, config_path.with_name("config.json.bak")):
+            mode = _stat.S_IMODE(p.stat().st_mode)
+            assert mode == 0o600, f"{p.name} must be 0o600 owner-only, got {oct(mode)}"

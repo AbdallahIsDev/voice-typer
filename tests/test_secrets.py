@@ -537,10 +537,12 @@ class TestRedactHomePath:
 
 class TestRedactForExport:
     """UE-5-F4: ``redact_for_export`` is the unified PII + secret
-    redaction pipeline used by both ``diagnostics_export`` (live log
-    + archived crash dumps) and ``ipc_diagnostics`` (startup-error
-    traceback). UE-5-F7: it passes ``aggressive=True`` to
-    :func:`redact_secret` so short bare secrets are caught.
+    redaction pipeline for diagnostic exports. Live caller today:
+    ``ipc_diagnostics`` (startup-error traceback + startup
+    diagnostics file); the former server-side bundle pipeline was
+    also a caller before its removal. UE-5-F7: it passes
+    ``aggressive=True`` to :func:`redact_secret` so short bare
+    secrets are caught.
     """
 
     def test_redacts_bearer_token(self):

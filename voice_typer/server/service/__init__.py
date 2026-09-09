@@ -8,11 +8,11 @@ without duplicating app glue.
 The service is a thin facade — it delegates to the app but provides
 a stable interface that doesn't leak VoiceTyperApp's internal API.
 
- (split): the original 2,116-line god class has been split
-into eight domain mixins plus this module. This module owns ONLY
+The original 2,116-line god class has been split
+into ten domain mixins plus this module. This module owns ONLY
 ``VoiceTyperService.__init__``, the ``restart`` / ``quit`` lifecycle
 methods, and the ``StatusResponse`` / ``ForceCancelResult``
-TypedDicts. All other surface (config, GDPR, diagnostics, dictation,
+TypedDicts. All other surface (config, GDPR, dictation,
 history, model, onboarding, microphone-test, status, template,
 vocabulary) is composed via multiple inheritance from the domain
 mixins in this package, so ``VoiceTyperService`` exposes the same
@@ -46,7 +46,6 @@ from voice_typer.server.service.template import TemplateMixin
 from voice_typer.server.service.vocabulary import VocabularyMixin
 
 from .config_service import ConfigMutationMixin
-from .diagnostics import DiagnosticsMixin
 from .privacy import PrivacyMixin
 
 if TYPE_CHECKING:
@@ -60,7 +59,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# ── : TypedDicts for the most critical ``dict`` returns ──
+# ── TypedDicts for the most critical ``dict`` returns ──
 # These replace bare ``dict`` annotations so static type checkers (and
 # IDE autocomplete) can verify the shape of the response payloads that
 # flow from the service layer to the IPC layer (and ultimately to the
@@ -116,7 +115,6 @@ class VoiceTyperService(
     StatusMixin,
     DictationMixin,
     PrivacyMixin,
-    DiagnosticsMixin,
     ConfigMutationMixin,
 ):
     """Service facade over VoiceTyperApp.
@@ -125,24 +123,24 @@ class VoiceTyperService(
     interface.  The IPC server (or any future transport) calls these
     methods instead of touching the app directly.
 
-     (split): all domain methods live on the composed mixins
+    All domain methods live on the composed mixins
     (``HistoryMixin``, ``ModelMixin``, ``OnboardingMixin``,
     ``MicrophoneTestMixin``, ``VocabularyMixin``, ``TemplateMixin``,
     ``StatusMixin``, ``DictationMixin``, ``PrivacyMixin``,
-    ``DiagnosticsMixin``, ``ConfigMutationMixin``). This class owns
+    ``ConfigMutationMixin``). This class owns
     ONLY ``__init__``, ``restart``, and ``quit`` — config-mutation,
-    GDPR, diagnostics, and every other domain surface resolve via
+    GDPR, and every other domain surface resolve via
     MRO to the mixin copies, which are the single source of truth
     (no method or constant is duplicated on this class).
     """
 
     def __init__(self, app: "AppProtocol") -> None:
         self._app = app
-        #  delegate config side-effects + apply_config to
-        # the extracted ConfigApplier ( to_filter_dict +
+        # Delegate config side-effects + apply_config to
+        # the extracted ConfigApplier (to_filter_dict +
         # save_strict()). The previous inline copies were never wired up.
         # ConfigApplier is the single owner of the config-mutation lock
-        # acquisition + rollback logic (//) so the
+        # acquisition + rollback logic so the
         # regression test ``tests/regressions/test_concurrency.py`` can
         # introspect ``ConfigApplier.apply_config`` for the lock.
         self._config_applier = ConfigApplier(self)
@@ -159,8 +157,7 @@ class VoiceTyperService(
         # MI would require modifying ``_base.py``. Functionally
         # equivalent: the state ends up on the same instance via the
         # same MRO.
-        #
-        # the  fix was previously applied
+        # The state-ownership fix was previously applied
         # INCONSISTENTLY — only ``MicrophoneTestMixin`` got its own
         # ``__init__`` extraction. ``ModelMixin``'s six state fields
         # (``_download_cancel_events``, ``_download_cancel_lock``,
@@ -182,34 +179,6 @@ class VoiceTyperService(
         # ``_microphones_cache`` initialised to ``None``.
         MicrophoneTestMixin.__init__(self)
 
-    #  (High, partial): ``set_config`` and ``save_config``
-    # were REMOVED from this service layer.
-    #
-    # Rationale:
-    #   - ``set_config`` (validated-config helper) had 0 production
-    #     callers — the IPC ``set_config`` command is implemented in
-    #     ``handlers/config_handlers.py::_handle_set_config``, which
-    #     calls ``config.validate_config_update`` directly and then
-    #     delegates to ``service.apply_config`` (NOT this method).
-    #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
-    #     production callers; the IPC ``save_config`` command was
-    #     removed in   ``Config.save()`` is now invoked
-    #     inside ``service.apply_config`` under the config-mutation
-    #     lock so disk writes can't race.
-    #
-    # Callers should use:
-    #   - ``config.validate_config_update(updates)`` directly for
-    #     validation, OR
-    #   - ``service.apply_config(updates)`` for the full atomic
-    #     validate→mutate→side-effects→save→tray-invalidate flow.
-    #
-    # Tests that pinned the old methods (notably
-    # ``tests/fixtures/ipc_test_helpers.py:155`` which assigns
-    # ``service.set_config.return_value = ...`` on a MagicMock, and
-    # ``tests/test_di_providers.py:544`` which asserts ``set_config``
-    # is declared on ``ServiceProtocol``) need follow-up updates —
-    # see the FA11-retry return summary.
-
     # ── Lifecycle ───────────────────────────────────────────────
 
     def restart(self) -> None:
@@ -220,7 +189,7 @@ class VoiceTyperService(
         """Quit the application."""
         self._app.quit_app()
 
-    # ── Config side effects () ──────────────────────────
+    # ── Config side effects ──────────────────────────
 
 
 __all__ = [

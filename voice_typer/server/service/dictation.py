@@ -47,7 +47,7 @@ class DictationMixin(ServiceMixinBase):
 
     # Force cancel transcription ─────────────────────────────
 
-    def force_cancel_transcription(self) -> "ForceCancelResult":  # noqa: F821
+    def force_cancel_transcription(self) -> "ForceCancelResult":
         """Force-cancel a stuck transcription.
 
         Invokes ``force_recover`` with ``force=True`` so the

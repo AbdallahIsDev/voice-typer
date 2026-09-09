@@ -1,7 +1,7 @@
 """Privacy / GDPR domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-( / Phase 4.5 spaghetti split). Owns the two cross-cutting
+(Phase 4.5 spaghetti split). Owns the two cross-cutting
 privacy methods that don't belong to a single domain mixin:
 
 * :meth:`PrivacyMixin.delete_all_personal_data`   — GDPR Art. 17
@@ -39,6 +39,8 @@ the pre-refactor implementation, and the existing
 import contextlib
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import Any, Protocol
 
 from voice_typer.server._secrets import redact_secret, redact_url
@@ -139,10 +141,11 @@ class PrivacyMixin(ServiceMixinBase):
     # backups ``voice-typer.log.1`` .. ``voice-typer.log.5`` (set in
     # ``voice_typer/server/log.py`` via
     # ``RotatingFileHandler(backupCount=5)``).  Without this glob the
-    # rotated backups survive GDPR delete — and per  the
-    # rotating log file contains user-spoken text via
+    # rotated backups survive GDPR delete — and the rotating log file
+    # contains user-spoken text via
     # ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs
-    # (), so the leftover backups are a real Art. 17 gap.
+    # written by the transcription pipeline, so the leftover backups
+    # are a real Art. 17 gap.
     #
     # ``crash_diagnostics.*.txt`` matches the Windows VEH
     # handler's crash file at ``crash_handler.py:722``
@@ -171,20 +174,19 @@ class PrivacyMixin(ServiceMixinBase):
         # swept up by the GDPR delete / export walk alongside the
         # canonical file above.
         "electron-renderer-errors.log.*",
-        # history.db.corrupt-* retains dictated plaintext
-        "history.db.corrupt-*",
         # voice-typer-diagnostics-*.zip contains PII
         "voice-typer-diagnostics-*.zip",
         # gdpr-export-*.zip contains user full personal data
         "gdpr-export-*.zip",
         # (High): four config-backup file classes ALL contain
         # full on-disk config.json including plaintext API keys (when
-        # keyring is unavailable). Pre- these survived GDPR
-        # Art. 17 delete — a direct right-to-erasure violation.
+        # keyring is unavailable). Before these globs existed, they
+        # survived GDPR Art. 17 delete — a direct right-to-erasure
+        # violation.
         #
         # ``config.json.v*.bak`` — versioned-downgrade backups from
-        # ``Config._backup_before_downgrade`` ( made the
-        # filename timestamped: ``config.json.v{N}-{ts}-{pid}-{ns}.bak``,
+        # ``Config._backup_before_downgrade`` (the filename format is
+        # timestamped: ``config.json.v{N}-{ts}-{pid}-{ns}.bak``,
         # but the glob ``config.json.v*.bak`` also catches the legacy
         # single-slot ``config.json.v{N}.bak`` from pre- builds).
         #
@@ -206,31 +208,26 @@ class PrivacyMixin(ServiceMixinBase):
         # (Medium): history.db.pre-migration-v* is a
         # byte-for-byte copy of the full history DB made by
         # ``HistoryDB._backup_before_migration`` before schema
-        # migration. Contains all dictated text in plaintext. Pre-
-        # this survived GDPR Art. 17 delete — same gap as
-        # ``history.db.corrupt-*`` () which was already
+        # migration. Contains all dictated text in plaintext. Before
+        # this glob existed, it survived GDPR Art. 17 delete — same gap as
+        # ``history.db.corrupt-*`` which the earlier inventory already
         # covered.
         "history.db.pre-migration-v*",
-        # Explicit corrupt / pre-migration backup sidecars.
-        # The trailing-``*`` globs above technically already match
-        # ``-wal`` / ``-shm`` sidecars too, but the corrupt-quarantine
-        # path (``history_db_internals/recovery.py``) and the
-        # pre-migration backup path both create byte-for-byte sidecar
-        # copies that retain dictated plaintext. Enumerating them
-        # explicitly here (mirrored from
-        # ``_user_data_files._GDPR_PERSONAL_GLOBS``) makes the
-        # inventory self-documenting and survives a future tightening
-        # of the bare ``history.db.corrupt-*`` glob to exclude sidecars.
-        "history.db.corrupt-*-wal",
-        "history.db.corrupt-*-shm",
-        "history.db.pre-migration-v*.bak",
-        "history.db.pre-migration-v*.bak-wal",
-        "history.db.pre-migration-v*.bak-shm",
+        # The canonical corrupt-quarantine / pre-migration-backup
+        # inventory (``history.db.corrupt-*`` + its ``-wal``/``-shm``
+        # sidecars + the ``.bak`` sidecars), single-sourced from
+        # ``_user_data_files._GDPR_PERSONAL_GLOBS`` — the same tuple the
+        # uninstall-purge path walks. The corrupt-quarantine path
+        # (``history_db_internals/recovery.py``) and the pre-migration
+        # backup path both create byte-for-byte sidecar copies that
+        # retain dictated plaintext; a filename-format change in either
+        # path now lands in exactly one place.
+        *_GDPR_PERSONAL_GLOBS_INVENTORY,
     )
 
-    # Privacy / GDPR ( / ) ───────────────────────────────
+    # Privacy / GDPR ─────────────────────────────────────
     #
-    # (GDPR Art. 17 right-to-erasure) and  (Art. 20
+    # (GDPR Art. 17 right-to-erasure) and (Art. 20
     # right-to-data-portability).  Both are wrapped by
     # :mod:`voice_typer.server.handlers.privacy_handlers` (thin IPC
     # envelopes that delegate to these service methods).  The handlers
@@ -238,7 +235,7 @@ class PrivacyMixin(ServiceMixinBase):
     # renderer can show the user exactly which files were
     # deleted/exported and which failed.
     #
-    # Personal-data file set ( /  spec):
+    # Personal-data file set:
     #
     #   * ``history.db``                       — transcription history
     #   * ``recovery.json``                    — crash-recovery buffer
@@ -290,8 +287,8 @@ class PrivacyMixin(ServiceMixinBase):
         export (SQLite refuses to open a WAL-mode DB whose ``-wal``
         sidecar is absent).
 
-        Best-effort: if ``checkpoint`` is missing on this build (older
-        signature) or raises, the failure is logged at DEBUG and the
+        Best-effort: if ``checkpoint`` is missing on this build or
+        raises, the failure is logged at DEBUG and the
         caller proceeds — the WAL sidecar unlink / non-inclusion is
         still attempted, but stale plaintext written since the last
         passive checkpoint may be recoverable in that case.
@@ -313,27 +310,10 @@ class PrivacyMixin(ServiceMixinBase):
         try:
             checkpoint_fn = getattr(hdb, "checkpoint", None)
             if callable(checkpoint_fn):
-                try:
-                    try:
-                        checkpoint_fn(truncate=True)
-                    except TypeError:
-                        # Method exists but doesn't accept truncate= kwarg
-                        # (older signature) — try positional.
-                        try:
-                            checkpoint_fn(True)
-                        except Exception:
-                            log.debug(
-                                "[SERVICE] GDPR: hdb.checkpoint(True) failed",
-                                exc_info=True,
-                            )
-                except Exception:
-                    log.debug(
-                        "[SERVICE] GDPR: hdb.checkpoint(truncate=True) failed",
-                        exc_info=True,
-                    )
+                checkpoint_fn(truncate=True)
         except Exception:
             log.debug(
-                "[SERVICE] GDPR: hdb.checkpoint access failed",
+                "[SERVICE] GDPR: hdb.checkpoint(truncate=True) failed",
                 exc_info=True,
             )
         if close:
@@ -346,29 +326,86 @@ class PrivacyMixin(ServiceMixinBase):
                 )
 
     @staticmethod
+    def _gdpr_rmtree_dir(
+        target: "os.PathLike[str] | str",
+        erased: list,
+        failed: dict,
+        *,
+        label: str,
+    ) -> None:
+        """Shared exists→rmtree→record recipe for the GDPR subdirectory steps.
+
+        Single implementation behind :meth:`_gdpr_rmtree_rust_logs`,
+        :meth:`_gdpr_rmtree_db_dir`, :meth:`_gdpr_rmtree_electron_profile`,
+        and :meth:`_gdpr_rmtree_crash_archive` (previously four ~40-line
+        copies of the same shape). Best-effort: a missing directory is a
+        silent no-op; any failure (``OSError`` including
+        ``PermissionError``, or anything unexpected) is recorded in
+        ``failed`` keyed by path and WARNING-logged with the
+        manual-delete hint — the deleted trees contain PII, so the
+        project's "no silent swallows" rule applies, and a GDPR pass
+        must never abort partway. On success the
+        directory is appended to ``erased`` and logged at DEBUG.
+        """
+
+        target_path = Path(target)
+        if not target_path.exists():
+            return
+        try:
+            shutil.rmtree(target_path, ignore_errors=False)
+            erased.append(str(target_path))
+            log.debug(
+                "[SERVICE] GDPR delete: removed %s dir at %s",
+                label,
+                target_path,
+            )
+        except Exception as exc:
+            log.warning(
+                "[SERVICE] GDPR delete: could not rmtree %s dir at %s: %s — user may need to delete it manually",
+                label,
+                target_path,
+                exc,
+            )
+            failed[str(target_path)] = f"{type(exc).__name__}: {exc}"
+
+    @staticmethod
+    def _gdpr_safe_unlink(path: "os.PathLike[str] | str", erased: list, failed: dict) -> bool:
+        """Unlink *path* best-effort, recording the outcome.
+
+        Shared recipe behind :meth:`_gdpr_unlink_personal_files`,
+        :meth:`_gdpr_unlink_personal_globs`, and
+        :meth:`_gdpr_post_cleanup_sweep`. A missing file returns
+        ``False`` without recording anything; a successful unlink
+        appends the path to ``erased`` and returns ``True``; a failed
+        unlink records ``"{type}: {exc}"`` in ``failed`` keyed by path
+        and returns ``False``. A single ``except Exception`` captures
+        both the locked-file case (Windows) and every other unlink
+        error — the previous ``except PermissionError`` + ``except
+        Exception`` pair had byte-identical bodies (dead shadow).
+        """
+
+        target_path = Path(path)
+        if not target_path.exists():
+            return False
+        try:
+            target_path.unlink()
+        except Exception as exc:
+            failed[str(target_path)] = f"{type(exc).__name__}: {exc}"
+            return False
+        erased.append(str(target_path))
+        return True
+
+    @staticmethod
     def _gdpr_unlink_personal_files(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
         """Unlink each hardcoded personal-data file in ``config_dir``.
 
-                Walks :data:`_GDPR_PERSONAL_FILES` and unlinks each existing
-        file.  : each unlink is wrapped in
-                ``try/except PermissionError`` so a locked file (Windows: file
-                open in another process; POSIX: EBUSY on rare mount points) is
-                reported in ``failed`` rather than aborting the whole GDPR
-                delete.
+        Walks :data:`_GDPR_PERSONAL_FILES` and unlinks each existing
+        file via :meth:`_gdpr_safe_unlink` (locked files are reported
+        in ``failed`` rather than aborting the whole GDPR delete).
         """
-        from pathlib import Path
 
         for name in PrivacyMixin._GDPR_PERSONAL_FILES:
-            path = Path(config_dir) / name
-            if not path.exists():
-                continue
-            try:
-                path.unlink()
-                erased.append(str(path))
-            except PermissionError as exc:
-                failed[str(path)] = f"{type(exc).__name__}: {exc}"
-            except Exception as exc:
-                failed[str(path)] = f"{type(exc).__name__}: {exc}"
+            PrivacyMixin._gdpr_safe_unlink(Path(config_dir) / name, erased, failed)
 
     @staticmethod
     def _gdpr_unlink_personal_globs(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
@@ -377,7 +414,8 @@ class PrivacyMixin(ServiceMixinBase):
         Walks :data:`_GDPR_PERSONAL_GLOBS` (mic-test recordings,
         rotated log backups, crash diagnostic files — see the per-
         pattern rationale on the constant).  Same per-unlink error
-        handling as :meth:`_gdpr_unlink_personal_files`.
+        handling as :meth:`_gdpr_unlink_personal_files` (via the shared
+        :meth:`_gdpr_safe_unlink`).
 
         The ``_GDPR_PERSONAL_GLOBS`` tuple includes explicit
         ``-wal`` / ``-shm`` sidecar patterns alongside the bare
@@ -391,7 +429,6 @@ class PrivacyMixin(ServiceMixinBase):
         file is unlinked at most once — also prevents the same file
         appearing twice in the ``erased`` list reported to the user.
         """
-        from pathlib import Path
 
         seen: set[str] = set()
         for pattern in PrivacyMixin._GDPR_PERSONAL_GLOBS:
@@ -407,60 +444,30 @@ class PrivacyMixin(ServiceMixinBase):
                     # ``failed``.
                     continue
                 seen.add(key)
-                try:
-                    path.unlink()
-                    erased.append(str(path))
-                except PermissionError as exc:
-                    failed[str(path)] = f"{type(exc).__name__}: {exc}"
-                except Exception as exc:
-                    failed[str(path)] = f"{type(exc).__name__}: {exc}"
+                PrivacyMixin._gdpr_safe_unlink(path, erased, failed)
 
     @staticmethod
     def _gdpr_rmtree_rust_logs(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
         """Recursively remove the Rust host's ``logs/`` subdirectory.
 
-                ``<config_dir>/logs/voice-typer.log`` + rotated backups
-                ``.log.1``..``.log.4`` are written by
-                ``src-tauri/src/platform/logging.rs:30-34``.  The Python glob
-                walk in :meth:`_gdpr_unlink_personal_globs` only matches files
-                at the ``config_dir`` root, so without this step the entire
-        Rust log tree survives GDPR delete.  Per  the Rust
-                logger has no PII redaction, so dictated-text fragments may
-                be present.
+        ``<config_dir>/logs/voice-typer.log`` + rotated backups
+        ``.log.1``..``.log.4`` are written by
+        ``src-tauri/src/platform/logging.rs:30-34``.  The Python glob
+        walk in :meth:`_gdpr_unlink_personal_globs` only matches files
+        at the ``config_dir`` root, so without this step the entire
+        Rust log tree survives GDPR delete.  The Rust
+        logger has no PII redaction, so dictated-text fragments may
+        be present.
 
-                Best-effort: the ``exists()`` guard makes a missing dir
-                (fresh install, or pre-Tauri-migration build) a silent no-op,
-                and a per-file OSError is caught + surfaced in ``failed``
-                (WARNING-log) so the renderer can tell the user to manually
-                delete the directory rather than silently swallowing the
-                failure (per project rule "no silent swallows").
+        Delegates to the shared :meth:`_gdpr_rmtree_dir` recipe
+        (best-effort: missing dir is a silent no-op; failures are
+        WARNING-logged + recorded in ``failed`` so the renderer can
+        tell the user to delete the directory manually).
         """
-        import shutil
-        from pathlib import Path
 
         from voice_typer.server.log import get_logs_dir
 
-        rust_logs_dir = get_logs_dir(Path(config_dir))
-        if not rust_logs_dir.exists():
-            return
-        try:
-            shutil.rmtree(rust_logs_dir, ignore_errors=False)
-            erased.append(str(rust_logs_dir))
-            log.debug(
-                "[SERVICE] GDPR delete: removed Rust logs/ dir at %s",
-                rust_logs_dir,
-            )
-        except OSError as exc:
-            # Surface the failure in ``failed`` (WARNING-log)
-            # because the Rust logs may contain PII — the user
-            # should be told to manually delete the directory.
-            log.warning(
-                "[SERVICE] GDPR delete: could not rmtree Rust logs/ dir "
-                "at %s: %s — user may need to delete it manually",
-                rust_logs_dir,
-                exc,
-            )
-            failed[str(rust_logs_dir)] = f"{type(exc).__name__}: {exc}"
+        PrivacyMixin._gdpr_rmtree_dir(get_logs_dir(Path(config_dir)), erased, failed, label="Rust logs/")
 
     @staticmethod
     def _gdpr_rmtree_db_dir(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
@@ -476,30 +483,10 @@ class PrivacyMixin(ServiceMixinBase):
         the whole tree must be removed here — otherwise dictated text
         survives GDPR delete.
 
-        Best-effort: missing dir is a silent no-op; a per-file OSError
-        is caught + surfaced in ``failed`` so the renderer can tell the
-        user to delete manually.
+        Delegates to the shared :meth:`_gdpr_rmtree_dir` recipe.
         """
-        import shutil
-        from pathlib import Path
 
-        db_dir = Path(config_dir) / "db"
-        if not db_dir.exists():
-            return
-        try:
-            shutil.rmtree(db_dir, ignore_errors=False)
-            erased.append(str(db_dir))
-            log.debug(
-                "[SERVICE] GDPR delete: removed db/ dir at %s",
-                db_dir,
-            )
-        except OSError as exc:
-            log.warning(
-                "[SERVICE] GDPR delete: could not rmtree db/ dir at %s: %s — user may need to delete it manually",
-                db_dir,
-                exc,
-            )
-            failed[str(db_dir)] = f"{type(exc).__name__}: {exc}"
+        PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "db", erased, failed, label="db")
 
     @staticmethod
     def _gdpr_rmtree_electron_profile(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
@@ -510,32 +497,12 @@ class PrivacyMixin(ServiceMixinBase):
         Crashpad) since ``bootstrap.ts`` pins
         ``app.setPath("userData", …)`` to it. Local Storage / Network
         state can hold personal data, so GDPR Art. 17 erasure removes
-        the whole subdir. Best-effort: a missing dir (fresh install or
-        pre-split build) is a silent no-op; a per-file OSError is caught
-        and surfaced in ``failed`` so the renderer can tell the user to
-        delete it manually.
-        """
-        import shutil
-        from pathlib import Path
+        the whole subdir.
 
-        profile_dir = Path(config_dir) / "electron-profile"
-        if not profile_dir.exists():
-            return
-        try:
-            shutil.rmtree(profile_dir, ignore_errors=False)
-            erased.append(str(profile_dir))
-            log.debug(
-                "[SERVICE] GDPR delete: removed Electron profile/ dir at %s",
-                profile_dir,
-            )
-        except OSError as exc:
-            log.warning(
-                "[SERVICE] GDPR delete: could not rmtree Electron profile/ "
-                "dir at %s: %s — user may need to delete it manually",
-                profile_dir,
-                exc,
-            )
-            failed[str(profile_dir)] = f"{type(exc).__name__}: {exc}"
+        Delegates to the shared :meth:`_gdpr_rmtree_dir` recipe.
+        """
+
+        PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "electron-profile", erased, failed, label="Electron profile/")
 
     @staticmethod
     def _gdpr_rmtree_crash_archive(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
@@ -543,26 +510,14 @@ class PrivacyMixin(ServiceMixinBase):
 
         ``crash_diagnostics/`` is where the crash handler moves
         processed crash dumps (instead of unlinking them so the
-        diagnostic bundle can include them).  Best-effort: if the
-        directory doesn't exist (fresh install, or older build that
-        hasn't picked up the crash_handler change), this is a no-op.
-        If ``shutil.rmtree`` hits a ``PermissionError`` on a child
-        file, the directory path is added to ``failed`` rather than
-        aborting.
+        diagnostic bundle can include them). Delegates to the shared
+        :meth:`_gdpr_rmtree_dir` recipe: a missing directory is a
+        no-op; a ``PermissionError`` (or any other unlink failure) on
+        a child file records the directory path in ``failed`` rather
+        than aborting.
         """
-        import shutil
-        from pathlib import Path
 
-        archive_dir = Path(config_dir) / "crash_diagnostics"
-        if not archive_dir.exists():
-            return
-        try:
-            shutil.rmtree(archive_dir)
-            erased.append(str(archive_dir))
-        except PermissionError as exc:
-            failed[str(archive_dir)] = f"{type(exc).__name__}: {exc}"
-        except Exception as exc:
-            failed[str(archive_dir)] = f"{type(exc).__name__}: {exc}"
+        PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "crash_diagnostics", erased, failed, label="crash_diagnostics")
 
     @staticmethod
     def _gdpr_clear_keychain(app: object, failed: dict) -> None:
@@ -615,16 +570,18 @@ class PrivacyMixin(ServiceMixinBase):
         GDPR delete path bypasses ``apply_config`` (it deletes the
         on-disk file directly), so we invalidate here explicitly.
 
-        ``contextlib.suppress`` because the attribute may not exist
-        on fresh installs / test mocks.  Uses ``setattr`` so the
-        static type checker doesn't flag the access (``app`` is typed
-        as :class:`AppProtocol` which doesn't declare
-        ``_llm_polisher`` / ``_cloud_engine`` per ADR-0008-§3.1).
+        Routes through the shared ``_app_internals`` accessors — the
+        same helpers ``config_service.reset_config_to_defaults`` uses —
+        so the off-protocol attribute knowledge
+        (``_llm_polisher`` / ``_cloud_engine`` per ADR-0008-§3.1) lives
+        in exactly one module instead of being duplicated here.
         """
+        from voice_typer.server.service import _app_internals
+
         with contextlib.suppress(Exception):
-            app._llm_polisher = None
+            _app_internals.invalidate_llm_polisher(app)
         with contextlib.suppress(Exception):
-            app._cloud_engine = None
+            _app_internals.invalidate_cloud_engine(app)
 
     @staticmethod
     def _gdpr_invalidate_managers(app: object) -> None:
@@ -732,19 +689,9 @@ class PrivacyMixin(ServiceMixinBase):
         ``config.json.lock``; re-unlink it here so it doesn't survive
         GDPR delete.  Also re-sweeps ``.restart_token`` (defensive).
         """
-        from pathlib import Path
 
         for re_cleanup_name in ("config.json.lock", ".restart_token"):
-            re_cleanup_path = Path(config_dir) / re_cleanup_name
-            if not re_cleanup_path.exists():
-                continue
-            try:
-                re_cleanup_path.unlink()
-                erased.append(str(re_cleanup_path))
-            except PermissionError as exc:
-                failed[str(re_cleanup_path)] = f"{type(exc).__name__}: {exc}"
-            except Exception as exc:
-                failed[str(re_cleanup_path)] = f"{type(exc).__name__}: {exc}"
+            PrivacyMixin._gdpr_safe_unlink(Path(config_dir) / re_cleanup_name, erased, failed)
 
     @staticmethod
     def _gdpr_zip_directory(
@@ -780,7 +727,6 @@ class PrivacyMixin(ServiceMixinBase):
         at DEBUG so a single unreadable file doesn't abort the whole
         export (the user gets a partial zip rather than nothing).
         """
-        from pathlib import Path
 
         root = Path(config_dir) / subdir
         if not root.is_dir():
@@ -818,7 +764,6 @@ class PrivacyMixin(ServiceMixinBase):
         :meth:`_gdpr_rmtree_rust_logs` / :meth:`_gdpr_rmtree_crash_archive`),
         so the export path must walk them too for Art. 20 parity.
         """
-        from pathlib import Path
 
         config_dir_path = Path(config_dir)
         # 1. Hardcoded personal-data files.
@@ -885,7 +830,6 @@ class PrivacyMixin(ServiceMixinBase):
         ``PermissionError`` on unlink is logged but does not fail the
         export (the new zip was already written successfully).
         """
-        from pathlib import Path
 
         try:
             exports = sorted(
@@ -896,13 +840,7 @@ class PrivacyMixin(ServiceMixinBase):
             for stale in exports[5:]:
                 try:
                     stale.unlink()
-                except PermissionError as exc:
-                    log.debug(
-                        "[SERVICE] GDPR export rotation: could not unlink %s: %s",
-                        stale,
-                        exc,
-                    )
-                except Exception as exc:
+                except OSError as exc:
                     log.debug(
                         "[SERVICE] GDPR export rotation: could not unlink %s: %s",
                         stale,
@@ -1013,7 +951,7 @@ class PrivacyMixin(ServiceMixinBase):
         app = self._app
         config_lock = getattr(app, "_config_mutation_lock", None)
         if config_lock is None:
-            global _GDPR_CONFIG_LOCK_MISSING_WARNED  # noqa: PLW0603 — module-level once-flag
+            global _GDPR_CONFIG_LOCK_MISSING_WARNED  # module-level once-flag
             if not _GDPR_CONFIG_LOCK_MISSING_WARNED:
                 _GDPR_CONFIG_LOCK_MISSING_WARNED = True
                 log.warning(
@@ -1078,9 +1016,9 @@ class PrivacyMixin(ServiceMixinBase):
         Produce a single timestamped ``.zip`` at
         ``<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip`` containing
         every personal-data artifact the app owns (the same set as
-        :meth:`delete_all_personal_data`).  Unlike
-        :meth:`export_diagnostics` (which redacts PII for a support
-        ticket bundle), this export is the user's OWN data verbatim —
+        :meth:`delete_all_personal_data`).  Unlike a redacted
+        diagnostics bundle for support tickets, this export is the
+        user's OWN data verbatim —
         no redaction.  Model weights are excluded (not personal data).
 
         Returns::
@@ -1176,23 +1114,3 @@ class PrivacyMixin(ServiceMixinBase):
 
 
 __all__ = ["PrivacyMixin"]
-
-
-# Drift guard: assert the inventory tuple in
-# ``_user_data_files._GDPR_PERSONAL_GLOBS`` is a subset of the inline
-# ``PrivacyMixin._GDPR_PERSONAL_GLOBS`` defined in the class body above
-# so a future rename in the corruption-recovery / pre-migration-backup
-# filename formats that updates only one of the two inventories is
-# caught at import time. Computed at module-level (after the class
-# body finishes evaluation) because Python class-body comprehensions
-# cannot reference names defined in the same class body (the
-# comprehension creates its own scope that doesn't see the enclosing
-# class scope).
-_GDPR_GLOBS_DRIFT_GUARD: bool = all(pat in PrivacyMixin._GDPR_PERSONAL_GLOBS for pat in _GDPR_PERSONAL_GLOBS_INVENTORY)
-assert _GDPR_GLOBS_DRIFT_GUARD, (
-    "Drift detected: _user_data_files._GDPR_PERSONAL_GLOBS has a pattern not "
-    "present in PrivacyMixin._GDPR_PERSONAL_GLOBS. Update one to match the "
-    "other so the corrupt / pre-migration backup file patterns stay in lock-"
-    f"step. Inventory: {_GDPR_PERSONAL_GLOBS_INVENTORY!r}, "
-    f"inline: {PrivacyMixin._GDPR_PERSONAL_GLOBS!r}"
-)

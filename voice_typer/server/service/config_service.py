@@ -1,7 +1,7 @@
 """Config-mutation domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-( / Phase 4.5 spaghetti split). Owns the cross-cutting config
+(Phase 4.5 spaghetti split). Owns the cross-cutting config
 surface that doesn't belong to a single domain mixin:
 
 * :meth:`ConfigMutationMixin.get_config`                — sanitized config read
@@ -14,7 +14,8 @@ surface that doesn't belong to a single domain mixin:
 * :meth:`ConfigMutationMixin._keyring_status`           — shared keychain probe helper
 
 These previously lived on :class:`VoiceTyperService` itself because
-they delegate to :class:`ConfigApplier` ( /  / ) and
+they delegate to :class:`ConfigApplier` for the post-update
+dispatch.
 touch the cross-cutting config-mutation lock. They are extracted here
 as a :class:`ConfigMutationMixin` so :class:`VoiceTyperService`
 shrinks back to a thin composition root (``__init__`` + ``restart`` /
@@ -119,7 +120,7 @@ class ConfigMutationMixin(ServiceMixinBase):
             )
 
             sanitized["linux_window_buttons_system"] = system_window_buttons()
-        except Exception:  # noqa: BLE001 — snapshot must never break get_config
+        except Exception:  # snapshot must never break get_config
             log.warning(
                 "[SERVICE] get_config: linux_window_buttons_system probe failed",
                 exc_info=True,
@@ -146,8 +147,8 @@ class ConfigMutationMixin(ServiceMixinBase):
         sanitized["keyring_status"] = self._keyring_status()
         return sanitized
 
-    # (High, partial): ``set_config`` and ``save_config``
-    # were REMOVED from this service layer.
+    # ``set_config`` and ``save_config`` were REMOVED from this
+    # service layer.
     #
     # Rationale:
     #   - ``set_config`` (validated-config helper) had 0 production
@@ -157,7 +158,7 @@ class ConfigMutationMixin(ServiceMixinBase):
     #     delegates to ``service.apply_config`` (NOT this method).
     #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
     #     production callers; the IPC ``save_config`` command was
-    # removed in   ``Config.save()`` is now invoked
+    #     removed — ``Config.save()`` is now invoked
     #     inside ``service.apply_config`` under the config-mutation
     #     lock so disk writes can't race.
     #
@@ -166,18 +167,11 @@ class ConfigMutationMixin(ServiceMixinBase):
     #     validation, OR
     #   - ``service.apply_config(updates)`` for the full atomic
     #     validate→mutate→side-effects→save→tray-invalidate flow.
-    #
-    # Tests that pinned the old methods (notably
-    # ``tests/fixtures/ipc_test_helpers.py:155`` which assigns
-    # ``service.set_config.return_value = ...`` on a MagicMock, and
-    # ``tests/test_di_providers.py:544`` which asserts ``set_config``
-    # is declared on ``ServiceProtocol``) need follow-up updates —
-    # see the FA11-retry return summary.
 
-    # Config side effects () ──────────────────────────
+    # Config side effects ─────────────────────────────
 
     def apply_config_side_effects(self, updates: dict) -> SideEffectStatus:
-        """Apply side effects after config changes. Delegates to ConfigApplier ( + , ).
+        """Apply side effects after config changes. Delegates to ConfigApplier.
 
                 Returns
                 -------
@@ -208,7 +202,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         self._app.models.set_active_backend(backend)
 
     def apply_config(self, updates: dict) -> SideEffectStatus:
-        """Apply validated config updates atomically. Delegates to ConfigApplier ( + , ).
+        """Apply validated config updates atomically. Delegates to ConfigApplier.
 
                 Returns
                 -------

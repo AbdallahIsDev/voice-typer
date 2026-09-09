@@ -11,8 +11,11 @@ selection is deterministic for the process lifetime).
 The fix introduces a per-instance cache
 (``_volume_backend_status_cache``) populated on the first call:
 subsequent polls return the cached dict without re-invoking
-``initialize()``. The cache is invalidated only on an explicit
-``_force_refresh=True`` call (the UI's "Refresh" button).
+``initialize()``. The cache is refreshed on a 30s TTL
+(``_VOLUME_BACKEND_STATUS_TTL_S``) so a mid-session dependency install
+(e.g. ``pyobjc-framework-CoreAudio`` switching the macOS backend)
+surfaces without a restart; an explicit ``_force_refresh=True`` call
+bypasses the cache immediately.
 
 These tests pin:
 
@@ -31,6 +34,9 @@ These tests pin:
    cached state.
 6. **Missing ducker** — when ``_volume_ducker`` is absent, the
    method returns the ``disabled`` sentinel (no cache populated).
+7. **TTL expiry** — past ``_VOLUME_BACKEND_STATUS_TTL_S`` the status
+   is recomputed (the cache no longer lives for the process
+   lifetime).
 """
 
 from __future__ import annotations
@@ -346,3 +352,40 @@ class TestVolumeBackendStatusCache:
             f"False to {param.default!r}. The default MUST be False "
             "so the 2s status poll takes the cache fast path."
         )
+
+    def test_ttl_expiry_recomputes_status(self, status_mixin_with_mock_ducker, monkeypatch):
+        """Past ``_VOLUME_BACKEND_STATUS_TTL_S`` the status is recomputed.
+
+        The cache previously lived for the process lifetime, so the
+        Settings display froze even after the user installed the
+        missing backend dependency mid-session. The TTL makes the
+        display self-heal within one window while keeping the 2s poll
+        cheap (initialize() runs at most once per TTL window).
+        """
+        mixin, ducker = status_mixin_with_mock_ducker
+        # Prime the cache.
+        mixin.get_volume_backend_status()
+        assert ducker.initialize.call_count == 1
+
+        # Simulate a mid-session backend change.
+        ducker.backend_name = "CoreAudio (pyobjc)"
+
+        # Within the TTL: still cached.
+        within = mixin.get_volume_backend_status()
+        assert ducker.initialize.call_count == 1
+        assert within["name"] == "fake (test)"
+
+        # Age the cache past the TTL.
+        monkeypatch.setattr(mixin, "_volume_backend_status_cached_at", 0.0)
+        expired = mixin.get_volume_backend_status()
+        assert ducker.initialize.call_count == 2, (
+            " regression: the cache lived past its TTL — the status "
+            "was never recomputed, freezing the Settings display for "
+            "the process lifetime."
+        )
+        assert expired["name"] == "CoreAudio (pyobjc)"
+        # The refreshed cache is stamped with the current time, so the
+        # next poll is served from cache again.
+        again = mixin.get_volume_backend_status()
+        assert ducker.initialize.call_count == 2
+        assert again["name"] == "CoreAudio (pyobjc)"

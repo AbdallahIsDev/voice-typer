@@ -1,10 +1,11 @@
 """Shared base for service-layer mixins.
 
 Mirrors the :class:`HandlerMixinBase` pattern from
-``voice_typer/server/handlers/_base.py``. The eight service mixins
+``voice_typer/server/handlers/_base.py``. The service mixins
 (``ModelMixin``, ``MicrophoneTestMixin``, ``HistoryMixin``,
 ``DictationMixin``, ``StatusMixin``, ``OnboardingMixin``,
-``TemplateMixin``, ``VocabularyMixin``) all access runtime-provided
+``TemplateMixin``, ``VocabularyMixin``, ``PrivacyMixin``,
+``ConfigMutationMixin``) all access runtime-provided
 attributes (``self._app``, the per-download cancel state, the
 microphone short-TTL cache, the model-status short-TTL cache, etc.)
 that are only *assigned* inside :meth:`VoiceTyperService.__init__`.
@@ -89,13 +90,13 @@ class ServiceMixinBase:
           config-mutation lock + rollback logic.
         * ``_download_cancel_lock`` / ``_download_cancel_events`` /
           ``_active_download_id`` — per-download cancellation state for
-    ``ModelMixin.download_model`` ( / SERVICE-1).
+    ``ModelMixin.download_model`` (SERVICE-1).
           ``_active_download_id`` is initialised to ``None`` by
           ``VoiceTyperService.__init__`` so ``cancel_model_download`` can
           safely read it before any download has been registered.
         * ``_microphones_cache`` / ``_microphones_cache_ts`` — short-TTL
-          cache for ``MicrophoneTestMixin.refresh_microphones``
-    (PERF-). Bound by ``MicrophoneTestMixin.__init__``.
+          cache for ``MicrophoneTestMixin.refresh_microphones``, bound
+          by ``MicrophoneTestMixin.__init__``.
         * ``_model_status_cache`` / ``_model_status_cache_ts`` /
           ``_model_status_cache_lock`` — short-TTL cache for
           ``ModelMixin.get_model_status`` (PERF-10 / SVC-9).

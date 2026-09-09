@@ -34,6 +34,8 @@ import threading
 import time
 from pathlib import Path, PureWindowsPath
 
+from voice_typer.server._fs_walk import find_symlink_in_tree as _find_symlink_in_tree
+
 # APP_SLUG is imported lazily inside the functions that need it
 # (``_config_dir`` and ``_migrate_from_legacy``) to avoid a circular
 # import: ``config.py`` (line 50) imports this module BEFORE it has
@@ -509,33 +511,6 @@ def _reset_config_dir_cache() -> None:
     _config_dir.cache_clear()
 
 
-def _find_symlink_in_tree(root):
-    """return the path of the first symlink found under ``root``,
-    or ``None`` if there are none.
-
-    Mirrors :func:`voice_typer.server.service._helpers._find_symlink_in_tree`
-    so the migration path uses the same poison-dir detection logic the
-    ``import_model`` IPC handler relies on.  Inlined here (rather than
-    imported) to avoid a circular dependency: ``service._helpers`` is a
-    leaf module that imports from ``voice_typer.server.config``, and
-    ``config`` imports this module (via ``config_internals.paths``) —
-    so importing ``service._helpers`` from here would close a cycle.
-
-    ``os.walk`` with the default ``followlinks=False`` does NOT descend
-    into symlinked directories, but it DOES include them in
-    ``dirnames`` — so both symlinked files and symlinked directories
-    are detected by this check.
-    """
-    import os as _os
-
-    for dirpath, dirnames, filenames in _os.walk(root):
-        for name in list(dirnames) + list(filenames):
-            full = _os.path.join(dirpath, name)
-            if _os.path.islink(full):
-                return full
-    return None
-
-
 def _migrate_from_legacy():
     """One-time migration from old platform-specific location (e.g. %APPDATA%).
 
@@ -547,7 +522,8 @@ def _migrate_from_legacy():
         would have followed the link and copied arbitrary attacker-chosen
         content into the new config dir.  Mirrors the poison-dir rejection
         in :meth:`VoiceTyperService.import_model` via
-        :func:`voice_typer.server.service._helpers._find_symlink_in_tree`.
+        :func:`voice_typer.server._fs_walk.find_symlink_in_tree` (the
+        shared stdlib-leaf implementation).
     """
     # lazy import to avoid the circular import described at the top
     # of this module.  Mirrors :func:`_get_config_dir`.

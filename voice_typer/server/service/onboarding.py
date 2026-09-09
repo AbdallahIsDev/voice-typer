@@ -42,7 +42,7 @@ class OnboardingMixin(ServiceMixinBase):
         }
 
     def onboarding_check_permissions(self) -> dict:
-        """Probe OS-level keyboard-monitoring permission state ( / ).
+        """Probe OS-level keyboard-monitoring permission state.
 
         Delegates to :meth:`OnboardingController.check_permissions`, which
         returns a renderer-friendly dict describing the current platform,
@@ -281,7 +281,7 @@ class OnboardingMixin(ServiceMixinBase):
                 log.debug("[SERVICE] onboarding_apply rollback failed", exc_info=True)
             # redact exc string before returning to IPC layer.
             # Sister service methods (delete_model, test_llm_connection,
-            # export_diagnostics, export_gdpr_bundle, force_cancel_transcription,
+            # export_gdpr_bundle, force_cancel_transcription,
             # get_volume_backend_status) all wrap str(exc) with
             # redact_secret(redact_url(...)) to avoid leaking secrets / URLs /
             # file paths via the renderer. The handler

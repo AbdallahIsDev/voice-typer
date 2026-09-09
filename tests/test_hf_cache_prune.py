@@ -115,9 +115,9 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
             ]
             if call_lines:
                 hits.append(str(py))
-        # Allowed: asr_utils (definition), _hf_cache_cleanup (delegation),
+        # Allowed: asr_utils (definition),
         # service/* + asr_setup.py (explicit user-initiated download path).
-        allowed_markers = ("asr_utils", "_hf_cache_cleanup", "service", "asr_setup")
+        allowed_markers = ("asr_utils", "service", "asr_setup")
         forbidden = [h for h in hits if not any(m in h for m in allowed_markers)]
         assert not forbidden, (
             "cleanup_hf_cache_dir must only be reachable from the explicit "

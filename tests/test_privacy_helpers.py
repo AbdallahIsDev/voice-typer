@@ -62,20 +62,17 @@ def test_checkpoint_history_db_close_flag_calls_close() -> None:
     hdb.close.assert_called_once_with()
 
 
-def test_checkpoint_history_db_falls_back_to_positional_on_typeerror() -> None:
-    """Older ``checkpoint`` signatures without ``truncate=`` fall back to positional."""
+def test_checkpoint_history_db_calls_with_truncate_kwarg_once() -> None:
+    """``checkpoint`` is called exactly once, with the ``truncate=`` kwarg.
+
+    The canonical ``HistoryDB.checkpoint(truncate: bool = True)``
+    signature accepts the kwarg; the historical TypeError→positional
+    fallback targeted a signature that no code path defines (dead
+    speculative compat) and was removed.
+    """
     hdb = MagicMock()
-
-    def _checkpoint(*args, **kwargs):  # noqa: ANN001
-        if kwargs:
-            raise TypeError("no kwargs supported on this build")
-        # Positional call succeeds.
-        return None
-
-    hdb.checkpoint.side_effect = _checkpoint
     PrivacyMixin._gdpr_checkpoint_history_db(hdb, close=False)
-    # First call (with kwarg) raises TypeError; second call (positional) succeeds.
-    assert hdb.checkpoint.call_count == 2
+    hdb.checkpoint.assert_called_once_with(truncate=True)
 
 
 def test_checkpoint_history_db_swallows_checkpoint_exception() -> None:
@@ -177,6 +174,48 @@ def test_unlink_personal_globs_no_matches_is_noop(tmp_path: Path) -> None:
     PrivacyMixin._gdpr_unlink_personal_globs(tmp_path, erased, failed)
     assert erased == []
     assert failed == {}
+
+
+def test_gdpr_globs_single_sourced_from_user_data_files() -> None:
+    """The corrupt/pre-migration inventory is composed, not re-declared.
+
+    ``PrivacyMixin._GDPR_PERSONAL_GLOBS`` must contain EVERY pattern
+    from ``_user_data_files._GDPR_PERSONAL_GLOBS`` (the same tuple the
+    uninstall-purge path walks) via the ``*`` unpacking in the class
+    body — so a filename-format change in the corruption-recovery or
+    pre-migration-backup paths lands in exactly one place.
+    """
+    from voice_typer.server._user_data_files import _GDPR_PERSONAL_GLOBS as _INVENTORY
+
+    for pattern in _INVENTORY:
+        assert pattern in PrivacyMixin._GDPR_PERSONAL_GLOBS, (
+            f"pattern {pattern!r} from _user_data_files._GDPR_PERSONAL_GLOBS "
+            "is missing from PrivacyMixin._GDPR_PERSONAL_GLOBS — the "
+            "inventory unpacking was broken."
+        )
+
+
+def test_gdpr_globs_cover_corrupt_and_sidecar_files(tmp_path: Path) -> None:
+    """The composed tuple still matches corrupt + pre-migration sidecars.
+
+    Behavioral pin: the composed (not re-declared) inventory must keep
+    sweeping the byte-for-byte sidecar copies that retain dictated
+    plaintext.
+    """
+    (tmp_path / "history.db.corrupt-123").write_text("q")
+    (tmp_path / "history.db.corrupt-123-wal").write_text("q-wal")
+    (tmp_path / "history.db.corrupt-123-shm").write_text("q-shm")
+    (tmp_path / "history.db.pre-migration-v3-1-2-3.bak").write_text("bak")
+    (tmp_path / "history.db.pre-migration-v3-1-2-3.bak-wal").write_text("bak-wal")
+    (tmp_path / "history.db.pre-migration-v3-1-2-3.bak-shm").write_text("bak-shm")
+
+    erased: list = []
+    failed: dict = {}
+    PrivacyMixin._gdpr_unlink_personal_globs(tmp_path, erased, failed)
+
+    assert len(erased) == 6
+    assert failed == {}
+    assert not list(tmp_path.glob("history.db.*"))
 
 
 # ── _gdpr_rmtree_rust_logs ─────────────────────────────────────────────

@@ -290,12 +290,17 @@ class HandlerBase(HandlerMixinBase):
 
         The log message is scrubbed via
         :func:`_scrub_traceback` before it lands in
-        ``voice-typer.log``. ``export_diagnostics`` ships the log
-        file back to the renderer, so any secret (API key, bearer
-        token) or home-directory path (which contains the username)
-        embedded in ``str(exc)`` is exfiltrated when the user
-        attaches the diagnostics bundle to a bug report. The
-        scrubbed form replaces known secret patterns with ``***``
+        ``voice-typer.log``. That log file persists on disk in the
+        config dir and ships in support bundles — the CLI export
+        (``python scripts/diagnostics.py export``) includes a 1 MB
+        tail of it, and users also attach the log file itself to bug
+        reports — so any secret (API key, bearer token) or
+        home-directory path (which contains the username) embedded in
+        ``str(exc)`` is exfiltrated when the user shares the log or
+        the bundle. (There is NO in-app export surface anymore: the
+        former ``export_diagnostics`` IPC path was removed, and the
+        CLI is the support-bundle producer.) The scrubbed form
+        replaces known secret patterns with ``***``
         and home-directory path components with ``~``.
         ``exc_info=True`` is preserved (via a scrubbed exception
         instance with ``tb=None``) so structured-logging consumers
@@ -305,7 +310,8 @@ class HandlerBase(HandlerMixinBase):
         # Scrub the exception message before logging so secrets
         # (sk-..., gsk_..., Bearer ...) and home-directory paths
         # (which contain the username) don't land in voice-typer.log
-        # (which export_diagnostics ships to the renderer). We also
+        # (which persists on disk and ships — 1 MB tail — in the CLI
+        # diagnostics bundle, and is user-attachable to bug reports). We also
         # construct a scrubbed exception instance and pass it via
         # ``exc_info`` (with ``tb=None`` so no traceback frames are
         # printed — the frames could carry the secret in local

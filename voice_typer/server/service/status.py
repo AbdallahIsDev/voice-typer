@@ -1,7 +1,7 @@
 """Status / health-check domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-( split). Read-only queries that surface app state
+split. Read-only queries that surface app state
 (tray status, xruns, audio filter chain, volume backend).
 """
 
@@ -48,9 +48,11 @@ class StatusMixin(ServiceMixinBase):
     # ``self.supports_per_session`` — wasted work that adds up across
     # thousands of polls. We now compute the status dict ONCE (on the
     # first call), cache it here, and return the cached value on
-    # subsequent polls. The cache is invalidated only on an explicit
-    # ``_force_refresh=True`` call (the UI's "Refresh" button) — see
-    # :meth:`get_volume_backend_status` for the invalidation contract.
+    # subsequent polls within the ``_VOLUME_BACKEND_STATUS_TTL_S``
+    # window; past the TTL the status is recomputed (the cache used
+    # to live for the process lifetime, freezing the Settings
+    # display even after a mid-session dependency install). An explicit
+    # ``_force_refresh=True`` call still bypasses the cache immediately.
     #
     # ``None`` means "no cache yet" (the very first poll); a dict
     # value means "cached status from a previous successful poll". The
@@ -62,6 +64,18 @@ class StatusMixin(ServiceMixinBase):
     # assignment shadows the class attribute with an instance
     # attribute on the same ``self``).
     _volume_backend_status_cache: dict[str, object] | None = None
+
+    # TTL for the volume-backend status cache (fixes the
+    # "frozen until restart" display). The cache previously lived for
+    # the process lifetime: ``_force_refresh`` had no production caller,
+    # so a mid-session dependency install (pyobjc-framework-CoreAudio on
+    # macOS) could never surface. A 30s TTL keeps the 2s poll cheap
+    # (initialize() runs at most once per TTL window) while making the
+    # display self-heal — mirroring the ``_OFFLINE_PACK_STATUS_TTL_S``
+    # pattern in this class. The explicit ``_force_refresh=True`` path
+    # is unchanged (tests + any future Refresh button still bypass).
+    _VOLUME_BACKEND_STATUS_TTL_S = 30.0
+    _volume_backend_status_cached_at: float = 0.0
 
     # ── Status ──────────────────────────────────────────────────
 
@@ -105,13 +119,13 @@ class StatusMixin(ServiceMixinBase):
             state["available"] = local is not None
             cfg = getattr(self._app, "config", None)
             state["consent_granted"] = bool(getattr(cfg, "offline_pack_consent", False))
-        except Exception:  # noqa: BLE001 — fail-safe: degraded state, never raise
+        except Exception:  # fail-safe: degraded state, never raise
             log.debug("[SERVICE] offline pack status unavailable", exc_info=True)
         self._pack_status_cache = state
         self._pack_status_cached_at = now
         return state
 
-    def get_status(self) -> "StatusResponse":  # noqa: F821 (forward ref resolved in __init__)
+    def get_status(self) -> "StatusResponse":
         """Return the current app state plus audio-quality telemetry.
 
         previously returned only the tray state string. The
@@ -192,20 +206,22 @@ class StatusMixin(ServiceMixinBase):
 
         Cache invalidation: the cached ``backend_name`` /
         ``is_available`` / ``supports_per_session`` / ``backend`` values
-        are invalidated ONLY on an explicit ``_force_refresh=True``
-        call. Pass ``_force_refresh=True`` from the UI's "Refresh
-        Volume Backend" button (or any caller that knows the underlying
-        platform state has changed — e.g. after the user installs
-        ``pyobjc-framework-CoreAudio`` mid-session, which switches the
-        macOS backend from osascript to CoreAudio). The default
-        ``_force_refresh=False`` is for the 2s status poll path.
+        are refreshed on a 30s TTL (``_VOLUME_BACKEND_STATUS_TTL_S`` —
+        the ``_force_refresh`` parameter predates the TTL; it remains
+        for tests and any future explicit "Refresh" button, bypassing
+        the cache immediately). The TTL is what lets the documented
+        recovery case surface mid-session (the user installs
+        ``pyobjc-framework-CoreAudio`` — the macOS backend switches
+        from osascript to CoreAudio within one TTL window) without a
+        restart. The default ``_force_refresh=False`` is the 2s status
+        poll path.
 
         Note: ``_force_refresh`` is prefixed with an underscore because
-        it is NOT yet wired through the IPC ``get_volume_backend_status``
-        handler (the handler calls this method with no arguments, so the
-        default ``False`` applies — preserving the poll-path caching
-        contract). A separate task will add a ``refresh_volume_backend``
-        IPC command that passes ``_force_refresh=True`` through.
+        it is NOT wired through the IPC ``get_volume_backend_status``
+        handler (the handler calls this method with no arguments, so
+        the default ``False`` applies — the poll path uses the TTL,
+        not the force flag). No ``refresh_volume_backend`` IPC command
+        exists; the TTL made it unnecessary.
 
         Args:
             _force_refresh: When ``True``, bypass the cache, re-run
@@ -233,7 +249,8 @@ class StatusMixin(ServiceMixinBase):
         # to the returned dict — without a copy that would leak into
         # the cache and show up on the next poll).
         cache = self._volume_backend_status_cache
-        if cache is not None and not _force_refresh:
+        cache_fresh = (time.monotonic() - self._volume_backend_status_cached_at) < self._VOLUME_BACKEND_STATUS_TTL_S
+        if cache is not None and not _force_refresh and cache_fresh:
             return dict(cache)
 
         try:
@@ -283,6 +300,7 @@ class StatusMixin(ServiceMixinBase):
             # asked for the current state).
             if init_ok or _force_refresh:
                 self._volume_backend_status_cache = status
+                self._volume_backend_status_cached_at = time.monotonic()
             return dict(status)
         except Exception as exc:
             # redact exc string before returning to IPC layer.
