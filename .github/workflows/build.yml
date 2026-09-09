@@ -585,19 +585,25 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Each artifact extracts into its own junit/<artifact-name>/
+      # subdirectory (merge-multiple MUST stay false: every leg
+      # uploads the identical filename pytest-results.xml, so a flat
+      # merge collapses all legs into one slot — concurrent
+      # extraction even interleaved two files into one corrupt,
+      # unparseable survivor, and the report showed a single bogus
+      # "unparseable" entry while real failures went unrecorded).
       - name: Download all pytest JUnit artifacts
         uses: actions/download-artifact@v6
         with:
           path: junit/
           pattern: pytest-results-*
-          merge-multiple: true
         continue-on-error: true
 
       - name: Write CI-errors.md
         shell: bash
         run: |
-          if ls junit/*.xml >/dev/null 2>&1; then
-            python scripts/ci/write_ci_errors.py junit/*.xml
+          if ls junit/**/*.xml >/dev/null 2>&1; then
+            python scripts/ci/write_ci_errors.py junit/**/*.xml
           else
             echo "No JUnit artifacts found — writing empty CI-errors.md"
             python scripts/ci/write_ci_errors.py
