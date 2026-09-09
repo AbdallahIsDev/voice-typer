@@ -64,9 +64,9 @@ def isolated_config_dir(monkeypatch, tmp_path):
     """Redirect ``_config_dir()`` to a tmp path so tests don't clobber
     the real config dir.
 
-    ``_ensure_single_instance_posix`` and ``_write_backend_pid_file`` both
-    do ``from voice_typer.server.app import _config_dir`` at call time,
-    so monkeypatching ``voice_typer.server.app._config_dir`` before the
+    ``_ensure_single_instance_posix`` and ``_write_backend_pid_file`` resolve
+    ``_config_dir`` at call time through the owning ``config`` module, so
+    monkeypatching ``voice_typer.server.config._config_dir`` before the
     call is sufficient.
     """
     from voice_typer.server import app as app_mod

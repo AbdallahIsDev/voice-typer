@@ -17,35 +17,29 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _read_ipc_port_from_pid_file() -> int | None:
-    """MED-Y /  (partial): read the backend's IPC
-    port from the backend PID file if the writer included a ``port=``
-    line.
+    """MED-Y: read the backend's IPC port from the backend PID file.
 
     The backend PID file is the canonical source of truth for "is a
     Voice Typer backend running on this machine?" — it is written by
     :func:`voice_typer.server.single_instance._write_backend_pid_file`
-    after the single-instance mutex is acquired. The current writer
-    emits ONLY the PID (``{pid}\\n``); a future change to that function
-    will extend the format to also include ``port=<n>\\n`` so the
-    autostart launcher does not have to assume the default port 9876
-    (which may have been auto-incremented if 9876 was busy).
+    after the single-instance mutex is acquired, and extended with a
+    ``port=<n>`` line by
+    :func:`voice_typer.server.single_instance._record_backend_ipc_port`
+    once the IPC server has bound (BP-130 landed the writer half, so
+    the launcher no longer assumes the default port 9876, which may
+    have been auto-incremented if 9876 was busy).
 
     This function parses the PID file looking for a ``port=<n>`` line.
     Returns the port as an int if found, otherwise ``None`` (the caller
     falls back to :data:`IPC_PORT`).
 
-    NOTE: the full fix requires :mod:`voice_typer.server.single_instance`
-    to write the port line — see ``review.md`` MED-Y.
-    This function alone is forward-compatible: once
-    ``single_instance._write_backend_pid_file`` is updated to also emit
-    the port, the autostart launcher will pick it up without further
-    changes here.
-
     The function never raises — a missing/unreadable/malformed PID file
     simply yields ``None`` and the caller falls back to the default.
     """
     try:
-        from voice_typer.server.app import _backend_pid_file
+        # BP-126: resolve via single_instance (light), never via
+        # voice_typer.server.app (heavy orchestrator).
+        from voice_typer.server.single_instance import _backend_pid_file
 
         pid_file = _backend_pid_file()
         if not pid_file.exists():

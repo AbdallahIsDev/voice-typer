@@ -71,11 +71,12 @@ else:
         fcntl = None
 
 # module-level binding of ``_config_dir`` so tests can monkeypatch
-# ``voice_typer.server.single_instance._config_dir`` and have the POSIX
-# single-instance path honor it. ``_backend_pid_file()`` continues to
-# resolve ``_config_dir`` lazily via ``voice_typer.server.app`` so the
-# existing tests that monkeypatch ``voice_typer.server.app._config_dir``
-# (test_electron_launcher.py::TestBackendPidFile) keep working unchanged.
+# ``voice_typer.server.single_instance._config_dir`` for the POSIX
+# single-instance path. ``_backend_pid_file()`` and the POSIX ensure
+# path resolve ``_config_dir`` at call time through the owning
+# ``voice_typer.server.config`` module object instead, so the heavy
+# app orchestrator is never imported here (BP-126) — patch
+# ``voice_typer.server.config._config_dir`` to redirect those paths.
 from voice_typer.server.config import (  # noqa: E402,F401 — re-exported for monkeypatching
     _config_dir,
 )
@@ -201,22 +202,24 @@ def _backend_pid_file() -> Path:
     mutex yet when the next launch tries to acquire it.  The PID file
     lets us detect a stale lock and proceed.
 
-    COMPAT-REFAC: ``_config_dir`` is resolved lazily via
-    ``voice_typer.server.app`` so tests that monkeypatch
-    ``voice_typer.server.app._config_dir`` are honored by
+    COMPAT-REFAC: ``_config_dir`` is resolved at call time through
+    the owning ``voice_typer.server.config`` module object (NOT via
+    ``voice_typer.server.app``) so the heavy app orchestrator is never
+    imported on this path and tests that monkeypatch
+    ``voice_typer.server.config._config_dir`` are honored by
     ``_write_backend_pid_file`` / ``_clear_backend_pid_file`` /
     ``_read_stale_backend_pid`` (which all call this helper).
     """
-    # Resolve lazily via ``voice_typer.server.app`` (NOT via the
-    # module-level ``_config_dir`` re-exported above) so monkeypatching
-    # ``voice_typer.server.app._config_dir`` in tests takes effect at
-    # call time.  Importing the module (rather than the name) avoids an
-    # F811 redefinition warning against the module-level binding while
-    # preserving the lazy-lookup semantics documented above.
-    from voice_typer.server import app as _app_module
+    # Resolve through the owning config module object at call time so
+    # monkeypatching ``voice_typer.server.config._config_dir`` in tests
+    # takes effect. Importing the module (rather than the name) keeps a
+    # single patch target. BP-126: this used to resolve via
+    # ``voice_typer.server.app``, which pulled the full app orchestrator
+    # into every launcher login run just to read a PID file.
+    from voice_typer.server import config as _config_module
     from voice_typer.server._paths import RUN_SUBDIR
 
-    return _app_module._config_dir() / RUN_SUBDIR / "backend.pid"
+    return _config_module._config_dir() / RUN_SUBDIR / "backend.pid"
 
 
 def _write_backend_pid_file() -> None:
@@ -235,6 +238,39 @@ def _write_backend_pid_file() -> None:
         log.warning("[STARTUP] could not write backend PID file: %s", exc)
     except Exception:
         log.debug("[STARTUP] could not write backend PID file", exc_info=True)
+
+
+def _record_backend_ipc_port(port: int) -> None:
+    """Record the bound IPC port in the backend PID file (best-effort).
+
+    Completes the MED-Y forward-compat contract (BP-130): the
+    launcher-side reader
+    (``autostart.pid_file._read_ipc_port_from_pid_file``) and the
+    post-spawn port poll already parse a ``port=<n>`` line, but no
+    writer ever emitted one — every backend silently fell back to the
+    default IPC_PORT. Called once the IPC server has bound (ipc
+    entrypoint, both the ``--port`` and standalone branches).
+
+    Format stays PID-first (``{pid}\\nport={port}\\n``) so legacy
+    single-line readers keep working; out-of-range ports are skipped
+    (the reader validates the range anyway).
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return
+    if not 1 <= port <= 65535:
+        return
+    try:
+        from voice_typer.server.config import _secure_atomic_write
+
+        pid_file = _backend_pid_file()
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        _secure_atomic_write(pid_file, f"{os.getpid()}\nport={port}\n", durability=False)
+    except OSError as exc:
+        log.warning("[STARTUP] could not record backend IPC port: %s", exc)
+    except Exception:
+        log.debug("[STARTUP] could not record backend IPC port", exc_info=True)
 
 
 def _clear_backend_pid_file() -> None:
@@ -308,7 +344,9 @@ def _read_stale_backend_pid() -> int | None:
         content = pid_file.read_text().strip()
         if not content:
             return None
-        pid = int(content)
+        # PID-first format: the first line is always the PID (a later
+        # ``port=<n>`` line from ``_record_backend_ipc_port`` follows).
+        pid = int(content.splitlines()[0].strip())
         if _is_pid_alive(pid):
             return None
         return pid
@@ -606,22 +644,24 @@ def _ensure_single_instance_posix(silent: bool = False):
         Also writes the backend PID file (previously Windows-only) so the
         autostart launcher's "backend running?" check works on POSIX.
 
-    (IMPROVE-mode run XS): the config dir is resolved lazily via
-        ``voice_typer.server.app._config_dir`` (NOT via
-        ``voice_typer.server._paths.config_dir``). Both resolve to the same
-        function object at import time, but the test fixture
-        ``isolated_config_dir`` monkeypatches the ``_config_dir`` attribute
-        on the ``app`` module — and ``_paths.config_dir()`` looks up
-        ``config._config_dir`` at call time, NOT ``app._config_dir``, so the
-        patch was invisible to this function and the lockfile was created in
-        the real config dir (not ``tmp_path``). Resolving via the ``app``
-        module's attribute at call time honors the monkeypatch.
+    (IMPROVE-mode run XS): the config dir is resolved at call time
+        through the owning ``voice_typer.server.config`` module object
+        (NOT via ``voice_typer.server._paths.config_dir``). Both resolve
+        to the same function object at import time, but the test fixture
+        ``isolated_config_dir`` monkeypatches the ``_config_dir``
+        attribute on the ``config`` module — and ``_paths.config_dir()``
+        looks up its own memoized resolver, NOT ``config._config_dir``,
+        so the patch was invisible to this function and the lockfile was
+        created in the real config dir (not ``tmp_path``). Resolving via
+        the ``config`` module's attribute at call time honors the
+        monkeypatch (and keeps the heavy ``app`` orchestrator out of
+        this login-time path — BP-126).
     """
     import fcntl
 
-    from voice_typer.server import app as _app_module
+    from voice_typer.server import config as _config_module
 
-    cdir = _app_module._config_dir()
+    cdir = _config_module._config_dir()
     try:
         # pass ``mode=0o700`` so the config dir is created with
         # owner-only access (no group/other traversal). Previously

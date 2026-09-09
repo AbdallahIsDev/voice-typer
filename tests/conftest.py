@@ -1201,11 +1201,8 @@ def tmp_config_dir(tmp_path, monkeypatch):
     app path (``Config.load``, corrupt-config rename,
     ``DuckCrashRecovery(config_dir=...)``, ...).
 
-    ``app._config_dir`` is kept patched as belt-and-suspenders for the
-    remaining consumers that deliberately resolve via the app module at
-    call time — ``voice_typer.server.single_instance`` reads
-    ``_app_module._config_dir()`` so pid-file/lock paths land in the
-    temp dir too.
+    ``app._config_dir`` is kept patched as belt-and-suspenders (no
+    production path resolves via the app module since BP-126).
 
     Previously 4 test files (``test_app_restart.py``,
     ``test_app_cleanup.py``, ``test_shutdown_controller.py``,

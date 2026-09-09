@@ -534,6 +534,14 @@ def main() -> None:
         elif port is not None:
             server.start_tcp(port)
             log.info("[IPC] TCP server listening on port %d (Electron will connect)", port)
+            # BP-130: publish the bound port into the backend PID file
+            # so the autostart launcher + post-spawn poll find the
+            # actual port (not just the default) on the next launch.
+            from voice_typer.server.single_instance import (
+                _record_backend_ipc_port,
+            )
+
+            _record_backend_ipc_port(port)
         else:
             # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
             # from a terminal.  Auto-pick an available port, start the TCP
@@ -562,6 +570,12 @@ def main() -> None:
                 "[IPC] standalone TCP mode on port %d — Electron will connect here",
                 standalone_port,
             )
+            # BP-130: publish the bound port (see --port branch above).
+            from voice_typer.server.single_instance import (
+                _record_backend_ipc_port,
+            )
+
+            _record_backend_ipc_port(standalone_port)
 
             # Launch Electron as a subprocess.  Pass the port + token via
             # env vars so Electron's main process detects them and connects

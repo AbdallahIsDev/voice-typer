@@ -738,9 +738,9 @@ class TestSecondaryOpenNoFollow:
 
         monkeypatch.setattr(os, "open", _conditional_open)
 
-        # Monkeypatch _config_dir to point at tmp_path (via the app
-        # module's _config_dir, which is what the production code reads).
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: config_dir)
+        # Monkeypatch _config_dir to point at tmp_path (via the owning
+        # config module, which is what the production code reads).
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
 
         # The function should fall through to the legacy PID-check path.
         # The legacy path reads the PID (via Python's open(), which

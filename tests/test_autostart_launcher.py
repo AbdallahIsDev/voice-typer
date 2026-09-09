@@ -198,7 +198,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.app._backend_pid_file",
+            "voice_typer.server.single_instance._backend_pid_file",
             lambda: tmp_path / "nonexistent.pid",
         )
         monkeypatch.setattr(
@@ -219,7 +219,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.app._backend_pid_file",
+            "voice_typer.server.single_instance._backend_pid_file",
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
@@ -258,7 +258,7 @@ class TestLaunchPortClosedPath:
             lambda h, p: False,
         )
         monkeypatch.setattr(
-            "voice_typer.server.app._backend_pid_file",
+            "voice_typer.server.single_instance._backend_pid_file",
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
@@ -364,3 +364,24 @@ class TestLauncherOutcomeLogging:
         formatted = "".join(_tb.format_exception(*exc_records[0].exc_info))
         assert "launcher exploded" in formatted, formatted
         assert any("RESULT failure exit=1" in m for m in messages), messages
+
+
+def test_pid_helpers_resolve_without_importing_app():
+    """BP-126: the login path must stay light — importing single_instance
+    (where the launcher now resolves its PID helpers) must not import
+    the app orchestrator. If this regresses, every logon pays the full
+    backend-app import just to read a PID file.
+    """
+    code = (
+        "import sys, voice_typer.server.single_instance; "
+        "sys.exit(0 if 'voice_typer.server.app' not in sys.modules else 1)"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, (
+        f"importing voice_typer.server.single_instance pulled in voice_typer.server.app (stderr: {proc.stderr[-500:]})"
+    )

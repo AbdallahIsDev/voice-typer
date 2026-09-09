@@ -336,13 +336,13 @@ class TestLaunchTauriFreshStart:
 
         # Bypass the backend-pid-file probe — the test box may have a
         # stale PID file from a previous test.
-        from voice_typer.server import app as _app_mod
+        from voice_typer.server import single_instance as _si_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_app_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         captured = {}
 
@@ -387,13 +387,13 @@ class TestLaunchTauriFreshStart:
             lambda hidden=False: None,
         )
 
-        from voice_typer.server import app as _app_mod
+        from voice_typer.server import single_instance as _si_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_app_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         # Tauri spawn fails (Popen raises).
         def boom(cmd, env=None, **kwargs):
@@ -433,13 +433,13 @@ class TestLaunchPreservesElectronPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
 
-        from voice_typer.server import app as _app_mod
+        from voice_typer.server import single_instance as _si_mod
 
         class _FakePidFile:
             def exists(self):
                 return False
 
-        monkeypatch.setattr(_app_mod, "_backend_pid_file", lambda: _FakePidFile())
+        monkeypatch.setattr(_si_mod, "_backend_pid_file", lambda: _FakePidFile())
 
         captured = {}
 
@@ -491,7 +491,7 @@ class TestLaunchAlreadyRunningFocus:
             Path("/tmp/vt-test-nonexistent-pid-file") if os.name != "nt" else Path("C:/nonexistent/vt-test-pid-file")
         )
         monkeypatch.setattr(
-            "voice_typer.server.app._backend_pid_file",
+            "voice_typer.server.single_instance._backend_pid_file",
             lambda: pid_file,
         )
         monkeypatch.setattr(
