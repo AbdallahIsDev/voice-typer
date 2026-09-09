@@ -372,13 +372,12 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
         estimated_mb = _MODEL_SIZE_MB.get(model_size, 500) + _DISK_SPACE_MARGIN_MB
 
         if available_mb < estimated_mb:
-            raise RuntimeError(
-                f"Insufficient disk space to download model '{model_size}'. "
-                f"Available: {available_mb} MB, "
-                f"Required (estimated): {estimated_mb} MB "
-                f"(model ~{_MODEL_SIZE_MB.get(model_size, 500)} MB + "
-                f"{_DISK_SPACE_MARGIN_MB} MB margin). "
-                f"Free up disk space and try again."
+            raise _disk_space_error(
+                cache_dir,
+                available_mb,
+                estimated_mb,
+                f"model '{model_size}'",
+                detail=(f"model ~{_MODEL_SIZE_MB.get(model_size, 500)} MB + {_DISK_SPACE_MARGIN_MB} MB margin"),
             )
         log.debug(
             "[DISK] Disk space check passed: %d MB available, ~%d MB needed for '%s'",
@@ -393,6 +392,33 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
         # the download itself will fail with a clear error if space
         # runs out during the transfer.
         log.debug("[DISK] Disk space check skipped: %s", exc)
+
+
+def _disk_space_error(
+    directory: str,
+    available_mb: int,
+    required_mb: int,
+    what: str,
+    *,
+    detail: str = "",
+) -> RuntimeError:
+    """Build the shared "insufficient disk space" error message.
+
+    Single source for the two disk-space gates (the HF model-download
+    check above and the offline-pack download gate in
+    ``service/offline_pack.py``) so the wording and the "Available /
+    Required — free up disk space" structure cannot drift between
+    them. ``detail`` optionally appends gate-specific context (e.g. the
+    pack's compressed/unpacked budget breakdown) between the Required
+    figure and the recovery hint.
+    """
+    detail_part = f" ({detail})" if detail else ""
+    return RuntimeError(
+        f"Insufficient disk space to download {what}. "
+        f"Available: {available_mb} MB, Required: {required_mb} MB"
+        f"{detail_part}. "
+        f"Free up disk space and try again."
+    )
 
 
 def _require_huggingface_consent(
@@ -770,6 +796,7 @@ __all__ = [
     "NON_LATIN_RATIO_LIMIT",
     "OVERLAP_DEDUP_WINDOW",
     "_check_disk_space_for_download",
+    "_disk_space_error",
     "_download_with_retry",
     "_require_huggingface_consent",
     "cleanup_hf_cache_dir",

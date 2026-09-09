@@ -24,9 +24,8 @@ Covers the auto-update mechanism from plan-runtime-pack-split.md §10.1:
     ``check_offline_pack_update`` returns ``{success: False, consent_required: True}``
     + publishes a ``consent_required`` event (mirrors the model-download
     consent flow in ``ModelMixin._require_huggingface_consent``).
-  * C-DATA-1 — the pack download from GitHub Releases is NOT covered by
-    the existing 3 network-call categories; the test suite documents
-    this in the worklog (the user must extend AGENTS.md).
+  * C-DATA-1 — the pack download from GitHub Releases is a
+    sanctioned category-(4) network call (offline-pack download).
 
 All network calls are mocked — no real HTTP requests are made.
 """
@@ -53,6 +52,26 @@ from voice_typer.server.service.update_check import (
 )
 
 # ── Fixtures ────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_trigger_disk_gate(monkeypatch):
+    """Make the tests in this file disk-independent.
+
+    The background-download thread runs the real
+    ``check_offline_pack_disk_space`` gate against the REAL pack root
+    when ``root=None``. On a near-full host the thread dies before the
+    test's patched ``download_offline_pack_with_resume`` is ever
+    called, failing guard/lock/install-wiring tests that assert on the
+    thread's side effects — none of which are about the disk gate
+    (that gate has its own dedicated suite:
+    ``tests/test_pack_disk_space_check.py``). Patch it to a no-op so
+    the trigger tests stay hermetic.
+    """
+    monkeypatch.setattr(
+        "voice_typer.server.service.offline_pack.check_offline_pack_disk_space",
+        lambda *args, **kwargs: None,
+    )
 
 
 def _make_manifest(version: str = "1.2.3", *, sha256: str | None = None) -> dict:
@@ -1198,3 +1217,484 @@ class TestSSRFRedirectRevalidation:
             "the manifest URL redirects to a private IP — got "
             f"{result!r}"
         )
+
+
+# ── download + install wiring (disk gate, pack lock, install stage) ──────
+
+
+class TestTriggerInstallWiring:
+    """``_trigger_background_download`` — the background flow runs the
+    disk gate, holds the cross-process pack lock around the download +
+    install, and installs the pack after a successful download.
+
+    The runtime-pack worker start step is intentionally not wired here
+    (out of scope per the pack-split wiring decision) — the flow ends
+    with the pack installed, verified, and swapped into place.
+    """
+
+    def test_disk_gate_runs_before_download(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        """The §8.8 disk-space gate is invoked on the pack dir before the
+        download starts — and a failing gate aborts the download."""
+        manifest = _make_manifest("1.1.0")
+        gate_calls: list[Path] = []
+        download_called = threading.Event()
+
+        def fake_gate(pack_dir, **kwargs):
+            gate_calls.append(Path(pack_dir))
+            raise RuntimeError("insufficient disk space")
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            download_called.set()
+            return True
+
+        monkeypatch.setattr("voice_typer.server.service.offline_pack.check_offline_pack_disk_space", fake_gate)
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        # The background thread runs the gate (and never the download).
+        deadline = time.monotonic() + 2.0
+        while not gate_calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert gate_calls, "disk gate never ran within 2s"
+        dest = update_check.offline_pack.offline_pack_partial_path("1.1.0", root=tmp_path)
+        assert gate_calls[0] == dest.parent
+        assert not download_called.wait(0.5), "download must not run when the disk gate fails"
+        # Guard released despite the gate failure.
+        deadline = time.monotonic() + 2.0
+        while "1.1.0" in update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert "1.1.0" not in update_check._ACTIVE_PACK_DOWNLOADS
+
+    def test_lock_wraps_download_and_install(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        """The §8.13 cross-process lock is held around the download AND
+        the install (both critical sections run inside it)."""
+        manifest = _make_manifest("1.2.0")
+        events_order: list[str] = []
+
+        class _FakeLock:
+            def __init__(self, version, *, root=None, timeout_s=None):
+                pass
+
+            def __enter__(self):
+                events_order.append("lock_enter")
+                return self
+
+            def __exit__(self, *args):
+                events_order.append("lock_exit")
+                return None
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            events_order.append("download")
+            return True
+
+        def fake_install(archive, version, manifest, **kwargs):
+            events_order.append("install")
+            return True
+
+        monkeypatch.setattr("voice_typer.server.service.offline_pack.OfflinePackLock", _FakeLock)
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+        monkeypatch.setattr("voice_typer.server.service.offline_pack.install_offline_pack", fake_install)
+
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        deadline = time.monotonic() + 2.0
+        while "install" not in events_order and time.monotonic() < deadline:
+            time.sleep(0.01)
+        deadline = time.monotonic() + 2.0
+        while "lock_exit" not in events_order and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert events_order[:2] == ["lock_enter", "download"]
+        assert events_order.index("install") < events_order.index("lock_exit")
+
+    def test_install_skipped_when_download_fails(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        """A failed download (SHA mismatch → False) must not install."""
+        manifest = _make_manifest("1.3.0")
+        install_called = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            return False
+
+        def fake_install(archive, version, manifest, **kwargs):
+            install_called.set()
+            return False
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+        monkeypatch.setattr("voice_typer.server.service.offline_pack.install_offline_pack", fake_install)
+
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        assert not install_called.wait(1.0), "install must not run when the download fails"
+
+    def test_bg_skips_download_when_pack_already_installed(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        """The second instance skips the redundant download when the pack
+        is already installed at lock-acquisition time.
+
+        Dual-instance scenario: the version comparison that decided
+        "update available" ran before the second instance contended for
+        the cross-process lock; while it waited, the FIRST instance
+        finished its download + install + swap (the lock file is a
+        SIBLING of the version dir, so the swap cannot invalidate the
+        lock). The post-lock re-check sees the installed pack and skips
+        the ~200 MB re-download.
+        """
+        manifest = _make_manifest("2.5.0")
+        version = "2.5.0"
+        # The pack is already fully installed at <root>/<version>/ —
+        # manifest + every declared file present (offline_pack_exists
+        # must see it).
+        pack_dir = tmp_path / version
+        pack_dir.mkdir(parents=True)
+        (pack_dir / "worker.exe").write_bytes(b"worker")
+        (pack_dir / "pack-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        download_called = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            download_called.set()
+            return True
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        assert not download_called.wait(1.0), (
+            "download must NOT run when the pack is already installed at lock-acquisition time"
+        )
+        # The in-flight guard was still released (the skip is a clean exit).
+        deadline = time.monotonic() + 2.0
+        while version in update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert version not in update_check._ACTIVE_PACK_DOWNLOADS
+
+    def test_full_download_and_install_pipeline(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        tmp_path: Path,
+    ):
+        """End-to-end (mocked network): trigger → download (real resume
+        logic, fake transport serving a real zip) → install → the pack
+        lands at ``<root>/<version>/pack-manifest.json`` and the local
+        version scan finds it (no re-trigger on the next launch)."""
+        import io
+        import zipfile
+
+        from voice_typer.server.service import offline_pack
+
+        version = "9.9.9"
+        files = {
+            "worker.exe": b"worker-binary",
+            "engines/parakeet.onnx": b"onnx-weights",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, blob in files.items():
+                zf.writestr(name, blob)
+        pack_bytes = buf.getvalue()
+        manifest = {
+            "version": version,
+            "sha256": hashlib.sha256(pack_bytes).hexdigest(),
+            "files": [
+                {"name": name, "sha256": hashlib.sha256(blob).hexdigest(), "size": len(blob)}
+                for name, blob in files.items()
+            ],
+            "min_proto_version": 1,
+        }
+
+        def fake_transport(url, *, offset=0):
+            body = pack_bytes[offset:]
+            return {
+                "status": 200,
+                "content_length": len(pack_bytes),
+                "iter_chunks": lambda chunk_bytes: (
+                    body[i : i + chunk_bytes] for i in range(0, len(body), chunk_bytes)
+                ),
+            }
+
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=fake_transport,
+            )
+            is True
+        )
+        pack_dir = tmp_path / version
+        deadline = time.monotonic() + 5.0
+        while not (pack_dir / "pack-manifest.json").exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert (pack_dir / "pack-manifest.json").exists(), "pack was never installed"
+        # The consumed archive is gone (mirrors the NSIS installer).
+        assert not offline_pack.offline_pack_partial_path(version, root=tmp_path).exists()
+        # Launch-time scan now finds the pack → no update re-trigger.
+        assert update_check._local_offline_pack_version(root=tmp_path) == version
+        # Renderer contract: offline_pack_verified carries {version, sha256}.
+        verified = [e for e in fake_event_bus.events if e["type"] == "offline_pack_verified"]
+        assert verified and verified[0]["data"] == {
+            "version": version,
+            "sha256": manifest["sha256"],
+        }
+
+
+class TestTriggerGuardLeak:
+    """A failure AFTER guard registration discards the registration —
+    the version stays re-triggerable (no permanent "already in flight")."""
+
+    def test_mkdir_failure_discards_guard(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        manifest = _make_manifest("2.2.2")
+        dest = update_check.offline_pack.offline_pack_partial_path("2.2.2", root=tmp_path)
+        real_mkdir = Path.mkdir
+        failures = {"n": 0}
+
+        def fake_mkdir(self, *args, **kwargs):
+            if self == dest.parent:
+                failures["n"] += 1
+                if failures["n"] == 1:
+                    raise OSError("simulated disk failure at mkdir")
+            return real_mkdir(self, *args, **kwargs)
+
+        download_called = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            download_called.set()
+            return True
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+        monkeypatch.setattr(Path, "mkdir", fake_mkdir)
+
+        # First trigger: mkdir raises → the exception propagates...
+        with pytest.raises(OSError):
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+        # ...and the guard is DISCARDED (not leaked).
+        assert "2.2.2" not in update_check._ACTIVE_PACK_DOWNLOADS
+
+        # Second trigger: mkdir succeeds → the download proceeds.
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        assert download_called.wait(2.0), "second trigger never ran the download"
+        # Cleanup: let the daemon thread release the guard.
+        deadline = time.monotonic() + 2.0
+        while "2.2.2" in update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    def test_thread_start_failure_discards_guard(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+        tmp_path: Path,
+    ):
+        manifest = _make_manifest("3.3.3")
+
+        real_thread_start = threading.Thread.start
+
+        def fake_start(self):
+            raise RuntimeError("can't start new thread")
+
+        monkeypatch.setattr(threading.Thread, "start", fake_start)
+
+        with pytest.raises(RuntimeError):
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+        assert "3.3.3" not in update_check._ACTIVE_PACK_DOWNLOADS
+
+        # The guard is gone → a later trigger is not "already in flight".
+        monkeypatch.setattr(threading.Thread, "start", real_thread_start)
+        download_called = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            download_called.set()
+            return True
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=tmp_path,
+                http_get=None,
+            )
+            is True
+        )
+        assert download_called.wait(2.0)
+        deadline = time.monotonic() + 2.0
+        while "3.3.3" in update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+
+class TestLocalPackVersionScan:
+    """``_local_offline_pack_version`` — the launch-time pack scan."""
+
+    @staticmethod
+    def _install_min_pack(root: Path, version: str) -> None:
+        pack_dir = root / version
+        pack_dir.mkdir(parents=True, exist_ok=True)
+        (pack_dir / "worker.exe").write_bytes(b"worker")
+        import hashlib as _hashlib
+
+        manifest = {
+            "version": version,
+            "sha256": _hashlib.sha256(b"whatever").hexdigest(),
+            "files": [
+                {"name": "worker.exe", "sha256": _hashlib.sha256(b"worker").hexdigest(), "size": 6},
+            ],
+            "min_proto_version": 1,
+        }
+        (pack_dir / "pack-manifest.json").write_text(json.dumps(manifest))
+
+    def test_scan_finds_installed_pack(self, tmp_path: Path):
+        self._install_min_pack(tmp_path, "1.2.3")
+        assert update_check._local_offline_pack_version(root=tmp_path) == "1.2.3"
+
+    def test_scan_ignores_staging_and_trash_dirs(self, tmp_path: Path):
+        """A crashed install can leave ``<version>.new/`` (with a valid
+        manifest — written just before the swap) and a swap can leave
+        ``<version>.trash/``. Neither is an installed version: the scan
+        must skip them so a leftover staging dir is not mistaken for
+        the local pack (which would suppress the re-trigger)."""
+        self._install_min_pack(tmp_path, "1.2.3")
+        # Simulate the crashed-install leftovers.
+        crashed_staging = tmp_path / "2.0.0.new"
+        crashed_staging.mkdir(parents=True)
+        (crashed_staging / "worker.exe").write_bytes(b"worker2")
+        import hashlib as _hashlib
+
+        stale_manifest = {
+            "version": "2.0.0",
+            "sha256": _hashlib.sha256(b"whatever").hexdigest(),
+            "files": [
+                {"name": "worker.exe", "sha256": _hashlib.sha256(b"worker2").hexdigest(), "size": 7},
+            ],
+            "min_proto_version": 1,
+        }
+        (crashed_staging / "pack-manifest.json").write_text(json.dumps(stale_manifest))
+        (tmp_path / "0.9.0.trash").mkdir()
+
+        assert update_check._local_offline_pack_version(root=tmp_path) == "1.2.3"
+
+    def test_scan_returns_none_when_only_staging_exists(self, tmp_path: Path):
+        """Nothing but a crashed staging dir → no local pack (an update
+        check re-triggers instead of trusting the half-install)."""
+        staging = tmp_path / "3.0.0.new"
+        staging.mkdir(parents=True)
+        assert update_check._local_offline_pack_version(root=tmp_path) is None
