@@ -408,7 +408,20 @@ class TestConfigurableTimeout:
 class TestFlatMaxTokens:
     """XV-76: max_tokens is now a flat 1024 (the previous
     ``min(4096, len(text) * 2 + 256)`` formula was dead code above
-    ~1920 chars)."""
+    ~1920 chars).
+
+    BP-134: the budget key is endpoint-aware — ``max_completion_tokens``
+    on first-party OpenAI endpoints, ``max_tokens`` elsewhere. These
+    tests read whichever key the endpoint contract selects and pin the
+    flat-1024 / length-independence intent, not the key name (the key
+    name itself is pinned by TestEndpointAwareSamplingParams).
+    """
+
+    @staticmethod
+    def _completion_budget(payload: dict) -> int:
+        if "max_completion_tokens" in payload:
+            return payload["max_completion_tokens"]
+        return payload["max_tokens"]
 
     def test_max_tokens_is_flat_1024_for_short_text(self, polisher):
         """XV-76 (c): a short input (well below the old formula's
@@ -427,7 +440,7 @@ class TestFlatMaxTokens:
         mock_open.assert_called_once()
         req = mock_open.call_args.args[0]
         payload = json.loads(req.data.decode("utf-8"))
-        assert payload["max_tokens"] == 1024, f"Expected flat max_tokens=1024, got {payload['max_tokens']!r}"
+        assert self._completion_budget(payload) == 1024, f"Expected flat completion budget=1024, got {payload!r}"
 
     def test_max_tokens_is_flat_1024_for_long_text(self, polisher):
         """XV-76 (c): a long input (well above the old formula's
@@ -448,8 +461,8 @@ class TestFlatMaxTokens:
         mock_open.assert_called_once()
         req = mock_open.call_args.args[0]
         payload = json.loads(req.data.decode("utf-8"))
-        assert payload["max_tokens"] == 1024, (
-            f"Expected flat max_tokens=1024 (old formula would have yielded 4096 here), got {payload['max_tokens']!r}"
+        assert self._completion_budget(payload) == 1024, (
+            f"Expected flat completion budget=1024 (old formula would have yielded 4096 here), got {payload!r}"
         )
 
     def test_max_tokens_no_longer_depends_on_input_length(self, polisher):
@@ -468,7 +481,7 @@ class TestFlatMaxTokens:
                 polisher._call_api(text, "You are a text editor.")
             req = mock_open.call_args.args[0]
             payload = json.loads(req.data.decode("utf-8"))
-            observed_values.add(payload["max_tokens"])
+            observed_values.add(self._completion_budget(payload))
 
         assert observed_values == {1024}, (
             f"max_tokens varied with input length: {observed_values!r} (expected constant {{1024}})"
@@ -769,3 +782,62 @@ class TestCallApiHttpErrorBranches:
             "A generic ValueError must be mapped to the base CloudEngineError, "
             "not CloudNetworkError (which is reserved for URLError)."
         )
+
+
+# endpoint-aware sampling params ─────────────────────────────
+
+
+class TestEndpointAwareSamplingParams:
+    """BP-134: OpenAI reasoning models reject ``max_tokens`` and
+    non-default ``temperature`` — first-party endpoints get
+    ``max_completion_tokens`` + default temperature, third-party
+    OpenAI-compatible endpoints keep the legacy shape."""
+
+    def _sent_body(self, mock_open):
+        req = mock_open.call_args[0][0]
+        return json.loads(req.data.decode("utf-8"))
+
+    def test_openai_endpoint_uses_max_completion_tokens(self, polisher):
+        """api.openai.com (the fixture URL): no ``max_tokens``, no
+        non-default temperature — the shape reasoning models accept."""
+        with patch(
+            "voice_typer.server.llm_polish._opener.open",
+            return_value=_make_mock_response("OK"),
+        ) as mock_open:
+            polisher._call_api("Hello world this is a test", "You are a text editor.")
+
+        body = self._sent_body(mock_open)
+        assert body["max_completion_tokens"] == 1024
+        assert "max_tokens" not in body
+        assert body["temperature"] == 1
+
+    def test_third_party_endpoint_keeps_legacy_params(self):
+        """Groq/Ollama-style endpoints keep ``max_tokens`` + 0.3."""
+        from voice_typer.server.llm_polish import LLMPolisher
+
+        proxy = LLMPolisher(
+            api_key="test-key",
+            api_url="https://api.groq.com/openai/v1/chat/completions",
+            model="llama-3.3-70b-versatile",
+            preset="professional",
+            enabled=True,
+        )
+        with patch(
+            "voice_typer.server.llm_polish._opener.open",
+            return_value=_make_mock_response("OK"),
+        ) as mock_open:
+            proxy._call_api("Hello world this is a test", "You are a text editor.")
+
+        body = self._sent_body(mock_open)
+        assert body["max_tokens"] == 1024
+        assert "max_completion_tokens" not in body
+        assert body["temperature"] == 0.3
+
+    def test_endpoint_detection(self):
+        from voice_typer.server.llm_polish import _is_openai_first_party_endpoint
+
+        assert _is_openai_first_party_endpoint("https://api.openai.com/v1/chat/completions")
+        assert _is_openai_first_party_endpoint("https://API.OPENAI.COM/v1")
+        assert not _is_openai_first_party_endpoint("https://api.groq.com/openai/v1/chat/completions")
+        assert not _is_openai_first_party_endpoint("http://localhost:11434/v1/chat/completions")
+        assert not _is_openai_first_party_endpoint("not a url at all")

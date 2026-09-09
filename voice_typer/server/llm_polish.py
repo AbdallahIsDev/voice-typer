@@ -16,6 +16,7 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 import json
 import logging
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request
 
 from voice_typer.server._http_safety import (
@@ -87,6 +88,25 @@ DEFAULT_TIMEOUT_S = 10
 # ceiling for OpenAI-compatible chat completions in practice and avoids
 # the input-length coupling entirely.
 _FLAT_MAX_TOKENS = 1024
+
+
+def _is_openai_first_party_endpoint(api_url: str) -> bool:
+    """True when *api_url* targets OpenAI's own API (BP-134).
+
+    OpenAI reasoning models (o-series) REJECT the legacy ``max_tokens``
+    parameter (use ``max_completion_tokens``) and reject any
+    non-default ``temperature``. Third-party OpenAI-compatible
+    endpoints (Groq, Ollama, vLLM, llama.cpp) still expect the legacy
+    shape, so the payload is chosen per endpoint — never sniff the
+    model name (a custom "o1" deployment behind a proxy would
+    misroute).
+    """
+    try:
+        host = (urlsplit(api_url).hostname or "").lower()
+    except Exception:
+        return False
+    return host == "api.openai.com" or host.endswith(".api.openai.com")
+
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
 
@@ -322,13 +342,19 @@ class LLMPolisher:
             )
             return text
 
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
-                ],
+        # BP-134: endpoint-aware sampling params. OpenAI reasoning
+        # models reject ``max_tokens`` (use ``max_completion_tokens``)
+        # and reject non-default ``temperature`` — send the default 1
+        # explicitly so non-reasoning first-party models keep a pinned
+        # value. Third-party OpenAI-compatible endpoints keep the
+        # legacy shape they were built against.
+        if _is_openai_first_party_endpoint(self.api_url):
+            sampling_params: dict = {
+                "temperature": 1,
+                "max_completion_tokens": _FLAT_MAX_TOKENS,
+            }
+        else:
+            sampling_params = {
                 "temperature": 0.3,
                 # flat ``max_tokens`` — the previous
                 # ``min(4096, len(text) * 2 + 256)`` formula was dead
@@ -338,6 +364,15 @@ class LLMPolisher:
                 # completions in practice and decouples the request from
                 # the input length.
                 "max_tokens": _FLAT_MAX_TOKENS,
+            }
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+                **sampling_params,
             }
         ).encode("utf-8")
 
