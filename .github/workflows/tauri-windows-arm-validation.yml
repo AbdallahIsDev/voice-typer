@@ -74,7 +74,7 @@ jobs:
       actions: read # cross-run artifact download (download-artifact run-id)
     steps:
       - name: Checkout (smoke-test scripts)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Resolve source run (input or latest successful x64 build)
         shell: pwsh
@@ -96,7 +96,7 @@ jobs:
           "ARTIFACT_RUN_ID=$runId" >> $env:GITHUB_ENV
 
       - name: Download x64 installer artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-windows-installer
           run-id: ${{ env.ARTIFACT_RUN_ID }}
@@ -316,7 +316,7 @@ jobs:
           }
 
       - name: Upload validation evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-arm-validation-evidence
           path: arm-validation/evidence/
