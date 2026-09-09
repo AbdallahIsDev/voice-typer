@@ -169,30 +169,3 @@ export function isLinuxWaylandWithoutSni(): boolean {
 export function _resetTrayAvailableCache(): void {
 	_cached = null;
 }
-
-/**
- * Invalidate the cached result so the next `isLinuxWaylandWithoutSni()`
- * call re-probes the D-Bus session bus.
- *
- * The Python sidecar (or any other caller that can prove a tray icon
- * was successfully created on a Wayland compositor that earlier
- * reported no `org.kde.StatusNotifierWatcher` owner) invokes this via
- * the IPC bridge to tell the Electron main process: "your cached
- * `tray_unavailable` answer is stale — re-probe next time."
- *
- * This is the cheaper of the two invalidation strategies: it does NOT
- * shell out to `gdbus` / `dbus-send` here (that would add subprocess
- * overhead to whatever hot-path the caller is on). The next
- * `isLinuxWaylandWithoutSni()` call performs the actual re-probe
- * (~1ms on a warm D-Bus session bus, bounded by
- * `DBUS_PROBE_TIMEOUT_MS`). If the caller is itself on the
- * `window-all-closed` quit hot-path, it should call
- * `isLinuxWaylandWithoutSni()` immediately AFTER this invalidation
- * to re-warm the cache before the next quit decision.
- *
- * Idempotent: calling it when `_cached` is already `null` is a no-op
- * (the next probe will populate the cache).
- */
-export function refreshTrayAvailableCache(): void {
-	_cached = null;
-}

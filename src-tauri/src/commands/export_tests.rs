@@ -22,9 +22,19 @@
 //! used by `export_data`.
 
 use super::{
-    csv_escape, csv_escape_into, export_file_filters, json_to_csv, value_to_string,
+    csv_escape_into, export_file_filters, json_to_csv, value_to_string,
     value_to_string_into,
 };
+
+// The allocation-returning `csv_escape` twin was deleted — production
+// escapes via `csv_escape_into`. This helper wraps it with a fresh buffer
+// so each escape-behavior assertion below still reads as
+// "input → escaped output".
+fn escape(s: &str) -> String {
+    let mut out = String::new();
+    csv_escape_into(&mut out, s);
+    out
+}
 use serde_json::{json, Value};
 
 // ── export_file_filters (save-dialog filter list per export kind) ─
@@ -86,140 +96,111 @@ fn test_export_file_filters_unrecognized_format_falls_back_to_json_filter() {
     assert_eq!(filters[0].1, &["json"][..]);
 }
 
-// ── csv_escape ──────────────────────────────────────────────────────
+// ── csv_escape_into (escape behavior) ─────────────────────────────
 
 #[test]
-fn test_csv_escape_plain() {
-    assert_eq!(csv_escape("hello"), "hello");
-    assert_eq!(csv_escape("123"), "123");
-    assert_eq!(csv_escape(""), "");
+fn test_csv_escape_into_plain() {
+    assert_eq!(escape("hello"), "hello");
+    assert_eq!(escape("123"), "123");
+    assert_eq!(escape(""), "");
 }
 
 #[test]
-fn test_csv_escape_comma() {
-    assert_eq!(csv_escape("hello,world"), "\"hello,world\"");
+fn test_csv_escape_into_comma() {
+    assert_eq!(escape("hello,world"), "\"hello,world\"");
 }
 
 #[test]
-fn test_csv_escape_double_quote() {
-    assert_eq!(csv_escape("hello\"world"), "\"hello\"\"world\"");
+fn test_csv_escape_into_double_quote() {
+    assert_eq!(escape("hello\"world"), "\"hello\"\"world\"");
 }
 
 #[test]
-fn test_csv_escape_newline() {
-    assert_eq!(csv_escape("hello\nworld"), "\"hello\nworld\"");
+fn test_csv_escape_into_newline() {
+    assert_eq!(escape("hello\nworld"), "\"hello\nworld\"");
 }
 
 #[test]
-fn test_csv_escape_carriage_return() {
-    assert_eq!(csv_escape("hello\rworld"), "\"hello\rworld\"");
+fn test_csv_escape_into_carriage_return() {
+    assert_eq!(escape("hello\rworld"), "\"hello\rworld\"");
 }
 
 #[test]
-fn test_csv_escape_all_special() {
-    assert_eq!(csv_escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
+fn test_csv_escape_into_all_special() {
+    assert_eq!(escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
 }
 
-// ── csv_escape — SEC-015 formula-injection defense (H-12) ────────
+// ── csv_escape_into — SEC-015 formula-injection defense (H-12) ─
 
 #[test]
-fn test_csv_escape_formula_equals() {
+fn test_csv_escape_into_formula_equals() {
     // `=cmd|'/C calc'!A1` must be prefixed with `'` so Excel/LibreOffice
     // treats it as text, not a formula.
-    assert_eq!(csv_escape("=cmd|'/C calc'!A1"), "'=cmd|'/C calc'!A1");
+    assert_eq!(escape("=cmd|'/C calc'!A1"), "'=cmd|'/C calc'!A1");
 }
 
 #[test]
-fn test_csv_escape_formula_plus() {
-    assert_eq!(csv_escape("+1+1"), "'+1+1");
+fn test_csv_escape_into_formula_plus() {
+    assert_eq!(escape("+1+1"), "'+1+1");
 }
 
 #[test]
-fn test_csv_escape_formula_minus() {
+fn test_csv_escape_into_formula_minus() {
     // `-2+3` would be a formula in Excel; prefix with `'`.
-    assert_eq!(csv_escape("-2+3"), "'-2+3");
+    assert_eq!(escape("-2+3"), "'-2+3");
 }
 
 #[test]
-fn test_csv_escape_formula_at() {
-    assert_eq!(csv_escape("@SUM(A1:A2)"), "'@SUM(A1:A2)");
+fn test_csv_escape_into_formula_at() {
+    assert_eq!(escape("@SUM(A1:A2)"), "'@SUM(A1:A2)");
 }
 
 #[test]
-fn test_csv_escape_formula_tab() {
-    assert_eq!(csv_escape("\tcmd"), "'\tcmd");
+fn test_csv_escape_into_formula_tab() {
+    assert_eq!(escape("\tcmd"), "'\tcmd");
 }
 
 #[test]
-fn test_csv_escape_formula_carriage_return() {
+fn test_csv_escape_into_formula_carriage_return() {
     // CR is BOTH a SEC-015 prefix trigger AND an RFC 4180 quoting
     // trigger. After prefixing with `'`, the value `"'\rcmd"` still
     // contains a CR, so it MUST be wrapped in double quotes.
     // Matches the TS `csvEscape("\rcmd")` byte-for-byte.
-    assert_eq!(csv_escape("\rcmd"), "\"'\rcmd\"");
+    assert_eq!(escape("\rcmd"), "\"'\rcmd\"");
 }
 
 #[test]
-fn test_csv_escape_leading_trailing_whitespace() {
+fn test_csv_escape_into_leading_trailing_whitespace() {
     // RFC 4180 only requires quoting for comma, double-quote,
     // newline, or CR. Leading/trailing spaces do NOT trigger quoting.
     // Matches the TS `csvEscape` byte-for-byte (parity enforced by
     // `export-handlers-csv-escape.test.ts`).
-    assert_eq!(csv_escape("  hello  "), "  hello  ");
-    assert_eq!(csv_escape("  hello"), "  hello");
-    assert_eq!(csv_escape("hello  "), "hello  ");
+    assert_eq!(escape("  hello  "), "  hello  ");
+    assert_eq!(escape("  hello"), "  hello");
+    assert_eq!(escape("hello  "), "hello  ");
     // A leading TAB triggers the SEC-015 prefix (formula-injection
     // defense) but is NOT a quoting trigger — the prefixed value
     // contains neither comma, quote, newline, nor CR, so it stays
     // unquoted.
-    assert_eq!(csv_escape("\thello"), "'\thello");
+    assert_eq!(escape("\thello"), "'\thello");
 }
 
 #[test]
-fn test_csv_escape_formula_with_comma_quoted() {
+fn test_csv_escape_into_formula_with_comma_quoted() {
     // Formula prefix AND comma → both defenses apply: prefix `'`
     // then RFC 4180 quoting (because the prefixed value contains
     // a comma).
-    assert_eq!(csv_escape("=a,b"), "\"'=a,b\"");
+    assert_eq!(escape("=a,b"), "\"'=a,b\"");
 }
 
-// ── csv_escape_into ─────────────────────────────────────────────
+// ── csv_escape_into (buffer contract) ────────────────────────────
 //
 // `csv_escape_into` writes the escaped form directly into a
 // caller-provided `&mut String` instead of allocating a fresh `String`
-// per cell. The bytes written MUST be byte-for-byte identical to
-// `csv_escape` — these tests verify that equivalence on the same
-// inputs covered by the `csv_escape` tests above, plus an append-
-// semantics test (writing into a non-empty buffer must NOT overwrite
-// the existing content).
-
-#[test]
-fn test_csv_escape_into_matches_csv_escape() {
-    // Every input that `csv_escape` handles must produce identical
-    // bytes when written via `csv_escape_into`.
-    let inputs = [
-        "hello",
-        "123",
-        "",
-        "hello,world",
-        "hello\"world",
-        "hello\nworld",
-        "hello\rworld",
-        "a,b\"c\nd\re",
-        "=cmd|'/C calc'!A1",
-        "+1+1",
-        "-2+3",
-        "@SUM(A1:A2)",
-        "\tcmd",
-        "\rcmd",
-        "=a,b",
-    ];
-    for input in inputs {
-        let mut out = String::new();
-        csv_escape_into(&mut out, input);
-        assert_eq!(out, csv_escape(input), "mismatch for input {input:?}");
-    }
-}
+// per cell. The escape-behavior cases above pin its output through the
+// `escape()` helper; the test here pins the buffer contract itself:
+// appends, never overwrites (the property `json_to_csv` relies on when
+// it writes the header row + every row's cells into one `out` buffer).
 
 #[test]
 fn test_csv_escape_into_appends_to_existing_buffer() {

@@ -275,8 +275,8 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
             out.push(',');
         }
         // Write the escaped cell directly into `out` instead of
-        // calling `csv_escape(k)` which allocates a per-cell String that
-        // is immediately discarded after `push_str` copies its bytes.
+        // allocating a per-cell String that is immediately discarded
+        // after `push_str` copies its bytes.
         csv_escape_into(&mut out, k);
     }
     out.push('\n');
@@ -293,8 +293,8 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
             // String rendering is serde_json's job), but `csv_escape_into`
             // writes the escaped form directly into `out`'s reusable buffer.
             // For a 10K-row × 22-col export this eliminates ~220K per-cell
-            // String allocations that the previous `csv_escape(&v)` call
-            // produced.
+            // String allocations that a return-a-String escape helper
+            // would produce.
             let cell = obj.get(k).map(value_to_string).unwrap_or_default();
             csv_escape_into(&mut out, &cell);
         }
@@ -350,22 +350,12 @@ pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
 /// `voice_typer/client/src/main/ipc/export-handlers.ts` — the two
 /// implementations produce byte-identical output for the same input
 /// (enforced by the TS parity test `export-handlers-csv-escape.test.ts`
-/// and by the `test_csv_escape_*` cases in this module).
-#[allow(dead_code)] // test-only: production path uses csv_escape_into (see doc above)
-pub(crate) fn csv_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    csv_escape_into(&mut out, s);
-    out
-}
-
-/// In-place variant of [`csv_escape`] that writes the escaped
-/// cell directly into ``out`` without allocating a per-cell ``String``.
-/// Used by [`json_to_csv`] to avoid ~220K per-cell allocations on a 10K-row
-/// export (one per cell × ~22 columns × 10K rows).
+/// and by the CSV-escape cases in `export_tests.rs`).
 ///
-/// The bytes written are byte-for-byte identical to [`csv_escape`]; the
-/// only difference is that the result is appended to ``out`` rather than
-/// returned as a fresh ``String``.
+/// Writes the escaped form of `s` directly into `out`, appending to
+/// any existing content (never overwriting) and allocating no per-cell
+/// `String` — [`json_to_csv`] relies on both properties to reuse one
+/// output buffer across every header cell + data cell of an export.
 pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
     // SEC-015: prefix formula-injection-prone cells with a single quote.
     let needs_prefix = s.starts_with('=')
@@ -404,7 +394,7 @@ pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
     }
 }
 
-// Unit tests for `csv_escape`, `csv_escape_into`, `value_to_string`,
+// Unit tests for `csv_escape_into`, `value_to_string`,
 // `value_to_string_into`, `json_to_csv`, and the `atomic_write_bytes`
 // contract live in the sibling `export_tests.rs` file (C-TEST-5 — keeps
 // production source free of inline test code, matching the
