@@ -17,9 +17,11 @@ fast-path triggers (no ``@``, ``+``, 3+ consecutive digits, ``Bearer``,
 ``Token``, ``sk-``, ``key=``, 20+ char token) — the trigger scan would
 otherwise return the input unchanged and the username would leak.
 
-The ``_redact_home_path`` helper is the same one already used by
-``diagnostics_export.py`` for the diagnostic-bundle path fields; this
-test ensures the log-filter path now shares that protection.
+The ``_redact_home_path`` helper is shared by every export-facing
+redaction site (the former server-side bundle pipeline used it for
+its path fields; the live users are the log filter and the
+``redact_for_export`` pipeline); this test ensures the log-filter
+path keeps that protection.
 
 These tests cover:
   * Linux-style home path in a log message (``/home/testuser/…``).

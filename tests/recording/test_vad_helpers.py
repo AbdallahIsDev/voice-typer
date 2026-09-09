@@ -463,3 +463,42 @@ def test_silero_vad_sample_rates_constant():
     # WHISPER_SAMPLE_RATE must be in SILERO_VAD_SAMPLE_RATES so the
     # default path (buffer_sr == 16000) skips resampling.
     assert WHISPER_SAMPLE_RATE in SILERO_VAD_SAMPLE_RATES
+
+
+# ---------------------------------------------------------------------------
+# Docstring contract — the grey-zone description must match the real
+# VadProcessor grey-zone behavior (documentation-drift regression).
+# ---------------------------------------------------------------------------
+
+
+def test_vad_update_docstring_matches_real_grey_zone_behavior():
+    """``vad_update``'s docstring must describe the ACTUAL grey-zone
+    behavior of ``VadProcessor.update_frame``.
+
+    The docstring used to claim the grey zone is a "pass branch — no
+    counter resets", but the real processor bounds the grey-zone hold:
+    below the hold limit the counters pass through untouched, and once
+    the grey run hits the hold limit the processor force-transitions
+    (SPEECH → seeds the silence counter to the hangover; SILENCE →
+    seeds the speech counter toward promotion; UNKNOWN → decays both
+    counters). A maintainer tuning the hysteresis from the stale doc
+    would misunderstand the machine (the behavior is pinned by
+    ``tests/test_vad_processor.py::TestGreyZoneDecay``).
+    """
+    import inspect
+
+    from voice_typer.server.recording import vad_helpers
+
+    doc = inspect.getdoc(vad_helpers.vad_update) or ""
+
+    # The stale claim must be gone...
+    assert "no counter resets" not in doc, (
+        "the vad_update docstring still claims the grey zone has 'no "
+        "counter resets' — the real update_frame resets/seeds counters at "
+        "the grey-zone hold limit (see TestGreyZoneDecay)"
+    )
+    # ...and the doc must describe the hold-limit behavior.
+    assert "hold limit" in doc, (
+        "the vad_update docstring must describe the grey-zone hold limit — "
+        "the real update_frame force-transitions at the limit"
+    )

@@ -1074,12 +1074,13 @@ def test_session_state_methods_are_dunder_clean():
 
 
 def test_resize_buffers_uses_package_audio_ring_buffer_capacity():
-    """The ring-buffer resize compares against ``_recording_pkg._AUDIO_RING_BUFFER_CAPACITY``.
+    """The ring-buffer resize guard is patch-compatible with the package constant surface.
 
-    This pins the patch-path indirection: the constant is read from the
-    package namespace at call time (matching how ``_secure_clear_array``
-    is routed). If the package binding is ever patched, the new value
-    is picked up automatically.
+    The package re-exports ``_AUDIO_RING_BUFFER_CAPACITY`` from
+    ``.recorder`` (int). The resize itself now guards against the LIVE
+    ring ``maxlen`` (not this constant) — see the live-maxlen guard
+    tests below — but the constant remains the documented default
+    capacity that ``recorder_init`` builds the deque with.
     """
     from voice_typer.server import recording as rec_pkg
 
@@ -1087,3 +1088,94 @@ def test_resize_buffers_uses_package_audio_ring_buffer_capacity():
     assert hasattr(rec_pkg, "_AUDIO_RING_BUFFER_CAPACITY")
     assert isinstance(rec_pkg._AUDIO_RING_BUFFER_CAPACITY, int)
     assert rec_pkg._AUDIO_RING_BUFFER_CAPACITY >= 0
+
+
+# ─── Ring-resize guard: live maxlen (not the module constant) ──────────
+
+
+def test_resize_buffers_ring_guard_uses_live_maxlen_not_constant():
+    """A ring left oversized by a prior session must resize DOWN to the computed capacity.
+
+    The guard must compare the computed capacity against the LIVE
+    ``recorder._ring_buffer.maxlen`` — not the module constant
+    ``_AUDIO_RING_BUFFER_CAPACITY``. Pre-fix, a ring left at a
+    non-default capacity (e.g. 187 slots from an oversized prior
+    session or an env-var override) survived every later 16 kHz
+    resize: the computed capacity (64) happened to EQUAL the module
+    constant, so the constant-based guard skipped the resize and the
+    ring kept its history-dependent capacity (187 chunks ≈ 5.98 s at
+    16 kHz — the exact stuck-oversized defect).
+    """
+    rec = _make_recorder(config=_make_config(sample_rate=16000))
+    # Simulate an oversized ring from a prior session (any producer
+    # other than the module default: env-var sizing, a legacy deque,
+    # or a prior resize at a different sizing policy).
+    rec._ring_buffer = collections.deque(maxlen=187)
+    assert rec._ring_buffer.maxlen == 187
+
+    SessionState(_make_recorder()).resize_buffers_for_sample_rate(
+        rec,
+        effective_sr=16000,
+        max_rec=900,
+    )
+
+    # 16000 / 512 * 2.0 = 62.5 → 62, floored to 64 — the LIVE guard
+    # must see 64 != 187 and resize DOWN.
+    assert rec._ring_buffer.maxlen == 64, (
+        "ring-resize guard must compare against the live maxlen, not the "
+        "module constant — an oversized ring from a prior session must be "
+        "resized down to the computed capacity for the current rate"
+    )
+
+
+def test_resize_buffers_ring_guard_resizes_unbounded_ring():
+    """An unbounded ring (``maxlen is None``) must be given a bounded capacity.
+
+    ``maxlen=None`` means "no capacity limit" — the resize must always
+    size such a ring (an unbounded SPSC ring defeats the
+    callback→worker backpressure design). Pre-fix the constant-based
+    guard skipped the resize whenever the computed capacity equaled the
+    module constant, leaving the ring unbounded.
+    """
+    rec = _make_recorder(config=_make_config(sample_rate=16000))
+    rec._ring_buffer = collections.deque()  # unbounded
+    assert rec._ring_buffer.maxlen is None
+
+    SessionState(_make_recorder()).resize_buffers_for_sample_rate(
+        rec,
+        effective_sr=16000,
+        max_rec=900,
+    )
+
+    assert rec._ring_buffer.maxlen == 64
+
+
+def test_resize_buffers_ring_resize_preserves_oversized_ring_contents(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Resizing an oversized ring down preserves in-flight chunks + reports the real "was" value.
+
+    The debug log's ``(was %d)`` field must report the LIVE previous
+    capacity (187), not the module constant (64) — the log is the
+    operator's evidence of what the resize actually replaced.
+    """
+    import logging
+
+    rec = _make_recorder(config=_make_config(sample_rate=16000))
+    chunk = np.array([0.1, 0.2], dtype=np.float32)
+    oversized = collections.deque([chunk], maxlen=187)
+    rec._ring_buffer = oversized
+
+    with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):
+        SessionState(_make_recorder()).resize_buffers_for_sample_rate(
+            rec,
+            effective_sr=16000,
+            max_rec=900,
+        )
+
+    assert list(rec._ring_buffer) == [chunk]
+    ring_logs = [r.getMessage() for r in caplog.records if "Ring buffer sized" in r.getMessage()]
+    assert ring_logs, "expected a '[RECORDING] Ring buffer sized' debug log"
+    assert "was 187" in ring_logs[0], (
+        f"the ring-resize log must report the LIVE previous capacity (was 187), got: {ring_logs[0]!r}"
+    )

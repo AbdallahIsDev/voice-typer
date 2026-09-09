@@ -23,6 +23,7 @@ rather than rejecting them.
 
 from __future__ import annotations
 
+import pytest
 from voice_typer.server import event_bus
 
 
@@ -232,3 +233,150 @@ class TestSearchHistory:
         """Non-dict ``data`` → empty query, default limit/offset."""
         ipc_server._handle_search_history(None, {})
         fake_service.search_history.assert_called_once_with("", 50, 0)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Keyset-cursor (``before_timestamp`` / ``before_id``) contract shared
+# by the three list-returning handlers.
+# ──────────────────────────────────────────────────────────────────────
+
+_CURSOR_TIMESTAMP = "2026-06-06 10:11:12"
+
+# (handler attribute, service method, base payload, expected positional
+# service args). ``search_history`` carries the query as its first
+# positional argument; the other two take ``(limit, offset)`` directly.
+_CURSOR_SITES = [
+    ("_handle_get_history", "get_history", {}, (50, 0)),
+    ("_handle_get_favorites", "get_favorites", {}, (50, 0)),
+    ("_handle_search_history", "search_history", {"query": "hello"}, ("hello", 50, 0)),
+]
+
+
+class TestHistoryKeysetCursor:
+    """Keyset-cursor extraction shared by the three list handlers.
+
+    Pins the cursor contract for ALL THREE handlers (the older cursor
+    suite in ``tests/test_cursor_pagination.py`` exercises the
+    validation rejects only on ``get_history``): a full cursor enables
+    the keyset kwargs, a numeric-string ``before_id`` is coerced to
+    int, a partial cursor degrades to the OFFSET path, and a negative
+    ``before_id`` is rejected with the exact ``client.invalid_field``
+    envelope (code + field + message) without touching the service.
+    """
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_string_before_id_is_coerced_to_int(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """``before_id: "42"`` (numeric string from a form input) is
+        coerced to ``42`` and still enables the keyset path."""
+        service = getattr(fake_service, service_method)
+        service.return_value = []
+        payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": "42"}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "history"
+        service.assert_called_once_with(*positional_args, before_timestamp=_CURSOR_TIMESTAMP, before_id=42)
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_negative_int_before_id_rejected(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """``before_id: -1`` is rejected with the exact invalid-field
+        envelope; the service is never called."""
+        service = getattr(fake_service, service_method)
+        payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": -1}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "error"
+        assert resp["data"] == {
+            "code": "client.invalid_field",
+            "field": "before_id",
+            "message": "before_id must be non-negative",
+        }
+        service.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_negative_string_before_id_rejected(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """``before_id: "-5"`` (numeric string) narrows to ``-5`` and is
+        rejected by the same non-negative invariant."""
+        service = getattr(fake_service, service_method)
+        payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": "-5"}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "error"
+        assert resp["data"] == {
+            "code": "client.invalid_field",
+            "field": "before_id",
+            "message": "before_id must be non-negative",
+        }
+        service.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_bool_before_id_rejected_by_schema(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """``before_id: true`` is rejected by the schema's ``reject_bool``
+        rule (bool subclasses int) — invalid-field on ``before_id``."""
+        service = getattr(fake_service, service_method)
+        payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": True}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["field"] == "before_id"
+        service.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_timestamp_only_uses_offset_path(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """Only ``before_timestamp`` supplied (no ``before_id``) → no
+        cursor kwargs splatted; the service takes the OFFSET branch."""
+        service = getattr(fake_service, service_method)
+        service.return_value = []
+        payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "history"
+        service.assert_called_once_with(*positional_args)
+
+    @pytest.mark.parametrize(
+        ("handler_name", "service_method", "base_payload", "positional_args"),
+        _CURSOR_SITES,
+    )
+    def test_before_id_only_uses_offset_path(
+        self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
+    ):
+        """Only ``before_id`` supplied (no ``before_timestamp``) → no
+        cursor kwargs splatted; the service takes the OFFSET branch."""
+        service = getattr(fake_service, service_method)
+        service.return_value = []
+        payload = {**base_payload, "before_id": 42}
+
+        resp = getattr(ipc_server, handler_name)(payload, {})
+
+        assert resp["type"] == "history"
+        service.assert_called_once_with(*positional_args)

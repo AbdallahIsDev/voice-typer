@@ -404,6 +404,13 @@ class TestHistoryPersistence:
         text = "the quick brown fox jumps over the lazy dog"
         pipeline = DictationPipeline(app)
         pipeline._store_result(text)
+        # _store_result's history write is fire-and-forget (HistoryDB's
+        # single-writer queue); block until the writer thread lands the
+        # row before reading. Under full-suite CPU contention the read
+        # can otherwise race the writer (observed as an intermittent
+        # 0-row get_history under the parallel suite; the sibling tests
+        # below already pair every add_transcription with flush()).
+        app.history_db.flush()
 
         resp = {}
         server._handle_get_history({}, resp)

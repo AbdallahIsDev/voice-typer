@@ -196,7 +196,9 @@ def make_fake_service() -> MagicMock:
     service.save_vocabulary_with_diff.return_value = {"ok": True, "added": 0, "removed": 0}
     service.get_templates.return_value = []
     service.save_templates.return_value = True
-    service.export_diagnostics.return_value = {"path": "<fake>"}
+    # export_diagnostics mock removed — the service method no longer
+    # exists (dead bundle pipeline deleted; support bundles come from
+    # the CLI scripts/diagnostics.py export).
     return service
 
 

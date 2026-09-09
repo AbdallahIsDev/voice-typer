@@ -8,7 +8,7 @@ Spec (§8.7):
 
 Tested behaviors:
 
-  1. ``PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0, 8.0)``.
+  1. ``PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0)``.
   2. ``PACK_RATE_LIMIT_MAX_ATTEMPTS == 3``.
   3. A 403 response raises ``_RateLimitedError`` (the internal sentinel).
   4. The download retries up to 3 times on 403, then raises
@@ -60,7 +60,7 @@ class TestRateLimitConstants:
     """§8.7 — backoff schedule + max attempts."""
 
     def test_backoff_schedule(self):
-        assert offline_pack.OFFLINE_PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0, 8.0)
+        assert offline_pack.OFFLINE_PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0)
 
     def test_max_attempts_is_3(self):
         assert offline_pack.OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS == 3

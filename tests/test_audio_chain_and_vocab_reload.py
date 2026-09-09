@@ -275,3 +275,95 @@ class TestAudioChainBuilderNoDefaultsDrift:
                 "Override noise_filter_notch=False was not applied — the "
                 f"Notch filter is still in the built chain: {names}"
             )
+
+
+class TestBuildChainFilterOrder:
+    """Pins the ACTUAL construction order of ``build_chain``.
+
+    The module docstring historically claimed the notch filter runs
+    AFTER the high-pass while the code appends it FIRST — a doc/code
+    drift that made future tuning sessions trust the wrong chain.
+    These tests pin the code order the (corrected) docstring describes:
+    Notch → HighPass → NoiseSuppressor → NoiseGate → Equalizer →
+    Compressor → Limiter, with the notch FIRST (ahead of the
+    high-pass) so mains hum is stripped before any other stage sees
+    the signal.
+    """
+
+    def test_notch_runs_before_highpass(self):
+        """With notch + high-pass enabled and everything else off, the
+        notch must come FIRST in the chain (hum removal ahead of the
+        rumble filter)."""
+        from voice_typer.server.audio_chain_builder import build_chain_from_dict
+
+        chain = build_chain_from_dict(
+            {
+                "noise_filter_notch": True,
+                "noise_filter_highpass": True,
+                "noise_suppression_method": "none",
+                "noise_filter_gate": False,
+                "noise_filter_eq": False,
+                "noise_filter_compressor": False,
+                "noise_filter_limiter": False,
+            }
+        )
+        names = chain.filter_names
+        prefixes = [n.split("(")[0] for n in names]
+        assert prefixes == ["Notch", "HighPass"], f"expected Notch before HighPass, got {names}"
+
+    def test_full_chain_order_all_filters_enabled(self):
+        """All filters on → the chain order must be
+        Notch → HighPass → NoiseSuppressor → NoiseGate → Equalizer →
+        Compressor → Limiter (limiter always last: brick-wall safety
+        net)."""
+        from voice_typer.server.audio_chain_builder import build_chain_from_dict
+        from voice_typer.server.config import Config
+
+        cfg = Config()
+        chain = build_chain_from_dict(
+            {
+                "noise_filter_notch": True,
+                "noise_filter_highpass": cfg.noise_filter_highpass,
+                "noise_suppression_method": cfg.noise_suppression_method,
+                "noise_filter_gate": cfg.noise_filter_gate,
+                "noise_filter_eq": cfg.noise_filter_eq,
+                "noise_filter_compressor": cfg.noise_filter_compressor,
+                "noise_filter_limiter": cfg.noise_filter_limiter,
+            }
+        )
+        prefixes = [n.split("(")[0] for n in chain.filter_names]
+        assert prefixes == [
+            "Notch",
+            "HighPass",
+            "NoiseSuppressor",
+            "NoiseGate",
+            "EQ",
+            "Compressor",
+            "Limiter",
+        ], f"unexpected chain order: {prefixes}"
+
+    def test_build_chain_docstring_matches_actual_order(self):
+        """The ``build_chain`` docstring must describe the order the
+        code builds: notch FIRST (the doc drift this pins said "after
+        HighPass")."""
+        import inspect
+
+        from voice_typer.server.audio_chain_builder import build_chain
+
+        doc = inspect.getdoc(build_chain) or ""
+        assert "Notch" in doc and "HighPass" in doc
+        # The docstring's order line must list Notch before HighPass.
+        order_line = next(
+            (ln for ln in doc.splitlines() if "Notch" in ln and "→" in ln),
+            None,
+        )
+        assert order_line is not None, (
+            "build_chain docstring has no chain-order line naming Notch — "
+            "it must document where the optional notch filter sits."
+        )
+        assert order_line.index("Notch") < order_line.index("HighPass"), (
+            "build_chain docstring must list Notch BEFORE HighPass (the code appends the notch filter first)."
+        )
+        assert "after HighPass" not in doc, (
+            "build_chain docstring still claims the notch is added after the high-pass — the code appends it first."
+        )

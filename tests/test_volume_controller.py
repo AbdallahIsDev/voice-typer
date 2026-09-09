@@ -39,6 +39,7 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.volume_controller import VolumeController
+from voice_typer.server.volume_ducker import DEFAULT_DUCK_LEVEL
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ class TestDuckVolume:
 
     def test_duck_uses_defaults_when_config_attrs_missing(self, fake_app, controller):
         """If config is missing the optional duck knobs, defaults kick in
-        (level=0.20, fade_ms=200, poll_interval=500)."""
+        (level=DEFAULT_DUCK_LEVEL=0.20, fade_ms=200, poll_interval=500)."""
         del fake_app.config.volume_duck_level
         del fake_app.config.volume_duck_fade_ms
         del fake_app.config.volume_duck_smart_poll_interval_ms
@@ -117,11 +118,24 @@ class TestDuckVolume:
         controller._duck_volume()
 
         fake_app._volume_ducker.duck.assert_called_once_with(
-            level=0.20,
+            level=DEFAULT_DUCK_LEVEL,
             fade_ms=200,
             per_session=False,
         )
         fake_app._volume_ducker.set_smart_duck_poll_interval.assert_called_once_with(500)
+
+    def test_duck_level_fallback_single_sourced(self, fake_app, controller):
+        """The missing-config duck-level fallback must be the shared
+        ``DEFAULT_DUCK_LEVEL`` constant (0.20, matching the config schema's
+        ``volume_duck_level`` default), imported from its single source —
+        not an independently-maintained literal."""
+        assert DEFAULT_DUCK_LEVEL == 0.20
+        del fake_app.config.volume_duck_level
+
+        controller._duck_volume()
+
+        level_arg = fake_app._volume_ducker.duck.call_args.kwargs["level"]
+        assert level_arg is DEFAULT_DUCK_LEVEL, f"duck level fallback must be DEFAULT_DUCK_LEVEL, got {level_arg!r}"
 
     def test_duck_skipped_when_disabled(self, fake_app, controller):
         """``volume_duck_enabled=False`` short-circuits before touching the ducker."""

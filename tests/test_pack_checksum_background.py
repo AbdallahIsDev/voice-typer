@@ -130,6 +130,9 @@ class TestBackgroundChecksumNonBlocking:
         bg.join(timeout_s=5.0)
         verified = [e for e in events if e["type"] == "offline_pack_verified"]
         assert verified
+        # Renderer contract (push_events.ts): {version, sha256}.
+        assert verified[0]["data"]["version"] == "v1"
+        assert isinstance(verified[0]["data"]["sha256"], str)
 
     def test_publishes_offline_pack_corrupt_on_failure(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")

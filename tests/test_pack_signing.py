@@ -2,29 +2,23 @@
 
 Spec (§8.18):
 
-  Windows: the worker exe is signed with the same Authenticode
-  certificate. The MOTW is removed after verification.
-
   macOS: the worker is signed with Developer ID + notarized via
   ``notarytool`` + stapled. Gatekeeper handles the quarantine.
 
-  Linux: unsigned by design.
+  Windows/Linux: pack integrity is enforced by the per-file SHA-256
+  manifest (the fail-closed gate the install stage runs before the
+  swap) — the Windows Authenticode check existed only as an
+  unconditional-None stub with zero production callers and was
+  removed.
 
-Tested behaviors (use ``pytest.importorskip`` for platform-specific
-tests — non-Windows/non-macOS hosts skip the corresponding tests):
+Tested behaviors:
 
-  1. ``verify_pack_signature_windows`` returns None on non-Windows.
-  2. ``verify_pack_signature_macos`` returns None on non-macOS.
-  3. On Windows, when ``wintrust.dll`` is unavailable (the internal
-     ``_wintrust_verify`` returns None), the function returns None
-     (graceful degrade).
-  4. On macOS, when ``codesign`` is unavailable (FileNotFoundError),
+  1. ``verify_offline_pack_signature_macos`` returns None on non-macOS.
+  2. On macOS, when ``codesign`` is unavailable (FileNotFoundError),
      the function returns None.
-  5. On macOS, when ``codesign --verify`` succeeds + ``spctl --assess``
+  3. On macOS, when ``codesign --verify`` succeeds + ``spctl --assess``
      succeeds, returns True.
-  6. On macOS, when ``codesign --verify`` fails, returns False.
-  7. The signing-tool-unavailable case is documented as a SKIP, not a
-     failure (per the slice spec: "skip if signing tools unavailable").
+  4. On macOS, when ``codesign --verify`` fails, returns False.
 """
 
 from __future__ import annotations
@@ -36,45 +30,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server.service import offline_pack
-
-
-class TestWindowsSigning:
-    """§8.18 — Windows Authenticode."""
-
-    def test_returns_none_on_non_windows(self, monkeypatch):
-        monkeypatch.setattr(platform, "system", lambda: "Linux")
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
-
-    def test_returns_none_on_macos(self, monkeypatch):
-        monkeypatch.setattr(platform, "system", lambda: "Darwin")
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
-
-    def test_wintrust_unavailable_returns_none(self, monkeypatch):
-        """When ``wintrust.dll`` can't be loaded, returns None."""
-        monkeypatch.setattr(platform, "system", lambda: "Windows")
-        # Make the internal helper return None (no wintrust).
-        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: None)
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
-
-    def test_wintrust_verify_true_passes_through(self, monkeypatch):
-        monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: True)
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is True
-
-    def test_wintrust_verify_false_passes_through(self, monkeypatch):
-        monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: False)
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is False
-
-    def test_wintrust_attribute_error_returns_none(self, monkeypatch):
-        """A broken ctypes install (AttributeError) returns None."""
-        monkeypatch.setattr(platform, "system", lambda: "Windows")
-
-        def boom(ctypes_mod, path):
-            raise AttributeError("ctypes.windll missing")
-
-        monkeypatch.setattr(offline_pack, "_wintrust_verify", boom)
-        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
 
 
 class TestMacOSSigning:

@@ -330,15 +330,16 @@ class TestInlineValidationEnvelopesHaveCodeField:
         assert "nonexistent" in resp["data"]["message"]
 
     def test_cloud_test_unknown_provider_defensive_envelope_has_code_field(self, ipc_server, monkeypatch):
-        """Defensive branch: ``_PROVIDER_TO_CONFIG_FIELD`` lookup
+        """Defensive branch: the canonical provider-map lookup
         returns ``None`` for a provider that DID resolve via
         ``_PROVIDER_TEST_ENDPOINTS``. In production this is
-        unreachable (both dicts have the same keys), so we
-        monkeypatch ``_PROVIDER_TO_CONFIG_FIELD`` to an empty dict
+        unreachable (every endpoint key is covered by the canonical
+        ``credential_store.PROVIDER_TO_CONFIG_FIELD``), so we
+        monkeypatch the handler module's map binding to an empty dict
         to force the defensive branch. The envelope MUST still be
         ``client.invalid_field`` with ``field="provider"``."""
         monkeypatch.setattr(
-            "voice_typer.server.handlers.cloud_test_handlers._PROVIDER_TO_CONFIG_FIELD",
+            "voice_typer.server.handlers.cloud_test_handlers.PROVIDER_TO_CONFIG_FIELD",
             {},
         )
         resp = ipc_server._handle_test_cloud_connection({"provider": "openai"}, {})

@@ -567,24 +567,30 @@ class TestIn19AsrTeardownSecondWave:
 class TestIn20ToggleLockReleasedDuringModelLoad:
     """IN-20: ``_toggle_lock`` must be RELEASED for the duration of
     ``ensure_active_engine_loaded()`` (5-30s on idle-unload) so the
-    F2 hotkey backend's single dispatch thread is not blocked."""
+    F2 hotkey backend's single dispatch thread is not blocked.
 
-    def test_release_acquire_around_ensure_active_engine_loaded(self) -> None:
+    Post-restructure contract: the model load runs on the daemon worker
+    WITHOUT the lock (unchanged), and the bounded worker join runs in
+    the PUBLIC entry (``_run_public_entry``) AFTER the locked section —
+    the pre-fix manual ``release()``/``acquire()`` pair inside
+    ``_start_impl`` is GONE (it dropped the RLock count 2 -> 1 on the
+    user-facing double-acquisition path ``toggle() -> start()`` and
+    left the lock owned through the join).
+    """
+
+    def test_join_outside_lock_no_manual_release(self) -> None:
         """The model load runs on the daemon worker thread
-        (``_start_dictation_worker_entry``) WITHOUT ``_toggle_lock``, and
-        ``_start_impl`` RELEASES the lock for the duration of the
-        bounded worker join (re-acquiring in a finally) — so neither the
-        F2 dispatch thread nor any other lock contender is blocked for
-        the 5-30s idle-unload reload.
+        (``_start_dictation_worker_entry``) WITHOUT ``_toggle_lock``;
+        the bounded worker join runs in the public entry
+        (``_run_public_entry``) OUTSIDE the ``with
+        controller._toggle_lock:`` block; and ``_start_impl`` contains
+        NO manual release/acquire of the lock.
 
         extraction: the ``_start_impl`` body now lives in
         :mod:`voice_typer.server.recording_lifecycle` (the
         ``RecordingController._start_impl`` is a 1-line delegator), and
         the lock methods are invoked on ``controller`` (the shared
-        state owner), e.g. ``controller._toggle_lock.release()``. The
-        actual ``ensure_active_engine_loaded()`` call lives on the
-        worker entry (``_start_dictation_worker_entry``), which runs
-        without the lock.
+        state owner).
         """
         s = _recording_lifecycle_src()
         # The actual model-load call must live on the worker entry
@@ -599,45 +605,64 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
             "daemon worker thread (the F2 dispatch thread must not run "
             "the 5-30s model load)"
         )
-        # _start_impl releases the lock around the bounded worker join.
+        # _start_impl must NOT manually release/re-acquire the lock: the
+        # pre-fix manual release dropped the RLock count 2 -> 1 on the
+        # toggle->start double-acquisition path, so the thread still
+        # owned the lock through the bounded join and concurrent
+        # stop()/cancel() blocked for the whole join window.
         start_impl_idx = s.find("def _start_impl(self, controller)")
         assert start_impl_idx > -1, "could not find _start_impl in recording_lifecycle"
         next_def = s.find("\n    def ", start_impl_idx + 1)
         body = s[start_impl_idx:next_def]
-        assert "controller._toggle_lock.release()" in body, (
-            "IN-20: _toggle_lock.release() must appear in _start_impl (released for the duration of the worker join)"
+        assert "controller._toggle_lock.release()" not in body, (
+            "_start_impl must NOT manually release _toggle_lock — the "
+            "public entry owns the lock lifecycle and joins outside it"
         )
-        assert "worker.join(timeout=" in body, (
-            "IN-20: _start_impl must bounded-join the worker (worker.join(timeout=...))"
+        assert "controller._toggle_lock.acquire()" not in body, (
+            "_start_impl must NOT manually re-acquire _toggle_lock — the "
+            "public entry owns the lock lifecycle and joins outside it"
         )
-        assert "controller._toggle_lock.acquire()" in body, (
-            "IN-20: _toggle_lock.acquire() must re-acquire the lock in _start_impl"
+        # The bounded join lives in _run_public_entry, at method-body
+        # indentation — OUTSIDE the ``with controller._toggle_lock:``
+        # block (code inside the with sits at a deeper indent).
+        entry_idx = s.find("def _run_public_entry(self, controller, impl_method)")
+        assert entry_idx > -1, "could not find _run_public_entry in recording_lifecycle"
+        entry_next = s.find("\n    def ", entry_idx + 1)
+        entry_body = s[entry_idx:entry_next]
+        assert "with controller._toggle_lock:" in entry_body, (
+            "_run_public_entry must acquire the lock around the state decision"
         )
-        release_idx = body.find("controller._toggle_lock.release()")
-        join_idx = body.find("worker.join(timeout=")
-        acquire_idx = body.find("controller._toggle_lock.acquire()")
-        assert release_idx < join_idx < acquire_idx, (
-            "IN-20: release must come BEFORE the worker join and acquire AFTER it"
+        join_idx = entry_body.find("worker.join(timeout=")
+        assert join_idx > -1, "_run_public_entry must bounded-join the worker (worker.join(timeout=...))"
+        # Positional proof the join is OUTSIDE the locked section: the
+        # join must come after the ``with controller._toggle_lock:`` /
+        # ``finally:`` block that brackets the state decision — so the
+        # lock is already released when the join runs.
+        with_lock_idx = entry_body.find("with controller._toggle_lock:")
+        finally_idx = entry_body.find("finally:")
+        assert with_lock_idx > -1 and with_lock_idx < join_idx, (
+            "the bounded worker join must come AFTER the with _toggle_lock block"
         )
-        # The acquire must be in a finally block.
-        finally_idx = body.find("finally:")
-        assert finally_idx > -1 and finally_idx < acquire_idx, (
-            "IN-20: _toggle_lock.acquire() must be in a finally block "
-            "(so the lock is re-acquired even if the join raises)"
+        assert finally_idx > -1 and finally_idx < join_idx, (
+            "the bounded worker join must come AFTER the locked section's "
+            "finally block (the lock is released before the join)"
         )
 
-    def test_release_acquire_in_try_finally(self) -> None:
-        """The release/acquire pattern must use try/finally so the lock
-        is always re-acquired (even on exception)."""
+    def test_manual_release_pattern_stays_gone(self) -> None:
+        """The manual ``release()``/``acquire()`` pattern around the
+        worker join must stay gone module-wide — reintroducing it would
+        re-arm the RLock recursion-count bug on the user-facing
+        double-acquisition path (the lock stays owned through the join,
+        blocking concurrent stop/cancel for up to 2.0 s)."""
         s = _recording_lifecycle_src()
-        idx = s.find("controller._toggle_lock.release()")
-        assert idx > -1
-        # Slice forward to verify the try/finally structure
-        ctx = s[idx : idx + 400]
-        assert "try:" in ctx, "IN-20: release must be followed by try:"
-        assert "worker.join(timeout=" in ctx, "IN-20: the try must contain the bounded worker join"
-        assert "finally:" in ctx, "IN-20: try must have a finally block"
-        assert "controller._toggle_lock.acquire()" in ctx, "IN-20: finally must re-acquire the lock"
+        assert "controller._toggle_lock.release()" not in s, (
+            "manual _toggle_lock.release() must not reappear in "
+            "recording_lifecycle — the public entry joins outside the lock"
+        )
+        assert "controller._toggle_lock.acquire()" not in s, (
+            "manual _toggle_lock.acquire() must not reappear in "
+            "recording_lifecycle — the public entry joins outside the lock"
+        )
 
     def test_lock_actually_released_during_load_at_runtime(self) -> None:
         """Dynamic test: when ``ensure_active_engine_loaded()`` blocks,

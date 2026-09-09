@@ -19,6 +19,10 @@ Tested behaviors (POSIX runs natively; Windows paths are simulated via
      (rollback) and start_worker is still called.
   4. Windows: trash directory is deleted after the swap.
   5. Windows: pre-existing trash is removed before the swap.
+  6. POSIX: on second-rename failure (new → current, after current →
+     trash succeeded), the previous pack is restored from the trash —
+     the mirror of the Windows rollback; the installed pack is never
+     left missing.
 """
 
 from __future__ import annotations
@@ -68,6 +72,49 @@ class TestPosixAtomicSwap:
         offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
         stop.assert_not_called()
         start.assert_not_called()
+
+    def test_posix_second_rename_failure_restores_previous_pack(self, tmp_path: Path, monkeypatch):
+        """POSIX rollback: when the SECOND rename (new → current) fails
+        after current → trash succeeded, the previous pack is restored
+        from the trash — the mirror of the Windows rollback (without it,
+        the installed pack is left MISSING until the next install).
+
+        The first ``os.replace`` whose destination is ``cur_dir`` is the
+        second rename (the first rename's destination is the trash); the
+        SECOND one whose destination is ``cur_dir`` is the rollback's
+        restore — the fake fails only the first, letting the restore
+        through. The assertions hold on Windows too (that branch rolls
+        back identically).
+        """
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        new_dir = tmp_path / "v2"
+        cur_dir = tmp_path / "current"
+        new_dir.mkdir()
+        (new_dir / "worker").write_bytes(b"new-worker")
+        cur_dir.mkdir()
+        (cur_dir / "worker").write_bytes(b"old-worker")
+        trash = Path(str(cur_dir) + ".trash")
+
+        original_replace = os.replace
+        dst_current_calls = {"n": 0}
+
+        def flaky_replace(src, dst, *args, **kwargs):
+            if Path(dst) == cur_dir:
+                dst_current_calls["n"] += 1
+                if dst_current_calls["n"] == 1:
+                    raise OSError("simulated second-rename failure")
+            return original_replace(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(os, "replace", flaky_replace)
+        with pytest.raises(OSError):
+            offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
+
+        # The PREVIOUS pack was restored at cur_dir (not left missing).
+        assert (cur_dir / "worker").read_bytes() == b"old-worker"
+        # The trash was consumed by the restore.
+        assert not trash.exists()
+        # The staging dir was not consumed by the failed rename.
+        assert (new_dir / "worker").read_bytes() == b"new-worker"
 
 
 class TestWindowsAtomicSwap:

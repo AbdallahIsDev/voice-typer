@@ -308,6 +308,156 @@ class TestCreateLauncherShortcut:
         monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
+    # ── APP_NAME-composed filename + legacy-name fallback ────────────
+    #
+    # The .lnk filename must be composed from APP_NAME (C-BRAND-1), not
+    # hardcoded. These tests monkeypatch APP_NAME to a distinct value so
+    # the composition is observable, and run on every platform (win32com
+    # is faked via sys.modules injection — the production code imports it
+    # lazily inside _create_lnk_shortcut).
+
+    def _fake_windows_env(self, tmp_path, monkeypatch, app_name):
+        """Common Windows-faked environment for the naming tests.
+
+        Returns (desktop, start_menu, mock_shell, run_calls).
+        """
+        import voice_typer.server.server_platform as mod
+
+        ds = mod.desktop_shortcut
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
+        pythonw = tmp_path / "pythonw.exe"
+        pythonw.touch()
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        appdata = tmp_path / "appdata"
+        monkeypatch.setenv("APPDATA", str(appdata))
+        monkeypatch.setattr(f"{ds.__name__}.APP_NAME", app_name)
+
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        start_menu = appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        start_menu.mkdir(parents=True)
+
+        mock_shell = MagicMock()
+        mock_shortcut = MagicMock()
+        mock_shell.CreateShortCut.return_value = mock_shortcut
+        mock_win32com = MagicMock()
+        mock_win32com.client.Dispatch.return_value = mock_shell
+        monkeypatch.setitem(sys.modules, "win32com", mock_win32com)
+        monkeypatch.setitem(sys.modules, "win32com.client", mock_win32com.client)
+
+        # The AUMID stamp falls back to a PowerShell subprocess when the
+        # .lnk bytes lack the property block — record those calls instead
+        # of spawning powershell (absent on non-Windows hosts).
+        run_calls = []
+
+        def fake_run(args, **kwargs):
+            run_calls.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(ds.subprocess, "run", fake_run)
+        return desktop, start_menu, mock_shell, run_calls
+
+    def test_creates_app_name_composed_lnk_filename(self, tmp_path, monkeypatch):
+        """The .lnk filename is composed from APP_NAME, not hardcoded.
+
+        With APP_NAME patched to a distinct value and no pre-existing
+        shortcut, both Desktop and Start Menu .lnk files must be created
+        under the APP_NAME-derived filename.
+        """
+        desktop, _start_menu, _shell, _runs = self._fake_windows_env(tmp_path, monkeypatch, app_name="Renamed Product")
+
+        result = create_launcher_shortcut()
+
+        assert result is not None
+        assert result.name == "Renamed Product.lnk"
+        assert result == desktop / "Renamed Product.lnk"
+
+    def test_reuses_legacy_named_lnk_instead_of_creating_a_duplicate(self, tmp_path, monkeypatch):
+        """A legacy-named existing shortcut is reused after a rename.
+
+        Builds predating the APP_NAME-derived naming created the shortcut
+        under a fixed legacy filename. When APP_NAME has changed and the
+        legacy file exists, the legacy shortcut is returned (and
+        AUMID-stamped) — no second shortcut is created under the new
+        name, so the user never ends up with a stale duplicate.
+        """
+        desktop, start_menu, mock_shell, _runs = self._fake_windows_env(
+            tmp_path, monkeypatch, app_name="Renamed Product"
+        )
+        legacy_desktop = desktop / "Voice Typer.lnk"
+        legacy_desktop.write_bytes(b"legacy-desktop-lnk")
+        legacy_start = start_menu / "Voice Typer.lnk"
+        legacy_start.write_bytes(b"legacy-start-lnk")
+
+        result = create_launcher_shortcut()
+
+        assert result == legacy_desktop
+        # No duplicate under the (renamed) APP_NAME filename.
+        assert not (desktop / "Renamed Product.lnk").exists()
+        assert not (start_menu / "Renamed Product.lnk").exists()
+        # Nothing was recreated through win32com.
+        assert mock_shell.CreateShortCut.call_count == 0
+
+
+class TestExistingLauncherLnk:
+    """``_existing_launcher_lnk`` — APP_NAME-named shortcut with
+    legacy-filename fallback.
+
+    The primary name is ``{APP_NAME}.lnk``; the legacy fixed filename is
+    accepted as the existing shortcut when the APP_NAME-named file is
+    absent, so a product rename never orphans (or duplicates) the
+    pre-rename shortcut.
+    """
+
+    def test_returns_none_when_no_shortcut_exists(self, tmp_path, monkeypatch):
+        from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.desktop_shortcut.APP_NAME",
+            "Renamed Product",
+        )
+        assert _existing_launcher_lnk(tmp_path) is None
+
+    def test_returns_app_name_named_shortcut_when_present(self, tmp_path, monkeypatch):
+        from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.desktop_shortcut.APP_NAME",
+            "Renamed Product",
+        )
+        named = tmp_path / "Renamed Product.lnk"
+        named.write_bytes(b"named")
+        legacy = tmp_path / "Voice Typer.lnk"
+        legacy.write_bytes(b"legacy")
+
+        # Both exist → the APP_NAME-named shortcut wins.
+        assert _existing_launcher_lnk(tmp_path) == named
+
+    def test_falls_back_to_legacy_named_shortcut(self, tmp_path, monkeypatch):
+        from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.desktop_shortcut.APP_NAME",
+            "Renamed Product",
+        )
+        legacy = tmp_path / "Voice Typer.lnk"
+        legacy.write_bytes(b"legacy")
+
+        # Only the legacy file exists → it is the existing shortcut.
+        assert _existing_launcher_lnk(tmp_path) == legacy
+
+    def test_current_app_name_matches_legacy_name_today(self, tmp_path):
+        """Today APP_NAME equals the legacy filename stem, so the primary
+        and legacy paths are the same file — the fallback is a no-op
+        until the product is actually renamed."""
+        from voice_typer.server.branding import APP_NAME
+        from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
+
+        named = tmp_path / f"{APP_NAME}.lnk"
+        named.write_bytes(b"named")
+        assert _existing_launcher_lnk(tmp_path) == named
+
 
 class TestSetLnkAppUserModelId:
     """``_set_lnk_app_user_model_id`` — toast-icon AUMID stamp on .lnk files.

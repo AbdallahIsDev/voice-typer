@@ -3,8 +3,9 @@
 Spec (§8.2):
 
   ``verify_pack_or_skip()`` (modeled on ``verify_tauri_binary_or_skip``
-  from ``autostart_launcher.py``). Mismatch → discard + re-download
-  (up to 3 attempts, with exponential backoff).
+  from ``autostart_launcher.py``). Mismatch → the partial is discarded
+  and ``offline_pack_corrupt`` is published; the next trigger/launch
+  retries the download.
 
 Tested behaviors:
 
@@ -14,7 +15,7 @@ Tested behaviors:
   3. A manifest with a missing declared file → fail-closed.
   4. A manifest with a structurally-invalid schema → fail-closed
      (returns None from ``load_pack_manifest``).
-  5. ``PACK_MAX_CORRUPTION_RETRIES == 3``.
+  5. A manifest entry above the per-file size cap → fail-closed.
 """
 
 from __future__ import annotations
@@ -107,92 +108,22 @@ class TestVerifyPackOrSkip:
         (root / "pack-manifest.json").write_text(json.dumps(bad))
         assert offline_pack.verify_offline_pack_or_skip("v1", root=tmp_path) is False
 
-    def test_max_corruption_retries_is_3(self):
-        """§8.2: up to 3 attempts."""
-        assert offline_pack.OFFLINE_PACK_MAX_CORRUPTION_RETRIES == 3
-
-
-class TestCorruptionRecoveryFlow:
-    """§8.2 — corruption triggers re-download up to 3 attempts."""
-
-    def test_three_corrupt_attempts_then_give_up(self, tmp_path: Path, monkeypatch):
-        """When verification fails 3 times in a row, the downloader
-        gives up and publishes ``pack_corrupt`` + ``pack_download_failed``.
-
-        We simulate this by replacing ``download_pack_with_resume``
-        with a fake that always returns True (download succeeds), and
-        replacing ``verify_pack_or_skip`` with a fake that always
-        returns False (verification fails). After 3 attempts the
-        caller should give up.
-        """
-        # Build a small "downloader driver" that mirrors what the
-        # production code would do: loop download → verify → retry.
-        attempts = {"n": 0}
-
-        def fake_download(*args, **kwargs):
-            attempts["n"] += 1
-            return True
-
-        def fake_verify(*args, **kwargs):
-            return False
-
-        monkeypatch.setattr(offline_pack, "download_offline_pack_with_resume", fake_download)
-        monkeypatch.setattr(offline_pack, "verify_offline_pack_or_skip", fake_verify)
-
-        # Run the recovery loop manually — production code would do
-        # this in a service-layer helper (not yet implemented).
-        events: list[dict] = []
-        max_attempts = offline_pack.OFFLINE_PACK_MAX_CORRUPTION_RETRIES
-        last_result = None
-        for attempt in range(1, max_attempts + 1):
-            downloaded = fake_download()
-            if not downloaded:
-                last_result = "download_failed"
-                break
-            verified = fake_verify()
-            if verified:
-                last_result = "verified"
-                break
-            # Exponential backoff would go here; we skip it in the test
-            # for speed (the retry count is what we care about).
-            last_result = "corrupt"
-            events.append({"type": "offline_pack_corrupt", "data": {"attempt": attempt}})
-
-        assert attempts["n"] == max_attempts
-        assert last_result == "corrupt"
-        assert len(events) == max_attempts
-
-    def test_second_attempt_succeeds(self, tmp_path: Path, monkeypatch):
-        """When the second download verifies, the loop stops — no third attempt."""
-        attempts = {"n": 0}
-
-        def fake_download(*args, **kwargs):
-            attempts["n"] += 1
-            return True
-
-        verify_results = [False, True]  # fail once, then succeed
-
-        def fake_verify(*args, **kwargs):
-            return verify_results.pop(0) if verify_results else True
-
-        monkeypatch.setattr(offline_pack, "download_offline_pack_with_resume", fake_download)
-        monkeypatch.setattr(offline_pack, "verify_offline_pack_or_skip", fake_verify)
-
-        max_attempts = offline_pack.OFFLINE_PACK_MAX_CORRUPTION_RETRIES
-        last_result = None
-        for _ in range(max_attempts):
-            downloaded = fake_download()
-            if not downloaded:
-                last_result = "download_failed"
-                break
-            verified = fake_verify()
-            if verified:
-                last_result = "verified"
-                break
-            last_result = "corrupt"
-
-        assert attempts["n"] == 2  # stopped after second attempt
-        assert last_result == "verified"
+    def test_manifest_with_oversized_entry_fails_closed(self, tmp_path: Path):
+        """A manifest entry above the per-file cap is rejected at load
+        time — the install stage re-checks the cap at extraction."""
+        root = tmp_path / "v1"
+        root.mkdir()
+        (root / "huge.bin").write_bytes(b"x")
+        bad = {
+            "version": "v1",
+            "sha256": _sha256(b"x"),
+            "files": [
+                {"name": "huge.bin", "sha256": _sha256(b"x"), "size": 10**12},
+            ],
+            "min_proto_version": 1,
+        }
+        (root / "pack-manifest.json").write_text(json.dumps(bad))
+        assert offline_pack.verify_offline_pack_or_skip("v1", root=tmp_path) is False
 
 
 if __name__ == "__main__":

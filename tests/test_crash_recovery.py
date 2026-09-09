@@ -719,133 +719,224 @@ class TestCrashRecoveryQuarantineCorrupt:
         cr.shutdown()
 
     def test_quarantine_corrupt_is_best_effort(self, recovery_dir):
-        """GT-A1-5: if the rename fails, ``_quarantine_corrupt`` must
-        not raise — callers rely on a clean reset to ``_entries = []``."""
+        """GT-A1-5: if the move fails, ``_quarantine_corrupt`` must
+        not raise — callers rely on a clean reset to ``_entries = []``.
+
+        The move primitive is ``os.replace`` (the hardened
+        cross-platform rename), so the failure is injected there —
+        simulating a cross-device / permission failure."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         path = recovery_dir / "recovery.json"
         path.write_text('{"entries": [BROKEN', encoding="utf-8")
 
+        import os as _os
         import unittest.mock as _mock
 
-        original_rename = Path.rename
+        original_replace = _os.replace
 
-        def boom(self, target):
-            if self == path:
-                raise OSError("simulated cross-device rename failure")
-            return original_rename(self, target)
+        def boom(src, dst, *args, **kwargs):
+            if str(src) == str(path):
+                raise OSError("simulated cross-device replace failure")
+            return original_replace(src, dst, *args, **kwargs)
 
-        with _mock.patch.object(Path, "rename", boom):
+        with _mock.patch.object(_os, "replace", boom):
             cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0
         cr.shutdown()
 
 
-# ============================================================================
-# log file added to diagnostic zip is redacted line-by-line
-# ============================================================================
+class TestQuarantineHardenedAtomicMove:
+    """``_quarantine_corrupt`` must use the hardened move:
+    ``os.replace`` (atomic, overwrites an existing destination on BOTH
+    POSIX and Windows — ``Path.rename`` raises on Windows when the
+    destination exists) plus a PID + sub-second-nanosecond suffix so
+    concurrent same-second quarantines produce distinct files without
+    an ``exists()`` probe loop (TOCTOU).
 
-
-class TestDiagnosticBundleLogRedaction:
-    """GT-B2-13: the voice-typer.log file is run through
-    ``redact_secret(redact_pii(line))`` line-by-line before being added
-    to the diagnostic bundle zip.
+    The naming keeps the dot-separated, human-readable
+    ``<name>.corrupt.<YYYYMMDD_HHMMSS>`` base (pinned by the startup
+    maintenance sweep glob ``recovery.json.corrupt.*`` and the GDPR
+    purge prefix match on ``recovery.json.corrupt``) and appends the
+    ``-<pid>-<ns>`` uniqueness suffix.
     """
 
-    def test_log_in_zip_is_redacted_for_pii(self, recovery_dir):
-        """GT-B2-13: a log line containing an email address has the
-        email replaced with ``[EMAIL]`` in the bundled zip."""
-        import zipfile
+    def test_quarantine_filename_includes_pid_and_ns(self, recovery_dir):
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        path = recovery_dir / "recovery.json"
+        path.write_text('{"entries": [BROKEN', encoding="utf-8")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        cr._quarantine_corrupt()
+
+        quarantined = list(recovery_dir.glob("recovery.json.corrupt.*"))
+        assert len(quarantined) == 1
+        name = quarantined[0].name
+        assert name.startswith("recovery.json.corrupt."), (
+            f"the dot-separated base must be preserved (startup sweep glob contract): {name}"
+        )
+        suffix = name.split(".corrupt.", 1)[1]
+        import os as _os
+        import re as _re
+
+        assert _re.fullmatch(r"\d{8}_\d{6}-\d+-\d+", suffix), (
+            f"quarantine suffix must be <YYYYMMDD_HHMMSS>-<pid>-<ns>, got: {suffix}"
+        )
+        assert f"-{_os.getpid()}-" in suffix, f"the embedded pid must match this process: {suffix}"
+        cr.shutdown()
+
+    def test_concurrent_same_second_quarantines_produce_distinct_files(self, tmp_path):
+        """Two quarantine calls racing within the same second on files
+        with the SAME name (in different parent dirs, mirroring two
+        processes on the same user account) must produce DISTINCT
+        quarantine filenames — neither forensic copy is lost."""
+        import threading
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # O1: the log lives under <config_dir>/logs.
-        (recovery_dir / "logs").mkdir()
-        log_path = recovery_dir / "logs" / "voice-typer.log"
-        log_path.write_text(
-            "2026-07-24 INFO something happened for user@example.com\n",
-            encoding="utf-8",
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
+        errors: list[Exception] = []
+        start = threading.Barrier(2)
+
+        def quarantine_in(dir_path: Path, marker: str):
+            try:
+                start.wait()  # maximise the same-second collision window
+                path = dir_path / "recovery.json"
+                path.write_text(marker, encoding="utf-8")
+                cr = CrashRecovery(config_dir=dir_path)
+                cr._quarantine_corrupt()
+                cr.shutdown()
+            except Exception as exc:  # noqa: BLE001 — thread-pool error collection
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=quarantine_in, args=(dir_a, "corrupt-from-A")),
+            threading.Thread(target=quarantine_in, args=(dir_b, "corrupt-from-B")),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"threads raised: {errors}"
+
+        names_a = [p.name for p in dir_a.glob("recovery.json.corrupt.*")]
+        names_b = [p.name for p in dir_b.glob("recovery.json.corrupt.*")]
+        assert len(names_a) == 1 and len(names_b) == 1, (
+            f"expected one quarantine file per dir, got {names_a} / {names_b}"
         )
-        cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-        assert bundle_path is not None
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            bundled_log = zf.read("voice-typer.log").decode("utf-8")
-        assert "user@example.com" not in bundled_log, f"GT-B2-13: PII (email) must be redacted; got:\n{bundled_log}"
-        assert "[EMAIL]" in bundled_log, f"GT-B2-13: redacted log must contain [EMAIL] token; got:\n{bundled_log}"
-        cr.shutdown()
+        assert names_a[0] != names_b[0], (
+            "two same-second quarantines produced the SAME filename — "
+            "the pid+ns uniqueness suffix is missing and one forensic "
+            "copy can silently overwrite the other"
+        )
+        assert (dir_a / names_a[0]).read_text(encoding="utf-8") == "corrupt-from-A"
+        assert (dir_b / names_b[0]).read_text(encoding="utf-8") == "corrupt-from-B"
 
-    def test_log_in_zip_is_redacted_for_secrets(self, recovery_dir):
-        """GT-B2-13: a log line containing a Bearer token has the
-        token redacted in the bundled zip."""
-        import zipfile
+    def test_quarantine_overwrites_preexisting_destination(self, recovery_dir, monkeypatch):
+        """A pre-existing file at the exact computed quarantine
+        destination must be OVERWRITTEN atomically (os.replace
+        semantics) — not raise.
 
+        On Windows, ``Path.rename``/``os.rename`` raise ``OSError``
+        (winerror 183) when the destination exists; ``os.replace``
+        overwrites atomically on BOTH POSIX and Windows. This test
+        pins the overwrite semantics with a fully controlled clock
+        (fixed datetime / pid / ns / counter) so the destination name
+        is predictable; on Linux the same semantics hold, so the test
+        simulates the Windows collision case portably."""
+        import itertools
+        import os as _os
+        import types as _types
+        from datetime import datetime as _real_datetime
+
+        import voice_typer.server.crash_recovery._io as _io
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # O1: the log lives under <config_dir>/logs.
-        (recovery_dir / "logs").mkdir()
-        log_path = recovery_dir / "logs" / "voice-typer.log"
-        log_path.write_text(
-            "2026-07-24 DEBUG http call Authorization: Bearer eyJhbGciOiJIUzI1NiJ9."
-            "eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\n",
-            encoding="utf-8",
-        )
+        path = recovery_dir / "recovery.json"
+        path.write_text("new corrupt content", encoding="utf-8")
+
+        class _FixedDatetime(_real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 1, 2, 3, 4, 5)
+
+        monkeypatch.setattr(_io, "datetime", _FixedDatetime)
+        monkeypatch.setattr(_io, "time", _types.SimpleNamespace(time_ns=lambda: 777777))
+        monkeypatch.setattr(_io, "_QUARANTINE_SUFFIX_SEQ", itertools.count())
+        monkeypatch.setattr(_os, "getpid", lambda: 99999)
+
+        dst = recovery_dir / "recovery.json.corrupt.20260102_030405-99999-777777"
+        dst.write_text("previous quarantine content", encoding="utf-8")
+
         cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-        assert bundle_path is not None
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            bundled_log = zf.read("voice-typer.log").decode("utf-8")
-        assert "eyJhbGciOiJIUzI1NiJ9" not in bundled_log, (
-            f"GT-B2-13: Bearer token must be redacted; got:\n{bundled_log}"
+        # Must NOT raise — the pre-existing destination is replaced.
+        cr._quarantine_corrupt()
+
+        assert dst.read_text(encoding="utf-8") == "new corrupt content", (
+            "the pre-existing destination must be overwritten with the new corrupt "
+            "content (os.replace semantics; Path.rename would fail on Windows)"
         )
+        assert not path.exists(), "the source corrupt file must be moved away"
         cr.shutdown()
 
-    def test_log_in_zip_preserves_non_pii_content(self, recovery_dir):
-        """GT-B2-13: non-PII / non-secret log content is preserved verbatim."""
-        import zipfile
+    def test_quarantine_uses_os_replace_not_path_rename(self):
+        """Structural pin: the quarantine move must go through
+        ``os.replace`` (atomic, cross-platform overwrite) — never
+        ``Path.rename``/``os.rename`` (fails on Windows when the
+        destination exists)."""
+        import inspect
 
+        import voice_typer.server.crash_recovery._io as _io
+
+        source = inspect.getsource(_io._RecoveryIO._quarantine_corrupt)
+        assert "os.replace(" in source, (
+            "_quarantine_corrupt must move the corrupt file via os.replace "
+            "(atomic, overwrites existing destination on POSIX and Windows)"
+        )
+        assert ".rename(" not in source, (
+            "_quarantine_corrupt must not use Path.rename/os.rename — it raises "
+            "OSError (winerror 183) on Windows when the destination exists"
+        )
+
+
+class TestDiagnosticBundleSurfaceRemoved:
+    """The server-side diagnostic-bundle pipeline is deliberately gone.
+
+    Every surface was removed one by one (IPC command registry, TS +
+    Rust allowlists, renderer Diagnostics section, tray entries) until
+    the pipeline was production-dead; the bundle builder and its
+    delegates were then deleted. Support bundles come from the
+    self-contained CLI (``python scripts/diagnostics.py export``),
+    which never used this class and deliberately excludes
+    crash-recovery contents. These pins keep the removal deliberate
+    and visible against an accidental re-wiring without a real
+    surface.
+    """
+
+    def test_crash_recovery_has_no_bundle_delegate(self):
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # O1: the log lives under <config_dir>/logs.
-        (recovery_dir / "logs").mkdir()
-        log_path = recovery_dir / "logs" / "voice-typer.log"
-        log_path.write_text(
-            "2026-07-24 INFO model loaded successfully\n2026-07-24 INFO audio device opened\n",
-            encoding="utf-8",
-        )
-        cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            bundled_log = zf.read("voice-typer.log").decode("utf-8")
-        assert "model loaded successfully" in bundled_log
-        assert "audio device opened" in bundled_log
-        cr.shutdown()
+        assert not hasattr(CrashRecovery, "create_diagnostic_bundle")
 
-    def test_log_redaction_failure_skips_log(self, recovery_dir, monkeypatch):
-        """GT-B2-13: if redaction fails, the log is SKIPPED entirely
-        rather than shipped raw — defense in depth."""
-        import zipfile
+    def test_service_and_protocol_have_no_export_diagnostics(self):
+        from unittest.mock import MagicMock
 
-        from voice_typer.server import security
+        from voice_typer.server.providers import ServiceProtocol
+        from voice_typer.server.service import VoiceTyperService
+
+        svc = VoiceTyperService(MagicMock())
+        assert not hasattr(svc, "export_diagnostics")
+        # The protocol and the implementation stay in lockstep.
+        assert not hasattr(ServiceProtocol, "export_diagnostics")
+        assert isinstance(svc, ServiceProtocol)
+
+    def test_metadata_snapshot_still_available(self):
+        """The live metadata-only accessor survives the pipeline removal."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # O1: the log lives under <config_dir>/logs.
-        (recovery_dir / "logs").mkdir()
-        log_path = recovery_dir / "logs" / "voice-typer.log"
-        log_path.write_text(
-            "2026-07-24 INFO user@example.com leaked\n",
-            encoding="utf-8",
-        )
-
-        def raising_redact_pii(text):
-            raise RuntimeError("redaction unavailable")
-
-        monkeypatch.setattr(security, "redact_pii", raising_redact_pii)
-
-        cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-        assert bundle_path is not None, "GT-B2-13: bundle creation must not fail when redaction raises"
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            names = zf.namelist()
-        assert "voice-typer.log" not in names, f"GT-B2-13: log must be skipped when redaction fails; got names: {names}"
-        cr.shutdown()
+        assert callable(CrashRecovery.entries_metadata_snapshot)

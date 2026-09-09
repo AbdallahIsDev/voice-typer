@@ -109,6 +109,25 @@ def _make_controller_with_lifecycle(app: MagicMock) -> MagicMock:
     return controller
 
 
+def _wire_public_entry_chain(app: MagicMock, controller: MagicMock) -> None:
+    """Wire the mock controller/app so the PRODUCTION call chain runs:
+    ``lifecycle.toggle -> controller._toggle_impl -> app._start_dictation
+    -> lifecycle.start -> controller._start_impl``.
+
+    The production controller exposes 1-line delegators with exactly these
+    bodies; a MagicMock controller needs them wired by hand so the
+    double-acquisition path (toggle -> start, RLock count 2) taken by every
+    user-facing entry (F2 / IPC / tray) is exercised for real.
+    """
+    controller._toggle_impl = lambda: controller._lifecycle._toggle_impl(controller)
+    controller._start_impl = lambda: controller._lifecycle._start_impl(controller)
+    app._start_dictation = lambda: controller._lifecycle.start(controller)
+    app._stop_dictation = lambda: controller._lifecycle.stop(controller)
+    # ``_toggle_impl`` treats a live loader thread as "queue the dictation";
+    # on a MagicMock it would be truthy AND ``is_alive()`` truthy.
+    app.models._model_load_thread = None
+
+
 # ── Tests ──────────────────────────────────────────────────────────────
 
 
@@ -139,10 +158,7 @@ class TestFastF2ReturnDuringModelReload:
 
         # Call ``_start_impl`` on the F2 thread and measure return time.
         # ``_start_impl`` is called under ``_toggle_lock`` by ``start()``;
-        # we acquire the lock here to mirror that contract — the production
-        # code releases/re-acquires the lock around the bounded worker join
-        # (IN-20), so calling ``_start_impl`` without holding the lock would
-        # trigger a ``RuntimeError: cannot release un-acquired lock``.
+        # we acquire the lock here to mirror that contract.
         start_time = time.monotonic()
         with controller._toggle_lock:
             controller._lifecycle._start_impl(controller)
@@ -305,6 +321,62 @@ class TestFastF2ReturnDuringModelReload:
         # recording was reset to False.
         assert app.recorder.recording is False, "recorder.recording must be False after model-fail discard"
 
+    def test_concurrent_cancel_returns_fast_during_cold_start(self) -> None:
+        """A concurrent ESC ``cancel()`` must return in < 100 ms while a
+        cold-model start's bounded worker join is in flight.
+
+        The user-facing entries (F2 / IPC / tray) take the DOUBLE-acquisition
+        path ``toggle() -> _toggle_impl -> app._start_dictation() -> start()``.
+        The bounded join of the DictationStart worker (2.0 s timeout on the
+        cold path) must run OUTSIDE ``_toggle_lock`` so the cancel thread
+        never waits behind it.
+        """
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        _wire_public_entry_chain(app, controller)
+
+        # Cold start: an active engine exists but is NOT loaded yet, so the
+        # start worker's join timeout is the long (2.0 s) cold-path one.
+        _cold = MagicMock(name="cold_transcriber")
+        _cold.is_loaded = False
+        app.models.active_transcriber = MagicMock(return_value=_cold)
+
+        load_started = threading.Event()
+        release_load = threading.Event()
+
+        def _blocked_load():
+            load_started.set()
+            release_load.wait(timeout=10.0)
+            return _cold
+
+        app.models.ensure_active_engine_loaded = MagicMock(side_effect=_blocked_load)
+
+        # The F2 thread: toggle -> (re-entrant) start -> spawn worker ->
+        # bounded join OUTSIDE the lock.
+        f2_thread = threading.Thread(target=controller._lifecycle.toggle, args=(controller,), name="F2")
+        f2_thread.start()
+        assert load_started.wait(timeout=2.0), "start worker must reach the model load"
+
+        # ESC cancel fires on another thread while the cold start's bounded
+        # join is still in flight — must return in < 100 ms, not the 2.0 s
+        # join window.
+        cancel_start = time.monotonic()
+        controller._lifecycle.cancel(controller)
+        cancel_elapsed = time.monotonic() - cancel_start
+
+        assert cancel_elapsed < 0.100, (
+            f"concurrent cancel took {cancel_elapsed:.3f}s during a cold start — "
+            f"the bounded start-worker join must NOT hold ``_toggle_lock`` "
+            f"(expected < 100 ms)"
+        )
+
+        # Cleanup: unblock the worker and drain the threads.
+        release_load.set()
+        f2_thread.join(timeout=5.0)
+        event = getattr(controller, "_start_complete_event", None)
+        if event is not None:
+            event.wait(timeout=5.0)
+
     def test_f2_returns_quickly_when_model_already_loaded(self) -> None:
         """When the model is already loaded (common case), the F2
         thread returns quickly AND the worker completes within the
@@ -330,6 +402,131 @@ class TestFastF2ReturnDuringModelReload:
         event = getattr(controller, "_start_complete_event", None)
         assert event is not None
         assert event.wait(timeout=1.0), "Worker should complete quickly on fast path"
+
+
+class TestStartWorkerJoinTimeoutReset:
+    """The published ``_start_worker_join_timeout`` must be reset at
+    ``_start_impl`` entry so a STALE value from a previous start cycle
+    can never leak into this entry's bounded join.
+
+    If an exception fires between ``worker.start()`` and the adaptive
+    timeout publish (e.g. ``active_transcriber()`` raising on the
+    pre-load probe), ``_start_impl``'s except path swallows it and
+    returns normally — so ``_run_public_entry`` still performs the
+    bounded join of the just-started worker.  Without the entry reset,
+    that join uses the PREVIOUS cycle's timeout (up to 2.0 s on the
+    cold-model path), stalling the public entry.
+    """
+
+    def test_stale_timeout_cannot_leak_into_join_after_start_path_exception(self) -> None:
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        _wire_public_entry_chain(app, controller)
+
+        # Simulate a STALE cold-path timeout published by a previous
+        # start cycle.
+        controller._start_worker_join_timeout = 2.0
+
+        calls = {"n": 0}
+        _loaded = MagicMock(name="transcriber")
+        _loaded.is_loaded = True
+
+        def _flaky_active_transcriber():
+            calls["n"] += 1
+            if calls["n"] == 2:
+                # Call 1 = the toggle decision; call 2 fires AFTER
+                # worker.start() but BEFORE the join-timeout publish in
+                # _start_impl — exactly the leak window.
+                raise RuntimeError("transcriber probe failed")
+            return _loaded
+
+        app.models.active_transcriber = MagicMock(side_effect=_flaky_active_transcriber)
+
+        # Block the worker's model load so the join's timeout is
+        # observable (the join returns at its timeout, not earlier).
+        release_worker = threading.Event()
+
+        def _blocked_load():
+            release_worker.wait(timeout=10.0)
+            return _loaded
+
+        app.models.ensure_active_engine_loaded = MagicMock(side_effect=_blocked_load)
+
+        start_time = time.monotonic()
+        controller._lifecycle.toggle(controller)
+        elapsed = time.monotonic() - start_time
+
+        assert elapsed < 0.5, (
+            f"public entry took {elapsed:.3f}s — a stale 2.0 s join timeout "
+            f"leaked into this entry's bounded join after a start-path "
+            f"exception (expected the reset 0.1 s default)"
+        )
+
+        # Drain: release the worker and wait for it to finish.
+        release_worker.set()
+        event = getattr(controller, "_start_complete_event", None)
+        if event is not None:
+            event.wait(timeout=5.0)
+
+
+# ── Audio-path parity: level monitor restart + off-thread duck ─────────
+
+
+class TestStartPathAudioParity:
+    """Two start-path parity contracts:
+
+    * a FAILED start must restart the level monitor for the always-visible
+      bubble (the start path stops it before ``recorder.start()``; the stop
+      and stop-failure paths already restart it);
+    * system-volume ducking must run on the DictationStart worker thread,
+      not on the hotkey thread (0.15-0.7 s of backend/subprocess calls per
+      start used to run synchronously under ``_toggle_lock``).
+    """
+
+    def test_failed_start_restarts_level_monitor(self) -> None:
+        """When ``recorder.start()`` raises, the level monitor that the start
+        path stopped must be restarted so the always-visible bubble's level
+        bar does not flatline until the next toggle."""
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        restart_monitor = MagicMock(name="restart_level_monitor")
+        controller._maybe_restart_level_monitor_for_always_visible_bubble = restart_monitor
+        app.recorder.start = MagicMock(side_effect=RuntimeError("stream open failed"))
+
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
+
+        (
+            restart_monitor.assert_called_once_with(app),
+            "the start-failure path must restart the level monitor (parity with the stop paths)",
+        )
+
+    def test_duck_volume_runs_on_start_worker_thread(self) -> None:
+        """``_duck_volume`` must execute on the DictationStart worker thread,
+        never on the calling (hotkey) thread."""
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        duck_thread_names: list[str] = []
+
+        def _record_duck_thread() -> None:
+            duck_thread_names.append(threading.current_thread().name)
+
+        app._duck_volume = MagicMock(side_effect=_record_duck_thread)
+
+        caller_thread_name = threading.current_thread().name
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
+
+        # Wait for the worker to finish (duck happens before the model load
+        # in the worker, so completion implies it ran).
+        event = getattr(controller, "_start_complete_event", None)
+        assert event is not None, "_start_complete_event must be published on the controller"
+        assert event.wait(timeout=5.0), "start worker must complete so the duck lands"
+
+        assert duck_thread_names == ["DictationStart"], (
+            f"_duck_volume must run exactly once on the DictationStart worker "
+            f"thread, got {duck_thread_names!r} (caller thread: {caller_thread_name!r})"
+        )
 
 
 # ── Recording-start failure reasons (tray tooltip) ─────────────────────

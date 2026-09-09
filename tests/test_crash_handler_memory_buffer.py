@@ -410,3 +410,103 @@ class TestHu8PiiFilterFailClosed:
         assert len(handler.filters) == 1
         assert type(handler.filters[0]).__name__ == "PIIRedactionFilter"
         assert len(handler.buffer) == 1, "only the post-recovery record is buffered"
+
+
+class TestPiiFilterActuallyRuns:
+    """The lazily-attached ``PIIRedactionFilter`` must actually EXECUTE
+    on every buffered record.
+
+    The ``handle`` override applies the handler's filter chain (stdlib
+    ``Handler.handle`` semantics: ``self.filter(record)`` runs BEFORE
+    the record is emitted/buffered; a filter veto drops the record).
+    Pre-fix the override appended records to the ring buffer directly,
+    so the attached PII filter NEVER ran — buffered records were
+    redacted only because the file handler's own filter instance had
+    already mutated the SHARED ``LogRecord`` in place earlier in the
+    handler chain. That is an implicit cross-handler ordering
+    invariant, not the crash buffer's own protection: a handler
+    reorder, level change, or a record that reaches ONLY the crash
+    buffer would ship unredacted PII into
+    ``voice-typer-crash-buffer.log`` on the crash flush.
+
+    These tests hand the record DIRECTLY to the crash-buffer handler
+    (``handler.handle(record)``) — no file handler ever sees the
+    record — so any redaction observed in the buffer is the crash
+    buffer's OWN filter doing the work.
+    """
+
+    @staticmethod
+    def _reset_flags() -> None:
+        from voice_typer.server.crash_handler._memory_buffer import _CrashBufferMemoryHandler
+
+        _CrashBufferMemoryHandler._pii_attached = False
+        _CrashBufferMemoryHandler._pii_failed_once = False
+
+    def test_pii_redacted_in_buffer_when_only_crash_handler_sees_record(self, tmp_path: Path):
+        """A record containing PII must be redacted in the ring buffer
+        when ONLY the crash-buffer handler handles it (no file-handler
+        in-place-mutation ordering accident)."""
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+        assert handler is not None
+
+        record = logging.LogRecord(
+            "voice_typer.test.pii",
+            logging.WARNING,
+            __file__,
+            1,
+            "connect failed for user alice@example.com with token sk-abcdefghijklmnopqrst",
+            (),
+            None,
+        )
+        result = handler.handle(record)
+        assert result is not False, "record must pass the filter chain and be buffered"
+        assert len(handler.buffer) == 1
+        buffered_msg = handler.buffer[0].getMessage()
+        assert "alice@example.com" not in buffered_msg, (
+            "PII leaked into the crash buffer: the PII redaction filter attached to "
+            "this handler did not run (handle() must apply the filter chain before "
+            "buffering, per stdlib Handler.handle semantics)."
+        )
+        assert "[EMAIL]" in buffered_msg, "the email must be replaced by the [EMAIL] redaction token"
+
+    def test_filter_veto_drops_record_without_buffering(self, tmp_path: Path):
+        """A filter that returns False must veto the record: nothing is
+        buffered and ``handle`` returns False (stdlib drop-on-veto
+        semantics — same contract a normal handler honours)."""
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+        assert handler is not None
+
+        class _VetoFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                return False
+
+        handler.addFilter(_VetoFilter())
+        record = logging.LogRecord("voice_typer.test.veto", logging.WARNING, __file__, 1, "vetoed message", (), None)
+        assert handler.handle(record) is False, "a filter veto must make handle() return False"
+        assert len(handler.buffer) == 0, "a vetoed record must NOT be buffered"
+
+    def test_redaction_is_idempotent_across_two_records(self, tmp_path: Path):
+        """Two records through the handler both get the filter applied
+        (the filter's own idempotence guard then short-circuits the
+        second scan on the SAME record, but DISTINCT records are each
+        scrubbed)."""
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+        assert handler is not None
+
+        first = logging.LogRecord(
+            "voice_typer.test.pii", logging.WARNING, __file__, 1, "call bob@corp.example.net failed", (), None
+        )
+        second = logging.LogRecord(
+            "voice_typer.test.pii", logging.WARNING, __file__, 1, "retry carol@corp.example.org failed", (), None
+        )
+        assert handler.handle(first) is not False
+        assert handler.handle(second) is not False
+        assert len(handler.buffer) == 2
+        assert "bob@corp.example.net" not in handler.buffer[0].getMessage()
+        assert "carol@corp.example.org" not in handler.buffer[1].getMessage()

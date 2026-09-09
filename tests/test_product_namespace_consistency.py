@@ -104,6 +104,10 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # spells out the hop history lives in ``_migration.py``.
     "voice_typer/server/credential_store/_schema.py": frozenset({"app.voicetyper"}),
     "voice_typer/server/credential_store/_migration.py": frozenset({"app.voicetyper"}),
+    # The operator runbook documents the legacy-cutover: it must spell the
+    # old service name so an operator can recognize pre-migration keychain
+    # entries when verifying (same prose-history need as _migration.py).
+    "docs/security/credential-store.md": frozenset({"app.voicetyper"}),
     # The drift-guard test module pins the credential_store legacy
     # tuple STRING verbatim (``_LEGACY_KEYRING_SERVICE_NAMES: ... =
     # ("app.voicetyper", ...)``) and its allowlist docstring names the

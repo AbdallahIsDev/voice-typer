@@ -206,5 +206,73 @@ class TestPerFileSizeCapBoundary:
         assert result is not None
 
 
+class TestVersionStringSafety:
+    """``load_pack_manifest`` — the ``version`` string must be a single
+    safe path component.
+
+    Defense-in-depth for path traversal: the version is interpolated
+    RAW into pack paths (``base / version`` for the pack dir,
+    ``pack-<version>.partial`` / ``.lock`` filenames, the ``.new``
+    staging and ``.trash`` dirs). A manifest (which comes over the
+    network — never trust path parts) declaring ``../evil`` or an
+    absolute path would escape the pack root, so a version that is not
+    ``[A-Za-z0-9][A-Za-z0-9._-]*`` fails the whole manifest —
+    fail-closed like every other schema violation.
+    """
+
+    @pytest.mark.parametrize(
+        "version",
+        [
+            "../evil",
+            "..",
+            ".",
+            "./1.2.3",
+            "v1/../../evil",
+            "v1/..",
+            "/abs/path",
+            "C:\\evil",
+            "C:/evil",
+            "\\\\server\\share",
+            "v1\nx",
+            "v 1",
+            ".hidden",
+            "-leading-hyphen",
+            "v1\x00",
+        ],
+    )
+    def test_unsafe_version_fails_closed(self, tmp_path: Path, version: str):
+        """A version that is not a single safe path component →
+        ``load_pack_manifest`` returns ``None`` (fail-closed)."""
+        manifest = _valid_manifest([1024], version=version)
+        path = _write_manifest(tmp_path, manifest)
+        result = offline_pack.load_offline_pack_manifest(path)
+        assert result is None, f"expected load_pack_manifest to reject unsafe version {version!r}, got {result!r}"
+
+    @pytest.mark.parametrize(
+        "version",
+        ["1.2.3", "v1.2.3", "1.2.3-rc1", "1.2.3_build.7", "v1", "a", "A-b_9", "0"],
+    )
+    def test_safe_version_is_accepted(self, tmp_path: Path, version: str):
+        """A clean single-component version still loads."""
+        manifest = _valid_manifest([1024], version=version)
+        path = _write_manifest(tmp_path, manifest)
+        result = offline_pack.load_offline_pack_manifest(path)
+        assert result is not None, f"expected version {version!r} to be accepted, got None"
+        assert result["version"] == version
+
+    def test_traversal_version_cannot_reach_the_pack_root(self, tmp_path: Path):
+        """End-to-end consequence pin: a traversal version in a
+        hand-written manifest under a nested dir is rejected BEFORE any
+        path helper can resolve it outside the pack root."""
+        root = tmp_path / "runtime-pack"
+        evil_dir = root / "1.2.3"  # the dir the manifest claims to be for
+        evil_dir.mkdir(parents=True)
+        manifest = _valid_manifest([1024], version="../../escape")
+        (evil_dir / "pack-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        assert offline_pack.load_offline_pack_manifest(evil_dir / "pack-manifest.json") is None
+        # Nothing was written outside the pack root by the load itself.
+        assert not (tmp_path / "escape").exists()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-x"])

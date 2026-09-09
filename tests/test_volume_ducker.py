@@ -197,6 +197,22 @@ class TestDuckRestore:
         assert not ducker.is_ducked
         assert backend._fade_calls[-1] == (0.5, 150)
 
+    def test_duck_default_level_is_single_sourced(self, ducker: VolumeDucker, backend: FakeBackend) -> None:
+        """``duck()`` with no explicit level and the initial
+        ``_ducked_level`` must both come from the shared
+        ``DEFAULT_DUCK_LEVEL`` constant (0.20 — the effective config
+        default), not from a drifted module-local literal."""
+        from voice_typer.server.volume_ducker import DEFAULT_DUCK_LEVEL
+
+        assert DEFAULT_DUCK_LEVEL == 0.20
+        assert ducker._ducked_level == DEFAULT_DUCK_LEVEL
+
+        ducker.initialize()
+        ok = ducker.duck()  # no explicit level — default applies
+
+        assert ok is True
+        assert backend._fade_calls[-1] == (DEFAULT_DUCK_LEVEL, 150)
+
     def test_restore_without_duck_is_noop(self, ducker: VolumeDucker) -> None:
         ducker.initialize()
         assert ducker.restore() is True  # no-op success
@@ -715,14 +731,20 @@ class TestDuckDropsLockDuringFade:
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
 
-        # Block the fade so we can interleave a restore() call.
+        # Block ONLY the duck's fade (the first call) so a restore() can
+        # interleave mid-fade; later fade calls (restore's fade-back)
+        # must pass straight through, or restore() would stall on the
+        # same gate the duck fade is held on.
         fade_started = threading.Event()
         proceed = threading.Event()
+        fade_call_count = [0]
         original_fade = backend.fade_to
 
         def blocking_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
-            fade_started.set()
-            proceed.wait(timeout=2.0)
+            fade_call_count[0] += 1
+            if fade_call_count[0] == 1:
+                fade_started.set()
+                proceed.wait(timeout=2.0)
             return original_fade(target_linear, duration_ms, steps)
 
         backend.fade_to = blocking_fade  # type: ignore[assignment]
@@ -761,6 +783,203 @@ class TestDuckDropsLockDuringFade:
             "must skip the state update)"
         )
         assert not ducker.is_ducked
+        # The PHYSICAL volume must be back at the pre-duck level: the
+        # duck fade completed AFTER restore()'s fade-back, so its write
+        # left the backend at the duck level — duck()'s post-fade block
+        # must repair it.  Asserting only the logical state here is what
+        # originally masked the stuck-volume bug.
+        assert backend._current == pytest.approx(0.5), (
+            "physical backend volume must return to the pre-duck level "
+            "after restore() ran during duck()'s fade (stuck-volume regression)"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# restore() landing inside the FIRST duck's fade window
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRestoreDuringFirstDuckFade:
+    """A restore() that lands inside the FIRST duck's fade window must
+    fade the PHYSICAL volume back to the pre-duck level (not take the
+    smart-duck logical-clear path), clear the crash-recovery file, and
+    leave a subsequent restore() a safe no-op.
+
+    Reachable since ducking moved off ``_toggle_lock`` onto the
+    DictationStart worker thread: the ESC cancel thread can call
+    restore() while the worker's duck fade (``volume_duck_fade_ms``,
+    default 200 ms — a single subprocess call on pactl/osascript
+    backends) is still lowering the volume.  Pre-fix, restore() hit the
+    ``not _actually_ducked`` early-return meant for the smart-duck skip,
+    cleared the logical state WITHOUT fading back, and duck()'s
+    still-running fade left the system volume STUCK at the duck level
+    with clean logical state, a no-op later restore(), and an orphaned
+    crash-recovery file (whose pre-duck level is lost once the next
+    duck() overwrites it with the stuck volume).
+    """
+
+    @staticmethod
+    def _make_first_call_blocking_fade(
+        backend: FakeBackend,
+    ) -> tuple[threading.Event, threading.Event]:
+        """Patch ``backend.fade_to`` so only the FIRST call (the duck's
+        fade) blocks until ``proceed`` is set; later calls (restore's
+        fade-back) pass straight through so restore() doesn't stall on
+        the same gate the duck fade is held on.
+
+        Returns ``(fade_started, proceed)``.
+        """
+        fade_started = threading.Event()
+        proceed = threading.Event()
+        fade_call_count = [0]
+        original_fade = backend.fade_to
+
+        def blocking_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            fade_call_count[0] += 1
+            if fade_call_count[0] == 1:
+                fade_started.set()
+                proceed.wait(timeout=2.0)
+            return original_fade(target_linear, duration_ms, steps)
+
+        backend.fade_to = blocking_fade  # type: ignore[assignment]
+        return fade_started, proceed
+
+    def test_restore_mid_fade_returns_volume_and_clears_recovery_file(self, crash_recovery: DuckCrashRecovery) -> None:
+        """The reproduced stuck-volume scenario: duck (fade in flight) →
+        ESC restore mid-fade → the physical volume must be back at the
+        pre-duck level, the crash-recovery file cleared, and a second
+        restore() a safe no-op."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
+        ducker.initialize()
+
+        fade_started, proceed = self._make_first_call_blocking_fade(backend)
+
+        errors: list[Exception] = []
+
+        def duck_thread() -> None:
+            try:
+                ducker.duck(0.25)
+            except Exception as e:
+                errors.append(e)
+
+        t = threading.Thread(target=duck_thread)
+        t.start()
+        assert fade_started.wait(timeout=2.0), "duck fade not called"
+
+        # ESC-style restore while the first duck's fade is in flight.
+        assert ducker.restore() is True
+        assert not ducker.is_ducked, "restore() should have cleared ducked state"
+
+        # Let the duck fade complete — its backend write still lands at
+        # the duck level AFTER the restore.
+        proceed.set()
+        t.join(timeout=2.0)
+        assert not t.is_alive(), "duck thread did not finish"
+        assert not errors, f"duck() raised: {errors}"
+
+        # THE regression: the PHYSICAL backend volume must be back at the
+        # pre-duck level, not stuck at the duck level.
+        assert backend._current == pytest.approx(0.5), (
+            f"system volume stuck at {backend._current:.2f} after a restore "
+            f"landed inside the first duck's fade (pre-duck level was 0.5) — "
+            f"duck()'s unlocked fade outran the restore"
+        )
+        # The crash-recovery file must not be orphaned: it was saved
+        # pre-fade, so restore() must clear it, or the next launch would
+        # "recover" to a stale level (and the next duck() would overwrite
+        # it with the stuck volume).
+        assert crash_recovery.load_stale() is None, (
+            "restore() during the first duck's fade must clear the crash-recovery file"
+        )
+        assert ducker.actually_ducked is False
+        assert not ducker.is_ducked
+
+        # A subsequent restore() must be a safe no-op — logical state is
+        # clean, so no further fade may fire.
+        fades_before = list(backend._fade_calls)
+        sets_before = list(backend._set_calls)
+        assert ducker.restore() is True
+        assert backend._fade_calls == fades_before, (
+            "second restore() must be a no-op (no fade) after the interrupted-duck state was cleaned up"
+        )
+        assert backend._set_calls == sets_before
+
+    def test_restore_during_level_update_fade_restores_saved_level(self) -> None:
+        """restore() landing inside an already-ducked LEVEL-UPDATE fade
+        must trust the saved state (the mid-fade volume reading is our
+        own fade, not a user manual change) and return the volume to the
+        pre-duck level."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend)
+        ducker.initialize()
+        ducker.duck(0.25)  # first duck completes; backend at 0.25
+
+        fade_started, proceed = self._make_first_call_blocking_fade(backend)
+
+        errors: list[Exception] = []
+
+        def duck_thread() -> None:
+            try:
+                ducker.duck(0.15)  # level update — fade in flight
+            except Exception as e:
+                errors.append(e)
+
+        t = threading.Thread(target=duck_thread)
+        t.start()
+        assert fade_started.wait(timeout=2.0), "level-update fade not called"
+
+        # Mid-fade the volume reads between 0.25 and 0.15 — more than 5%
+        # off the ducked level, which the manual-override heuristic would
+        # misread as a user change.
+        backend._current = 0.20
+        assert ducker.restore() is True
+
+        proceed.set()
+        t.join(timeout=2.0)
+        assert not t.is_alive(), "duck thread did not finish"
+        assert not errors, f"duck() raised: {errors}"
+
+        assert backend._current == pytest.approx(0.5), (
+            "restore() during a level-update fade must return the volume "
+            "to the SAVED pre-duck level, not the transient mid-fade "
+            "reading (manual-override misdetection)"
+        )
+        assert not ducker.is_ducked
+
+    def test_duck_fade_exception_leaves_consistent_state(self, crash_recovery: DuckCrashRecovery) -> None:
+        """A backend exception during the duck fade must leave the ducker
+        consistent: no saved state, no crash-recovery file, no in-flight
+        fade count, the volume repaired to the pre-duck level — and the
+        exception re-raised to the caller (VolumeController logs it)."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
+        ducker.initialize()
+
+        def exploding_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            # Partially apply the fade, then blow up mid-flight.
+            backend._current = (backend._current + target_linear) / 2
+            raise RuntimeError("backend died mid-fade")
+
+        backend.fade_to = exploding_fade  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="backend died mid-fade"):
+            ducker.duck(0.25)
+
+        assert ducker._duck_fades_in_flight == 0, "in-flight duck-fade count must return to 0 when the fade raises"
+        assert ducker._saved_state is None, "duck state must be cleared when the fade raises"
+        assert ducker.actually_ducked is False
+        assert crash_recovery.load_stale() is None, (
+            "crash-recovery file must be cleared when the duck fade raises (nothing was ducked)"
+        )
+        assert backend._current == pytest.approx(0.5), (
+            "volume must be repaired to the pre-duck level when the duck fade raises mid-flight"
+        )
+
+        # A subsequent restore() is a safe no-op.
+        fades_before = list(backend._fade_calls)
+        assert ducker.restore() is True
+        assert backend._fade_calls == fades_before
 
 
 # ═══════════════════════════════════════════════════════════════════════════

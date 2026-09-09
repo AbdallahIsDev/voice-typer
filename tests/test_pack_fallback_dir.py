@@ -94,7 +94,10 @@ class TestPackDirUsesFallback:
     def test_lock_path_uses_explicit_root(self, tmp_path: Path):
         fallback = tmp_path / "fb" / "runtime-pack"
         p = offline_pack.offline_pack_lock_path("v3", root=fallback)
-        assert p == fallback / "v3" / "pack-v3.lock"
+        # The lock is a SIBLING of the version dir (the §8.3 swap renames
+        # the version dir to ``.trash`` — a lock inside it would have its
+        # inode carried away).
+        assert p == fallback / "pack-v3.lock"
 
 
 if __name__ == "__main__":

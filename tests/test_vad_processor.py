@@ -422,17 +422,65 @@ class TestAutoCalibration:
         assert vp.calibration_rms_values == []
 
     def test_calibration_handles_zero_rms(self) -> None:
-        """Zero RMS would cause log10(0) — must fall back to -90 dB."""
+        """Zero RMS would cause log10(0) — must fall back to -90 dB, then CLAMP to the floors.
+
+        The raw math yields silence=-84 / speech=-72, but the
+        clamping floors (-65 / -55 dBFS) apply because the
+        calibration writes through the threshold SETTERS: a
+        digital-silence noise floor must not push speech detection
+        into the noise floor (ambient noise would then read as SPEECH
+        and silence-based auto-stop could never fire).
+        """
+        from voice_typer.server.vad_processor import (
+            MIN_VAD_SILENCE_THRESHOLD_DB,
+            MIN_VAD_SPEECH_THRESHOLD_DB,
+        )
+
         vp = VadProcessor(_config_with_vad_enabled())
         vp.calibration_duration = 0.1
         for i in range(20):
             vp.auto_calibrate(0.0, elapsed_seconds=0.01 * i + 0.01)
         assert vp.calibrated is True
         # noise_db = -90 (fallback)
-        # silence = -90 + 6 = -84
-        # speech = -90 + 18 = -72
-        assert vp.silence_threshold_db == pytest.approx(-84.0, abs=0.1)
-        assert vp.speech_threshold_db == pytest.approx(-72.0, abs=0.1)
+        # silence = -90 + 6 = -84 → clamped to the -65 floor
+        # speech = -90 + 18 = -72 → clamped to the -55 floor
+        assert vp.silence_threshold_db == pytest.approx(MIN_VAD_SILENCE_THRESHOLD_DB, abs=0.1)
+        assert vp.speech_threshold_db == pytest.approx(MIN_VAD_SPEECH_THRESHOLD_DB, abs=0.1)
+
+    def test_calibration_clamps_quiet_mic_thresholds_to_floors(self) -> None:
+        """A quiet-mic calibration below the floors must clamp to the floors.
+
+        Regression for the clamping-setter bypass: the calibration used to
+        write the underscore attributes directly, so a noise floor
+        below ~-71 dBFS produced UNclamped thresholds (e.g. -69/-57
+        from a -75 dBFS floor). Ambient noise then sat above the
+        speech threshold → every frame read as SPEECH → silence
+        auto-stop never fired and recordings ran to the maximum
+        duration. The dB fallback path only runs when Silero VAD is
+        unavailable (``use_silero_vad=False`` here).
+        """
+        from voice_typer.server.vad_processor import (
+            MIN_VAD_SILENCE_THRESHOLD_DB,
+            MIN_VAD_SPEECH_THRESHOLD_DB,
+        )
+
+        vp = VadProcessor(_config_with_vad_enabled())
+        vp.calibration_duration = 0.1
+        # RMS ≈ 1.78e-4 → noise_db = 20*log10(1.78e-4) ≈ -75 dBFS.
+        # Raw math: silence = -69, speech = -57 — BOTH below their
+        # floors → both must clamp.
+        quiet_rms = 10 ** (-75.0 / 20.0)
+        for i in range(20):
+            vp.auto_calibrate(quiet_rms, elapsed_seconds=0.01 * i + 0.01)
+        assert vp.calibrated is True
+        assert vp.silence_threshold_db == pytest.approx(MIN_VAD_SILENCE_THRESHOLD_DB, abs=0.1), (
+            "silence threshold below the floor must clamp to the floor"
+        )
+        assert vp.speech_threshold_db == pytest.approx(MIN_VAD_SPEECH_THRESHOLD_DB, abs=0.1), (
+            "speech threshold below the floor must clamp to the floor"
+        )
+        # Hysteresis order survives the clamp (speech floor > silence floor).
+        assert vp.speech_threshold_db > vp.silence_threshold_db
 
     def test_calibration_skipped_when_silero_active(self, caplog: pytest.LogCaptureFixture) -> None:
         """AUDIO-4: when Silero VAD is the active backend, dB-threshold

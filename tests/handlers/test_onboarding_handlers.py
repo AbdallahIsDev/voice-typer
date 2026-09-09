@@ -751,3 +751,77 @@ class TestMarkStartedFailureLogged:
             r for r in caplog.records if r.levelno == logging.WARNING and "mark_started failed" in r.getMessage()
         ]
         assert not warnings, "DE-41: success path must not emit the mark_started warning"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# onboarding_apply service-error logging pipeline
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestOnboardingApplyServiceErrorLogging:
+    """``_handle_onboarding_apply`` logs the service-returned error twice
+    server-side: WARNING with the RAW string first (operator breadcrumb
+    tying the renderer's error toast back to the service call), then
+    ERROR with the REDACTED form (the ERROR-level log filter operators
+    commonly tail). Only the redacted form reaches the IPC response.
+    The sibling ack-vs-error handlers log the WARNING only — the
+    ERROR-level mirror is apply-specific.
+    """
+
+    _SECRET_SK = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"
+
+    def test_apply_logs_raw_warning_then_redacted_error(self, ipc_server, fake_service, caplog):
+        """A service error is logged at WARNING with the raw string and at
+        ERROR with the redacted string; the response carries the redacted
+        form only."""
+        raw_error = f"config write failed: invalid key {self._SECRET_SK}"
+        fake_service.onboarding_apply.return_value = {"error": raw_error}
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_onboarding_apply({}, {})
+
+        assert resp["type"] == "error"
+        # Only the redacted form reaches the renderer.
+        assert self._SECRET_SK not in resp["data"]["error"]
+        assert "***" in resp["data"]["error"]
+
+        # WARNING carries the raw, unredacted string (operator-only log).
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "onboarding_apply" in r.getMessage()
+            and "service returned error" in r.getMessage()
+        ]
+        assert warnings, "apply must log the service error at WARNING"
+        assert raw_error in warnings[0].getMessage()
+
+        # ERROR carries the redacted form.
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.ERROR and "onboarding_apply failed (redacted)" in r.getMessage()
+        ]
+        assert errors, "apply must mirror the redacted service error at ERROR"
+        assert self._SECRET_SK not in errors[0].getMessage()
+        assert "***" in errors[0].getMessage()
+
+    def test_skip_error_has_no_error_level_mirror(self, ipc_server, fake_service, caplog):
+        """The ERROR-level redacted mirror is apply-specific — the other
+        ack-vs-error handlers (skip pinned here) log the WARNING only."""
+        fake_service.onboarding_skip.return_value = {"error": "cannot skip welcome step"}
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_onboarding_skip({}, {})
+
+        assert resp["type"] == "error"
+        mirrors = [r for r in caplog.records if r.levelno == logging.ERROR and "failed (redacted)" in r.getMessage()]
+        assert not mirrors, "the ERROR-level redacted mirror is apply-specific"
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "onboarding_skip" in r.getMessage()
+            and "service returned error" in r.getMessage()
+        ]
+        assert warnings, "skip must still log the service error at WARNING"

@@ -547,7 +547,9 @@ class TestProtocolDrift:
             "save_templates",
             "restart",
             "quit",
-            "export_diagnostics",
+            # export_diagnostics removed with the dead server-side
+            # bundle pipeline — support bundles come from the CLI
+            # (scripts/diagnostics.py export).
             "apply_config_side_effects",
             # (ADR 0008 §3.1): new service-layer wrappers for
             # private-attr access previously done in handlers.

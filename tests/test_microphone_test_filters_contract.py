@@ -208,12 +208,16 @@ class TestBuildTestFiltersKeyParity:
         ``level_monitor.test_recording`` + ``monitoring`` to decide
         whether the chain runs at all. ``noise_filter_gate_adaptive``
         is exempt: ``build_chain`` reads it via ``getattr(..., False)``
-        (safe default) and the renderer's ``VoiceTyperConfig`` type does
-        not expose it.
+        (safe default) and the renderer's ``buildTestFilters`` does not
+        forward per-test overrides for it (the field IS settable via
+        the ``set_config`` allowlist — the exemption here covers only
+        the per-test filter-override dict).
         """
         from voice_typer.server.audio_processor import _CONFIG_SIGNATURE_FIELDS
 
-        chain_read = {name for name in _CONFIG_SIGNATURE_FIELDS if name != "audio_preset"} | {"noise_filter_enabled"}
+        chain_read = (
+            {name for name in _CONFIG_SIGNATURE_FIELDS if name != "audio_preset"} - {"noise_filter_gate_adaptive"}
+        ) | {"noise_filter_enabled"}
         missing = chain_read - self._renderer_emitted_keys()
         assert not missing, (
             "buildTestFilters no longer emits field(s) the filter chain "

@@ -116,12 +116,21 @@ class TestVersionChangeDuringDownload:
         assert calls[0]["offset"] == 1000
 
     def test_version_specific_lock_files(self, tmp_path: Path):
-        """The lock file is also per-version — no cross-version contention."""
+        """The lock file is also per-version — no cross-version contention.
+
+        The lock files are SIBLINGS of the version dirs (children of the
+        pack root) so the §8.3 atomic swap cannot carry a lock's inode
+        away with the version directory it guards.
+        """
         l1 = offline_pack.offline_pack_lock_path("v1", root=tmp_path)
         l2 = offline_pack.offline_pack_lock_path("v2", root=tmp_path)
         assert l1 != l2
         assert l1.name == "pack-v1.lock"
         assert l2.name == "pack-v2.lock"
+        # Sibling placement: same parent (the pack root), NOT inside the
+        # version directories.
+        assert l1.parent == l2.parent == tmp_path
+        assert l1.parent != offline_pack.offline_pack_dir_for_version("v1", root=tmp_path)
 
 
 if __name__ == "__main__":

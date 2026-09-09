@@ -163,6 +163,13 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
 
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
+    # Keep the real streaming pipeline out of these tests: with a
+    # production-faithful recorder mock (``recording=True`` after
+    # ``start()``) the DictationStart worker would otherwise start a real
+    # streaming session against the MagicMock recorder (the sibling
+    # ``test_recording_lifecycle_threaded.py`` helper sets the same
+    # flag for the same reason).
+    instance.config.streaming_transcription = False
     # (revised): RecordingController.start() now enforces
     # voice_biometric_consent before capturing audio. Tests that exercise
     # the recording path must explicitly opt in (just like real users
@@ -220,9 +227,18 @@ class TestStartDictationDucksVolume:
         app.config.volume_duck_fade_ms = 200
         # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
-        app.recorder.start = MagicMock()
+        # Production-faithful mock: the real ``Recorder.start()`` flips
+        # ``recording`` to True synchronously (via ``_recording_event``) —
+        # the duck worker's recording guard depends on it.
+        app.recorder.start = MagicMock(side_effect=lambda: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
+        # Ducking runs on the DictationStart worker thread (off the
+        # hotkey thread) — wait for the worker to complete before
+        # asserting on the backend calls.
+        start_event = getattr(app.recording, "_start_complete_event", None)
+        assert start_event is not None
+        assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
         # Duck should have called fade_to(0.25, 200)
         assert (0.25, 200) in backend.fade_calls
@@ -249,7 +265,14 @@ class TestStartDictationDucksVolume:
 
         call_order = []
         app.recorder.recording = False
-        app.recorder.start = MagicMock(side_effect=lambda: call_order.append("recorder.start"))
+        # Production-faithful: recorder.start() appends to the order log
+        # AND flips ``recording`` to True (the real Recorder does both).
+        app.recorder.start = MagicMock(
+            side_effect=lambda: (
+                call_order.append("recorder.start"),
+                setattr(app.recorder, "recording", True),
+            )
+        )
         # _duck_volume → backend.fade_to — we hook that to record the order
         original_fade = backend.fade_to
 
@@ -260,6 +283,11 @@ class TestStartDictationDucksVolume:
         backend.fade_to = spy_fade
 
         app._start_dictation()
+        # Ducking runs on the DictationStart worker thread — wait for
+        # the worker before asserting the ordering.
+        start_event = getattr(app.recording, "_start_complete_event", None)
+        assert start_event is not None
+        assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
         assert call_order.index("recorder.start") < call_order.index("volume.duck"), (
             "recorder.start() must happen BEFORE volume.duck()"
@@ -585,9 +613,16 @@ class TestPerSessionDuckGatedOnSupport:
         app.config.volume_duck_enabled = True
         # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
-        app.recorder.start = MagicMock()
+        # Production-faithful mock: the real ``Recorder.start()`` flips
+        # ``recording`` to True synchronously.
+        app.recorder.start = MagicMock(side_effect=lambda: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
+        # Ducking runs on the DictationStart worker thread — wait for
+        # the worker before asserting on the backend calls.
+        start_event = getattr(app.recording, "_start_complete_event", None)
+        assert start_event is not None
+        assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
         # Duck happened, but no per-session calls because backend doesn't support it
         assert backend.duck_session_calls == []
@@ -607,6 +642,10 @@ class TestPerSessionDuckGatedOnSupport:
 
         instance = VoiceTyperApp()
         instance.config.esc_cancel_enabled = False
+        # Keep the real streaming pipeline out of this test (mock
+        # recorder — same convention as the app_with_fake_ducker
+        # fixture and test_recording_lifecycle_threaded.py).
+        instance.config.streaming_transcription = False
         # (revised): RecordingController.start() enforces
         # voice_biometric_consent — tests that exercise the recording
         # path must explicitly opt in.
@@ -624,13 +663,20 @@ class TestPerSessionDuckGatedOnSupport:
         instance._volume_ducker.initialize()
         instance.recorder = MagicMock()
         instance.recorder.recording = False
-        instance.recorder.start = MagicMock()
+        # Production-faithful mock: the real ``Recorder.start()`` flips
+        # ``recording`` to True synchronously.
+        instance.recorder.start = MagicMock(side_effect=lambda: setattr(instance.recorder, "recording", True))
         instance.config.volume_duck_enabled = True
         # volume_duck_per_session was REMOVED from the Config
         # dataclass. The app MUST always use master-volume ducking
         # regardless of any legacy on-disk value ().
 
         instance._start_dictation()
+        # Ducking runs on the DictationStart worker thread — wait for
+        # the worker before asserting on the backend calls.
+        start_event = getattr(instance.recording, "_start_complete_event", None)
+        assert start_event is not None
+        assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
         # per-session duck should NOT be attempted — master fade instead
         assert backend.duck_session_calls == [], "per-session ducking was removed (UX-2); master fade should be used"
