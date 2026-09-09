@@ -1,8 +1,9 @@
 """VolumeDucker — orchestrates system audio volume ducking during dictation.
 
 When dictation starts, system volume is reduced (ducked) to a
-configurable level (default 25%).  When dictation stops, the original
-volume — including mute state — is restored with a short fade ramp.
+configurable level (default 20% — :data:`DEFAULT_DUCK_LEVEL`).  When
+dictation stops, the original volume — including mute state — is
+restored with a short fade ramp.
 
 Key behaviours:
 
@@ -44,6 +45,14 @@ Key behaviours:
   (background thread) can fire concurrently; the lock serialises them
   and the second call is a no-op.
 
+- **Fade-in-flight coordination**: ``duck()`` runs its backend fade
+  OUTSIDE ``self._lock`` (an ESC ``restore()`` is not delayed behind
+  it) and counts the fade as in flight (``_duck_fades_in_flight``); a
+  ``restore()`` landing inside that window fades the volume BACK to the
+  saved state and clears the crash-recovery file (instead of the
+  smart-duck logical-clear path), and ``duck()``'s post-fade block
+  repairs the volume when its own fade completed after the restore.
+
 Platform backends are selected by ``platform.get_volume_backend()`` and
 implement the :class:`VolumeBackend` ABC.  If no backend is available,
 ducking is a silent no-op — the app continues normally.
@@ -65,6 +74,19 @@ log = logging.getLogger(__name__)
 # If the current volume differs from the ducked level by more than this
 # fraction, we assume the user manually changed it during dictation.
 _MANUAL_OVERRIDE_THRESHOLD = 0.05
+
+
+# Default duck target level (0.0-1.0 perceptual-linear). Single source
+# of truth for the duck default (E7): the effective value users get is
+# the ``volume_duck_level`` CONFIG default (schema:
+# ``voice_typer/server/config/_schema.py``), which matches this
+# constant. ``VolumeController._duck_volume`` imports it for its
+# missing-config fallback, and ``duck()``'s ``level`` default plus the
+# ``_ducked_level`` initial value use it here. (Pre-fix those two
+# module-internal sites carried a drifted 0.25 that no production path
+# ever reached — every production duck passes ``level`` explicitly
+# from config, so aligning them changes no effective value.)
+DEFAULT_DUCK_LEVEL: float = 0.20
 
 
 # Default polling interval for the smart-duck background monitor.
@@ -119,8 +141,17 @@ class VolumeDucker(SmartDuckMonitorMixin):
         self._crash_recovery = crash_recovery
         self._on_crash_restore = on_crash_restore
         self._saved_state: VolumeState | None = None
-        self._ducked_level: float = 0.25
+        self._ducked_level: float = DEFAULT_DUCK_LEVEL
         self._actually_ducked: bool = False  # True if the volume was actually changed
+        # Duck fades currently running OUTSIDE ``self._lock`` —
+        # incremented under the lock before ``duck()`` releases it for
+        # ``backend.fade_to()``, decremented in duck()'s ``finally``. A
+        # COUNTER (not a flag) so overlapping ducks stay correct (duck1's
+        # post-fade decrement must not clear duck2's marker).
+        # ``restore()`` reads it to tell "smart-duck skip, nothing
+        # fading" (logical clear) from "a fade is lowering the volume
+        # right now" (fade back — see restore()'s in-flight branch).
+        self._duck_fades_in_flight: int = 0
         # Smart duck: when True (default), duck() first calls
         # backend.is_speaker_active() and skips the volume change if no
         # application is currently playing audio.  Set to False to
@@ -324,11 +355,15 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
     def duck(
         self,
-        level: float = 0.25,
+        level: float = DEFAULT_DUCK_LEVEL,
         fade_ms: int = 150,
         per_session: bool = False,
     ) -> bool:
         """Reduce system volume to *level* (0.0–1.0 perceptual-linear).
+
+        ``level`` defaults to :data:`DEFAULT_DUCK_LEVEL` (0.20, the
+        effective config default); production callers pass the
+        config-provided level explicitly.
 
         Saves the current volume + mute state before ducking so it can
         be restored exactly.  Subsequent calls update the level without
@@ -355,6 +390,16 @@ class VolumeDucker(SmartDuckMonitorMixin):
         # common path (duck in progress, user hits ESC) now lets
         # ``restore()`` start fading back immediately instead of
         # waiting for ``duck()``'s fade to finish.
+        #
+        # The unlocked fade opens a restore-during-fade interleaving, so
+        # ``duck()`` coordinates with ``restore()`` through
+        # ``_duck_fades_in_flight``: a ``restore()`` landing in the fade
+        # window fades BACK to the saved state + clears the crash file
+        # (instead of the smart-duck logical-clear path); the post-fade
+        # block repairs the volume when this fade completed AFTER the
+        # restore (concurrent backend fades are last-writer-wins); the
+        # ``finally``/``except`` keep the count + state consistent even
+        # when the fade raises.
         with self._lock:
             if self._saved_state is None:
                 # First duck -- save current state.
@@ -417,6 +462,9 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 # volume is never actually changed.
                 if self._crash_recovery is not None:
                     self._crash_recovery.save(saved_state)
+                # Count the fade as in flight BEFORE releasing the lock
+                # (see the comment above the first ``with`` block).
+                self._duck_fades_in_flight += 1
             else:
                 # Already ducked -- update level without re-saving.
                 #
@@ -439,73 +487,136 @@ class VolumeDucker(SmartDuckMonitorMixin):
                     )
                     return True
                 # snapshot for unlocked fade (see comment above).
-                saved_state = None  # not used on the already-ducked path
+                # ``saved_state`` is the PRE-DUCK snapshot on BOTH paths
+                # -- the already-ducked path needs it for the post-fade
+                # repair (see ``_repair_volume_after_interrupted_fade``).
+                saved_state = self._saved_state
                 target_level = level
                 target_fade_ms = fade_ms
                 use_per_session = False  # per-session only attempted on first duck
                 backend_ref = self._backend
                 is_first_duck = False
+                # Count the fade as in flight BEFORE releasing the lock
+                # (mirrors the first-duck branch above).
+                self._duck_fades_in_flight += 1
 
-        # -- Heavy fade OUTSIDE the lock () --
-        # ``backend.fade_to()`` may block for up to 150 ms.  Holding
-        # ``self._lock`` here would block ``restore()`` (ESC cancel)
-        # for the fade duration.  The backend's ``fade_to`` is
-        # thread-safe at the backend level (Windows COM is
-        # apartment-threaded; Linux/macOS spawn independent
-        # subprocesses), so concurrent fades from ``restore()`` race
-        # on the backend but do not corrupt ``VolumeDucker`` state --
-        # the post-fade re-check below handles the
-        # ``restore()``-ran-during-fade case.
-        if backend_ref is None:  # defensive -- checked at entry, but snapshotted
-            ok = False
-        elif use_per_session:
-            ok = backend_ref.duck_other_sessions(target_level)
-            if not ok:
+        # -- Heavy fade + post-fade state writes (fade counted in flight) --
+        # ``finally`` pairs the increment with one decrement on every
+        # exit path; ``except`` restores consistency before re-raising
+        # (the caller, ``VolumeController._duck_volume``, logs it).
+        try:
+            # -- Heavy fade OUTSIDE the lock () --
+            # ``backend.fade_to()`` may block for up to 150 ms.  Holding
+            # ``self._lock`` here would block ``restore()`` (ESC cancel)
+            # for the fade duration.  The backend's ``fade_to`` is
+            # thread-safe at the backend level (Windows COM is
+            # apartment-threaded; Linux/macOS spawn independent
+            # subprocesses), so concurrent fades from ``restore()`` race
+            # on the backend but do not corrupt ``VolumeDucker`` state --
+            # the post-fade re-check below handles the
+            # ``restore()``-ran-during-fade case.
+            if backend_ref is None:  # defensive -- checked at entry, but snapshotted
+                ok = False
+            elif use_per_session:
+                ok = backend_ref.duck_other_sessions(target_level)
+                if not ok:
+                    ok = backend_ref.fade_to(target_level, target_fade_ms)
+            else:
                 ok = backend_ref.fade_to(target_level, target_fade_ms)
-        else:
-            ok = backend_ref.fade_to(target_level, target_fade_ms)
 
-        # -- Post-fade state writes UNDER the lock () --
-        with self._lock:
-            if is_first_duck:
-                # Re-check invariants: ``restore()`` may have run
-                # during the fade, clearing ``_saved_state`` and
-                # fading the volume back to the saved level.  If so,
-                # we must NOT mark ``_actually_ducked = True`` (that
-                # would leave the ducker in an inconsistent state
-                # where ``is_ducked`` is False but ``_actually_ducked``
-                # is True).  ``restore()`` also cleared the
-                # crash-recovery file (it was saved pre-fade),
-                # so there's nothing to recover from — the volume was
-                # already restored.
-                if self._saved_state is None:
-                    log.info("[VOLUME] restore() ran during duck fade — skipping state update")
+            # -- Post-fade state writes UNDER the lock () --
+            with self._lock:
+                if is_first_duck:
+                    # Re-check invariants: ``restore()`` may have run
+                    # during the fade, clearing ``_saved_state`` and
+                    # fading the volume back to the saved level.  If so,
+                    # we must NOT mark ``_actually_ducked = True`` (that
+                    # would leave the ducker in an inconsistent state
+                    # where ``is_ducked`` is False but ``_actually_ducked``
+                    # is True).  ``restore()`` also cleared the
+                    # crash-recovery file (it was saved pre-fade),
+                    # so there's nothing to recover from — the volume was
+                    # already restored.
+                    if self._saved_state is None:
+                        log.info("[VOLUME] restore() ran during duck fade — skipping state update")
+                        # Our fade may have completed AFTER the restore's
+                        # fade-back (last-writer-wins) — repair so the
+                        # volume cannot be left stuck at the duck level.
+                        self._repair_volume_after_interrupted_fade(
+                            backend_ref, saved_state, restore_sessions=use_per_session
+                        )
+                        return ok
+                    self._actually_ducked = True
+                    # Crash-recovery file was saved BEFORE the fade
+                    # (under the first lock acquisition).  No save here —
+                    # re-saving would race with a concurrent ``restore()``
+                    # that may have just cleared the file.
+                    log.info(
+                        "[VOLUME] Duck -> %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
+                        target_level * 100,
+                        saved_state.linear * 100,
+                        saved_state.muted,
+                        use_per_session,
+                    )
                     return ok
-                self._actually_ducked = True
-                # Crash-recovery file was saved BEFORE the fade
-                # (under the first lock acquisition).  No save here —
-                # re-saving would race with a concurrent ``restore()``
-                # that may have just cleared the file.
-                log.info(
-                    "[VOLUME] Duck -> %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
-                    target_level * 100,
-                    saved_state.linear * 100,
-                    saved_state.muted,
-                    use_per_session,
-                )
+                # Already-ducked path: ``_ducked_level`` was updated
+                # before the fade (under the first lock acquisition), so
+                # the smart-duck monitor picks up the new level on its
+                # next poll.  Re-check whether ``restore()`` ran during
+                # the fade -- if so, repair the volume like the
+                # first-duck path above.
+                if self._saved_state is None:
+                    log.info("[VOLUME] restore() ran during level-update fade — skipping state update")
+                    self._repair_volume_after_interrupted_fade(backend_ref, saved_state)
+                    return ok
+                log.info("[VOLUME] Duck level updated -> %.0f%%", target_level * 100)
                 return ok
-            # Already-ducked path: ``_ducked_level`` was updated
-            # before the fade (under the first lock acquisition), so
-            # the smart-duck monitor picks up the new level on its
-            # next poll.  Re-check whether ``restore()`` ran during
-            # the fade -- if so, skip the "level updated" log (the
-            # user-facing state is "restored", not "ducked at new
-            # level").
-            if self._saved_state is None:
-                log.info("[VOLUME] restore() ran during level-update fade — skipping state update")
-                return ok
-            log.info("[VOLUME] Duck level updated -> %.0f%%", target_level * 100)
-            return ok
+        except Exception:
+            # The backend call raised mid-fade: nothing owns the ducked
+            # state anymore — clean it up, best-effort return the volume
+            # to the pre-duck level, then re-raise (the exception is
+            # real; the caller logs it).
+            with self._lock:
+                self._saved_state = None
+                self._actually_ducked = False
+                if self._crash_recovery is not None:
+                    self._crash_recovery.clear()
+                self._repair_volume_after_interrupted_fade(backend_ref, saved_state, restore_sessions=use_per_session)
+            raise
+        finally:
+            # One decrement per increment, on every exit path.
+            with self._lock:
+                self._duck_fades_in_flight -= 1
+
+    def _repair_volume_after_interrupted_fade(
+        self,
+        backend: VolumeBackend | None,
+        saved_state: VolumeState | None,
+        *,
+        restore_sessions: bool = False,
+    ) -> None:
+        """Best-effort return of the system volume to *saved_state* after a
+        duck fade that no longer owns the logical state (a ``restore()``
+        landed mid-fade, or the backend raised mid-fade).
+
+        Callers MUST hold ``self._lock``.  Immediate ``set_linear`` (no
+        fade): this is an edge-path repair, and a second unlocked fade
+        would re-open the exact interleaving being repaired.  Secondary
+        backend failures are logged, never raised over the caller's flow.
+        """
+        if backend is None or saved_state is None:
+            return
+        try:
+            if restore_sessions and backend.supports_per_session:
+                backend.restore_other_sessions()
+            backend.set_linear(saved_state.linear, muted=saved_state.muted)
+            log.info(
+                "[VOLUME] Interrupted duck fade repaired — volume reset to %.0f%% (muted=%s)",
+                saved_state.linear * 100,
+                saved_state.muted,
+            )
+        except Exception:
+            log.warning("[VOLUME] Failed to repair volume after interrupted duck fade", exc_info=True)
 
     def restore(
         self,
@@ -564,6 +675,37 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 return True  # not ducked — no-op success
 
             if not self._actually_ducked:
+                if self._duck_fades_in_flight > 0:
+                    # A duck()'s fade is currently lowering the volume:
+                    # the smart-duck-skip logical clear would leave the
+                    # fade's backend write landing AFTER the clear —
+                    # volume STUCK at the duck level with clean logical
+                    # state and the pre-fade crash-recovery file
+                    # orphaned.  Fade back to the saved state instead
+                    # and clear the file; ``duck()``'s post-fade block
+                    # repairs the volume if its fade completed after
+                    # ours.  No manual-override detection: the mid-fade
+                    # volume is OUR write, not a user change.
+                    if per_session and self._backend.supports_per_session:
+                        self._backend.restore_other_sessions()
+                    target = self._saved_state
+                    ok = self._backend.fade_to(target.linear, fade_ms)
+                    if ok:
+                        # Restore mute state AFTER the volume fade
+                        # completes, otherwise fading a muted device
+                        # is a no-op.
+                        self._backend.set_linear(target.linear, muted=target.muted)
+                        if self._crash_recovery is not None:
+                            self._crash_recovery.clear()
+                    log.info(
+                        "[VOLUME] Restore during duck fade -> %.0f%% (muted=%s)",
+                        target.linear * 100,
+                        target.muted,
+                    )
+                    self._saved_state = None
+                    self._actually_ducked = False
+                    return ok
+
                 # Smart duck skipped the actual volume change because
                 # no audio was playing.  Just clear the logical state.
                 self._saved_state = None
@@ -576,6 +718,12 @@ class VolumeDucker(SmartDuckMonitorMixin):
             current = self._backend.get_state()
             if current is None:
                 log.warning("[VOLUME] get_state failed on restore — using saved value")
+                target = self._saved_state
+            elif self._duck_fades_in_flight > 0:
+                # A duck()'s level-update fade is still in flight: the
+                # current reading is transient (our own fade, not a user
+                # manual change) — trust the saved state.
+                log.info("[VOLUME] Duck fade in flight on restore — using saved value (current reading is mid-fade)")
                 target = self._saved_state
             elif not force and abs(current.linear - self._ducked_level) > _MANUAL_OVERRIDE_THRESHOLD:
                 log.info(

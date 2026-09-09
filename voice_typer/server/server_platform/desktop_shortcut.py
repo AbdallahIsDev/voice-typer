@@ -140,6 +140,36 @@ def _universal_launcher_path() -> Path:
     return Path(__file__).resolve().parent.parent / "autostart_launcher.py"
 
 
+# Legacy .lnk filename from builds that predate the APP_NAME-derived
+# shortcut naming. Like other on-disk artifact / OS identifiers (e.g. the
+# ``VoiceTyper.exe`` binary name), this is a stable FILESYSTEM name that
+# older installs already have on disk — not the user-facing brand string
+# (which flows through APP_NAME). Kept so a future product rename still
+# FINDS and reuses the pre-rename shortcut instead of leaving a stale
+# duplicate beside the newly named one (see
+# :func:`_existing_launcher_lnk`).
+_LEGACY_LNK_NAME = "Voice Typer.lnk"
+
+
+def _existing_launcher_lnk(directory: Path) -> Path | None:
+    """Return the existing launcher .lnk in *directory*, or None.
+
+    The primary filename is ``f"{APP_NAME}.lnk"``. Installs that predate
+    the APP_NAME-derived naming created the shortcut under a fixed legacy
+    filename; when the APP_NAME-named file is absent but a legacy-named
+    one exists, return the legacy path so callers treat it as the
+    existing shortcut (re-stamp its AUMID, skip recreation) rather than
+    creating a second shortcut under the new name.
+    """
+    lnk = directory / f"{APP_NAME}.lnk"
+    if lnk.exists():
+        return lnk
+    legacy = directory / _LEGACY_LNK_NAME
+    if legacy.exists():
+        return legacy
+    return None
+
+
 def _start_menu_programs_dir() -> Path:
     """Windows Start Menu → Programs directory for the current user.
 
@@ -569,7 +599,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
 
 
 def create_launcher_shortcut() -> Path | None:
-    """Create Desktop + Start Menu shortcuts for Voice Typer.
+    """Create Desktop + Start Menu shortcuts for the app.
 
     Both shortcuts point at the **universal launcher** (autostart_launcher.py)
     WITHOUT ``--hidden``, so a user click:
@@ -603,17 +633,21 @@ def create_launcher_shortcut() -> Path | None:
 
     # Primary: Desktop .lnk pointing at the universal launcher (no --hidden).
     primary_path: Path | None = None
-    lnk_desktop = desktop / "Voice Typer.lnk"
+    lnk_desktop = desktop / f"{APP_NAME}.lnk"
 
     # Skip if the Desktop shortcut already exists — no need to recreate
     # on every startup now that the legacy .bat → .lnk migration is done.
-    if lnk_desktop.exists():
-        primary_path = lnk_desktop
+    # A shortcut left by an older build under the legacy fixed filename
+    # counts as existing too (see _existing_launcher_lnk), so a product
+    # rename reuses the old file instead of leaving a stale duplicate.
+    existing_desktop = _existing_launcher_lnk(desktop)
+    if existing_desktop is not None:
+        primary_path = existing_desktop
         # Windows toast notifications attribute their icon via the Start
         # Menu shortcut's System.AppUserModel.ID. Existing shortcuts (from
         # before the AUMID stamp was added) lack the property, so toasts
         # fall back to the Electron default icon — stamp idempotently.
-        _set_lnk_app_user_model_id(lnk_desktop)
+        _set_lnk_app_user_model_id(existing_desktop)
     else:
         if _create_lnk_shortcut(
             lnk_desktop,
@@ -635,12 +669,13 @@ def create_launcher_shortcut() -> Path | None:
                 lnk_desktop,
             )
 
-    # Secondary: Start Menu copy so Start search finds "Voice Typer".
+    # Secondary: Start Menu copy so Start search finds the app.
     try:
         start_menu.mkdir(parents=True, exist_ok=True)
-        lnk_start = start_menu / "Voice Typer.lnk"
-        if lnk_start.exists():
-            _set_lnk_app_user_model_id(lnk_start)
+        lnk_start = start_menu / f"{APP_NAME}.lnk"
+        existing_start = _existing_launcher_lnk(start_menu)
+        if existing_start is not None:
+            _set_lnk_app_user_model_id(existing_start)
         elif _create_lnk_shortcut(
             lnk_start,
             target=str(pythonw),

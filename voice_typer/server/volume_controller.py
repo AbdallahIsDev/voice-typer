@@ -37,11 +37,13 @@ from typing import TYPE_CHECKING, Any
 
 from voice_typer.server.branding import APP_NAME
 
-# import the canonical smart-duck poll-interval default that
-# was previously duplicated as the literal `500` here and in
-# ``config.py``. ``volume_ducker._DEFAULT_SMART_DUCK_POLL_MS`` is the
-# single source of truth.
-from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS
+# import the canonical smart-duck poll-interval default and the
+# canonical duck-level default. ``volume_ducker`` owns both constants
+# (``_DEFAULT_SMART_DUCK_POLL_MS`` / ``DEFAULT_DUCK_LEVEL``) as the
+# single source of truth — the level default matches the
+# ``volume_duck_level`` config-schema default so no effective value
+# drifts between the config layer and this fallback.
+from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS, DEFAULT_DUCK_LEVEL
 
 if TYPE_CHECKING:
     # TYPE_CHECKING-only import so the back-reference type-checks without
@@ -93,13 +95,27 @@ class VolumeController:
     def _duck_volume(self) -> None:
         """Duck system volume at the start of dictation.
 
-        the ducking behavior is now simplified:
-                - Smart Duck is ALWAYS ON (merged into Auto Duck Volume)
-                - Fade duration is a fixed 200ms (not user-configurable)
-                - Poll interval is a fixed 500ms (not user-configurable)
-                - Per-session ducking is removed (always ducks master volume
-                  cross-platform)
-                The config fields are kept for backward compat but ignored.
+        Config fields actually read here (all four exist in the config
+        schema; the ``getattr`` defaults only apply when a config object
+        lacks the attribute):
+
+        - ``volume_duck_enabled`` — early-return when False.
+        - ``volume_duck_smart_poll_interval_ms`` — smart-duck poll
+          cadence; default ``_DEFAULT_SMART_DUCK_POLL_MS`` (500 ms),
+          clamped up to the backend's ``min_poll_interval_ms`` floor by
+          the ducker.
+        - ``volume_duck_level`` — duck target; default
+          ``DEFAULT_DUCK_LEVEL`` (0.20, same value as the config schema
+          default).
+        - ``volume_duck_fade_ms`` — fade ramp duration; default 200 ms
+          (same value as the config schema default).
+
+        Fixed behaviour (not configurable here):
+
+        - Smart duck is ALWAYS ON when ducking is enabled (merged into
+          Auto Duck Volume; the separate smart-duck toggle was removed).
+        - Per-session ducking is removed — always master-volume duck,
+          cross-platform.
         """
         app = self._app
         if not getattr(app.config, "volume_duck_enabled", True):
@@ -107,13 +123,13 @@ class VolumeController:
         try:
             # smart duck is always on when ducking is enabled.
             app._volume_ducker.set_smart_duck_enabled(True)
-            # poll interval is a fixed 500ms (not user-configurable).
+            # poll interval comes from config (backend floors it).
             app._volume_ducker.set_smart_duck_poll_interval(
                 getattr(app.config, "volume_duck_smart_poll_interval_ms", _DEFAULT_SMART_DUCK_POLL_MS)
             )
             if app._volume_ducker.initialize():
                 app._volume_ducker.duck(
-                    level=getattr(app.config, "volume_duck_level", 0.20),
+                    level=getattr(app.config, "volume_duck_level", DEFAULT_DUCK_LEVEL),
                     fade_ms=getattr(app.config, "volume_duck_fade_ms", 200),
                     # per-session removed — always master-volume duck.
                     per_session=False,
@@ -124,7 +140,8 @@ class VolumeController:
     def _restore_volume(self, fade_ms: int | None = None) -> None:
         """Restore system volume at the end of dictation.
 
-        If ``fade_ms`` is ``None``, uses the configured fade duration.
+        If ``fade_ms`` is ``None``, uses the configured fade duration
+        (``volume_duck_fade_ms``; 200 ms when the attribute is absent).
         Pass ``0`` for instant restore (used on quit/restart).
         """
         app = self._app

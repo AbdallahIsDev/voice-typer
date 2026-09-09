@@ -22,10 +22,22 @@ import collections
 import json
 import logging
 import os
+import time
+from datetime import datetime
 
 # ``_facade`` is a bound reference to the partially-initialized package
 # module at import time; by call time the package is fully initialized.
 from voice_typer.server import crash_recovery as _facade
+
+# Shared monotonic counter for the quarantine filename's sub-second
+# disambiguator — imported from the hardened implementation in
+# ``security.file_io`` (single definition; the same counter object also
+# backs ``PersistedJSON._quarantine_corrupt``, so quarantine events from
+# both sites in one process can never pick the same suffix). Rebinding
+# ``security.file_io._QUARANTINE_SUFFIX_SEQ`` does NOT rebind this
+# module's reference — tests that need a fresh counter monkeypatch
+# ``voice_typer.server.crash_recovery._io._QUARANTINE_SUFFIX_SEQ``.
+from voice_typer.server.security.file_io import _QUARANTINE_SUFFIX_SEQ
 
 # Canonical constants. Defined HERE (the persistence-concern module) and
 # re-exported by the package ``__init__`` so
@@ -94,11 +106,11 @@ class _RecoveryIO:
         templates / vocabulary / config load paths.
 
         When the file exists but can't be parsed (corrupt
-        JSON, truncated by a mid-write crash, etc.), rename it to
-        ``<path>.corrupt.<timestamp>`` before resetting ``_entries``.
+        JSON, truncated by a mid-write crash, etc.), move it aside to
+        ``<path>.corrupt.<ts>-<pid>-<ns>`` before resetting ``_entries``.
         This preserves the corrupt file for forensic review and
         ensures the next ``_save_sync()`` starts fresh instead of
-        re-reading the same corrupt content.  Best-effort — a rename
+        re-reading the same corrupt content.  Best-effort — a move
         failure (e.g. cross-device, permissions) is logged and
         swallowed so ``_load`` still resets ``_entries`` cleanly.
         """
@@ -161,14 +173,38 @@ class _RecoveryIO:
                 self._loaded = True
 
     def _quarantine_corrupt(self) -> None:
-        """Rename the recovery file to ``<path>.corrupt.<ts>``.
+        """Move the corrupt recovery file to ``<path>.corrupt.<ts>-<pid>-<ns>``.
 
         Preserves the corrupt file for forensic review (e.g. inspecting
         what truncation pattern led to the parse failure) and ensures
         the next ``_save_sync()`` starts fresh instead of being merged
         with stale data.
 
-        Best-effort: if the rename fails (cross-device, permissions,
+        Hardened move, mirroring the ``PersistedJSON._quarantine_corrupt``
+        scheme in ``security/file_io.py`` (read fully before this
+        change): the destination embeds epoch-style seconds (here the
+        pre-existing human-readable ``%Y%m%d_%H%M%S``), the PID, and
+        sub-second nanoseconds mixed with a module-shared monotonic
+        counter — so two concurrent quarantines, even within the same
+        second (and on coarse-clock platforms where ``time.time_ns()``
+        repeats), produce DISTINCT filenames without any ``exists()``
+        probe loop (which had a TOCTOU window). The dot-separated
+        ``.corrupt.`` base is deliberately KEPT (not the file_io dash
+        form) because downstream consumers pin it: the startup
+        maintenance sweep globs ``recovery.json.corrupt.*`` and the
+        GDPR purge prefix-matches ``recovery.json.corrupt``.
+
+        The move uses :func:`os.replace` instead of
+        :meth:`pathlib.Path.rename`: POSIX ``rename`` is atomic but
+        FAILS on Windows when the destination already exists
+        (``OSError`` winerror 183), while ``os.replace`` is atomic AND
+        overwrites an existing destination on BOTH POSIX and Windows.
+        With the pid+ns suffix a collision is essentially impossible,
+        but ``os.replace`` is retained as the safety net so the worst
+        case is the previous-behavior overwrite (lost forensics),
+        never a raise.
+
+        Best-effort: if the move fails (cross-device, permissions,
         file disappeared between the ``exists()`` check and now), the
         failure is logged at ``debug`` level and swallowed.  This must
         never raise — callers (``_load``) rely on a clean reset to
@@ -177,18 +213,16 @@ class _RecoveryIO:
         try:
             if not self._path.exists():
                 return
-            from datetime import datetime
-
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}")
-            # If a corrupt file with the same timestamp already exists
-            # (extremely unlikely — would need two crashes within the
-            # same second), disambiguate with a counter.
-            counter = 0
-            while corrupt_path.exists():
-                counter += 1
-                corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}.{counter}")
-            self._path.rename(corrupt_path)
+            pid = os.getpid()
+            # Sub-second nanoseconds mixed with the shared monotonic
+            # counter (GIL-atomic ``next()``, no lock) — the counter
+            # disambiguates rapid back-to-back / concurrent calls when
+            # the clock granularity repeats ``time_ns()`` (observed on
+            # Windows).
+            ns = (time.time_ns() % 1_000_000 + next(_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
+            corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}-{pid}-{ns}")
+            os.replace(str(self._path), str(corrupt_path))
             log.warning(
                 "[RECOVERY] Quarantined corrupt recovery file: %s -> %s",
                 self._path.name,

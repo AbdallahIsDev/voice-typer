@@ -207,22 +207,27 @@ class VadProcessor:
         # grey-zone chunks (between speech and silence thresholds) pins
         # both counters indefinitely — soft-speech tails can stall the
         # silence timer. After ``_grey_zone_hold_limit`` consecutive
-        # grey-zone frames, decay both counters by 1 so the state machine
-        # can transition on the next clear frame.
+        # grey-zone frames, the hold is bounded by force-transitioning
+        # toward the next state: SPEECH seeds the silence counter to
+        # the hangover (soft tail ends), SILENCE seeds the speech
+        # counter toward promotion (soft speech is recognized), and
+        # UNKNOWN decays both counters by 1 (stale history can't pin
+        # the machine). See the grey-zone branch in ``update_frame``.
         self._consecutive_grey_frames: int = 0
         # grey-zone hold limit is now configurable so soft-spoken
         # users (whose speech legitimately hovers in the 0.3-0.5 prob
         # band) can extend the bound beyond the default ~1s instead of
         # being force-transitioned to SILENCE mid-phrase. Reads
         # ``config.vad_grey_zone_hold_limit`` when explicitly set as an
-        # int; falls back to 30 frames (~1s at 30 Hz) otherwise. The
+        # int; falls back to 30 frames (~1s at the ~31 Hz chunk cadence
+        # of rate-scaled ~32 ms blocks) otherwise. The
         # isinstance guard avoids tripping on MagicMock configs in tests
         # (which auto-create attributes as MagicMock instances, not ints).
         _grey_override = getattr(config, "vad_grey_zone_hold_limit", None)
         if isinstance(_grey_override, int):
             self._grey_zone_hold_limit: int = _grey_override
         else:
-            self._grey_zone_hold_limit: int = 30  # ~1s at 30 Hz
+            self._grey_zone_hold_limit: int = 30  # ~1s at the ~31 Hz chunk cadence
 
         # RMS-dB thresholds (overridden by auto-calibration)
         self._speech_threshold_db: float = DEFAULT_VAD_SPEECH_THRESHOLD_DB
@@ -537,9 +542,17 @@ class VadProcessor:
         # Convert to dBFS (approximately)
         noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
 
-        # Set thresholds relative to noise floor
-        self._silence_threshold_db = noise_db + 6.0  # 6 dB above noise -> silence
-        self._speech_threshold_db = noise_db + 18.0  # 18 dB above noise -> speech
+        # Set thresholds relative to noise floor — written through the
+        # CLAMPING setters, not the raw underscore attributes: a quiet
+        # mic or digital-silence input can push the
+        # raw math below the floors, and unclamped thresholds then read
+        # ambient noise as SPEECH (silence-based auto-stop never fires
+        # and recordings run to the maximum duration). The setters are
+        # the same guard the config-loading path applies; the floors
+        # keep the hysteresis order intact (speech floor > silence
+        # floor).
+        self.silence_threshold_db = noise_db + 6.0  # 6 dB above noise -> silence
+        self.speech_threshold_db = noise_db + 18.0  # 18 dB above noise -> speech
         self._calibrated = True
         self._calibration_status = "calibrated"
 
@@ -679,7 +692,8 @@ class VadProcessor:
 
         PERF-02 (c-review): previously a dynamic @property that
         re-evaluated 6 ``getattr()`` calls on every access (read 3× per
-        chunk × 16 Hz = 288 getattr/sec for a value that only changes
+        chunk at the ~31 Hz chunk cadence of rate-scaled ~32 ms blocks ≈
+        560 getattr/sec for a value that only changes
         when the user toggles a Settings UI switch). Now returns a
         cached value refreshed by ``on_config_changed()`` (the explicit
         hook) with a 5-second TTL safety net so a missed config-change

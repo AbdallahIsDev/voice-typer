@@ -31,6 +31,26 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 # serialized payload stays comfortably under the WS-layer limit.
 _HISTORY_MAX_FRAME_BYTES = 1 * 1024 * 1024 - 32 * 1024
 
+# Shared keyset-cursor schema fragment for the three list-returning
+# history handlers (``get_history`` / ``get_favorites`` /
+# ``search_history``). Both fields are optional; supplying BOTH enables
+# the O(log N) keyset WHERE clause (vs OFFSET which is O(offset));
+# supplying only one degrades to the safe OFFSET path (see
+# :meth:`HistoryHandlersMixin._extract_history_cursor`). ``before_id``
+# accepts ``(int, str)`` for the same form-string reason as ``limit`` /
+# ``offset``; ``bool`` is explicitly REJECTED (a Python ``True`` /
+# ``False`` is also an ``int`` subclass — without ``reject_bool`` the
+# cursor would silently become ``1``/``0``).
+_HISTORY_CURSOR_FIELDS: dict = {
+    "before_timestamp": {"type": str, "required": False, "default": None},
+    "before_id": {
+        "type": (int, str),
+        "required": False,
+        "reject_bool": True,
+        "default": None,
+    },
+}
+
 
 class HistoryHandlersMixin(HandlerBase):
     """Mixin: history-related IPC handlers (get_history / delete_history / ...).
@@ -45,6 +65,44 @@ class HistoryHandlersMixin(HandlerBase):
     # from :class:`HandlerMixinBase` — no per-mixin re-declaration
     # needed (the duplicate block removed here was one of four that
     # the  centralization refactor missed).
+
+    def _extract_history_cursor(self, validated: dict, resp: dict) -> tuple[str | None, int | None] | dict:
+        """Extract the keyset-pagination cursor from a validated payload.
+
+        Shared by the three list-returning history handlers
+        (``get_history`` / ``get_favorites`` / ``search_history``):
+        the schema (``_HISTORY_CURSOR_FIELDS``) has already validated
+        and defaulted ``before_timestamp`` / ``before_id``; this helper
+        narrows ``before_id`` to ``int | None`` and enforces the
+        non-negative invariant (a negative keyset row id has no
+        meaning in SQLite's auto-increment primary key).
+
+        Returns ``(before_timestamp, before_id)`` — both ``None`` when
+        the payload carries no usable cursor — or an error-envelope
+        ``dict`` when ``before_id`` is negative, which the caller
+        returns verbatim (the same ``list | dict`` return convention
+        as :meth:`_enforce_history_frame_cap`). The
+        negative-``before_id`` envelope routes through
+        :meth:`HandlerBase._error_response` (code
+        ``client.invalid_field``, ``field: "before_id"``) like the
+        other per-command validation errors.
+        """
+        before_timestamp = validated.get("before_timestamp")
+        before_id_raw = validated.get("before_id")
+        before_id = None
+        # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
+        # ``int()`` conversion type-checks; the explicit bool check
+        # is kept as defense-in-depth (bool subclasses int).
+        if before_id_raw is not None and isinstance(before_id_raw, (int, str)) and not isinstance(before_id_raw, bool):
+            before_id = int(before_id_raw)
+            if before_id < 0:
+                return self._error_response(
+                    resp,
+                    "before_id must be non-negative",
+                    code=ErrorCodes.INVALID_FIELD,
+                    field="before_id",
+                )
+        return before_timestamp, before_id
 
     def _handle_get_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_history`` IPC command.
@@ -78,31 +136,16 @@ class HistoryHandlersMixin(HandlerBase):
             # ``invalid_field``.
             #
             # Keyset pagination cursor (``before_timestamp`` /
-            # ``before_id``): when both are supplied, the service
-            # uses an O(log N) keyset WHERE clause (vs OFFSET which
-            # is O(offset)). Both are required to enable the cursor
-            # path — supplying only one is treated as "no cursor"
-            # (backward-compat with the pre-cursor contract). The
-            # ``before_id`` schema accepts ``(int, str)`` for the
-            # same form-string reason as ``limit``; ``bool`` is
-            # explicitly REJECTED (a Python ``True``/``False`` is
-            # also an ``int`` subclass — without the reject_bool
-            # flag the cursor would silently become ``1``/``0``).
-            # Negative ``before_id`` is also rejected (a negative
-            # keyset row id has no meaning in SQLite's auto-increment
-            # primary key).
+            # ``before_id``) follows the shared
+            # ``_HISTORY_CURSOR_FIELDS`` contract — see
+            # :meth:`_extract_history_cursor` for the both-required /
+            # negative-reject semantics.
             validated, error = _validate_dict_payload(
                 d,
                 {
                     "limit": {"type": (int, str), "required": False, "default": 50},
                     "offset": {"type": (int, str), "required": False, "default": 0},
-                    "before_timestamp": {"type": str, "required": False, "default": None},
-                    "before_id": {
-                        "type": (int, str),
-                        "required": False,
-                        "reject_bool": True,
-                        "default": None,
-                    },
+                    **_HISTORY_CURSOR_FIELDS,
                 },
             )
             if error:
@@ -115,27 +158,10 @@ class HistoryHandlersMixin(HandlerBase):
             # If only one is supplied, treat as "no cursor" so a
             # malformed payload degrades to the safe OFFSET path
             # rather than producing a partial / confusing query.
-            before_timestamp = validated.get("before_timestamp")
-            before_id_raw = validated.get("before_id")
-            before_id = None
-            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
-            # ``int()`` conversion type-checks; the explicit bool check
-            # is kept as defense-in-depth (bool subclasses int).
-            if (
-                before_id_raw is not None
-                and isinstance(before_id_raw, (int, str))
-                and not isinstance(before_id_raw, bool)
-            ):
-                before_id = int(before_id_raw)
-                if before_id < 0:
-                    return {
-                        "type": "error",
-                        "data": {
-                            "code": "client.invalid_field",
-                            "field": "before_id",
-                            "message": "before_id must be non-negative",
-                        },
-                    }
+            cursor = self._extract_history_cursor(validated, resp)
+            if isinstance(cursor, dict):
+                return cursor
+            before_timestamp, before_id = cursor
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_history(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -431,21 +457,16 @@ class HistoryHandlersMixin(HandlerBase):
             # shared ``_validate_dict_payload`` helper. Same pattern as
             # ``_handle_get_history`` (above) — ``(int, str)`` accepts
             # numeric strings from form inputs. Keyset cursor
-            # (``before_timestamp`` / ``before_id``) follows the same
-            # rules as ``_handle_get_history`` (both required to
-            # enable the cursor; otherwise the OFFSET path fires).
+            # (``before_timestamp`` / ``before_id``) follows the shared
+            # ``_HISTORY_CURSOR_FIELDS`` contract — see
+            # :meth:`_extract_history_cursor` for the both-required /
+            # negative-reject semantics.
             validated, error = _validate_dict_payload(
                 d,
                 {
                     "limit": {"type": (int, str), "required": False, "default": 50},
                     "offset": {"type": (int, str), "required": False, "default": 0},
-                    "before_timestamp": {"type": str, "required": False, "default": None},
-                    "before_id": {
-                        "type": (int, str),
-                        "required": False,
-                        "reject_bool": True,
-                        "default": None,
-                    },
+                    **_HISTORY_CURSOR_FIELDS,
                 },
             )
             if error:
@@ -455,27 +476,10 @@ class HistoryHandlersMixin(HandlerBase):
             limit = _bound_history_limit(validated.get("limit", 50))
             offset = _bound_history_offset(validated.get("offset", 0))
             # Extract the keyset cursor (if both pieces are present).
-            before_timestamp = validated.get("before_timestamp")
-            before_id_raw = validated.get("before_id")
-            before_id = None
-            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
-            # ``int()`` conversion type-checks; the explicit bool check
-            # is kept as defense-in-depth (bool subclasses int).
-            if (
-                before_id_raw is not None
-                and isinstance(before_id_raw, (int, str))
-                and not isinstance(before_id_raw, bool)
-            ):
-                before_id = int(before_id_raw)
-                if before_id < 0:
-                    return {
-                        "type": "error",
-                        "data": {
-                            "code": "client.invalid_field",
-                            "field": "before_id",
-                            "message": "before_id must be non-negative",
-                        },
-                    }
+            cursor = self._extract_history_cursor(validated, resp)
+            if isinstance(cursor, dict):
+                return cursor
+            before_timestamp, before_id = cursor
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_favorites(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -514,20 +518,16 @@ class HistoryHandlersMixin(HandlerBase):
             # ``limit`` / ``offset`` accept ``(int, str)`` for the same
             # form-input coercion reason as ``_handle_get_history``.
             # Keyset cursor (``before_timestamp`` / ``before_id``)
-            # follows the same rules as ``_handle_get_history``.
+            # follows the shared ``_HISTORY_CURSOR_FIELDS`` contract —
+            # see :meth:`_extract_history_cursor` for the
+            # both-required / negative-reject semantics.
             validated, error = _validate_dict_payload(
                 d,
                 {
                     "query": {"type": str, "required": False, "default": ""},
                     "limit": {"type": (int, str), "required": False, "default": 50},
                     "offset": {"type": (int, str), "required": False, "default": 0},
-                    "before_timestamp": {"type": str, "required": False, "default": None},
-                    "before_id": {
-                        "type": (int, str),
-                        "required": False,
-                        "reject_bool": True,
-                        "default": None,
-                    },
+                    **_HISTORY_CURSOR_FIELDS,
                 },
             )
             if error:
@@ -538,27 +538,10 @@ class HistoryHandlersMixin(HandlerBase):
             limit = _bound_history_limit(validated.get("limit", 50))
             offset = _bound_history_offset(validated.get("offset", 0))
             # Extract the keyset cursor (if both pieces are present).
-            before_timestamp = validated.get("before_timestamp")
-            before_id_raw = validated.get("before_id")
-            before_id = None
-            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
-            # ``int()`` conversion type-checks; the explicit bool check
-            # is kept as defense-in-depth (bool subclasses int).
-            if (
-                before_id_raw is not None
-                and isinstance(before_id_raw, (int, str))
-                and not isinstance(before_id_raw, bool)
-            ):
-                before_id = int(before_id_raw)
-                if before_id < 0:
-                    return {
-                        "type": "error",
-                        "data": {
-                            "code": "client.invalid_field",
-                            "field": "before_id",
-                            "message": "before_id must be non-negative",
-                        },
-                    }
+            cursor = self._extract_history_cursor(validated, resp)
+            if isinstance(cursor, dict):
+                return cursor
+            before_timestamp, before_id = cursor
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.search_history(
                     query,

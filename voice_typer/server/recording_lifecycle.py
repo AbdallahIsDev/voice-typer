@@ -55,6 +55,14 @@ log = logging.getLogger(__name__)
 VOICE_BIOMETRIC_CONSENT_FIELD = "voice_biometric_consent"
 
 
+#: Default bounded-join timeout for the DictationStart worker when the
+#: model was already loaded at ``_start_impl`` entry (the common case).
+#: Single source for the reset at ``_start_impl`` entry, the adaptive
+#: pre-load pick, and ``_run_public_entry``'s fallback so the three can
+#: not drift apart.
+_DEFAULT_START_JOIN_TIMEOUT_S = 0.1
+
+
 #: The exact RuntimeError message raised by the recording pipeline when
 #: no input device could be opened at all (``_recorder_split.py``,
 #: ``start_recording`` — "No input device could be opened"). Matched by
@@ -166,10 +174,68 @@ class RecordingLifecycle:
     """
 
     def __init__(self) -> None:
-        # Stateless helper — all state lives on the controller.
-        pass
+        # Stateless helper — all recording state lives on the controller.
+        # ONE piece of helper-local state: a per-thread marker used by
+        # ``_run_public_entry`` to detect the re-entrant hop
+        # ``toggle() -> _toggle_impl -> app._start_dictation() -> start()``
+        # so the bounded start-worker join runs only at the OUTERMOST
+        # public entry (never while an outer entry still owns
+        # ``_toggle_lock``).
+        self._public_entry_depth = threading.local()
 
     # ── Toggle / start / stop / cancel ─────────────────────────────────
+
+    def _run_public_entry(self, controller, impl_method) -> None:
+        """Run a public lifecycle entry (``toggle`` / ``start``).
+
+        Lock discipline:
+
+        * ``_toggle_lock`` is acquired exactly ONCE, around the state
+          decision (``_toggle_impl`` / ``_start_impl``).
+        * When that decision spawned a fresh DictationStart worker, the
+          bounded ``worker.join(timeout)`` happens AFTER the lock is
+          released — a concurrent ``stop()`` / ``cancel()`` from another
+          thread (auto-stop timer, ESC hotkey, tray) can acquire the lock
+          and act immediately instead of blocking for the whole join
+          window (up to 2.0 s on the cold-model start path).
+
+        Re-entrancy: the hop ``toggle() -> controller._toggle_impl() ->
+        app._start_dictation() -> controller.start()`` re-enters this
+        method on the SAME thread while the outer ``toggle()`` entry still
+        holds the lock. The per-thread marker
+        (``self._public_entry_depth``) makes the inner entry skip its own
+        join — the outermost entry performs it after releasing the lock.
+        Pre-fix, ``_start_impl`` manually ``release()``d the lock around
+        the join; on the user-facing double-acquisition path the manual
+        release only dropped the RLock count 2 -> 1, so the thread still
+        OWNED the lock through the join and concurrent stop/cancel
+        blocked for up to 2.0 s. Centralising the join here removes the
+        manual release entirely (single acquisition — no recursion-count
+        arithmetic to get wrong).
+
+        A join is performed only for a worker spawned by THIS entry
+        (identity compared against ``controller._start_worker_thread``
+        before/after the decision): a stop-path or no-op toggle never
+        joins a stale worker from an earlier cold start.
+        """
+        outermost = not getattr(self._public_entry_depth, "active", False)
+        if outermost:
+            self._public_entry_depth.active = True
+        prior_start_worker = getattr(controller, "_start_worker_thread", None)
+        try:
+            with controller._toggle_lock:
+                impl_method()
+        finally:
+            if outermost:
+                self._public_entry_depth.active = False
+        if not outermost:
+            return
+        worker = getattr(controller, "_start_worker_thread", None)
+        if worker is None or worker is prior_start_worker:
+            return
+        join_timeout = getattr(controller, "_start_worker_join_timeout", _DEFAULT_START_JOIN_TIMEOUT_S)
+        with contextlib.suppress(Exception):
+            worker.join(timeout=join_timeout)
 
     def toggle(self, controller) -> None:
         """Toggle recording on/off.
@@ -177,9 +243,14 @@ class RecordingLifecycle:
         RACE-025: Serializes concurrent toggle calls from different threads
         (hotkey thread + tray thread) to prevent TOCTOU where two near-
         simultaneous F2 presses both pass the _busy_event check.
+
+        The lock is acquired exactly once (via ``_run_public_entry``)
+        around the toggle decision. When the decision starts a dictation,
+        the bounded join of the DictationStart worker happens AFTER the
+        lock is released so a concurrent ``stop()`` / ``cancel()"
+        (auto-stop timer, ESC hotkey) never waits behind the join.
         """
-        with controller._toggle_lock:
-            controller._toggle_impl()
+        self._run_public_entry(controller, controller._toggle_impl)
 
     def _toggle_impl(self, controller) -> None:
         """Inner toggle implementation, called under _toggle_lock."""
@@ -293,20 +364,31 @@ class RecordingLifecycle:
     def start(self, controller) -> None:
         """Start a recording session.
 
-        Acquires ``_toggle_lock`` (an RLock) so the auto-stop Timer
-        thread's ``_stop_dictation`` -> ``controller.stop()`` call (or
-        the ESC cancel hotkey's ``cancel()``) serializes against an
-        in-flight ``toggle()`` / ``start()`` / ``stop()`` / ``cancel()``
-        on any other thread. RLock allows the re-entrant path
+        Acquires ``_toggle_lock`` (an RLock) exactly once — via
+        ``_run_public_entry`` — so the auto-stop Timer thread's
+        ``_stop_dictation`` -> ``controller.stop()`` call (or the ESC
+        cancel hotkey's ``cancel()``) serializes against an in-flight
+        ``toggle()`` / ``start()`` / ``stop()`` / ``cancel()`` on any other
+        thread. RLock allows the re-entrant path
         ``toggle() -> app._start_dictation() -> controller.start()`` to
-        re-acquire without deadlocking.
+        re-acquire without deadlocking; the per-thread entry marker in
+        ``_run_public_entry`` detects that hop so the bounded worker join
+        runs only at the outermost entry, outside the lock.
         """
-        with controller._toggle_lock:
-            controller._start_impl()
+        self._run_public_entry(controller, controller._start_impl)
 
     def _start_impl(self, controller) -> None:
         """Inner start implementation, called under _toggle_lock."""
         app = controller._app
+        # Reset the published join timeout to the default BEFORE any of
+        # the steps below can raise: if an exception fires between
+        # ``worker.start()`` and the adaptive publish late in this method,
+        # the except path swallows it and returns normally, so
+        # ``_run_public_entry`` still performs the bounded join of the
+        # just-started worker — without this reset it would join with the
+        # PREVIOUS cycle's timeout (up to 2.0 s on the cold-model path),
+        # stalling this public entry.
+        controller._start_worker_join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S
         if app.recorder.recording:
             log.info("[DICTATION] _start_dictation: already recording, no-op")
             return
@@ -458,9 +540,13 @@ class RecordingLifecycle:
             app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
             app._waveform_bubble.show()
-            # Duck system volume AFTER recording starts so the first
-            # chunk of audio benefits from the ducked speakers.
-            app._duck_volume()
+            # System-volume ducking moved OFF this thread: it now runs at
+            # the top of the DictationStart worker (see
+            # ``_start_dictation_worker_entry``) — still AFTER
+            # ``recorder.start()`` so the first buffered chunks capture
+            # with the speakers already fading down, but no longer blocking
+            # the hotkey dispatch thread (and ``_toggle_lock``) for the
+            # 0.15-0.7 s of backend/subprocess work a duck costs.
             log.info("[DICTATION] Recording started OK (cycle=%s)", app._cycle_id)
             # Mark the recording subsystem as the keyboard owner. The ESC
             # cancel hotkey will fire normally during a recording (it's
@@ -540,10 +626,10 @@ class RecordingLifecycle:
             # (5-30s idle-unload reload). The worker is a daemon so it
             # doesn't block process exit.
             #
-            # The worker runs WITHOUT ``_toggle_lock`` — the F2 thread
-            # holds it via the ``with`` block in ``start()`` for the
-            # duration of the bounded join (0.1s), then releases it on
-            # ``_start_impl`` return. The worker doesn't need the lock
+            # The worker runs WITHOUT ``_toggle_lock`` — the public entry
+            # (``toggle`` / ``start`` via ``_run_public_entry``) releases
+            # the lock BEFORE the bounded join, so neither the worker NOR
+            # the join holds it. The worker doesn't need the lock
             # because:
             # 1. ``ensure_active_engine_loaded()`` has its own internal
             #    lock (``_lazy_init_lock`` in ``ModelManager``).
@@ -553,7 +639,7 @@ class RecordingLifecycle:
             #    ``_streaming_session_lock`` for its own serialization.
             # The ``_busy_event`` is NOT cleared by ``_start_impl``
             # (``_stop_impl`` clears it), so a concurrent ``stop()``
-            # that acquires the lock after the F2 thread releases it
+            # that acquires the lock after the public entry releases it
             # would see ``busy_event.is_set() == True`` (not busy) and
             # proceed — the desired behavior (the user explicitly
             # stopped, so the buffered audio should be transcribed as
@@ -605,24 +691,18 @@ class RecordingLifecycle:
             # authoritative one.
             _pre_load_active = app.models.active_transcriber()
             _pre_load_model_loaded = _pre_load_active is not None and getattr(_pre_load_active, "is_loaded", False)
-            _join_timeout = 0.1 if _pre_load_model_loaded else 2.0
-            # Release ``_toggle_lock`` for the duration of the
-            # bounded worker join. The worker (model load + post-load)
-            # already runs WITHOUT the lock, but the F2 dispatch thread
-            # must not HOLD it during the join either — otherwise a
-            # concurrent ``stop()`` / ``cancel()`` from another thread
-            # (auto-stop timer, ESC cancel hotkey, tray) would block for
-            # the whole join window (up to 2.0s on the idle-unload
-            # reload path). The lock is re-acquired in a ``finally`` so
-            # it is always restored even if the join raises, keeping the
-            # ``with controller._toggle_lock:`` in ``start()`` balanced
-            # (RLock — same owning thread, count 1 → 0 → 1 → 0).
-            controller._toggle_lock.release()
-            try:
-                with contextlib.suppress(Exception):
-                    worker.join(timeout=_join_timeout)
-            finally:
-                controller._toggle_lock.acquire()
+            _join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S if _pre_load_model_loaded else 2.0
+            # Publish the join timeout next to the worker thread so the
+            # PUBLIC entry (``toggle`` / ``start`` via ``_run_public_entry``)
+            # can perform the bounded join AFTER releasing ``_toggle_lock``.
+            # Pre-fix the join ran HERE behind a manual
+            # ``release()``/``acquire()`` pair — on the user-facing
+            # double-acquisition path (``toggle() -> start()``) the manual
+            # release only dropped the RLock count 2 -> 1, so the thread
+            # still owned the lock through the join and a concurrent
+            # ``stop()`` / ``cancel()`` (auto-stop timer, ESC hotkey)
+            # blocked for the whole join window (up to 2.0 s cold).
+            controller._start_worker_join_timeout = _join_timeout
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             controller._cancel_streaming_session()
@@ -646,6 +726,13 @@ class RecordingLifecycle:
             # best-effort guard above) or if a subclass overrode
             # ``discard()`` to skip the flag reset.
             app.recorder.recording = False
+            # Restart the level monitor for the always-visible bubble:
+            # the start path stopped it before ``recorder.start()`` (see
+            # ``_stop_level_monitor_for_recorder_start`` above), and the
+            # stop / stop-failure paths already restart it — without this
+            # call the level bar flatlines after one failed start until
+            # the next toggle. Best-effort, mirroring the stop paths.
+            controller._maybe_restart_level_monitor_for_always_visible_bubble(app)
             # Surface the backend's reason when the pipeline raised a
             # typed error (permission denied / no input device); raw
             # exception text stays out of the tray (paths, device names).
@@ -685,12 +772,16 @@ class RecordingLifecycle:
 
         Mirrors the ``_stop_and_transcribe_worker_entry`` pattern: the F2
         hotkey thread does the synchronous pre-start work (consent check,
-        timer cancel, ``recorder.start()``, tray state, bubble show,
-        volume duck) inside ``_start_impl``, then spawns THIS worker and
-        returns after a bounded ``join(timeout=0.1)``. The worker performs
-        the potentially-slow model load (5-30s on idle-unload reload) and
-        the post-load steps (active_transcriber check, Whisper fallback,
-        streaming-session setup).
+        timer cancel, ``recorder.start()``, tray state, bubble show) inside
+        ``_start_impl``, then spawns THIS worker and returns after a
+        bounded join performed by the public entry (``toggle`` / ``start``
+        via ``_run_public_entry``) — OUTSIDE ``_toggle_lock``. The worker
+        ducks the system volume first (still after ``recorder.start()``,
+        so the first buffered chunks capture with the speakers already
+        fading down) and then performs the potentially-slow model load
+        (5-30s on idle-unload reload) and the post-load steps
+        (active_transcriber check, Whisper fallback, streaming-session
+        setup).
 
         Rationale: pre-fix, the F2 dispatch thread blocked for 5-30s
         inside ``ensure_active_engine_loaded()`` on the idle-unload
@@ -701,10 +792,10 @@ class RecordingLifecycle:
         (e.g. a second F2 to stop the recording whose model is still
         loading).
 
-        The worker runs WITHOUT ``_toggle_lock``. The F2 thread holds the
-        lock via the ``with`` block in ``start()`` for the duration of
-        the bounded join (0.1s), then releases it on ``_start_impl``
-        return. The worker doesn't need the lock because:
+        The worker runs WITHOUT ``_toggle_lock``. The public entry
+        (``toggle`` / ``start`` via ``_run_public_entry``) releases the
+        lock before its bounded join, so neither the worker nor the join
+        holds it. The worker doesn't need the lock because:
         1. ``ensure_active_engine_loaded()`` has its own internal
            ``_lazy_init_lock`` in ``ModelManager``.
         2. The post-load re-check reads atomic state
@@ -729,6 +820,34 @@ class RecordingLifecycle:
             can wait on it.
         """
         app = controller._app
+        # Duck system volume HERE, not on the hotkey thread: a duck costs
+        # 0.15-0.7 s of backend work per start (initialize + get_state +
+        # is_speaker_active + fade_to — subprocess calls on Linux/macOS,
+        # COM on Windows), and running that under ``_toggle_lock`` on the
+        # F2 dispatch thread delayed every concurrent stop/cancel AND
+        # the hotkey backend's own dispatch queue. Placement: top of the
+        # worker, still AFTER ``recorder.start()`` on the hotkey thread —
+        # the first chunks of buffered audio still benefit from the
+        # ducked speakers (the recorder buffers while the model loads).
+        if app.recorder.recording:
+            app._duck_volume()
+            # Compensate the off-lock ordering: a concurrent ``cancel()``
+            # or ``stop()`` can now discard the recording while the duck
+            # fade is in flight (previously impossible — the duck held
+            # ``_toggle_lock``). If the recording went away while we were
+            # ducking, restore so the volume is not left ducked with no
+            # dictation running. ``VolumeDucker`` coordinates the
+            # restore-during-fade interleaving itself: ``duck()`` counts
+            # its fade as in flight while it runs unlocked, so a
+            # ``restore()`` landing in that window fades back to the
+            # saved volume and clears the crash-recovery file (instead of
+            # the smart-duck logical-clear path), and ``duck()``'s
+            # post-fade block repairs the volume when its own fade
+            # completed after the restore. This re-check covers the
+            # complementary case: the cancel completed BEFORE the duck
+            # even started (no fade in flight — plain restore).
+            if not app.recorder.recording:
+                app._restore_volume()
         try:
             # Load / reload the active engine. This is the potentially
             # 5-30s step on the idle-unload reload path. The worker

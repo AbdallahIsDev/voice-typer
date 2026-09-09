@@ -582,7 +582,11 @@ class ServiceProtocol(Protocol):
     # ── System ─────────────────────────────────────────────────────
     def restart(self) -> None: ...
     def quit(self) -> None: ...
-    def export_diagnostics(self) -> dict[str, object]: ...
+
+    # ``export_diagnostics`` was removed: every IPC/Rust/TS surface for
+    # it was already deleted and the service mixin went with the dead
+    # server-side bundle pipeline — support bundles come from the CLI
+    # (``scripts/diagnostics.py export``), which is self-contained.
 
     # ── Privacy / GDPR ────────────────────────────────────────────
     # (GDPR Art. 17 right-to-erasure) and  (Art. 20

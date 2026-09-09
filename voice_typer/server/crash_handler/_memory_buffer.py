@@ -73,6 +73,23 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     import failure) self-heals as soon as the security module becomes
     importable.
 
+    The filter is a REAL redaction pass for this handler: ``handle``
+    applies the handler's filter chain (stdlib ``Handler.handle``
+    semantics — ``self.filter(record)`` before the record is emitted)
+    before appending the record to the ring buffer, so the buffered
+    ``LogRecord`` is mutated in place by ``PIIRedactionFilter`` no
+    matter how the record reached the buffer. The crash buffer's
+    redaction therefore does NOT depend on the rotating file handler
+    earlier in the ``voice_typer`` logger's handler chain having
+    already redacted the shared record (that file-handler pass still
+    runs first in production and its in-place mutation is idempotent —
+    the filter's own ``redacted_msg`` guard skips a redundant re-scan
+    of the same record — but a handler reorder or level change can no
+    longer ship unredacted PII into ``voice-typer-crash-buffer.log``).
+    A filter that returns False vetoes the record (dropped, not
+    buffered), matching the drop-on-veto contract every stdlib handler
+    honours.
+
     Fail-closed: if the filter still cannot be attached when a record
     arrives, the record is DROPPED (``handle`` returns False) rather
     than buffered — we lose the crash-buffer tail rather than risk
@@ -133,24 +150,40 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     def handle(self, record: logging.LogRecord) -> bool:
         if not self._ensure_pii_filter():
             return False
+        # Apply the handler's filter chain FIRST — stdlib
+        # ``Handler.handle`` semantics (``rv = self.filter(record)``;
+        # a LogRecord returned by a filter replaces the record; a
+        # false value vetoes). This is what makes the lazily-attached
+        # PII redaction filter a real redaction pass for every
+        # buffered record instead of an inert addFilter attachment.
+        rv = self.filter(record)
+        if not rv:
+            return False
+        if isinstance(rv, logging.LogRecord):
+            record = rv
         # TRUE in-memory ring buffer: append the record, and when the
         # buffer exceeds capacity DROP the oldest record in memory.
         # Crucially we do NOT call ``super().handle`` — the stock
-        # ``MemoryHandler`` evicts the oldest by flushing the whole
-        # buffer to the target (writing to disk), which duplicates the
-        # main ``voice-typer.log``.  The crash buffer must keep the
-        # last ``capacity`` records ONLY in memory and write them to
-        # disk solely on the explicit ``flush_memory_handler()`` call
-        # from the VEH callback.
+        # ``MemoryHandler.emit`` path flushes the whole buffer to the
+        # target when ``shouldFlush`` says so (writing to disk), which
+        # duplicates the main ``voice-typer.log``.  (The capacity
+        # eviction here is also in-memory only.) The crash buffer must
+        # keep the last ``capacity`` records ONLY in memory and write
+        # them to disk solely on the explicit ``flush_memory_handler()``
+        # call from the VEH callback.
         self.acquire()
         try:
             self.buffer.append(record)
             if len(self.buffer) > self.capacity:
                 # Discard the oldest (ring-buffer eviction).
                 del self.buffer[0]
-            return True
         finally:
             self.release()
+        # ``rv`` is truthy here (the veto branch above already
+        # returned), so ``True`` is the stdlib ``Handler.handle`` bool
+        # contract ("record was handled") — the possibly-substituted
+        # LogRecord itself is what got buffered above.
+        return True
 
     def close(self) -> None:
         """Drop the buffer WITHOUT flushing it to the target.

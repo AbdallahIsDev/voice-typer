@@ -48,6 +48,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 from voice_typer.server._http_safety import build_secure_opener
+from voice_typer.server.credential_store import PROVIDER_TO_CONFIG_FIELD
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
@@ -82,17 +83,13 @@ _PROVIDER_TEST_ENDPOINTS: dict[str, dict[str, str]] = {
     },
 }
 
-# Map provider name → Config dataclass field name holding the API key.
-# Kept in sync with ``credential_store.PROVIDER_TO_CONFIG_FIELD`` (the
-# canonical source) but inlined here to avoid importing the keyring
-# module just for the lookup. If a new cloud provider is added, BOTH
-# this dict and ``credential_store.PROVIDER_TO_CONFIG_FIELD`` must be
-# updated.
-_PROVIDER_TO_CONFIG_FIELD: dict[str, str] = {
-    "openai": "openai_api_key",
-    "groq": "groq_api_key",
-    "deepgram": "deepgram_api_key",
-}
+# Provider name → Config dataclass field name holding the API key.
+# Imported from ``credential_store`` — the single authoritative source
+# (adding a provider there automatically widens this handler's key
+# lookup; no second dict to keep in sync). Importing the package does
+# NOT import ``keyring``: the credential-store backend resolves
+# keyring lazily inside its probe, so this import adds no heavy
+# platform-IPC dependency to the handler module.
 
 # 10s timeout matches ``CloudEngine._REQUEST_TIMEOUT_SECONDS``. The test
 # endpoint returns a small JSON list (~1-2 KB) so 10s is ample even on a
@@ -179,7 +176,7 @@ class CloudTestHandlersMixin(HandlerBase):
             # Look up the API key from the live Config dataclass (NOT
             # from ``service.get_config()`` which returns a sanitized
             # view with ``<redacted>`` sentinels for secret fields).
-            config_field = _PROVIDER_TO_CONFIG_FIELD.get(provider)
+            config_field = PROVIDER_TO_CONFIG_FIELD.get(provider)
             if config_field is None:
                 # Defensive: should be unreachable because the endpoint
                 # lookup above already rejected unknown providers.
@@ -328,8 +325,3 @@ def _http_error_message(status_code: int) -> str:
 
 # Exposed for tests / type-checkers; not part of the IPC contract.
 __all__: list[str] = ["CloudTestHandlersMixin", "_http_error_message"]
-
-
-# Silence unused-import warning for ``json`` (kept for future
-# response-body parsing if a provider's test endpoint ever returns a
-# payload we need to surface to the renderer).

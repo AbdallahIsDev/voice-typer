@@ -8,8 +8,15 @@ UNPASTED transcriptions for crash recovery. The persistence
 (:mod:`._io`, :mod:`._worker`) and are inherited; this module holds
 the constructor, the instance state, and the public/edge-path methods
 (add / mark_*/ get_*/ check_on_startup / clear / count / __del__ /
-entries_metadata_snapshot / create_diagnostic_bundle) with bodies
-moved verbatim from the pre-split ``crash_recovery.py`` monolith.
+entries_metadata_snapshot) with bodies moved verbatim from the
+pre-split ``crash_recovery.py`` monolith.
+
+The former ``create_diagnostic_bundle`` method (server-side support
+bundle export) was removed: every IPC/Rust/TS surface for it had
+already been deleted, so the pipeline was production-dead. Support
+bundles are produced by the self-contained CLI (``python
+scripts/diagnostics.py export``), which deliberately excludes
+crash-recovery buffer contents; it never used this class.
 """
 
 import collections
@@ -588,17 +595,13 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
     def entries_metadata_snapshot(self) -> list[dict]:
         """Return a metadata-only snapshot of the recovery entries.
 
-        Used by the diagnostic bundle export ( / ) so
-        support engineers can see entry counts + timestamps without
-        leaking transcription text. Exposed as a public accessor so
-        :mod:`voice_typer.server.diagnostics_export` can read entry
-        metadata without reaching into ``_entries`` directly elsewhere
-        in the codebase.
-
-        this method exists alongside the delegate
-        :meth:`create_diagnostic_bundle` so callers that only need
-        the metadata (e.g. tests, future telemetry) don't have to
-        build a full zip just to inspect entry counts.
+        Exposes entry counts + timestamps WITHOUT the transcription
+        text, so callers (tests, future telemetry) can inspect the
+        recovery state without touching PII. The former diagnostic
+        bundle export was its original consumer; that pipeline is gone
+        (support bundles come from the CLI, which excludes recovery
+        contents), and the accessor stays as the public
+        metadata-only view of ``_entries``.
 
         Lazily loads entries from disk on first access if
         ``check_on_startup()`` hasn't run yet. The ``_loaded`` guard
@@ -614,28 +617,3 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 }
                 for e in self._entries
             ]
-
-    def create_diagnostic_bundle(self) -> str | None:
-        """Create a diagnostic bundle zip file.
-
-        Collects:
-          - voice-typer.log
-          - config.json (redacted — API keys removed)
-          - System info (platform, Python version, GPU info)
-          - Model info (loaded model, device)
-          - Crash recovery entries (metadata only — )
-
-        Returns the path to the created zip file, or None on failure.
-
-        the body of this method was extracted to
-        :mod:`voice_typer.server.diagnostics_export` so
-        ``crash_recovery.py`` can focus on its core concern (storing /
-        flushing / replaying recovery entries). This delegate keeps
-        the public API (``cr.create_diagnostic_bundle()``) stable so
-        existing callers — ``service.diagnostics.DiagnosticsMixin``,
-        tests in ``tests/test_crash_recovery*.py``, the CLI in
-        ``scripts/diagnostics.py`` — continue to work unchanged.
-        """
-        from voice_typer.server.diagnostics_export import create_diagnostic_bundle
-
-        return create_diagnostic_bundle(self)

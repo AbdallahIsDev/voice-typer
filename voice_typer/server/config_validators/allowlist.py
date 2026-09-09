@@ -514,6 +514,12 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "noise_filter_gate_close_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_attack_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
     "noise_filter_gate_release_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
+    # Adaptive noise-floor calibration for the NoiseGate (see
+    # ``Config.noise_filter_gate_adaptive`` in config/_schema.py): the
+    # schema field + build_chain consumption existed, but the knob was
+    # unreachable from the UI — the allowlist entry makes it settable
+    # through the sanctioned set_config path.
+    "noise_filter_gate_adaptive": (bool, _bool_validator),
     "noise_filter_eq": (bool, _bool_validator),
     "noise_filter_eq_low_db": (float, _make_float_validator(lo=-20.0, hi=20.0)),
     "noise_filter_eq_mid_db": (float, _make_float_validator(lo=-20.0, hi=20.0)),

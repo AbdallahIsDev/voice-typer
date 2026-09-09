@@ -478,13 +478,11 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
 def _cleanup_failed_cache(repo_id: str) -> None:
     """Cache cleanup: best-effort delete a tampered HF cache dir.
 
-    Delegates to the canonical ``_hf_cache_cleanup.cleanup_hf_cache_dir``
+    Delegates to the canonical ``asr_utils.cleanup_hf_cache_dir``
     helper (single source of truth — previously the body was duplicated
-    here).  The ``_hf_cache_cleanup`` module in turn
-    delegates to ``asr_utils.cleanup_hf_cache_dir`` where the actual
-    implementation lives.
+    here).  Imported lazily to avoid an import cycle at module load.
     """
-    from voice_typer.server._hf_cache_cleanup import cleanup_hf_cache_dir
+    from voice_typer.server.asr_utils import cleanup_hf_cache_dir
 
     cleanup_hf_cache_dir(repo_id, log_prefix="[ASR_SETUP]")
 

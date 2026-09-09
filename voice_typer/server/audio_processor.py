@@ -164,6 +164,7 @@ _CONFIG_SIGNATURE_FIELDS: tuple[str, ...] = (
     "noise_filter_gate_attack_ms",
     "noise_filter_gate_hold_ms",
     "noise_filter_gate_release_ms",
+    "noise_filter_gate_adaptive",
     "noise_filter_eq",
     "noise_filter_eq_low_db",
     "noise_filter_eq_mid_db",
@@ -415,39 +416,6 @@ class AudioProcessor:
     def set_quality_callback(self, cb: QualityCallback) -> None:
         """Wire a quality detector callback."""
         self._quality_callback = cb
-
-    def set_filter_enabled(self, name: str, enabled: bool) -> bool:
-        """Toggle a filter's ``enabled`` flag at runtime (no chain rebuild).
-
-        Thin wrapper around :meth:`FilterChain.set_filter_enabled`. The
-        IPC handler layer can call this to toggle a filter without a
-        full config reload — useful for A/B comparisons and
-        "temporarily bypass RNNoise" controls. Toggling preserves
-        filter state (IIR zi, envelope follower, gate openness)
-        across the bypass window, so a momentarily-disabled filter
-        re-engages with its prior state intact (no transient click
-        from a cold IIR re-initialization).
-
-        NOTE: the IPC command that exposes this to the renderer is
-        NOT wired in this change — the IPC handler files are owned by
-        a different sub-agent. This method (plus
-        :func:`voice_typer.server.audio_chain_builder.set_filter_enabled`
-        and :meth:`FilterChain.set_filter_enabled`) is the
-        server-side API surface; the IPC handler can call this
-        directly with the active AudioProcessor.
-
-        Args:
-            name: filter display name (e.g. ``"HighPass(80Hz)"``,
-                ``"NoiseSuppressor(rnnoise)"``, ``"Compressor"``).
-                Matches ``filter.name`` on each filter in the chain.
-            enabled: True to enable, False to bypass.
-
-        Returns:
-            True if at least one filter matched ``name`` and was
-            toggled, False otherwise (so callers can detect a no-op
-            / typo).
-        """
-        return self._chain.set_filter_enabled(name, enabled)
 
     # ── Real-time processing (called from the audio worker thread) ───
 

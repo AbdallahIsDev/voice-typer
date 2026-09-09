@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
 from typing import Any
 
@@ -55,6 +56,23 @@ sd = lazy_module("sounddevice")
 log = logging.getLogger("voice_typer.server.recording")
 
 
+def _started_hidden() -> bool:
+    """True when this process was launched with hidden-start semantics.
+
+    The autostart path sets ``VT_START_HIDDEN=1`` in the spawned app's
+    environment so the host window boots hidden + skip-taskbar; the
+    env is inherited by this backend process. This is the
+    backend-visible half of the hidden-start privacy contract: while
+    the app is hidden, no privacy-sensitive resource may activate —
+    opening a microphone InputStream lights the OS mic indicator
+    (Windows taskbar mic icon / macOS orange dot) even though the
+    user has not shown the UI. The renderer applies the same contract
+    to the level monitor (visibility-gated start); this env check is
+    the recorder-side equivalent for the prewarm stream.
+    """
+    return os.environ.get("VT_START_HIDDEN") == "1"
+
+
 class DevicePrewarm:
     """Device-cache prewarm + PortAudio warm-up for :class:`Recorder`.
 
@@ -68,6 +86,18 @@ class DevicePrewarm:
         # import (``recorder`` imports this module at module top to
         # construct this class in ``RecorderInitMixin``).
         self._recorder = recorder
+        # Memoized channel count for the OS-DEFAULT input device
+        # (``device=None`` / ``config.microphone: null`` — the
+        # fresh-install majority per C-MIC-1). Keyed on the device-list
+        # cache's timestamp (a new device-list generation — TTL refresh
+        # or OS device-event invalidation — forces a re-resolve), so
+        # repeated default-path lookups cost zero PortAudio calls while
+        # the prewarmed device-list cache is warm. Benign-race
+        # semantics match the device-list cache itself (attribute
+        # assignments; concurrent callers may redundantly resolve and
+        # write the same value).
+        self._default_channels_cache: int | None = None
+        self._default_channels_stamp: float | None = None
 
     def prewarm_device_cache(self) -> None:
         """Spawn a best-effort daemon thread to populate ``DeviceManager._device_list_cache``.
@@ -89,12 +119,15 @@ class DevicePrewarm:
 
         In addition to warming the device-list cache, the prewarm thread
         also opens a brief ``sd.InputStream`` against the configured mic
-        (via :meth:`prewarm_input_stream`). This validates the device, warms
-        PortAudio's internal device-state cache (so the first ``start()``
-        doesn't pay the full Pa_OpenStream + Pa_StartStream cost), and
-        surfaces permission errors at app launch instead of at first
-        hotkey. Failures are logged at INFO and never propagated — the
-        prewarm is purely best-effort.
+        (via :meth:`prewarm_input_stream`) — but ONLY when the app did
+        NOT start hidden. Opening a stream lights the OS mic indicator,
+        which must not happen while the window is hidden (autostart with
+        ``VT_START_HIDDEN=1``); on a hidden start the stream-open phase
+        is deferred to the first dictation, whose own ``start()`` stream
+        open warms PortAudio. The device-list cache warm (a query-only
+        enumeration that does not touch the microphone) runs on every
+        launch, hidden or not. Failures are logged at INFO and never
+        propagated — the prewarm is purely best-effort.
         """
 
         def _warm() -> None:
@@ -108,6 +141,16 @@ class DevicePrewarm:
             # not the open/start cost. See ``prewarm_input_stream`` for
             # the rationale and timeout guard.
             #
+            # Hidden-start gate: an InputStream open lights the OS mic
+            # indicator while the user has not shown the app. Skip the
+            # stream-open phase; the first real dictation ``start()``
+            # warms PortAudio with its own stream open (recovered by the
+            # normal start() candidate loop if the cold open fails).
+            if _started_hidden():
+                log.info(
+                    "[RECORDING] Input stream prewarm skipped: app started hidden — PortAudio warms on first dictation",
+                )
+                return
             # Routed through ``recorder._prewarm_input_stream()`` (the
             # documented Recorder delegator) — NOT this collaborator's
             # method directly — so the class-level test patch
@@ -134,7 +177,8 @@ class DevicePrewarm:
         ``stream.start()`` then immediately ``stream.stop()`` +
         ``stream.close()``. This validates the device, warms PortAudio's
         internal device-state cache, and surfaces permission errors at
-        app launch instead of at first hotkey press.
+        app launch (visible launches — hidden starts defer the stream
+        open to the first dictation) instead of at first hotkey press.
 
         The open/start/stop/close sequence runs on a NESTED daemon thread
         joined with a 2s timeout — if the device is stuck (e.g. a flaky
@@ -173,8 +217,14 @@ class DevicePrewarm:
                     blocksize=_AUDIO_BLOCKSIZE,
                     latency="low",
                 )
-                prewarm_stream.start()
+                # ``start()`` sits INSIDE the try so a start failure
+                # still reaches the finally's close(): if it raised
+                # outside, a constructor-opened-but-never-started
+                # stream handle would leak (the OS mic indicator stays
+                # lit — the C-BG-1 privacy concern, on the visible-
+                # launch prewarm path).
                 try:
+                    prewarm_stream.start()
                     prewarm_stream.stop()
                 finally:
                     with contextlib.suppress(Exception):
@@ -223,22 +273,21 @@ class DevicePrewarm:
         ``MicrophoneDeviceWatcher``) and pre-warmed by
         :meth:`prewarm_device_cache` in ``__init__``.
 
-        Falls back to ``sd.query_devices(kind="input")`` for
-        ``device=None`` (the cache lists all input devices but does not
-        track which one is the OS default) and to ``1`` (mono) when the
-        device is not in the cache (e.g. a USB mic that was just plugged
-        in and the cache hasn't been invalidated yet — the next
-        iteration's ``sd.InputStream`` open will retry).
+        For ``device=None`` (System Default — the fresh-install
+        MAJORITY selection, not the minority: ``config.microphone``
+        defaults to ``null``), the OS-default device's identity is
+        resolved with a single default-device lookup and its channel
+        count is served from the same cached device list (memoized per
+        device-list generation — see ``__init__``). On a cache miss
+        (the default device is not yet in the cached list) the resolved
+        device dict's own ``max_input_channels`` is used, preserving
+        the pre-fix authoritative fallback. Falls back to ``1`` (mono)
+        when the device is not in the cache (e.g. a USB mic that was
+        just plugged in and the cache hasn't been invalidated yet —
+        the next iteration's ``sd.InputStream`` open will retry).
         """
         if device is None:
-            # Cache doesn't track OS default; fall back to a single direct
-            # query (one RPC, only on the default-device path which is the
-            # minority case — most users configure an explicit mic index).
-            try:
-                info = sd.query_devices(kind="input")
-                return int(info.get("max_input_channels", 1) or 1)
-            except Exception:
-                return 1
+            return self._cached_default_input_channels()
         try:
             for info in self._recorder._devices._refresh_device_list():
                 if info.get("index") == device:
@@ -249,6 +298,56 @@ class DevicePrewarm:
             # (PortAudio's default).
             pass
         return 1
+
+    def _cached_default_input_channels(self) -> int:
+        """Channel count for the OS-default input (``device=None``).
+
+        Resolves the OS default's index with ONE default-device lookup
+        (``sd.query_devices(kind="input")`` — the same resolution the
+        device health checker uses; NOT a full device enumeration), then
+        reads the channel count from the cached device-list entry. The
+        result is memoized against the device-list cache's timestamp so
+        repeated lookups within one device-list generation cost zero
+        PortAudio calls (a TTL refresh or an OS device-event
+        invalidation changes the timestamp and forces a re-resolve).
+        """
+        devices: list[dict] = []
+        stamp: float = 0.0
+        try:
+            devices = self._recorder._devices._refresh_device_list()
+            stamp = self._recorder._devices._device_list_cache_time
+        except (KeyError, TypeError, ValueError, AttributeError, OSError):
+            # Same failure envelope as the explicit-device path: fall
+            # back to 1 channel (PortAudio's default).
+            return 1
+        if stamp and self._default_channels_stamp == stamp and self._default_channels_cache is not None:
+            return self._default_channels_cache
+        try:
+            default_info = sd.query_devices(kind="input")
+        except Exception:
+            return 1
+        default_index = default_info.get("index")
+        count: int | None = None
+        if isinstance(default_index, int):
+            for info in devices:
+                if info.get("index") == default_index:
+                    try:
+                        count = int(info.get("max_input_channels", 1) or 1)
+                    except (TypeError, ValueError):
+                        count = None
+                    break
+        if count is None:
+            # Cache miss (cold cache / hot-plug race) or a deformed
+            # device dict: use the resolved device dict's own count —
+            # no downgrade vs the pre-fix authoritative query.
+            try:
+                count = int(default_info.get("max_input_channels", 1) or 1)
+            except (TypeError, ValueError):
+                count = 1
+        if stamp:
+            self._default_channels_cache = count
+            self._default_channels_stamp = stamp
+        return count
 
     def classify_portaudio_open_error(self, exc: BaseException) -> None:
         """Re-raise an OSError-from-PortAudio as a typed

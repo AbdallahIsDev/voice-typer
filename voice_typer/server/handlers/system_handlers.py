@@ -5,11 +5,14 @@ extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-(2026-07-30): ``_handle_export_diagnostics`` was REMOVED — the
-Tauri host now handles it via a dedicated Rust command. The Python-side
-``service.export_diagnostics`` still exists for the legacy Electron path
-and is invoked by the Rust bridge; only the IPC dispatch route was
-deleted. ``_handle_check_accessibility`` and
+(2026-07-30): ``_handle_export_diagnostics`` was REMOVED — the Tauri
+host now handles diagnostics export via a dedicated Rust command. There
+is no Python-side export surface anymore: the former
+``service.export_diagnostics`` pipeline was deleted wholesale, and the
+support bundle is produced solely by the CLI
+(``python scripts/diagnostics.py export``, which owns its own local
+implementation — redaction, log tail, model hashes).
+``_handle_check_accessibility`` and
 ``_handle_show_electron_notification`` are also absent from
 ``_COMMAND_REGISTRY`` and the renderer allowlist, but they are retained
 because tests in ``tests/regressions/``, ``tests/tauri/``, and

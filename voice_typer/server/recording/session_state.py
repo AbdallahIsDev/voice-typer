@@ -46,11 +46,13 @@ original body become ``recorder.X`` in the extracted body.
 Patch-path compatibility
 ------------------------
 This module consumes the owning submodules directly (C-ARCH-2):
-``_secure_clear_array`` is imported from :mod:`.buffer`, and the ring
-buffer capacity constant is read off the :mod:`.recorder` module object
-at call time (``_recorder_mod._AUDIO_RING_BUFFER_CAPACITY``) so a test
-patch of the recorder module attribute propagates. Tests that need to
-stub the secure-clear path patch the OWNING module:
+``_secure_clear_array`` is imported from :mod:`.buffer`. The ring
+buffer's resize guard compares against the LIVE ``maxlen`` of
+``recorder._ring_buffer`` (not a module constant), so any producer
+that sizes the ring (``recorder_init``'s default-capacity deque, the
+start-path reassignment in :mod:`._recorder_split`, or the restart
+path below) is respected. Tests that need to stub the secure-clear
+path patch the OWNING module:
 ``monkeypatch.setattr("voice_typer.server.recording.buffer._secure_clear_array", ...)``
 — but note ``secure_clear_caches`` binds the function at import time by
 design (the historical package-object indirection was removed with the
@@ -67,7 +69,6 @@ from typing import TYPE_CHECKING, Any
 
 from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
-from voice_typer.server.recording import recorder as _recorder_mod
 from voice_typer.server.recording.buffer import _secure_clear_array
 from voice_typer.server.recording.format import ensure_mono
 from voice_typer.server.vad_processor import (
@@ -83,6 +84,27 @@ log = logging.getLogger("voice_typer.server.recording")
 
 if TYPE_CHECKING:
     pass
+
+
+def coerce_max_recording_time(value: int) -> int:
+    """Coerce a max-recording-time scalar to ``int`` (0 on failure).
+
+    Shared by the start path (``cache_session_config``'s returned
+    ``max_rec``) and the hot-swap restart path
+    (:mod:`.disconnect_handler` re-invokes the buffer resize when the
+    restart lands on a different native rate) so both coerce the
+    cached ``_cached_max_recording_time`` with ONE contract: a
+    non-int-coercible value (``TypeError`` / ``ValueError``) means
+    "no max-duration limit", not a crash on the recovery path. The
+    callers pass the recorder attribute (statically ``Any`` in the
+    collaborator pattern, always ``int`` at runtime); the except
+    clause is runtime armor for untyped/hot-swap injections, not a
+    statically reachable branch.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 class SessionState:
@@ -386,16 +408,15 @@ class SessionState:
         # device loop below sets ``effective_sr``. The original
         # implementation computed ``needed_chunks`` here using a stale
         # 0.064s chunk-duration assumption (1024 samples / 16kHz), but
-        # the actual blocksize is 512 and the effective sample rate may
-        # be 44.1/48kHz (device native rate). Computing the size now
-        # would under-allocate by ~3× at 48kHz and silently evict the
-        # first ~25 minutes of a 30-minute dictation. See the resize
+        # the actual blocksize is rate-scaled (~32 ms of audio per
+        # chunk: 512 samples @ 16 kHz, 1536 @ 48 kHz, 1411 @ 44.1 kHz)
+        # and the effective sample rate is the device's native rate —
+        # unknown until the device loop succeeds. Computing the size
+        # from the config rate instead would mis-size every
+        # non-16 kHz device and silently evict the beginning of a long
+        # dictation via deque maxlen. See the resize
         # block after the device loop succeeds.
-        try:
-            max_rec = int(recorder._cached_max_recording_time)
-        except (TypeError, ValueError):
-            max_rec = 0
-        return max_rec
+        return coerce_max_recording_time(recorder._cached_max_recording_time)
 
     # ── Secure cache clearing (bulk — NOT _secure_clear_session_caches) ─
 
@@ -655,7 +676,18 @@ class SessionState:
             # this resize with the same scaled chunk math.
             if new_ring_capacity < 64:
                 new_ring_capacity = 64
-            if new_ring_capacity != _recorder_mod._AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
+            # Guard against the LIVE ring capacity, not the module
+            # constant: a ring left at a non-default capacity (an
+            # oversized prior session, an env-var sizing, or a legacy
+            # unbounded deque) must be resized even when the computed
+            # capacity happens to equal the module default — comparing
+            # against the constant skipped exactly those resizes and
+            # left the ring's capacity dependent on device history.
+            # ``maxlen is None`` (unbounded) also always resizes: an
+            # unbounded SPSC ring defeats the callback→worker
+            # backpressure design.
+            _prev_ring_maxlen = recorder._ring_buffer.maxlen
+            if new_ring_capacity > 0 and (_prev_ring_maxlen is None or new_ring_capacity != _prev_ring_maxlen):
                 # Preserve any chunks already in the ring buffer
                 # (defensive -- start() clears the ring buffer in
                 # ``_start_audio_worker`` before this point, so this
@@ -668,7 +700,10 @@ class SessionState:
                     sizing_sr,
                     blocksize,
                     new_ring_capacity,
-                    _recorder_mod._AUDIO_RING_BUFFER_CAPACITY,
+                    # report the LIVE previous capacity (0 marks the
+                    # unbounded/unknown case) — the log is the
+                    # operator's evidence of what was actually replaced.
+                    _prev_ring_maxlen if _prev_ring_maxlen is not None else 0,
                 )
 
         # re-size the pre-roll deque using the effective sample

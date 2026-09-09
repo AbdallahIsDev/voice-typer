@@ -65,6 +65,7 @@ from typing import Any
 # faster than designed on this path too.
 from voice_typer.server._audio_constants import scaled_audio_blocksize
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.recording.session_state import coerce_max_recording_time
 from voice_typer.server.recording.vad_helpers import refresh_vad_caches
 
 # PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
@@ -601,6 +602,12 @@ class DisconnectHandler:
                     stream.close()
                 raise
             with recorder._audio_pipeline._lock:
+                # Capture the pre-restart effective rate BEFORE the
+                # assignment below so the rate-change check compares
+                # against what the buffers were actually sized for (the
+                # caller holds ``_stream_lifecycle_lock``, so no other
+                # writer can race this read).
+                _prev_effective_sr = recorder._effective_sr
                 recorder._effective_sr = candidate_sr
                 # reset the silence timer so a hot-swap recovery does
                 # not immediately trigger an auto-stop. Previously the
@@ -682,6 +689,30 @@ class DisconnectHandler:
                 recorder._cached_no_resample_segments = []
                 recorder._cached_no_resample_concat_dirty = False
                 recorder._cached_resample_key = ()
+                # Re-run the dynamic buffer sizing when the restart
+                # landed on a DIFFERENT native rate than the session
+                # started with (mid-session device switch, e.g. BT
+                # headset ↔ built-in mic). Pre-fix this path only
+                # updated ``_effective_sr`` — the ring buffer,
+                # pre-roll deque, and main-buffer caps kept the old
+                # rate's sizing for the rest of the session. The same
+                # ``SessionState.resize_buffers_for_sample_rate`` entry
+                # point that ``start()`` uses re-applies the sizing for
+                # the new rate; it is idempotent (each sub-resize guards
+                # against the live capacity), so a same-rate restart
+                # (the common BT-flap recovery) skips the call entirely.
+                # ``_cached_max_recording_time`` is the start()-cached
+                # scalar (``cache_session_config``); the shared
+                # coercion returns 0 for a missing/non-numeric value,
+                # which skips only the main-buffer portion (the
+                # ``max_rec > 0`` guard inside the resize) while the
+                # ring / pre-roll sizing still runs.
+                if candidate_sr != _prev_effective_sr:
+                    recorder._session_state.resize_buffers_for_sample_rate(
+                        recorder,
+                        candidate_sr,
+                        coerce_max_recording_time(getattr(recorder, "_cached_max_recording_time", 0)),
+                    )
             log.info(
                 "[RECORDING] Successfully restarted with %s device at %d Hz",
                 "default" if _restart_device is None else f"index {_restart_device}",

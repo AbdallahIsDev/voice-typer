@@ -86,11 +86,13 @@ class OnboardingHandlersMixin(HandlerBase):
         catch-all ``except Exception`` path. See
             ``voice_typer/server/handlers/_base.py`` for the migration plan.
 
-        Five of the onboarding handlers
+        Six of the onboarding handlers
         (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
-        ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
+        ``onboarding_set_model``, ``onboarding_set_backend``,
+        ``onboarding_skip``, ``onboarding_apply``)
         delegate the ack-vs-error decision to whether the service's return
-        dict contains a non-None ``"error"`` value::
+        dict contains a non-None ``"error"`` value (see
+        :meth:`_ack_or_error`, which all six call sites share)::
 
             resp["type"] = "ack" if result.get("error") is None else "error"
 
@@ -238,6 +240,51 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_prev_step")
         return resp
 
+    def _ack_or_error(self, cmd: str, result: dict) -> dict:
+        """Build the ack-vs-error response envelope for a service result.
+
+        Shared by the six onboarding handlers whose service methods signal
+        failure by RETURNING ``{"error": "<message>"}`` instead of raising
+        (``set_microphone`` / ``set_hotkey`` / ``set_model`` /
+        ``set_backend`` / ``skip`` / ``apply`` — see the class docstring
+        for the full contract):
+
+        * ``result.get("error") is not None`` → the response ``type`` is
+          ``"error"``; otherwise ``"ack"`` (a ``None``-valued ``error``
+          key is a SUCCESS — key presence alone must not flip the type).
+        * On the error path the RAW error string is logged at WARNING
+          with the command name (operator breadcrumb — the IPC envelope
+          alone is invisible in ``voice-typer.log``), and the error
+          string is redacted via :func:`_redact_service_error` BEFORE it
+          is placed in the envelope so exception messages containing
+          secrets (API keys, file paths) never reach the renderer.
+        * The (possibly redacted) service result is passed through
+          verbatim as ``data`` — the renderer switches on ``type`` and
+          reads ``data["error"]`` on failure.
+
+        Returns the response envelope ``{"type": "ack" | "error",
+        "data": result}``. Callers either return it from a ``_wrap``
+        body (the four ``set_*`` handlers) or copy ``type`` / ``data``
+        onto ``resp`` (the ``skip`` / ``apply`` handlers).
+        """
+        if result.get("error") is not None:
+            # log the service-returned error at WARNING (raw,
+            # unredacted — operator-only server-side log) so the
+            # failure leaves a breadcrumb tying the renderer's error
+            # toast back to the service call that produced it.
+            log.warning(
+                "[IPC] %s: service returned error: %s",
+                cmd,
+                result.get("error"),
+            )
+            # redact the error string before forwarding to the
+            # renderer so exception messages containing secrets
+            # (API keys, file paths) are not exfiltrated.
+            result = _redact_service_error(result)
+        # use ``result.get("error") is None`` so ``{"error": None}``
+        # is treated as success (ack), not misreported as error.
+        return {"type": "ack" if result.get("error") is None else "error", "data": result}
+
     def _handle_onboarding_set_microphone(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_microphone`` IPC command.
 
@@ -260,24 +307,10 @@ class OnboardingHandlersMixin(HandlerBase):
             # Contract: ``service.onboarding_set_microphone``
             # returns ``{"error": "<message>"}`` on failure (e.g. mic
             # not found) and ``{...}`` (no ``"error"`` key) on success.
-            # The handler delegates the ack-vs-error decision to that
-            # key. See the class docstring for the full contract.
-            #
-            # log the service-returned error at WARNING so the
-            # failure leaves a server-side breadcrumb (the IPC envelope
-            # alone is invisible to operators reading voice-typer.log).
-            # redact the error string before forwarding to
-            # the renderer so exception messages containing secrets
-            # (API keys, file paths) are not exfiltrated.
-            # use result.get("error") is not None so
-            # {"error": None} is treated as success (ack), not misreported as error.
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_set_microphone: service returned error: %s",
-                    result.get("error"),
-                )
-                result = _redact_service_error(result)
-            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+            # The shared :meth:`_ack_or_error` helper decides ack-vs-error
+            # from that key, logs the failure at WARNING, and redacts the
+            # error string before it reaches the renderer.
+            return self._ack_or_error("onboarding_set_microphone", result)
 
         return self._wrap(
             cmd_name="onboarding_set_microphone",
@@ -308,20 +341,10 @@ class OnboardingHandlersMixin(HandlerBase):
             # Contract: ``service.onboarding_set_hotkey``
             # returns ``{"error": "<message>"}`` on failure (e.g. hotkey
             # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
-            # success. See the class docstring for the full contract.
-            #
-            # log the service-returned error at WARNING so the
-            # failure leaves a server-side breadcrumb.
-            # redact the error string before forwarding.
-            # use result.get("error") is not None so
-            # {"error": None} is treated as success (ack), not misreported as error.
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_set_hotkey: service returned error: %s",
-                    result.get("error"),
-                )
-                result = _redact_service_error(result)
-            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+            # success. The shared :meth:`_ack_or_error` helper decides
+            # ack-vs-error from that key, logs the failure at WARNING, and
+            # redacts the error string before it reaches the renderer.
+            return self._ack_or_error("onboarding_set_hotkey", result)
 
         return self._wrap(
             cmd_name="onboarding_set_hotkey",
@@ -346,20 +369,10 @@ class OnboardingHandlersMixin(HandlerBase):
             # Contract: ``service.onboarding_set_model``
             # returns ``{"error": "<message>"}`` on failure (e.g. model
             # not available) and ``{...}`` (no ``"error"`` key) on
-            # success. See the class docstring for the full contract.
-            #
-            # log the service-returned error at WARNING so the
-            # failure leaves a server-side breadcrumb.
-            # redact the error string before forwarding.
-            # use result.get("error") is not None so
-            # {"error": None} is treated as success (ack), not misreported as error.
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_set_model: service returned error: %s",
-                    result.get("error"),
-                )
-                result = _redact_service_error(result)
-            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+            # success. The shared :meth:`_ack_or_error` helper decides
+            # ack-vs-error from that key, logs the failure at WARNING, and
+            # redacts the error string before it reaches the renderer.
+            return self._ack_or_error("onboarding_set_model", result)
 
         return self._wrap(
             cmd_name="onboarding_set_model",
@@ -389,14 +402,8 @@ class OnboardingHandlersMixin(HandlerBase):
         def body(d: dict) -> dict:
             result = self.service.onboarding_set_backend(d["backend"])
             # Same ack-vs-error contract as the sibling onboarding
-            # handlers (see the class docstring).
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_set_backend: service returned error: %s",
-                    result.get("error"),
-                )
-                result = _redact_service_error(result)
-            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+            # handlers (see the class docstring and :meth:`_ack_or_error`).
+            return self._ack_or_error("onboarding_set_backend", result)
 
         return self._wrap(
             cmd_name="onboarding_set_backend",
@@ -414,22 +421,13 @@ class OnboardingHandlersMixin(HandlerBase):
             result = self.service.onboarding_skip()
             # Contract: ``service.onboarding_skip`` returns
             # ``{"error": "<message>"}`` on failure and ``{...}`` (no
-            # ``"error"`` key) on success. See the class docstring for
-            # the full contract.
-            #
-            # log the service-returned error at WARNING so the
-            # failure leaves a server-side breadcrumb.
-            # redact the error string before forwarding.
-            # use result.get("error") is not None so
-            # {"error": None} is treated as success (ack), not misreported as error.
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_skip: service returned error: %s",
-                    result.get("error"),
-                )
-                result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
+            # ``"error"`` key) on success. The shared
+            # :meth:`_ack_or_error` helper decides ack-vs-error from that
+            # key, logs the failure at WARNING, and redacts the error
+            # string before it reaches the renderer.
+            envelope = self._ack_or_error("onboarding_skip", result)
+            resp["type"] = envelope["type"]
+            resp["data"] = envelope["data"]
         except Exception as exc:
             # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_skip")
@@ -444,42 +442,22 @@ class OnboardingHandlersMixin(HandlerBase):
             # error) and ``{...}`` (no ``"error"`` key) on success. See
             # the class docstring for the full contract.
             #
-            # log the service-returned error at WARNING so the
-            # failure leaves a server-side breadcrumb. ``onboarding_apply``
-            # is the most consequential of the five (it writes
-            # config.json + re-registers the hotkey); a silent failure
-            # here is the worst-case "wizard says done but nothing
-            # actually saved" bug, so the breadcrumb is essential.
-            # redact the error string before forwarding to
-            # the renderer. ``onboarding_apply`` failures are the most
-            # likely to leak sensitive context (config-write errors
-            # can include ``str(exc)`` from the underlying
-            # ``PermissionError`` / ``OSError`` which carry absolute
-            # file paths under the user's home directory; cloud-config
-            # validation errors can include API keys). The unredacted
-            # message is logged at WARNING above (operator-only) and
-            # at ERROR below; only the redacted form lands in
-            # ``resp["data"]``.
-            # use result.get("error") is not None so
-            # {"error": None} is treated as success (ack), not misreported as
-            # error. The full typed-exception migration (service methods raise
-            # OnboardingError) was deferred - cross-file work outside scope.
-            if result.get("error") is not None:
-                log.warning(
-                    "[IPC] onboarding_apply: service returned error: %s",
-                    result.get("error"),
-                )
-                # also log at ERROR with the same redacted
-                # form so the failure is visible in the ERROR-level
-                # log filter operators commonly tail.
-                redacted_result = _redact_service_error(dict(result))
+            # ``onboarding_apply`` is the most consequential of the six
+            # (it writes config.json + re-registers the hotkey); a silent
+            # failure here is the worst-case "wizard says done but nothing
+            # actually saved" bug, so in addition to the shared
+            # :meth:`_ack_or_error` WARNING breadcrumb the (already
+            # redacted) error is mirrored at ERROR — the level filter
+            # operators commonly tail — before it lands in the envelope.
+            # Only the redacted form ever reaches ``resp["data"]``.
+            envelope = self._ack_or_error("onboarding_apply", result)
+            if envelope["data"].get("error") is not None:
                 log.error(
                     "[IPC] onboarding_apply failed (redacted): %s",
-                    redacted_result.get("error"),
+                    envelope["data"].get("error"),
                 )
-                result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
+            resp["type"] = envelope["type"]
+            resp["data"] = envelope["data"]
         except Exception as exc:
             # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_apply")

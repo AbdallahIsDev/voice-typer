@@ -573,7 +573,10 @@ class PersistedJSON(Generic[T]):
       the new content, a single-slot ``<path>.bak`` is written
       byte-for-byte (so a re-save of identical content does not
       churn the backup).  The ``.bak`` and the final file are
-      chmod'd to 0o600 on POSIX (mirrors ``config.py:1172-1174``).
+      chmod'd to 0o600 on POSIX by :func:`_secure_atomic_write`
+      itself (it chmods its target on every success branch —
+      ``save`` adds no second permission layer; mirrors
+      ``config.py:1172-1174``).
 
     The helper is intentionally minimal — it does NOT know about
     schema validation, defaults-merging, or in-memory cacheing.  Those
@@ -818,8 +821,11 @@ class PersistedJSON(Generic[T]):
                   are backed up (a re-save of identical content is a no-op for
                   the backup slot).
                 * On POSIX the ``.bak`` and the final file are chmod'd to 0o600
-                  (mirrors ``config.py:1172-1174``).  On Windows this is a
-                  no-op (POSIX permission bits are ignored; ACLs apply).
+                  by :func:`_secure_atomic_write` itself, once per write, on
+                  every success branch (mirrors ``config.py:1172-1174``).
+                  On Windows this is a no-op (POSIX permission bits are
+                  ignored; ACLs apply). ``save`` deliberately does NOT
+                  re-chmod either path — the write helper already did.
                 * The parent directory is created (``parents=True,
                   exist_ok=True``) so the caller doesn't have to.
                 * ``_secure_atomic_write`` is imported LAZILY from
@@ -923,8 +929,11 @@ class PersistedJSON(Generic[T]):
                 existing_text = _sfio_shim()._secure_read_text(self._path, encoding="utf-8")
                 existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
+                    # The 0o600 perms on the ``.bak`` are set inside
+                    # ``_secure_atomic_write`` itself (it chmods its
+                    # target on every success branch) — no redundant
+                    # trailing chmod here.
                     _secure_atomic_write(self._bak_path, existing_text)
-                    _chmod_owner_only(self._bak_path)
             except OSError as e:
                 log.debug(
                     "[PERSISTED_JSON] Failed to back up %s to %s: %s",
@@ -950,5 +959,11 @@ class PersistedJSON(Generic[T]):
         # update the diff cache so the next save() can skip if
         # the content hasn't changed. Store the actual bytes (not just
         # the length) so a content-equality check is sufficient.
+        #
+        # The 0o600 owner-only perms on the saved file are applied
+        # INSIDE ``_secure_atomic_write`` (unconditionally after the
+        # atomic ``os.replace``, on every success branch — see its
+        # ``_chmod_owner_only(target)`` call). A trailing re-chmod here
+        # would be a redundant extra syscall per save and mis-documents
+        # the write path as needing a second permission layer.
         self._last_written_bytes = content_bytes
-        _chmod_owner_only(self._path)

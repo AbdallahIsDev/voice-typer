@@ -42,9 +42,12 @@ def refresh_vad_caches(recorder: Any) -> None:
     """Refresh per-chunk VAD caches on ``recorder``.
 
     Called by ``Recorder.start()`` and ``Recorder.on_config_changed()``
-    so the audio worker hot path (16 Hz) reads cached scalars instead of
-    dispatching 3 property lookups per chunk × 16 Hz = 48 lookups/sec
-    for values that only change on config edits.
+    so the audio worker hot path (chunks arrive at ~31 Hz on ≥16 kHz
+    devices — rate-scaled ~32 ms blocks; ~16 Hz on 8 kHz devices where
+    the 512-sample floor doubles the chunk duration) reads cached
+    scalars instead of dispatching 3 property lookups per chunk
+    (~93 lookups/sec at 31 Hz) for values that only change on config
+    edits.
 
     Also computes the (up, down) integer ratio for the VAD resample
     path. The ratio is derived from ``_buffer_sr`` (the
@@ -121,7 +124,7 @@ def vad_auto_calibrate(recorder: Any, chunk_rms: float, chunk_duration: float) -
     fell through to the dynamic lookup on EVERY chunk — re-introducing
     the ``time.perf_counter()`` cost the cache was meant to eliminate,
     and breaking the contract that the cached scalar is the sole
-    arbiter of the VAD gate on the 16 Hz hot path. Fix: gate on the
+    arbiter of the VAD gate on the ~31 Hz chunk-cadence hot path. Fix: gate on the
     cached scalar ONLY. ``refresh_vad_caches`` always sets the scalar
     before chunks arrive (called by ``Recorder.start()`` /
     ``on_config_changed()``), so the dynamic ``_vad_enabled`` property
@@ -162,12 +165,20 @@ def vad_update(
     silence-timer logic sees UNKNOWN and treats it as "not silence"
     (no silence warnings, no VAD-based auto-stop).
 
-    Grey zone (between speech and silence thresholds). Standard VAD
-    hysteresis: leave counters unchanged so a long run of grey-zone
-    chunks doesn't discard accumulated frame history. Implemented in
-    ``VadProcessor.update_frame`` as a ``pass`` branch — no counter
-    resets. State transitions with hysteresis are also implemented
-    there.
+    Grey zone (between speech and silence thresholds). Below the
+    grey-zone hold limit the hysteresis counters pass through
+    unchanged so a short run of grey-zone chunks doesn't discard
+    accumulated frame history. Once the grey run reaches the hold
+    limit, ``VadProcessor.update_frame`` bounds the hold by
+    resetting/seeding the counters to force a transition: in SPEECH
+    it clears the speech counter and seeds the silence counter to the
+    hangover (soft tail ends -> SPEECH->SILENCE); in SILENCE it seeds
+    the speech counter just below the promotion threshold so
+    subsequent grey frames tip the machine into SPEECH (soft speech
+    is recognized); in UNKNOWN it decays both counters by 1 (stale
+    history can't pin the machine). The grey-run counter itself is
+    reset at the limit so the bound applies periodically. State
+    transitions with hysteresis are also implemented there.
     """
     # State transitions: delegated to VadProcessor.update_frame.
     return recorder._vad.update_frame(chunk_rms_db, vad_prob)
