@@ -139,6 +139,32 @@ SKIP_DIRS = frozenset(
 # they must use the `{appName}` placeholder.
 RENDERER_TRANSLATIONS_PREFIX = "voice_typer/client/src/renderer/src/i18n/translations"
 
+# ── Substring-in-literal scan scope (all client non-test .ts/.tsx) ──
+# The brand embedded INSIDE a longer string literal — e.g.
+# `tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator")` —
+# is the class of violation that shipped the hardcoded bubble aria
+# fallbacks: the standalone quoted-literal pattern below cannot see it
+# (the brand is followed by more text, not a closing quote).
+#
+# Scope: ALL non-test TypeScript source under
+# `voice_typer/client/src/` — main/, preload/, shared/ and
+# renderer/src/ alike. Originally renderer-only: the repo carried one
+# known legacy main-process log literal (`src/main/single_instance.ts`,
+# "is not <brand>" inside a template literal) that blocked widening.
+# That literal was migrated to `${APP_NAME}` (commit e94bc932) and a
+# repo-wide audit confirmed zero remaining non-comment, non-exempt
+# brand literals in main/preload/shared non-test TS — so the scope was
+# widened deliberately to the full client source tree. Still
+# deliberately excluded:
+#   * test files — they pin golden OUTPUT values (the runtime string
+#     AFTER `{appName}` substitution) as literal expectations; flagging
+#     those would force every golden assertion to interpolate APP_NAME.
+# The renderer locale files and source-of-truth branding files are
+# already exempted above (they return before the line loop runs).
+_CLIENT_SRC_PREFIX = "voice_typer/client/src/"
+_TEST_PATH_SEGMENT = "__tests__"
+_TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
+
 # ── Build-config files (documented "build-config literal" exception) ──
 # tauri.conf.json and electron-builder.yml are read by Tauri /
 # electron-builder BEFORE the app boots — at that point no JS / Python /
@@ -192,6 +218,24 @@ def _is_comment_line(line: str, ext: str) -> bool:
         # YAML comments start with `#`.
         return stripped.startswith("#")
     return False
+
+
+def _is_client_non_test_ts(rel_str: str, ext: str) -> bool:
+    """True for .ts/.tsx files under the client source tree, excluding tests.
+
+    Covers main/, preload/, shared/ and renderer/src/ alike — see the
+    `_CLIENT_SRC_PREFIX` comment block for the scope rationale (the
+    single_instance.ts legacy literal that originally kept main out of
+    scope was migrated to ``${APP_NAME}`` in commit e94bc932) and the
+    deliberately-excluded surfaces (test files).
+    """
+    if ext not in (".ts", ".tsx"):
+        return False
+    if not rel_str.startswith(_CLIENT_SRC_PREFIX):
+        return False
+    if _TEST_PATH_SEGMENT in Path(rel_str).parts:
+        return False
+    return not rel_str.endswith(_TEST_FILE_SUFFIXES)
 
 
 def _to_rel_str(filepath: Path) -> str:
@@ -319,6 +363,22 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
         # Check if the app name appears inside a string literal
         # Simple heuristic: it's inside quotes or backticks
         if re.search(rf'["\'`]{re.escape(APP_NAME)}["\'`]', line):
+            hits.append((i, line.strip()))
+            # Already flagged via the standalone-literal pattern — the
+            # substring pattern below would match the same line again
+            # (a standalone literal is also a substring literal), so
+            # skip it to report each violating line exactly once.
+            continue
+
+        # Substring-in-literal check: the brand embedded INSIDE a longer
+        # quoted string ("… <brand> blocked indicator") — the blind spot
+        # that let the hardcoded bubble aria fallback literals ship.
+        # Scoped to ALL client non-test .ts/.tsx source (main, preload,
+        # shared, renderer — see `_CLIENT_SRC_PREFIX` for the scope
+        # rationale and the test-file exclusion).
+        if _is_client_non_test_ts(rel_str, ext) and re.search(
+            rf'["\'`][^"\'`\n]*{re.escape(APP_NAME)}[^"\'`\n]*["\'`]', line
+        ):
             hits.append((i, line.strip()))
 
     return hits
