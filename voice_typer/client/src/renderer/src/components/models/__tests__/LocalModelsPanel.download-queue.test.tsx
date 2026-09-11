@@ -1,12 +1,12 @@
 /**
- * LocalModelsPanel — download-queue integration tests.
+ * LocalModelsPanel, download-queue integration tests.
  *
  * Verifies the panel-level wiring of the pending-download queue slice:
  * the co-located `useModelDownloadQueue` hook consumes the backend's
  * `download_progress` events (`queue_position` field) and forwards the
  * per-model position to the REAL `<ModelCardActions>`, whose Download
  * button swaps to the localized "Queued" state. The panel-level prop
- * plumbing (downloadingModel) stays untouched — the
+ * plumbing (downloadingModel) stays untouched, the
  * queue state comes from the event stream, not from the page.
  *
  * Same capture technique as `__tests__/app-download-progress-gating.test.tsx`:
@@ -27,7 +27,7 @@ const { capturedHandlerRef } = vi.hoisted(() => ({
 
 vi.mock("@/hooks/usePython", () => ({
 	// `useModelDownloadQueue` hydrates via `call("get_download_queue")`
-	// on mount — resolve an empty queue here (hydration has its own
+	// on mount, resolve an empty queue here (hydration has its own
 	// tests in `useModelDownloadQueue.test.tsx`).
 	usePython: vi.fn(() => ({ call: vi.fn(async () => ({ queue: [] })) })),
 	usePythonEvent: vi.fn(
@@ -142,11 +142,11 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("LocalModelsPanel — pending-download queue wiring", () => {
+describe("LocalModelsPanel, pending-download queue wiring", () => {
 	it("a queued model's Download button swaps to the 'Queued' state", () => {
 		render(<LocalModelsPanel {...baseProps} />);
 		// At rest: the second model's button is the at-rest download button
-		// (no queued state yet) — ENABLED even though another download is
+		// (no queued state yet), ENABLED even though another download is
 		// in flight (the backend QUEUES the request; that is the queue's
 		// primary flow).
 		expect(
@@ -158,12 +158,12 @@ describe("LocalModelsPanel — pending-download queue wiring", () => {
 		fireQueueEvent({ model: "large-v3-turbo", queue_position: 1 });
 
 		const queuedBtn = screen.getByRole("button", {
-			name: "Queued — position 1 in the download queue",
+			name: "Queued: position 1 in the download queue",
 		});
 		expect(queuedBtn).toHaveTextContent("Queued");
 		expect(queuedBtn).toHaveAttribute(
 			"aria-label",
-			"Queued — position 1 in the download queue",
+			"Queued: position 1 in the download queue",
 		);
 		// The active download's card keeps its own state (in-flight).
 		expect(screen.getByRole("button", { name: /Downloading/i })).toBeDisabled();
@@ -184,7 +184,7 @@ describe("LocalModelsPanel — pending-download queue wiring", () => {
 
 		// The panel threads the queued model's NAME into the shared cancel
 		// handler (the queued-card Cancel removes the model from the pending
-		// queue — the active transfer's Cancel stays argumentless).
+		// queue, the active transfer's Cancel stays argumentless).
 		expect(onCancelDownload).toHaveBeenCalledWith("large-v3-turbo");
 	});
 
@@ -193,7 +193,7 @@ describe("LocalModelsPanel — pending-download queue wiring", () => {
 		fireQueueEvent({ model: "large-v3-turbo", queue_position: 1 });
 		expect(
 			screen.getByRole("button", {
-				name: "Queued — position 1 in the download queue",
+				name: "Queued: position 1 in the download queue",
 			}),
 		).toBeInTheDocument();
 
@@ -207,7 +207,7 @@ describe("LocalModelsPanel — pending-download queue wiring", () => {
 
 		expect(
 			screen.queryByRole("button", {
-				name: "Queued — position 1 in the download queue",
+				name: "Queued: position 1 in the download queue",
 			}),
 		).toBeNull();
 	});
